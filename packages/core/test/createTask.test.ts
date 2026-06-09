@@ -13,6 +13,7 @@ describe('createTask', () => {
     expect(task.title).toBe('My Task');
     expect(task.spec).toBe('Do the thing');
     expect(task.acceptanceCriteria).toBe('Thing is done');
+    expect(task.resultSummary).toBe(null);
     expect(typeof task.id).toBe('number');
     expect(typeof task.key).toBe('string');
 
@@ -51,7 +52,7 @@ describe('createTask', () => {
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
 
     const rows = db.prepare('SELECT * FROM activity WHERE task_id = ?').all(task.id) as Array<{
-      type: string; actor: string; from_status: string | null; to_status: string | null;
+      type: string; actor: string; from_status: string | null; to_status: string | null; created_at: string;
     }>;
 
     expect(rows).toHaveLength(1);
@@ -59,6 +60,7 @@ describe('createTask', () => {
     expect(rows[0].actor).toBe('human');
     expect(rows[0].from_status).toBeNull();
     expect(rows[0].to_status).toBe('backlog');
+    expect(rows[0].created_at).toBe(task.createdAt);
   });
 
   it('rejects empty title with ValidationError and writes nothing', () => {
@@ -82,9 +84,23 @@ describe('createTask', () => {
     expect(count).toBe(0);
   });
 
+  it('rejects whitespace-only spec with ValidationError and writes nothing', () => {
+    const db = makeTestDb();
+    expect(() => createTask(db, { title: 'T', spec: '   ', acceptanceCriteria: 'A' })).toThrow(ValidationError);
+    const count = (db.prepare('SELECT count(*) as c FROM task').get() as { c: number }).c;
+    expect(count).toBe(0);
+  });
+
   it('rejects empty acceptanceCriteria with ValidationError and writes nothing', () => {
     const db = makeTestDb();
     expect(() => createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: '' })).toThrow(ValidationError);
+    const count = (db.prepare('SELECT count(*) as c FROM task').get() as { c: number }).c;
+    expect(count).toBe(0);
+  });
+
+  it('rejects whitespace-only acceptanceCriteria with ValidationError and writes nothing', () => {
+    const db = makeTestDb();
+    expect(() => createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: '   ' })).toThrow(ValidationError);
     const count = (db.prepare('SELECT count(*) as c FROM task').get() as { c: number }).c;
     expect(count).toBe(0);
   });
