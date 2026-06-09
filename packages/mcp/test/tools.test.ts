@@ -97,7 +97,12 @@ describe('add_comment', () => {
     const { client, core } = await makeClient();
     const t = core.createTask(makeTaskInput('Task'));
 
-    await client.callTool({ name: 'add_comment', arguments: { key: t.key, body: 'Hello from agent' } });
+    const res = await client.callTool({ name: 'add_comment', arguments: { key: t.key, body: 'Hello from agent' } });
+
+    // result shape: not an error, and the returned text is the created activity
+    expect(res.isError).toBeFalsy();
+    const activity = JSON.parse(textOf(res));
+    expect(activity.body).toBe('Hello from agent');
 
     const detail = core.getTask(t.key);
     const comment = detail.activity.find(

@@ -14,7 +14,7 @@ export function registerListTasks(server: McpServer, core: Core): void {
     },
     async ({ status }) => {
       try {
-        const tasks = core.listTasks({ status });
+        const tasks = core.listTasks(status !== undefined ? { status } : {});
         return { content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }] };
       } catch (err) {
         return toToolError(err);
