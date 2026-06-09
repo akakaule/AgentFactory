@@ -236,5 +236,13 @@ describe('tasks REST API', () => {
       const res = await post(app, `/api/tasks/${task.key}/request-changes`, { feedback: '' });
       expect(res.status).toBe(400);
     });
+
+    it('requesting changes on a non-in_review task → 409', async () => {
+      // Task is backlog, not in_review
+      await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });
+
+      const res = await post(app, '/api/tasks/AF-1/request-changes', { feedback: 'x' });
+      expect(res.status).toBe(409);
+    });
   });
 });
