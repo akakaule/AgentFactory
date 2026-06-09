@@ -1,0 +1,12 @@
+{
+  "name": "@agentfactory/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "agentfactory-mcp": "./dist/index.js" },
+  "scripts": { "build": "tsc -b", "test": "vitest run" },
+  "dependencies": {
+    "@agentfactory/core": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  }
+}
