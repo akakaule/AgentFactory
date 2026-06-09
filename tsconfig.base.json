@@ -8,6 +8,7 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "declaration": true,
+    "declarationMap": true,
     "composite": true,
     "isolatedModules": true,
     "esModuleInterop": true,
