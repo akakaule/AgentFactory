@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, findByText } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailPanel } from '../../client/src/components/DetailPanel.js';
 import type { TaskDetail } from '../../client/src/types.js';
@@ -151,5 +151,34 @@ describe('DetailPanel', () => {
 
     await user.click(screen.getByRole('button', { name: '✕' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('refetches the panel and calls onChanged after "Release to Queued"', async () => {
+    const mocked = await getApiMock();
+    const queuedTask: TaskDetail = { ...backlogTask, status: 'queued' };
+    mocked.getTask.mockClear();
+    mocked.setStatus.mockClear();
+    mocked.getTask.mockResolvedValue(backlogTask);
+    mocked.setStatus.mockResolvedValue(queuedTask);
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={onChanged} />);
+
+    // Initial load — one getTask call for the mount fetch.
+    const releaseButton = await screen.findByRole('button', { name: 'Release to Queued' });
+    const callsAfterMount = mocked.getTask.mock.calls.length;
+    expect(callsAfterMount).toBe(1);
+
+    await user.click(releaseButton);
+
+    // setStatus called with the task key and the 'queued' target.
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-10', 'queued');
+
+    // After the mutation resolves, the panel refetches AND onChanged fires.
+    await waitFor(() => {
+      expect(mocked.getTask.mock.calls.length).toBeGreaterThan(callsAfterMount);
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
   });
 });

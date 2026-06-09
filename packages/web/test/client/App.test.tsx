@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../client/src/App.js';
-import type { Task } from '../../client/src/types.js';
 
 // Mock must be at module level, hoisted by vitest
 vi.mock('../../client/src/api.js', () => ({
@@ -22,19 +21,6 @@ vi.mock('../../client/src/api.js', () => ({
     addComment: vi.fn().mockResolvedValue({}),
   },
 }));
-
-const tasks: Task[] = [
-  {
-    id: 1, key: 'AF-1', title: 'A backlog task', status: 'backlog',
-    spec: 'spec', acceptanceCriteria: 'ac', resultSummary: null,
-    seq: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: 2, key: 'AF-2', title: 'A queued task', status: 'queued',
-    spec: 'spec', acceptanceCriteria: 'ac', resultSummary: null,
-    seq: 2, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
-  },
-];
 
 beforeEach(() => {
   // Set up no-op EventSource for App (uses useTasks → useEventStream)
