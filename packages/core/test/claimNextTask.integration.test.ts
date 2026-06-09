@@ -10,7 +10,7 @@
  * NOT exercised here — that would require separate OS processes or worker threads
  * which are impractical in a synchronous vitest environment.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rmSync, existsSync } from 'node:fs';
@@ -20,15 +20,20 @@ import { createTask } from '../src/ops/createTask.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 
 // Use a fixed name rather than Date.now()/Math.random() to keep tests deterministic.
-// afterEach cleans up so the next run starts fresh.
 const DB_PATH = join(tmpdir(), 'agentfactory_claim_integration_test.db');
 
-afterEach(() => {
+// Remove the db file plus its WAL/SHM sidecars if present.
+function cleanupDbFiles(): void {
   for (const ext of ['', '-wal', '-shm']) {
     const p = DB_PATH + ext;
     if (existsSync(p)) rmSync(p);
   }
-});
+}
+
+// Clean both before AND after each test: beforeEach guards against a stale file
+// left by a prior crashed run, afterEach tidies up on success.
+beforeEach(cleanupDbFiles);
+afterEach(cleanupDbFiles);
 
 describe('claimNextTask (cross-connection integration)', () => {
   it('connection B sees connection A committed claim via WAL', () => {
