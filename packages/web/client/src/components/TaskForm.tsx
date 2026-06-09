@@ -1,0 +1,81 @@
+import { useState } from 'react';
+import type { Task } from '../types.js';
+
+interface FormFields {
+  title: string;
+  spec: string;
+  acceptanceCriteria: string;
+}
+
+interface Props {
+  mode: 'create' | 'edit';
+  initial?: Pick<Task, 'title' | 'spec' | 'acceptanceCriteria'>;
+  onSubmit: (fields: FormFields) => void;
+  onCancel?: () => void;
+}
+
+export function TaskForm({ mode, initial, onSubmit, onCancel }: Props) {
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [spec, setSpec] = useState(initial?.spec ?? '');
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState(initial?.acceptanceCriteria ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = () => {
+    const t = title.trim();
+    const s = spec.trim();
+    const ac = acceptanceCriteria.trim();
+    if (!t || !s || !ac) {
+      setError('All fields are required.');
+      return;
+    }
+    setError(null);
+    onSubmit({ title: t, spec: s, acceptanceCriteria: ac });
+  };
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <h3 style={{ marginTop: 0 }}>{mode === 'create' ? 'New Task' : 'Edit Task'}</h3>
+      {error && <div style={{ color: '#e5534b', marginBottom: '8px' }}>{error}</div>}
+      <div style={{ marginBottom: '12px' }}>
+        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Title</label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px' }}
+          placeholder="Task title"
+        />
+      </div>
+      <div style={{ marginBottom: '12px' }}>
+        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Spec</label>
+        <textarea
+          value={spec}
+          onChange={(e) => setSpec(e.target.value)}
+          rows={4}
+          style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', resize: 'vertical' }}
+          placeholder="Describe the task…"
+        />
+      </div>
+      <div style={{ marginBottom: '12px' }}>
+        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Acceptance Criteria</label>
+        <textarea
+          value={acceptanceCriteria}
+          onChange={(e) => setAcceptanceCriteria(e.target.value)}
+          rows={3}
+          style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', resize: 'vertical' }}
+          placeholder="Define done…"
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button onClick={handleSubmit} style={{ padding: '6px 16px' }}>
+          {mode === 'create' ? 'Create' : 'Save'}
+        </button>
+        {onCancel && (
+          <button onClick={onCancel} style={{ padding: '6px 16px' }}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

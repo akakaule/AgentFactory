@@ -1,0 +1,18 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f8f9fa;
+  color: #1a1a1a;
+}
+
+button {
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+input, textarea {
+  font-family: inherit;
+  font-size: 0.875rem;
+}
