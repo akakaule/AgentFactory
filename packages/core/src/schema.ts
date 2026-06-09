@@ -1,3 +1,4 @@
+export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS task (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   key                 TEXT NOT NULL UNIQUE,
@@ -33,3 +34,4 @@ CREATE INDEX IF NOT EXISTS idx_activity_task   ON activity(task_id, id);
 CREATE INDEX IF NOT EXISTS idx_task_updated    ON task(updated_at);
 CREATE INDEX IF NOT EXISTS idx_activity_created ON activity(created_at);
 CREATE INDEX IF NOT EXISTS idx_link_task       ON link(task_id);
+`;

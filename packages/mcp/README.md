@@ -9,7 +9,7 @@ This package implements the [Model Context Protocol](https://modelcontextprotoco
 | Tool | Description |
 |---|---|
 | `list_tasks` | List tasks, optionally filtered by status |
-| `get_next_task` | Claim and return the next available task (status: `todo`) |
+| `get_next_task` | Claim and return the next available task (status: `queued`) |
 | `get_task` | Get a single task by key |
 | `add_comment` | Add a comment to a task |
 | `submit_result` | Submit a result for a completed task |

@@ -1,12 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
+import { SCHEMA_SQL } from './schema.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS: ((db: DB) => void)[] = [
-  (db) => db.exec(readFileSync(join(here, 'schema.sql'), 'utf8')),
+  (db) => db.exec(SCHEMA_SQL),
 ];
 
 export function runMigrations(db: DB): void {
