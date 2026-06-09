@@ -5,6 +5,6 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": { "build": "tsc -b", "test": "vitest run" },
+  "scripts": { "build": "tsc -b && node -e \"require('node:fs').copyFileSync('src/schema.sql','dist/schema.sql')\"", "test": "vitest run" },
   "dependencies": { "zod": "^3.23.0" }
 }

@@ -24,7 +24,7 @@ export function submitResult(
     const ts = now();
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);
-    insertLinks(db, row.id, links);
+    insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: 'in_progress', toStatus: 'in_review', createdAt: ts });
     const fresh = findRowByKey(db, key)!;
