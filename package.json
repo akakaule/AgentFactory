@@ -5,7 +5,7 @@
   "workspaces": ["packages/core", "packages/mcp", "packages/web"],
   "engines": { "node": ">=26" },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && npm -w packages/web run build:client",
     "test": "vitest run",
     "test:watch": "vitest",
     "mcp": "node packages/mcp/dist/index.js",

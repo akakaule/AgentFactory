@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",
+    "build:client": "vite build",
     "build:server": "tsc -b",
     "typecheck:client": "tsc --noEmit -p client/tsconfig.json",
     "dev": "vite",
