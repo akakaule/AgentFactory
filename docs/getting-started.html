@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFactory — Getting started</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #283548;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --human: #60a5fa;
+    --agent: #fbbf24;
+    --db: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 36px 0 12px; color: var(--text); }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .sub a { color: var(--human); }
+  code { background: #0b1222; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: #93c5fd; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+
+  /* ── architecture strip ─────────────────────────── */
+  .arch { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 8px 0; }
+  .comp {
+    flex: 1 1 0; min-width: 128px; text-align: center;
+    background: var(--panel-2); border: 2px solid var(--border); border-radius: 10px;
+    padding: 14px 10px; transition: border-color .3s, box-shadow .3s, transform .3s;
+  }
+  .comp .ico { font-size: 26px; display: block; margin-bottom: 6px; }
+  .comp .nm { font-weight: 600; font-size: 14px; }
+  .comp .dt { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .comp.side-h { border-bottom: 3px solid color-mix(in srgb, var(--human) 45%, transparent); }
+  .comp.side-a { border-bottom: 3px solid color-mix(in srgb, var(--agent) 45%, transparent); }
+  .comp.side-d { border-bottom: 3px solid color-mix(in srgb, var(--db) 45%, transparent); }
+  .comp.active { border-color: var(--db); box-shadow: 0 0 18px rgba(52, 211, 153, .25); transform: translateY(-2px); }
+  .comp.active.h-act { border-color: var(--human); box-shadow: 0 0 18px rgba(96, 165, 250, .3); }
+  .comp.active.a-act { border-color: var(--agent); box-shadow: 0 0 18px rgba(251, 191, 36, .3); }
+  .link {
+    flex: 0 0 56px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 10.5px; gap: 2px;
+  }
+  .link .ar { font-size: 18px; letter-spacing: -2px; color: #475569; }
+  .dbnote { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+  .dbnote b { color: var(--db); }
+
+  /* ── stepper ────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: 1fr 1.55fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .controls button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 16px; font-size: 14px; cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--human); }
+  .controls .pos { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+  .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  .steps li {
+    padding: 10px 12px; border-left: 3px solid var(--border); margin-bottom: 4px;
+    cursor: pointer; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--muted);
+    transition: background .25s, border-color .25s;
+  }
+  .steps li::before { counter-increment: step; content: counter(step) " · "; color: #475569; font-weight: 700; }
+  .steps li:hover { background: var(--panel-2); }
+  .steps li.on { background: var(--panel-2); color: var(--text); }
+  .steps li.on.act-h { border-left-color: var(--human); }
+  .steps li.on.act-a { border-left-color: var(--agent); }
+  .steps li.done { color: #64748b; }
+  .steps li.done::after { content: " ✓"; color: var(--db); }
+
+  .who { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .who.h { color: var(--human); } .who.a { color: var(--agent); }
+  .stepbody h3 { margin: 4px 0 10px; font-size: 17px; }
+  .stepbody p { margin: 0 0 12px; font-size: 14px; }
+  .note { font-size: 12.5px; color: var(--muted); border-left: 3px solid var(--border); padding: 6px 10px; margin: 12px 0 0; }
+  .logline { font-family: Consolas, monospace; font-size: 12.5px; color: var(--db); margin-top: 12px; }
+
+  .cfgwrap { position: relative; margin: 6px 0; }
+  .cfg {
+    background: #0b1222; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; font-family: Consolas, monospace; font-size: 13px;
+    color: #cbd5e1; overflow-x: auto; white-space: pre; margin: 0;
+  }
+  .cfg .cm { color: #475569; }
+  .cfg .hl { color: #93c5fd; }
+  .copy {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 10px; font-size: 11.5px; cursor: pointer;
+  }
+  .copy:hover { color: var(--text); border-color: var(--human); }
+
+  /* checklist */
+  .check { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  .check li { padding: 7px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .check li:last-child { border-bottom: none; }
+  .check b { color: var(--text); font-weight: 600; }
+  .check .ok { color: var(--db); margin-right: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AgentFactory <span style="color:#475569">·</span> <span style="font-weight:400">getting started</span></h1>
+  <p class="sub">From zero to a working agent loop in six steps: start the board, create a workspace, queue a task, pin an agent to the repo, run the loop, review.
+  For how the loop behaves once it's running, see <a href="agent-flow.html">agent-flow.html</a>.</p>
+
+  <h2>What you're setting up</h2>
+  <div class="panel">
+    <div class="arch">
+      <div class="comp side-h" id="g-you"><span class="ico">👤</span><span class="nm">You</span><div class="dt">create &amp; review<br>in the browser</div></div>
+      <div class="link"><span class="ar">⇄</span><span>browser</span></div>
+      <div class="comp side-h" id="g-board"><span class="ico">🖥️</span><span class="nm">Board</span><div class="dt">web UI + API<br>localhost:8787</div></div>
+      <div class="link"><span class="ar">⇄</span><span>core</span></div>
+      <div class="comp side-d" id="g-db"><span class="ico">🗄️</span><span class="nm">agentfactory.db</span><div class="dt">SQLite · the only<br>channel between sides</div></div>
+      <div class="link"><span class="ar">⇄</span><span>core</span></div>
+      <div class="comp side-a" id="g-mcp"><span class="ico">🛰️</span><span class="nm">MCP server</span><div class="dt">pinned to one<br>workspace</div></div>
+      <div class="link"><span class="ar">⇄</span><span>stdio</span></div>
+      <div class="comp side-a" id="g-agent"><span class="ico">🤖</span><span class="nm">Agent</span><div class="dt">Claude Code in<br>the target repo</div></div>
+      <div class="link"><span class="ar">⇄</span><span>worktrees</span></div>
+      <div class="comp side-a" id="g-repo"><span class="ico">📁</span><span class="nm">Target repo</span><div class="dt">c:\Git\Shopfloor<br>.worktrees/&lt;key&gt;</div></div>
+    </div>
+    <div class="dbnote">A <b>workspace</b> binds tasks to a repo. Pinning the MCP server via <code>AGENTFACTORY_WORKSPACE</code> makes the agent a worker for exactly that repo — it can never claim another repo's tasks.</div>
+  </div>
+
+  <h2>Six steps, click through</h2>
+  <div class="grid">
+    <div class="panel">
+      <div class="controls">
+        <button id="prev">‹ Prev</button>
+        <button id="next">Next ›</button>
+        <span class="pos" id="pos"></span>
+      </div>
+      <ol class="steps" id="steps"></ol>
+    </div>
+    <div class="panel">
+      <div class="stepbody" id="stepbody"></div>
+    </div>
+  </div>
+
+  <h2>You're running when…</h2>
+  <div class="panel">
+    <ul class="check">
+      <li><span class="ok">✓</span><b>http://localhost:8787</b> shows the board, and the <b>Workspaces</b> button lists your workspace next to <code>default</code>.</li>
+      <li><span class="ok">✓</span>The MCP server logs <code>connected over stdio (db: …, workspace: shopfloor)</code> when the agent session starts.</li>
+      <li><span class="ok">✓</span>A queued task disappears from <b>Queued</b> and reappears under <b>In Progress</b> the moment the agent calls <code>get_next_task</code> — live, no refresh.</li>
+      <li><span class="ok">✓</span>The target repo gains <code>.worktrees/AF-1/</code> on branch <code>task/AF-1</code> while the agent works.</li>
+      <li><span class="ok">✓</span>The task reaches <b>In Review</b> with a result summary and worktree/branch links — your turn: <b>Approve</b> or <b>Request changes</b>.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  { actor:"h", who:"You · terminal", title:"Start the board",
+    desc:"Build once, point <code>AGENTFACTORY_DB</code> at an <b>absolute path</b>, start the server. It creates and migrates the DB on first start and serves UI + API together. The absolute path matters: every agent's MCP server must point at the <b>same file</b>.",
+    cfg:"cd c:\\Git\\AgentFactory\nnpm run build\n$env:AGENTFACTORY_DB = \"c:\\Git\\AgentFactory\\agentfactory.db\"\nnpm run web",
+    log:"[agentfactory-web] http://localhost:8787  (db: c:\\Git\\AgentFactory\\agentfactory.db)",
+    comps:["g-board","g-db"],
+    note:"Dev mode instead: npm run web:dev:server + npm run web:dev (UI on 5173)." },
+
+  { actor:"h", who:"You · browser", title:"Create your first workspace",
+    desc:"Open <b>http://localhost:8787</b>, click <b>Workspaces</b>, enter a slug and the absolute path of the repo the agent should work in, hit <b>Create workspace</b>.",
+    cfg:"Workspaces ▸\n  name       shopfloor\n  repoPath   c:\\Git\\Shopfloor",
+    log:"POST /api/workspaces → 'shopfloor' created",
+    comps:["g-you","g-board","g-db"],
+    note:"Single repo? Skip this step — the seeded 'default' workspace (repoPath \".\") is exactly the zero-config behavior, and the UI hides all workspace chrome until a second one exists." },
+
+  { actor:"h", who:"You · browser", title:"Create &amp; queue a task",
+    desc:"Click <b>New task</b> — a <b>Workspace</b> picker is now visible. Choose <code>shopfloor</code>, write the title, spec and acceptance criteria. The task lands in <b>Backlog</b>; open it and press <b>Release to Queued</b>. Only queued tasks are claimable — Backlog is your staging area.",
+    cfg:"New task ▸\n  workspace  shopfloor\n  title      Fix crash on null input\n  spec       The widget crashes when …\n  accept     Widget handles null without throwing",
+    log:"AF-1 created (backlog) → released (queued)",
+    comps:["g-you","g-board","g-db"],
+    note:null },
+
+  { actor:"h", who:"You · target repo", title:"Connect the agent (pin it to the workspace)",
+    desc:"In the <b>target repo</b> (c:\\Git\\Shopfloor) create <code>.mcp.json</code>. <code>AGENTFACTORY_WORKSPACE</code> is the pin: this agent's <code>get_next_task</code> defaults to the shopfloor queue and can never claim another repo's work. Also add <code>.worktrees/</code> to that repo's .gitignore.",
+    cfg:"{\n  \"mcpServers\": {\n    \"agentfactory\": {\n      \"command\": \"node\",\n      \"args\": [\"c:\\\\Git\\\\AgentFactory\\\\packages\\\\mcp\\\\dist\\\\index.js\"],\n      \"env\": {\n        \"AGENTFACTORY_DB\": \"c:\\\\Git\\\\AgentFactory\\\\agentfactory.db\",\n        \"AGENTFACTORY_WORKSPACE\": \"shopfloor\"\n      }\n    }\n  }\n}",
+    log:"[agentfactory-mcp] connected over stdio (db: …, workspace: shopfloor)",
+    comps:["g-repo","g-mcp","g-db"],
+    note:null },
+
+  { actor:"a", who:"Agent · Claude Code", title:"Run the loop",
+    desc:"Open Claude Code in c:\\Git\\Shopfloor (approve the MCP server when prompted) and hand it the queue. The worktree convention is embedded in the tool descriptions, so the agent claims, creates <code>.worktrees/AF-1</code> on branch <code>task/AF-1</code>, works, narrates with <code>add_comment</code>, and delivers with <code>submit_result</code>.",
+    cfg:"Work the AgentFactory queue: call get_next_task. If a task\ncomes back, follow its instructions — create the worktree, do\nthe work against the spec and acceptance criteria, narrate\nprogress with add_comment, and deliver with submit_result\nincluding worktree/branch links. Repeat until the queue is empty.",
+    log:"get_next_task → AF-1 · worktree .worktrees/AF-1 · submit_result → in_review",
+    comps:["g-agent","g-mcp","g-db","g-repo"],
+    note:"Make it a standing worker by running that prompt on an interval (e.g. /loop in Claude Code)." },
+
+  { actor:"h", who:"You · browser", title:"Review &amp; close the loop",
+    desc:"The board updates live (SSE) — watch the card move. At <b>In Review</b>, open it: <b>Approve</b> → done ✓, or <b>Request changes</b> with feedback → the task re-queues and the agent sees your feedback in its activity on the next claim. That round-trip is the whole point.",
+    cfg:"AF-1 · In Review\n  result   patched the null check\n  links    worktree .worktrees/AF-1 · branch task/AF-1\n\n  [ Approve ]   [ Request changes… ]",
+    log:"AF-1: in_review → done ✓",
+    comps:["g-you","g-board","g-db"],
+    note:"Second repo later? Create another workspace and launch another pinned Claude Code session there — parallel workers are safe (atomic claims, isolated worktrees)." },
+];
+
+const ALL_COMPS = ["g-you","g-board","g-db","g-mcp","g-agent","g-repo"];
+const $ = (id) => document.getElementById(id);
+let cur = 0;
+
+const list = $("steps");
+STEPS.forEach((s, i) => {
+  const li = document.createElement("li");
+  li.innerHTML = s.title;
+  li.onclick = () => go(i);
+  list.appendChild(li);
+});
+
+function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+
+function render() {
+  const s = STEPS[cur];
+  list.querySelectorAll("li").forEach((li, i) => {
+    li.className = i === cur ? `on act-${s.actor}` : (i < cur ? "done" : "");
+  });
+  $("pos").textContent = `step ${cur + 1} of ${STEPS.length}`;
+
+  $("stepbody").innerHTML =
+    `<span class="who ${s.actor}">${s.who}</span>` +
+    `<h3>${s.title}</h3>` +
+    `<p>${s.desc}</p>` +
+    `<div class="cfgwrap"><button class="copy" onclick="copyCfg(this)">copy</button><pre class="cfg">${esc(s.cfg)}</pre></div>` +
+    (s.note ? `<div class="note">${s.note}</div>` : "") +
+    `<div class="logline">› ${esc(s.log)}</div>`;
+
+  ALL_COMPS.forEach((id) => {
+    const el = $(id);
+    el.classList.toggle("active", s.comps.includes(id));
+    el.classList.toggle("h-act", s.comps.includes(id) && s.actor === "h");
+    el.classList.toggle("a-act", s.comps.includes(id) && s.actor === "a");
+  });
+}
+
+function copyCfg(btn) {
+  navigator.clipboard.writeText(btn.nextElementSibling.textContent).then(() => {
+    btn.textContent = "copied ✓";
+    setTimeout(() => { btn.textContent = "copy"; }, 1200);
+  });
+}
+
+function go(i) { cur = Math.max(0, Math.min(STEPS.length - 1, i)); render(); }
+$("prev").onclick = () => go(cur - 1);
+$("next").onclick = () => go(cur + 1);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") go(cur + 1);
+  if (e.key === "ArrowLeft") go(cur - 1);
+});
+
+render();
+</script>
+</body>
+</html>
