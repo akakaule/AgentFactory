@@ -18,7 +18,7 @@ export interface Activity {
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
 export interface TaskDetail extends Task { activity: Activity[]; links: Link[]; repoPath: string; }
 
-export interface CreateTaskInput { title: string; spec: string; acceptanceCriteria: string; workspace?: string; }
+export interface CreateTaskInput { title: string; spec: string; acceptanceCriteria: string; workspace?: string | undefined; }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }

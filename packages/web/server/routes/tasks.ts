@@ -8,8 +8,8 @@ export function taskRoutes(core: Core) {
   const r = new Hono();
 
   r.get('/', zValidator('query', listQuery), (c) => {
-    const { status } = c.req.valid('query');
-    return c.json(core.listTasks(status !== undefined ? { status } : {}));
+    const { status, workspace } = c.req.valid('query');
+    return c.json(core.listTasks({ status, workspace }));
   });
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
