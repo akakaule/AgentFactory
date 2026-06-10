@@ -1,7 +1,7 @@
 # AgentFactory — Workspaces (multi-repo task board)
 
 **Date:** 2026-06-10
-**Status:** Proposed — awaiting approval
+**Status:** Implemented (2026-06-10)
 **Grows from:** [2026-06-09 task board design](2026-06-09-agent-loop-task-board-design.md), which deferred "Projects or multiple boards (v1 is one flat board)". This is that growth, motivated by a concrete execution problem rather than board organization.
 
 ## Problem
@@ -74,7 +74,7 @@ CREATE TABLE workspace (
   repo_path  TEXT NOT NULL,             -- absolute path, or '.' = agent cwd
   created_at TEXT NOT NULL
 );
-INSERT INTO workspace(name, repo_path, created_at) VALUES ('default', '.', :now);
+INSERT INTO workspace(name, repo_path, created_at) VALUES ('default', '.', '1970-01-01T00:00:00.000Z');
 ALTER TABLE task ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1;  -- no REFERENCES, see below
 CREATE INDEX idx_task_workspace ON task(workspace_id, status, seq);
 ```
@@ -90,6 +90,11 @@ CREATE INDEX idx_task_workspace ON task(workspace_id, status, seq);
   `runMigrations` wraps each migration in `BEGIN IMMEDIATE`. Referential integrity is
   app-level instead — `createTask` resolves slug → id inside its transaction, and
   workspace deletion is a non-goal, so a dangling `workspace_id` has no code path.
+- The seed's `created_at` is a **fixed epoch sentinel**, not the migration wall time
+  (deviation found during implementation): the seed is schema setup, not a user mutation,
+  and a wall-clock value would dominate `getVersion()` on fresh/migrated DBs, breaking the
+  "version = max of data timestamps" invariant. User-created workspaces get real
+  `nowIso()` timestamps via the op.
 - `getVersion()` (the SSE change-detection probe) adds `workspace.created_at` to its
   `MAX(...)` union so workspace creation refreshes connected clients.
 

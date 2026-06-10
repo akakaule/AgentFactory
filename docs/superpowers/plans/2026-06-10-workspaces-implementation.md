@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-10
 **Spec:** [2026-06-10-workspaces-design.md](../specs/2026-06-10-workspaces-design.md)
-**Status:** Proposed — awaiting approval
+**Status:** Implemented (2026-06-10)
 
 Five phases, dependency-ordered (`core → mcp → web server → web client → docs/e2e`).
 Every behavioral task is TDD: write the failing test, watch it fail, implement, watch it
@@ -31,8 +31,8 @@ worktree section, root README / `package.json` dev-server notes, `.gitignore`
   - simulate a v1 DB (run only migration #1, insert a task, then `runMigrations`) →
     task has `workspace_id = 1`;
   - re-running `runMigrations` is a no-op (idempotency via `user_version`).
-- **Note:** seed insert uses `nowIso()` from the migration function (migrations are JS
-  functions, not raw SQL — timestamp is fine).
+- **Note:** the seed insert uses a fixed epoch `created_at` sentinel, not `nowIso()` —
+  a wall-clock seed would dominate `getVersion()` on fresh DBs (see spec, Data model).
 - **Caution:** the `ALTER TABLE` must **not** carry a `REFERENCES workspace(id)` clause —
   with `foreign_keys = ON` SQLite rejects a REFERENCES column with a non-NULL default,
   and the pragma cannot be toggled inside the migration transaction (see spec, Data

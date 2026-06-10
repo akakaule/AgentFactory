@@ -40,6 +40,25 @@ The server stores its data in `agentfactory.db` (override with the `AGENTFACTORY
 npm run mcp:dev
 ```
 
+### Workspaces (multi-repo)
+
+Tasks belong to **workspaces** — named git repositories where the work happens. A fresh DB has a single `default` workspace (`repoPath: "."` = the agent's working directory), so single-repo setups need zero configuration and the UI shows no workspace chrome.
+
+To drive agents across multiple repos from one board:
+
+1. Create a workspace in the web UI (**Workspaces** button): a slug plus the absolute repo path.
+2. Create tasks in it — the task form gains a workspace picker, and the board gains a filter and badges once a second workspace exists.
+3. Pin each agent's MCP server to its workspace:
+
+```json
+"env": {
+  "AGENTFACTORY_DB": "c:\\Git\\AgentFactory\\agentfactory.db",
+  "AGENTFACTORY_WORKSPACE": "shopfloor"
+}
+```
+
+A pinned worker only ever claims its own workspace's tasks. The claimed payload carries `repoPath`, and the agent creates its per-task worktree under `<repoPath>/.worktrees/<key>`. See `packages/mcp/README.md` for details, including the unpinned "roaming" mode.
+
 ### Run tests
 
 ```bash

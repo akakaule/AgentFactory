@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFactory — How the agent loop works</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #283548;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --human: #60a5fa;
+    --agent: #fbbf24;
+    --db: #34d399;
+    --done: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 36px 0 12px; color: var(--text); }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  code { background: #0b1222; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: #93c5fd; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+
+  /* ── architecture row ───────────────────────────── */
+  .arch { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 8px 0; }
+  .comp {
+    flex: 1 1 0; min-width: 128px; text-align: center;
+    background: var(--panel-2); border: 2px solid var(--border); border-radius: 10px;
+    padding: 14px 10px; transition: border-color .3s, box-shadow .3s, transform .3s;
+  }
+  .comp .ico { font-size: 26px; display: block; margin-bottom: 6px; }
+  .comp .nm { font-weight: 600; font-size: 14px; }
+  .comp .dt { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .comp.side-h { border-bottom: 3px solid color-mix(in srgb, var(--human) 45%, transparent); }
+  .comp.side-a { border-bottom: 3px solid color-mix(in srgb, var(--agent) 45%, transparent); }
+  .comp.side-d { border-bottom: 3px solid color-mix(in srgb, var(--db) 45%, transparent); }
+  .comp.active { border-color: var(--db); box-shadow: 0 0 18px rgba(52, 211, 153, .25); transform: translateY(-2px); }
+  .comp.active.h-act { border-color: var(--human); box-shadow: 0 0 18px rgba(96, 165, 250, .3); }
+  .comp.active.a-act { border-color: var(--agent); box-shadow: 0 0 18px rgba(251, 191, 36, .3); }
+  .link {
+    flex: 0 0 64px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 10.5px; gap: 2px;
+  }
+  .link .ar { font-size: 18px; letter-spacing: -2px; color: #475569; }
+  .dbnote { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+  .dbnote b { color: var(--db); }
+
+  /* ── state machine + sim ────────────────────────── */
+  .grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  svg text { font-family: "Segoe UI", system-ui, sans-serif; }
+  .node rect { fill: var(--panel-2); stroke: var(--border); stroke-width: 1.5; rx: 9; transition: stroke .3s, fill .3s; }
+  .node text { fill: var(--text); font-size: 13px; font-weight: 600; }
+  .node.current rect { stroke: #fff; stroke-width: 2.5; fill: #31415c; }
+  .node.is-done rect { stroke: var(--done); fill: #103a2d; }
+  .edge { fill: none; stroke-width: 2; opacity: .8; transition: opacity .3s; }
+  .edge.h { stroke: var(--human); }
+  .edge.a { stroke: var(--agent); }
+  .edge.pulse { stroke-width: 3.5; opacity: 1; stroke-dasharray: 7 5; animation: dash 0.7s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -12; } }
+  .elabel { font-size: 10px; fill: var(--muted); }
+  .legend { display: flex; gap: 22px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+  .chip { display: inline-block; width: 22px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 7px; }
+
+  /* timeline */
+  .controls { display: flex; gap: 8px; margin-bottom: 14px; }
+  .controls button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 16px; font-size: 14px; cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--human); }
+  .controls button.primary { background: #1d4ed8; border-color: #1d4ed8; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li {
+    padding: 9px 12px; border-left: 3px solid var(--border); margin-bottom: 4px;
+    cursor: pointer; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--muted);
+    transition: background .25s, border-color .25s;
+  }
+  .steps li:hover { background: var(--panel-2); }
+  .steps li.on { background: var(--panel-2); color: var(--text); }
+  .steps li.on.act-h { border-left-color: var(--human); }
+  .steps li.on.act-a { border-left-color: var(--agent); }
+  .steps li.past { color: #64748b; }
+  .stepdesc { margin-top: 14px; min-height: 84px; font-size: 14px; color: var(--text); }
+  .stepdesc .who { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .who.h { color: var(--human); } .who.a { color: var(--agent); }
+  .logline { font-family: Consolas, monospace; font-size: 12.5px; color: var(--db); margin-top: 10px; }
+
+  /* tools table */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; }
+  td code { white-space: nowrap; }
+  .cfg { background: #0b1222; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; font-family: Consolas, monospace; font-size: 13px; color: #cbd5e1; overflow-x: auto; white-space: pre; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AgentFactory <span style="color:#475569">·</span> <span style="font-weight:400">how the agent loop works</span></h1>
+  <p class="sub">A single-user local task board: humans create &amp; review work in the web UI, an external agent (Claude&nbsp;Code or any MCP client) consumes and progresses it. The two sides never talk directly — a shared SQLite file is the only channel.</p>
+
+  <h2>1 · Architecture</h2>
+  <div class="panel">
+    <div class="arch">
+      <div class="comp side-h" id="c-human"><span class="ico">👤</span><span class="nm">Human</span><div class="dt">creates &amp; reviews tasks</div></div>
+      <div class="link"><span class="ar">⇄</span><span>browser</span></div>
+      <div class="comp side-h" id="c-web"><span class="ico">🖥️</span><span class="nm">Web UI</span><div class="dt">React + Vite<br>packages/web</div></div>
+      <div class="link"><span class="ar">⇄</span><span>REST + SSE</span></div>
+      <div class="comp side-h" id="c-api"><span class="ico">🔌</span><span class="nm">Hono API</span><div class="dt">server + live events<br>packages/web/server</div></div>
+      <div class="link"><span class="ar">⇄</span><span>core</span></div>
+      <div class="comp side-d" id="c-db"><span class="ico">🗄️</span><span class="nm">agentfactory.db</span><div class="dt">SQLite · single<br>source of truth</div></div>
+      <div class="link"><span class="ar">⇄</span><span>core</span></div>
+      <div class="comp side-a" id="c-mcp"><span class="ico">🛰️</span><span class="nm">MCP server</span><div class="dt">stdio · 6 tools<br>packages/mcp</div></div>
+      <div class="link"><span class="ar">⇄</span><span>MCP / stdio</span></div>
+      <div class="comp side-a" id="c-agent"><span class="ico">🤖</span><span class="nm">Agent</span><div class="dt">Claude Code or any<br>MCP client</div></div>
+    </div>
+    <div class="dbnote">Both processes load <b>@agentfactory/core</b> (lifecycle rules + DB layer) and point <code>AGENTFACTORY_DB</code> at the <b>same file</b> — the DB is the contract.</div>
+  </div>
+
+  <h2>2 · Task lifecycle &amp; a full loop, step by step</h2>
+  <div class="grid">
+    <div class="panel">
+      <svg viewBox="0 0 820 270" width="100%" aria-label="Task lifecycle state machine">
+        <defs>
+          <marker id="mh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#60a5fa"/>
+          </marker>
+          <marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
+          </marker>
+        </defs>
+
+        <!-- edges -->
+        <path id="e-bq" class="edge h" d="M 120 80 L 162 80" marker-end="url(#mh)"/>
+        <path id="e-qi" class="edge a" d="M 265 80 L 327 80" marker-end="url(#ma)"/>
+        <path id="e-ir" class="edge a" d="M 450 80 L 517 80" marker-end="url(#ma)"/>
+        <path id="e-id" class="edge h" d="M 630 80 L 687 80" marker-end="url(#mh)"/>
+        <path id="e-rw" class="edge h" d="M 560 58 C 500 8, 290 8, 232 56" marker-end="url(#mh)"/>
+        <path id="e-ib" class="edge a" d="M 375 102 L 375 177" marker-end="url(#ma)"/>
+        <path id="e-bi" class="edge a" d="M 405 178 L 405 103" marker-end="url(#ma)"/>
+        <path id="e-bq2" class="edge h" d="M 340 192 C 268 178, 232 142, 219 104" marker-end="url(#mh)"/>
+
+        <text class="elabel" x="122" y="70">human</text>
+        <text class="elabel" x="278" y="70">agent</text>
+        <text class="elabel" x="462" y="70">agent</text>
+        <text class="elabel" x="638" y="70">human</text>
+        <text class="elabel" x="352" y="22">human · request changes (rework)</text>
+        <text class="elabel" x="312" y="145">agent</text>
+        <text class="elabel" x="412" y="145">agent</text>
+        <text class="elabel" x="216" y="160">human</text>
+
+        <!-- nodes -->
+        <g class="node" id="n-backlog"><rect x="20" y="60" width="100" height="40"/><text x="70" y="85" text-anchor="middle">backlog</text></g>
+        <g class="node" id="n-queued"><rect x="165" y="60" width="100" height="40"/><text x="215" y="85" text-anchor="middle">queued</text></g>
+        <g class="node" id="n-in_progress"><rect x="330" y="60" width="120" height="40"/><text x="390" y="85" text-anchor="middle">in_progress</text></g>
+        <g class="node" id="n-in_review"><rect x="520" y="60" width="110" height="40"/><text x="575" y="85" text-anchor="middle">in_review</text></g>
+        <g class="node" id="n-done"><rect x="690" y="60" width="80" height="40"/><text x="730" y="85" text-anchor="middle">done ✓</text></g>
+        <g class="node" id="n-blocked"><rect x="340" y="180" width="100" height="40"/><text x="390" y="205" text-anchor="middle">blocked</text></g>
+      </svg>
+      <div class="legend">
+        <span><span class="chip" style="background:var(--human)"></span>human-only transition</span>
+        <span><span class="chip" style="background:var(--agent)"></span>agent transition</span>
+        <span style="margin-left:auto">enforced by <code>core/transitions.ts</code> — anything else is rejected</span>
+      </div>
+      <div class="stepdesc" id="stepdesc"></div>
+    </div>
+
+    <div class="panel">
+      <div class="controls">
+        <button id="btn-prev">‹ Prev</button>
+        <button id="btn-play" class="primary">▶ Play</button>
+        <button id="btn-next">Next ›</button>
+        <button id="btn-reset">Reset</button>
+      </div>
+      <ol class="steps" id="steps"></ol>
+    </div>
+  </div>
+
+  <h2>3 · The 6 MCP tools the agent gets</h2>
+  <div class="panel">
+    <table>
+      <tr><th>Tool</th><th>What it does</th><th>Loop role</th></tr>
+      <tr><td><code>get_next_task</code></td><td>Atomically claim the oldest <code>queued</code> task (optionally scoped to a workspace) → <code>in_progress</code>; agent then creates a git worktree under the task's repo</td><td>start of every iteration</td></tr>
+      <tr><td><code>get_task</code></td><td>Fetch one task by key (spec, criteria, activity, links)</td><td>read the full brief</td></tr>
+      <tr><td><code>list_tasks</code></td><td>List tasks, optionally filtered by status</td><td>situational awareness</td></tr>
+      <tr><td><code>add_comment</code></td><td>Append a comment to the task's activity feed</td><td>narrate progress (human sees it live via SSE)</td></tr>
+      <tr><td><code>submit_result</code></td><td>Store a result summary + links (branch, PR, worktree, log)</td><td>deliver the work</td></tr>
+      <tr><td><code>update_status</code></td><td>Transition the task (only agent-legal moves allowed)</td><td>hand off to review / flag blocked</td></tr>
+    </table>
+    <p style="color:var(--muted); font-size:13.5px; margin-bottom:0">Task <b>creation</b> is deliberately missing — only humans create work, via the web UI. The agent can never invent tasks for itself.</p>
+  </div>
+
+  <h2>4 · Wiring it up</h2>
+  <div class="panel">
+    <div class="cfg">// terminal 1 — web UI (humans):      npm run web:dev
+// agent side — MCP client config (.claude/mcp.json):
+{
+  "mcpServers": {
+    "agentfactory": {
+      "command": "npx",
+      "args": ["tsx", "c:\\Git\\AgentFactory\\packages\\mcp\\src\\index.ts"],
+      "env": { "AGENTFACTORY_DB": "c:\\Git\\AgentFactory\\agentfactory.db" }
+    }
+  }
+}</div>
+    <p style="color:var(--muted); font-size:13.5px; margin-bottom:0">The MCP server isn't started by hand — the agent client launches it over stdio. The one rule: both sides must point <code>AGENTFACTORY_DB</code> at the same absolute path.</p>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  { actor:"human", title:"Human creates a task",
+    desc:"In the web UI the human writes a title, spec and acceptance criteria, and picks the <b>workspace</b> &mdash; the repo the task targets. <code>POST /api/tasks</code> &rarr; core inserts <b>AF-7</b> in <b>backlog</b>.",
+    comps:["c-human","c-web","c-api","c-db"], status:"backlog", edge:null,
+    log:"POST /api/tasks → AF-7 created (backlog)" },
+  { actor:"human", title:"Human queues it",
+    desc:"Moving the card to <b>Queued</b> marks it ready for pickup. <code>backlog &rarr; queued</code> is a human-only transition.",
+    comps:["c-human","c-web","c-api","c-db"], status:"queued", edge:"e-bq",
+    log:"AF-7: backlog → queued (human)" },
+  { actor:"agent", title:"Agent claims the task",
+    desc:"The agent loop calls <code>get_next_task</code>, scoped to its pinned workspace (a repo-A worker can never claim repo-B work). The oldest queued task is atomically claimed: <code>queued &rarr; in_progress</code>. No double-claiming possible. The payload carries the workspace&rsquo;s <code>repoPath</code>; before touching code the agent creates a dedicated git worktree there: <code>git worktree add &lt;repoPath&gt;/.worktrees/AF-7 -b task/AF-7</code> — one task, one isolated checkout.",
+    comps:["c-agent","c-mcp","c-db"], status:"in_progress", edge:"e-qi",
+    log:"get_next_task(workspace) → AF-7 claimed · worktree .worktrees/AF-7" },
+  { actor:"agent", title:"Agent works &amp; narrates",
+    desc:"While coding, the agent posts progress with <code>add_comment</code>. The web server pushes every activity over <b>SSE</b> &mdash; the human watches live in the browser.",
+    comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_progress", edge:null,
+    log:"add_comment ×3 → SSE → browser (live)" },
+  { actor:"agent", title:"Stuck &rarr; blocked",
+    desc:"The spec is ambiguous and the agent can&rsquo;t resolve it alone: <code>update_status</code> to <b>blocked</b>, with a comment explaining exactly what it needs.",
+    comps:["c-agent","c-mcp","c-db"], status:"blocked", edge:"e-ib",
+    log:"update_status → blocked (“which OAuth flow?”)" },
+  { actor:"agent", title:"Unblocked, work resumes",
+    desc:"The human answers in a comment; the agent resumes: <code>blocked &rarr; in_progress</code>. (Alternatively the human re-queues it: <code>blocked &rarr; queued</code>.)",
+    comps:["c-human","c-web","c-api","c-db","c-mcp","c-agent"], status:"in_progress", edge:"e-bi",
+    log:"human comment → blocked → in_progress (agent)" },
+  { actor:"agent", title:"Agent submits the result",
+    desc:"<code>submit_result</code> stores a summary plus links &mdash; branch, PR, worktree, logs &mdash; on the task. Status doesn&rsquo;t change yet.",
+    comps:["c-agent","c-mcp","c-db"], status:"in_progress", edge:null,
+    log:"submit_result: summary + links (branch, PR)" },
+  { actor:"agent", title:"Hand-off to review",
+    desc:"<code>update_status</code>: <code>in_progress &rarr; in_review</code>. The agent&rsquo;s job ends here &mdash; only a human can move the task further.",
+    comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_review", edge:"e-ir",
+    log:"update_status → in_review" },
+  { actor:"human", title:"Human reviews &rarr; done (or rework)",
+    desc:"The human checks the result in the UI. Approve: <code>in_review &rarr; done</code> ✓. Request changes: <code>in_review &rarr; queued</code> with feedback &mdash; and the loop restarts at step 3.",
+    comps:["c-human","c-web","c-api","c-db"], status:"done", edge:"e-id", altEdge:"e-rw",
+    log:"review approved → done ✓" },
+];
+
+let cur = -1, timer = null;
+const $ = id => document.getElementById(id);
+
+const list = $("steps");
+STEPS.forEach((s, i) => {
+  const li = document.createElement("li");
+  li.innerHTML = "<b>" + (i + 1) + "</b> · " + s.title;
+  li.className = "act-" + (s.actor === "human" ? "h" : "a");
+  li.onclick = () => { stopPlay(); go(i); };
+  list.appendChild(li);
+});
+
+function render() {
+  document.querySelectorAll(".comp").forEach(c => c.classList.remove("active", "h-act", "a-act"));
+  document.querySelectorAll(".node").forEach(n => n.classList.remove("current", "is-done"));
+  document.querySelectorAll(".edge").forEach(e => e.classList.remove("pulse"));
+  list.querySelectorAll("li").forEach((li, i) => {
+    li.classList.toggle("on", i === cur);
+    li.classList.toggle("past", i < cur);
+  });
+  const d = $("stepdesc");
+  if (cur < 0) {
+    d.innerHTML = '<span style="color:var(--muted)">Press <b>▶ Play</b> (or click a step) to walk one task through the full loop.</span>';
+    return;
+  }
+  const s = STEPS[cur];
+  const cls = s.actor === "human" ? "h-act" : "a-act";
+  s.comps.forEach(id => $(id).classList.add("active", cls));
+  const node = $("n-" + s.status);
+  node.classList.add(s.status === "done" ? "is-done" : "current");
+  if (s.edge) $(s.edge).classList.add("pulse");
+  if (s.altEdge) $(s.altEdge).classList.add("pulse");
+  d.innerHTML =
+    '<span class="who ' + (s.actor === "human" ? "h" : "a") + '">' + s.actor + "</span> &nbsp; <b>" +
+    (cur + 1) + " · " + s.title + "</b><br>" + s.desc +
+    '<div class="logline">&gt; ' + s.log + "</div>";
+}
+
+function go(i) { cur = Math.max(-1, Math.min(STEPS.length - 1, i)); render(); }
+function stopPlay() { if (timer) { clearInterval(timer); timer = null; $("btn-play").textContent = "▶ Play"; } }
+
+$("btn-next").onclick = () => { stopPlay(); go(cur + 1); };
+$("btn-prev").onclick = () => { stopPlay(); go(cur - 1); };
+$("btn-reset").onclick = () => { stopPlay(); go(-1); };
+$("btn-play").onclick = () => {
+  if (timer) { stopPlay(); return; }
+  if (cur >= STEPS.length - 1) cur = -1;
+  $("btn-play").textContent = "⏸ Pause";
+  go(cur + 1);
+  timer = setInterval(() => {
+    if (cur >= STEPS.length - 1) { stopPlay(); return; }
+    go(cur + 1);
+  }, 3200);
+};
+
+render();
+</script>
+</body>
+</html>
