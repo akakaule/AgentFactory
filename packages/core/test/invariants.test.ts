@@ -44,7 +44,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
     const before = countActivity(db);
-    claimNextTask(db, () => ts3);
+    claimNextTask(db, undefined, () => ts3);
     expect(getVersion(db)).toBe(ts3);
     expect(countActivity(db)).toBe(before + 1);
   });
@@ -68,7 +68,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const ts4 = '2026-01-04T00:00:00.000Z';
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    claimNextTask(db, () => ts3);
+    claimNextTask(db, undefined, () => ts3);
     const before = countActivity(db);
     submitResult(db, task.key, { summary: 'done!' }, () => ts4);
     expect(getVersion(db)).toBe(ts4);
@@ -84,7 +84,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const ts5 = '2026-01-05T00:00:00.000Z';
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    claimNextTask(db, () => ts3);
+    claimNextTask(db, undefined, () => ts3);
     submitResult(db, task.key, { summary: 'done!' }, () => ts4);
     const before = countActivity(db);
     reviewApprove(db, task.key, () => ts5);
@@ -101,7 +101,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const ts5 = '2026-01-05T00:00:00.000Z';
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    claimNextTask(db, () => ts3);
+    claimNextTask(db, undefined, () => ts3);
     submitResult(db, task.key, { summary: 'done!' }, () => ts4);
     const before = countActivity(db);
     reviewRequestChanges(db, task.key, { feedback: 'needs work' }, () => ts5);

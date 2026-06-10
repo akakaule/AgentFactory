@@ -1,7 +1,9 @@
 import type { DB } from '../db.js';
 import type { Task, Status } from '../types.js';
 import { listRows } from '../repo/tasks.js';
+import { requireWorkspaceByName } from '../repo/workspaces.js';
 
-export function listTasks(db: DB, opts: { status?: Status } = {}): Task[] {
-  return listRows(db, opts);
+export function listTasks(db: DB, opts: { status?: Status; workspace?: string } = {}): Task[] {
+  const workspaceId = opts.workspace === undefined ? undefined : requireWorkspaceByName(db, opts.workspace).id;
+  return listRows(db, { status: opts.status, workspaceId });
 }

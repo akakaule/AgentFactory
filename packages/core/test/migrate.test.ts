@@ -9,10 +9,10 @@ describe('runMigrations', () => {
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 1 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 1 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
   });
 
   it('enforces the status CHECK constraint', () => {

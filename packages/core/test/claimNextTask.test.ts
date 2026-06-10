@@ -36,7 +36,7 @@ describe('claimNextTask', () => {
     const fixedTs = '2030-01-01T12:00:00.000Z';
     const now = () => fixedTs;
 
-    const detail = claimNextTask(db, now);
+    const detail = claimNextTask(db, undefined, now);
 
     expect(detail).not.toBeNull();
     expect(detail!.status).toBe('in_progress');
@@ -124,7 +124,7 @@ describe('claimNextTask', () => {
     const [t] = seedQueued(db, 1);
 
     const fixedTs = '2030-06-01T00:00:00.000Z';
-    const detail = claimNextTask(db, () => fixedTs);
+    const detail = claimNextTask(db, undefined, () => fixedTs);
 
     expect(detail).not.toBeNull();
     // Should contain at least: original status_change (backlog) from createTask, and new status_change (in_progress) from claim

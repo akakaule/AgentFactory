@@ -13,6 +13,8 @@ export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
+export { createWorkspace } from './ops/createWorkspace.js';
+export { listWorkspaces } from './ops/listWorkspaces.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -27,16 +29,20 @@ import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
 import { reviewApprove } from './ops/reviewApprove.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput } from './types.js';
+import { createWorkspace } from './ops/createWorkspace.js';
+import { listWorkspaces } from './ops/listWorkspaces.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput } from './types.js';
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB) {
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
-    listTasks: (opts: { status?: Status } = {}) => listTasks(db, opts),
+    listTasks: (opts: { status?: Status; workspace?: string } = {}) => listTasks(db, opts),
     getTask: (key: string) => getTask(db, key),
-    claimNextTask: () => claimNextTask(db),
+    claimNextTask: (workspace?: string) => claimNextTask(db, workspace),
+    createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
+    listWorkspaces: () => listWorkspaces(db),
     addComment: (key: string, input: { actor: Actor; body: string }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor) => updateStatus(db, key, status, actor),

@@ -35,3 +35,18 @@ CREATE INDEX IF NOT EXISTS idx_task_updated    ON task(updated_at);
 CREATE INDEX IF NOT EXISTS idx_activity_created ON activity(created_at);
 CREATE INDEX IF NOT EXISTS idx_link_task       ON link(task_id);
 `;
+
+// Migration #2 — workspaces. task.workspace_id has no REFERENCES clause: SQLite rejects
+// ADD COLUMN combining REFERENCES with a non-NULL default while foreign_keys=ON, and the
+// pragma is a no-op inside the migration transaction. Integrity is app-level (ops resolve
+// slug -> id in-transaction; workspace deletion does not exist).
+export const MIGRATION_2_SQL = `
+CREATE TABLE IF NOT EXISTS workspace (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE,
+  repo_path  TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+ALTER TABLE task ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_task_workspace ON task(workspace_id, status, seq);
+`;

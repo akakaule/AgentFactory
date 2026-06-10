@@ -5,9 +5,11 @@ import { createTask } from '../src/ops/createTask.js';
 import { addComment } from '../src/ops/addComment.js';
 
 describe('getVersion', () => {
-  it('returns empty string on an empty DB', () => {
+  it('returns the seeded default workspace epoch on an otherwise empty DB', () => {
     const db = makeTestDb();
-    expect(getVersion(db)).toBe('');
+    // migration #2 seeds the default workspace with a fixed epoch created_at,
+    // so a fresh DB's version is the sentinel, not ''
+    expect(getVersion(db)).toBe('1970-01-01T00:00:00.000Z');
   });
 
   it('returns the task updatedAt after createTask', () => {

@@ -1,9 +1,17 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL } from './schema.js';
 
 const MIGRATIONS: ((db: DB) => void)[] = [
   (db) => db.exec(SCHEMA_SQL),
+  (db) => {
+    db.exec(MIGRATION_2_SQL);
+    // first insert into the fresh table inside this transaction -> id = 1, matching the
+    // DEFAULT 1 that backfills pre-existing tasks. The seed is schema setup, not a user
+    // mutation: a fixed epoch created_at keeps it out of getVersion()'s change signal.
+    db.prepare('INSERT INTO workspace(name, repo_path, created_at) VALUES (?, ?, ?)')
+      .run('default', '.', '1970-01-01T00:00:00.000Z');
+  },
 ];
 
 export function runMigrations(db: DB): void {
