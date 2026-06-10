@@ -8,6 +8,8 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'queued',      to: 'in_progress', by: 'agent' },
   { from: 'in_progress', to: 'in_review',   by: 'agent' },
   { from: 'in_progress', to: 'blocked',     by: 'agent' },
+  { from: 'in_progress', to: 'queued',      by: 'human' }, // release a stranded claim
+
   { from: 'blocked',     to: 'in_progress', by: 'agent' },
   { from: 'blocked',     to: 'queued',      by: 'human' },
   { from: 'in_review',   to: 'done',        by: 'human' },

@@ -7,7 +7,7 @@ export { createTask } from './ops/createTask.js';
 export { updateTask } from './ops/updateTask.js';
 export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
-export { claimNextTask } from './ops/claimNextTask.js';
+export { claimNextTask, type ClaimOptions } from './ops/claimNextTask.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
@@ -23,7 +23,7 @@ import { createTask } from './ops/createTask.js';
 import { updateTask } from './ops/updateTask.js';
 import { listTasks } from './ops/listTasks.js';
 import { getTask } from './ops/getTask.js';
-import { claimNextTask } from './ops/claimNextTask.js';
+import { claimNextTask, type ClaimOptions } from './ops/claimNextTask.js';
 import { addComment } from './ops/addComment.js';
 import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
@@ -40,7 +40,7 @@ export function createCore(db: DB) {
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
     listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined } = {}) => listTasks(db, opts),
     getTask: (key: string) => getTask(db, key),
-    claimNextTask: (workspace?: string) => claimNextTask(db, workspace),
+    claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     listWorkspaces: () => listWorkspaces(db),
     addComment: (key: string, input: { actor: Actor; body: string }) => addComment(db, key, input),

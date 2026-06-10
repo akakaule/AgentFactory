@@ -75,21 +75,21 @@ describe('e2e: two workspaces, two scoped workers, shared file DB', () => {
     const a2 = await mk('A2', 'repo-a');
 
     // ── Workers claim with their workspace scope ─────────────────────────────
-    const claimedA1 = workerA.claimNextTask('repo-a');
+    const claimedA1 = workerA.claimNextTask({ workspace: 'repo-a' });
     expect(claimedA1).toMatchObject({ key: a1, workspace: 'repo-a', repoPath: '/work/repo-a', status: 'in_progress' });
 
-    const claimedB1 = workerB.claimNextTask('repo-b');
+    const claimedB1 = workerB.claimNextTask({ workspace: 'repo-b' });
     expect(claimedB1).toMatchObject({ key: b1, workspace: 'repo-b', repoPath: '/work/repo-b', status: 'in_progress' });
 
-    const claimedA2 = workerA.claimNextTask('repo-a');
+    const claimedA2 = workerA.claimNextTask({ workspace: 'repo-a' });
     expect(claimedA2).toMatchObject({ key: a2, workspace: 'repo-a' });
 
     // Queues are drained per workspace — no leaking across.
-    expect(workerA.claimNextTask('repo-a')).toBeNull();
-    expect(workerB.claimNextTask('repo-b')).toBeNull();
+    expect(workerA.claimNextTask({ workspace: 'repo-a' })).toBeNull();
+    expect(workerB.claimNextTask({ workspace: 'repo-b' })).toBeNull();
 
     // A typo'd worker config fails loudly instead of idling.
-    expect(() => workerA.claimNextTask('nope')).toThrow(NotFoundError);
+    expect(() => workerA.claimNextTask({ workspace: 'nope' })).toThrow(NotFoundError);
 
     // ── Workers deliver, human approves — both loops reach done ─────────────
     for (const [worker, key] of [[workerA, a1], [workerB, b1], [workerA, a2]] as const) {

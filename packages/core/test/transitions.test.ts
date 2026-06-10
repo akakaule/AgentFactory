@@ -4,6 +4,7 @@ import { isValidTransition } from '../src/transitions.js';
 const VALID: [string, string, string][] = [
   ['backlog','queued','human'], ['queued','in_progress','agent'],
   ['in_progress','in_review','agent'], ['in_progress','blocked','agent'],
+  ['in_progress','queued','human'], // release a stranded claim
   ['blocked','in_progress','agent'], ['blocked','queued','human'],
   ['in_review','done','human'], ['in_review','queued','human'],
 ];
@@ -15,9 +16,10 @@ describe('isValidTransition', () => {
   it('rejects correct edges performed by the wrong actor', () => {
     expect(isValidTransition('in_review','done','agent')).toBe(false);
     expect(isValidTransition('queued','in_progress','human')).toBe(false);
+    expect(isValidTransition('in_progress','queued','agent')).toBe(false); // release is human-only
   });
   it('rejects edges not in the table', () => {
-    for (const [f, t] of [['backlog','done'],['queued','in_review'],['in_progress','queued'],['done','queued'],['backlog','in_progress'],['in_review','in_progress'],['done','done']] as const)
+    for (const [f, t] of [['backlog','done'],['queued','in_review'],['done','queued'],['backlog','in_progress'],['in_review','in_progress'],['done','done']] as const)
       expect(isValidTransition(f as any, t as any, 'human')).toBe(false);
   });
 });

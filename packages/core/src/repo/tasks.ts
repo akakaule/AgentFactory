@@ -8,6 +8,7 @@ export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
   status: Status; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
+  claimed_by: string | null; claimed_at: string | null;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
@@ -19,6 +20,7 @@ export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -40,7 +42,13 @@ export function findByKey(db: DB, key: string): Task | null {
   return r ? toTask(r) : null;
 }
 export function setStatus(db: DB, id: number, status: Status, ts: string): void {
-  db.prepare('UPDATE task SET status = ?, updated_at = ? WHERE id = ?').run(status, ts, id);
+  // a re-queued task must not advertise a stale claimant — every path into 'queued'
+  // (release, request-changes, blocked → queued) flows through here
+  if (status === 'queued') {
+    db.prepare('UPDATE task SET status = ?, claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?').run(status, ts, id);
+  } else {
+    db.prepare('UPDATE task SET status = ?, updated_at = ? WHERE id = ?').run(status, ts, id);
+  }
 }
 export function setResultSummary(db: DB, id: number, summary: string, ts: string): void {
   db.prepare('UPDATE task SET result_summary = ?, updated_at = ? WHERE id = ?').run(summary, ts, id);

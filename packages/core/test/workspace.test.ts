@@ -18,7 +18,7 @@ const queue = (db: ReturnType<typeof makeTestDb>, key: string) => updateStatus(d
 describe('migration #2: workspace table + task.workspace_id', () => {
   it('fresh DB: user_version=2, seeded default workspace with id=1 and repo_path "."', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
     const rows = db.prepare('SELECT * FROM workspace').all() as Array<{ id: number; name: string; repo_path: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 1, name: 'default', repo_path: '.' });
@@ -32,14 +32,14 @@ describe('migration #2: workspace table + task.workspace_id', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,created_at,updated_at) VALUES ('AF-1','t','s','a','backlog',1,'2026-01-01','2026-01-01')"
     ).run();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
     expect(db.prepare('SELECT workspace_id FROM task WHERE key = ?').get('AF-1')).toMatchObject({ workspace_id: 1 });
   });
 
   it('re-running runMigrations is a no-op', () => {
     const db = makeTestDb();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
     expect(db.prepare('SELECT count(*) c FROM workspace').get()).toMatchObject({ c: 1 });
   });
 });
@@ -106,9 +106,9 @@ describe('scoped claiming + filtered listing', () => {
   it('claim scoped to a workspace receives only its tasks, FIFO', () => {
     const db = makeTestDb();
     const { a1, a2 } = seedTwoWorkspaces(db);
-    expect(claimNextTask(db, 'a')?.key).toBe(a1.key);
-    expect(claimNextTask(db, 'a')?.key).toBe(a2.key);
-    expect(claimNextTask(db, 'a')).toBeNull(); // b1 still queued, never claimed by 'a'
+    expect(claimNextTask(db, { workspace: 'a' })?.key).toBe(a1.key);
+    expect(claimNextTask(db, { workspace: 'a' })?.key).toBe(a2.key);
+    expect(claimNextTask(db, { workspace: 'a' })).toBeNull(); // b1 still queued, never claimed by 'a'
   });
 
   it('unscoped claim stays global FIFO', () => {
@@ -123,12 +123,12 @@ describe('scoped claiming + filtered listing', () => {
     createWorkspace(db, { name: 'b', repoPath: '/b' });
     const b1 = createTask(db, { title: 'B1', spec: 's', acceptanceCriteria: 'a', workspace: 'b' });
     queue(db, b1.key);
-    expect(claimNextTask(db, 'a')).toBeNull();
+    expect(claimNextTask(db, { workspace: 'a' })).toBeNull();
   });
 
   it('claim and list with an unknown slug throw NotFoundError', () => {
     const db = makeTestDb();
-    expect(() => claimNextTask(db, 'nope')).toThrow(NotFoundError);
+    expect(() => claimNextTask(db, { workspace: 'nope' })).toThrow(NotFoundError);
     expect(() => listTasks(db, { workspace: 'nope' })).toThrow(NotFoundError);
   });
 
@@ -137,7 +137,7 @@ describe('scoped claiming + filtered listing', () => {
     const { a1, b1, a2 } = seedTwoWorkspaces(db);
     expect(listTasks(db, { workspace: 'a' }).map((t) => t.key)).toEqual([a1.key, a2.key]);
     expect(listTasks(db, { workspace: 'b' }).map((t) => t.key)).toEqual([b1.key]);
-    claimNextTask(db, 'a');
+    claimNextTask(db, { workspace: 'a' });
     expect(listTasks(db, { workspace: 'a', status: 'queued' }).map((t) => t.key)).toEqual([a2.key]);
     expect(listTasks(db).map((t) => t.key)).toEqual([a1.key, b1.key, a2.key]);
   });
@@ -149,7 +149,7 @@ describe('TaskDetail.repoPath + version', () => {
     createWorkspace(db, { name: 'repo-c', repoPath: '/c' });
     const t = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', workspace: 'repo-c' });
     queue(db, t.key);
-    const claimed = claimNextTask(db, 'repo-c');
+    const claimed = claimNextTask(db, { workspace: 'repo-c' });
     expect(claimed).toMatchObject({ key: t.key, workspace: 'repo-c', repoPath: '/c', status: 'in_progress' });
     expect(getTask(db, t.key)).toMatchObject({ workspace: 'repo-c', repoPath: '/c' });
   });

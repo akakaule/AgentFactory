@@ -9,6 +9,7 @@ export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
   status: Status; resultSummary: string | null; seq: number;
   workspace: string; // workspace slug
+  claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   createdAt: string; updatedAt: string;
 }
 export interface Activity {

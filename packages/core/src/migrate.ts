@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL } from './schema.js';
 
 const MIGRATIONS: ((db: DB) => void)[] = [
   (db) => db.exec(SCHEMA_SQL),
@@ -12,6 +12,7 @@ const MIGRATIONS: ((db: DB) => void)[] = [
     db.prepare('INSERT INTO workspace(name, repo_path, created_at) VALUES (?, ?, ?)')
       .run('default', '.', '1970-01-01T00:00:00.000Z');
   },
+  (db) => db.exec(MIGRATION_3_SQL),
 ];
 
 export function runMigrations(db: DB): void {

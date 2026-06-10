@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
   });
 
   it('enforces the status CHECK constraint', () => {

@@ -50,3 +50,10 @@ CREATE TABLE IF NOT EXISTS workspace (
 ALTER TABLE task ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_task_workspace ON task(workspace_id, status, seq);
 `;
+
+// Migration #3 — claim metadata. Current-state only (history lives in activity);
+// set on claim, cleared on any transition into 'queued'.
+export const MIGRATION_3_SQL = `
+ALTER TABLE task ADD COLUMN claimed_by TEXT;
+ALTER TABLE task ADD COLUMN claimed_at TEXT;
+`;
