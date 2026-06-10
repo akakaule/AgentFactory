@@ -22,9 +22,17 @@ npm install
 
 ### Run web UI (dev mode)
 
+Dev mode needs two processes: the API server and the Vite client (which proxies `/api` and `/events` to it).
+
 ```bash
+# terminal 1 — Hono API + SSE on port 8787
+npm run web:dev:server
+
+# terminal 2 — Vite client on port 5173
 npm run web:dev
 ```
+
+The server stores its data in `agentfactory.db` (override with the `AGENTFACTORY_DB` env var — the path is resolved relative to the working directory, so point both the web server and the MCP server at the same absolute path).
 
 ### Run MCP server (dev mode)
 

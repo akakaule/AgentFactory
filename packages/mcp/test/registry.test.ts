@@ -16,4 +16,13 @@ describe('tool registry', () => {
     const { tools } = await client.listTools();
     expect(tools.find((t) => t.name === 'create_task')).toBeUndefined();
   });
+
+  it('instructs the agent to work in a dedicated git worktree', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const next = tools.find((t) => t.name === 'get_next_task');
+    expect(next?.description).toMatch(/git worktree add/);
+    const submit = tools.find((t) => t.name === 'submit_result');
+    expect(submit?.description).toMatch(/worktree/);
+  });
 });

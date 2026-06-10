@@ -8,3 +8,6 @@ dist/
 
 # superpowers tooling working space (brainstorm server scratch / runtime state)
 .superpowers/
+
+# per-task agent worktrees (one task = one worktree, see packages/mcp/README.md)
+.worktrees/

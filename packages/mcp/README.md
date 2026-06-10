@@ -17,6 +17,18 @@ This package implements the [Model Context Protocol](https://modelcontextprotoco
 
 **Task creation is human-only** — tasks are created via the web UI. The agent only consumes and progresses work items.
 
+## Worktree convention
+
+When the agent claims a task it creates a dedicated git worktree in the target repository **before touching any code**, and does all work inside it:
+
+```sh
+git worktree add .worktrees/AF-7 -b task/AF-7
+```
+
+One task = one worktree = one branch (`task/<key>`). The worktree and branch are recorded on the task via `submit_result` links (kinds `worktree` and `branch`) so the reviewer can find the work, and parallel agents never collide because each task is isolated in its own checkout. Add `.worktrees/` to the target repo's `.gitignore`.
+
+The convention is embedded in the `get_next_task` and `submit_result` tool descriptions, so any MCP agent runtime picks it up without extra prompting.
+
 ## Build
 
 Build core first (the mcp package depends on it), then mcp:
