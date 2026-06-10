@@ -17,7 +17,7 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
     },
     async ({ workspace }) => {
       try {
-        const task = core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace });
+        const task = core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel });
         if (task === null) {
           return {
             content: [

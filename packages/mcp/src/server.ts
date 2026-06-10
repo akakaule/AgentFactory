@@ -8,7 +8,10 @@ import { registerSubmitResult } from './tools/submitResult.js';
 import { registerUpdateStatus } from './tools/updateStatus.js';
 
 /** Deploy-time defaults; env is read at the entry point, not in tools. */
-export interface ServerOptions { defaultWorkspace?: string | undefined; }
+export interface ServerOptions {
+  defaultWorkspace?: string | undefined;
+  workerLabel?: string | undefined; // recorded as claimed_by on every claim
+}
 
 export function buildServer(core: Core, opts: ServerOptions = {}): McpServer {
   const server = new McpServer({ name: 'agentfactory', version: '0.1.0' });

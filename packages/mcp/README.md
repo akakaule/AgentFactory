@@ -42,6 +42,12 @@ Every task belongs to a **workspace** — a named git repository (or any working
 
 A claim or list with an unknown workspace slug fails loudly (tool error) rather than idling on an empty-looking queue — a typo'd worker config should be visible immediately. Workspace creation is human-only (web UI), like task creation.
 
+## Claim metadata & stranded claims
+
+Every claim records **who** (`claimed_by`) and **when** (`claimed_at`) on the task, shown on the board. The worker's identity comes from the `AGENTFACTORY_WORKER` env var, falling back to the `AGENTFACTORY_WORKSPACE` pin; with neither set, claims are anonymous but still timestamped.
+
+If a worker dies mid-task, the task sits in In Progress with its claim age visible. A human releases it from the web UI (**Release claim**, `in_progress → queued`) — the claim is cleared, all activity history is preserved, and the next claimant picks it up with full context. Agents cannot release claims.
+
 ## Worktree convention
 
 When the agent claims a task it creates a dedicated git worktree **under the task's workspace repository** before touching any code, and does all work inside it:

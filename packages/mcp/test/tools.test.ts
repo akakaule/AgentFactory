@@ -250,6 +250,31 @@ describe('workspace scoping', () => {
 });
 
 // ---------------------------------------------------------------------------
+// worker label → claim metadata
+// ---------------------------------------------------------------------------
+describe('worker label → claimedBy', () => {
+  it('claimed payload carries claimedBy/claimedAt when the server has a worker label', async () => {
+    const { client, core } = await makeClient({ workerLabel: 'worker-7' });
+    const t = core.createTask(makeTaskInput('T'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.claimedBy).toBe('worker-7');
+    expect(typeof payload.claimedAt).toBe('string');
+  });
+
+  it('claimedBy is null when no label is configured (claimedAt still set)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('T'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.claimedBy).toBeNull();
+    expect(typeof payload.claimedAt).toBe('string');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // input-schema rejection
 // ---------------------------------------------------------------------------
 describe('input-schema rejection', () => {
