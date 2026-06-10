@@ -5,9 +5,10 @@ import { TaskRow } from '../components/TaskRow.js';
 interface Props {
   tasks: Task[];
   onSelect: (key: string) => void;
+  showWorkspaceBadges?: boolean;
 }
 
-export function GroupedList({ tasks, onSelect }: Props) {
+export function GroupedList({ tasks, onSelect, showWorkspaceBadges }: Props) {
   return (
     <div>
       {LIFECYCLE_ORDER.map((status) => {
@@ -19,7 +20,7 @@ export function GroupedList({ tasks, onSelect }: Props) {
               {STATUS_LABELS[status]}
             </h3>
             {group.map((task) => (
-              <TaskRow key={task.key} task={task} onSelect={onSelect} />
+              <TaskRow key={task.key} task={task} onSelect={onSelect} showWorkspace={showWorkspaceBadges} />
             ))}
           </div>
         );

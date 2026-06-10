@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Workspace } from './types.js';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init?.body ? { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } } : init);
@@ -12,9 +12,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
 
 export const api = {
-  listTasks: (status?: Status) => req<Task[]>(`/api/tasks${status ? `?status=${status}` : ''}`),
+  listTasks: (opts: { status?: Status; workspace?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.status) q.set('status', opts.status);
+    if (opts.workspace) q.set('workspace', opts.workspace);
+    const qs = q.toString();
+    return req<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`);
+  },
   getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
-  createTask: (b: { title: string; spec: string; acceptanceCriteria: string }) => req<Task>('/api/tasks', body(b)),
+  createTask: (b: { title: string; spec: string; acceptanceCriteria: string; workspace?: string }) => req<Task>('/api/tasks', body(b)),
+  listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
+  createWorkspace: (b: { name: string; repoPath: string }) => req<Workspace>('/api/workspaces', body(b)),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
   setStatus: (key: string, status: Status) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status })),

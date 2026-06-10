@@ -37,6 +37,8 @@ const backlogTask: TaskDetail = {
   acceptanceCriteria: 'These are the acceptance criteria',
   resultSummary: null,
   seq: 1,
+  workspace: 'repo-a',
+  repoPath: 'c:/git/repo-a',
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   activity: [
@@ -99,6 +101,16 @@ describe('DetailPanel', () => {
     expect(screen.getByText('These are the acceptance criteria')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'PR #42' })).toHaveAttribute('href', 'https://example.com/pr/42');
     expect(screen.getByText('A comment here')).toBeInTheDocument();
+  });
+
+  it('renders the workspace and repo path', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(backlogTask);
+
+    render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('repo-a')).toBeInTheDocument();
+    expect(screen.getByText('c:/git/repo-a')).toBeInTheDocument();
   });
 
   it('renders the "Release to Queued" button for a backlog task', async () => {

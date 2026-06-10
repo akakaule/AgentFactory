@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { GroupedList } from '../../client/src/views/GroupedList.js';
 import type { Task } from '../../client/src/types.js';
 
-function makeTask(key: string, title: string, status: Task['status']): Task {
+function makeTask(key: string, title: string, status: Task['status'], workspace = 'default'): Task {
   return {
     id: Math.random(),
     key,
@@ -14,6 +14,7 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     acceptanceCriteria: 'ac',
     resultSummary: null,
     seq: 1,
+    workspace,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
   };
@@ -64,5 +65,17 @@ describe('GroupedList', () => {
 
     await user.click(screen.getByText('Queued task'));
     expect(onSelect).toHaveBeenCalledWith('AF-2');
+  });
+
+  it('shows workspace badges when showWorkspaceBadges is set', () => {
+    const mixed = [makeTask('AF-1', 'A task', 'backlog', 'repo-a')];
+    render(<GroupedList tasks={mixed} onSelect={vi.fn()} showWorkspaceBadges />);
+    expect(screen.getByText('repo-a')).toBeInTheDocument();
+  });
+
+  it('hides workspace badges by default', () => {
+    const mixed = [makeTask('AF-1', 'A task', 'backlog', 'repo-a')];
+    render(<GroupedList tasks={mixed} onSelect={vi.fn()} />);
+    expect(screen.queryByText('repo-a')).not.toBeInTheDocument();
   });
 });

@@ -6,9 +6,10 @@ interface Props {
   status: Status;
   tasks: Task[];
   onSelect: (key: string) => void;
+  showWorkspaceBadges?: boolean;
 }
 
-export function StatusColumn({ status, tasks, onSelect }: Props) {
+export function StatusColumn({ status, tasks, onSelect, showWorkspaceBadges }: Props) {
   return (
     <div
       style={{
@@ -34,7 +35,7 @@ export function StatusColumn({ status, tasks, onSelect }: Props) {
       </div>
       <div>
         {tasks.map((task) => (
-          <TaskRow key={task.key} task={task} onSelect={onSelect} />
+          <TaskRow key={task.key} task={task} onSelect={onSelect} showWorkspace={showWorkspaceBadges} />
         ))}
       </div>
     </div>

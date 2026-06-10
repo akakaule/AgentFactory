@@ -4,9 +4,10 @@ import { StatusBadge } from './StatusBadge.js';
 interface Props {
   task: Task;
   onSelect: (key: string) => void;
+  showWorkspace?: boolean;
 }
 
-export function TaskRow({ task, onSelect }: Props) {
+export function TaskRow({ task, onSelect, showWorkspace }: Props) {
   return (
     <div
       role="button"
@@ -26,6 +27,19 @@ export function TaskRow({ task, onSelect }: Props) {
         {task.key}
       </span>
       <span style={{ flex: 1 }}>{task.title}</span>
+      {showWorkspace && (
+        <span
+          style={{
+            fontSize: '0.75rem',
+            color: '#555',
+            backgroundColor: '#eef1f6',
+            borderRadius: '10px',
+            padding: '2px 8px',
+          }}
+        >
+          {task.workspace}
+        </span>
+      )}
       <StatusBadge status={task.status} />
     </div>
   );

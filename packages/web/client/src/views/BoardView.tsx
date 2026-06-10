@@ -5,9 +5,10 @@ import { StatusColumn } from '../components/StatusColumn.js';
 interface Props {
   tasks: Task[];
   onSelect: (key: string) => void;
+  showWorkspaceBadges?: boolean;
 }
 
-export function BoardView({ tasks, onSelect }: Props) {
+export function BoardView({ tasks, onSelect, showWorkspaceBadges }: Props) {
   return (
     <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', padding: '8px 0' }}>
       {LIFECYCLE_ORDER.map((status) => (
@@ -16,6 +17,7 @@ export function BoardView({ tasks, onSelect }: Props) {
           status={status}
           tasks={tasks.filter((t) => t.status === status)}
           onSelect={onSelect}
+          showWorkspaceBadges={showWorkspaceBadges}
         />
       ))}
     </div>

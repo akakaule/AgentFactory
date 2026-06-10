@@ -83,6 +83,12 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
             <div style={{ marginBottom: '12px' }}>
               <h2 style={{ margin: '0 0 8px 0' }}>{task.title}</h2>
               <StatusBadge status={task.status} />
+              <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#666' }}>
+                <span style={{ backgroundColor: '#eef1f6', borderRadius: '10px', padding: '2px 8px' }}>
+                  {task.workspace}
+                </span>
+                <code style={{ marginLeft: '8px' }}>{task.repoPath}</code>
+              </div>
             </div>
 
             {/* Spec */}

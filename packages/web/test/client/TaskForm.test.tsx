@@ -55,6 +55,29 @@ describe('TaskForm (create mode)', () => {
   });
 });
 
+describe('TaskForm workspace picker', () => {
+  it('renders a dropdown with multiple workspaces and submits the chosen one', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TaskForm mode="create" onSubmit={onSubmit} workspaces={['default', 'repo-a']} initialWorkspace="default" />,
+    );
+
+    await user.selectOptions(screen.getByLabelText('Workspace'), 'repo-a');
+    await user.type(screen.getByPlaceholderText('Task title'), 'T');
+    await user.type(screen.getByPlaceholderText('Describe the task…'), 'S');
+    await user.type(screen.getByPlaceholderText('Define done…'), 'A');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'repo-a' }));
+  });
+
+  it('hides the dropdown when only one workspace exists', () => {
+    render(<TaskForm mode="create" onSubmit={vi.fn()} workspaces={['default']} />);
+    expect(screen.queryByLabelText('Workspace')).not.toBeInTheDocument();
+  });
+});
+
 describe('TaskForm (edit mode)', () => {
   it('prefills fields from initial and calls onSubmit with updated values', async () => {
     const onSubmit = vi.fn();

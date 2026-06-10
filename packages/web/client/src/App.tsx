@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useTasks } from './useTasks.js';
+import { useWorkspaces } from './useWorkspaces.js';
 import { api } from './api.js';
 import { GroupedList } from './views/GroupedList.js';
 import { BoardView } from './views/BoardView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
+import { WorkspacesModal } from './components/WorkspacesModal.js';
 
 type View = 'list' | 'board';
 
@@ -12,7 +14,13 @@ export function App() {
   const [view, setView] = useState<View>('list');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const { tasks, refetch } = useTasks();
+  const [managingWorkspaces, setManagingWorkspaces] = useState(false);
+  const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
+  const [lastWorkspace, setLastWorkspace] = useState('default');
+  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces();
+  const { tasks, refetch } = useTasks(workspaceFilter);
+
+  const multiWorkspace = workspaces.length >= 2;
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -31,6 +39,19 @@ export function App() {
         }}
       >
         <h1 style={{ margin: 0, fontSize: '1.25rem' }}>AgentFactory</h1>
+        {multiWorkspace && (
+          <select
+            aria-label="Workspace filter"
+            value={workspaceFilter ?? ''}
+            onChange={(e) => setWorkspaceFilter(e.target.value || null)}
+            style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ccc' }}
+          >
+            <option value="">All workspaces</option>
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.name}>{w.name}</option>
+            ))}
+          </select>
+        )}
         <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
           <button
             onClick={() => setView('list')}
@@ -60,6 +81,19 @@ export function App() {
           </button>
         </div>
         <button
+          onClick={() => setManagingWorkspaces(true)}
+          style={{
+            padding: '4px 14px',
+            backgroundColor: '#f0f0f0',
+            color: '#333',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Workspaces
+        </button>
+        <button
           onClick={() => setCreating(true)}
           style={{
             padding: '4px 14px',
@@ -77,9 +111,9 @@ export function App() {
       {/* Main content */}
       <main style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         {view === 'list' ? (
-          <GroupedList tasks={tasks} onSelect={setSelectedKey} />
+          <GroupedList tasks={tasks} onSelect={setSelectedKey} showWorkspaceBadges={multiWorkspace} />
         ) : (
-          <BoardView tasks={tasks} onSelect={setSelectedKey} />
+          <BoardView tasks={tasks} onSelect={setSelectedKey} showWorkspaceBadges={multiWorkspace} />
         )}
       </main>
 
@@ -117,8 +151,11 @@ export function App() {
           >
             <TaskForm
               mode="create"
+              workspaces={workspaces.map((w) => w.name)}
+              initialWorkspace={lastWorkspace}
               onSubmit={async (b) => {
                 await api.createTask(b);
+                if (b.workspace) setLastWorkspace(b.workspace);
                 setCreating(false);
                 refetch();
               }}
@@ -126,6 +163,15 @@ export function App() {
             />
           </div>
         </div>
+      )}
+
+      {/* Workspaces modal */}
+      {managingWorkspaces && (
+        <WorkspacesModal
+          workspaces={workspaces}
+          onCreated={refetchWorkspaces}
+          onClose={() => setManagingWorkspaces(false)}
+        />
       )}
     </div>
   );

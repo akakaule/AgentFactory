@@ -10,7 +10,8 @@ vi.mock('../../client/src/api.js', () => ({
     getTask: vi.fn().mockResolvedValue({
       id: 1, key: 'AF-1', title: 'Test task', status: 'backlog',
       spec: 'spec', acceptanceCriteria: 'ac', resultSummary: null,
-      seq: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+      seq: 1, workspace: 'default', repoPath: '.',
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
       activity: [], links: [],
     }),
     createTask: vi.fn().mockResolvedValue({}),
@@ -19,10 +20,18 @@ vi.mock('../../client/src/api.js', () => ({
     approve: vi.fn().mockResolvedValue({}),
     requestChanges: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue({}),
+    listWorkspaces: vi.fn(),
+    createWorkspace: vi.fn().mockResolvedValue({}),
   },
 }));
 
+import { api } from '../../client/src/api.js';
+
+const ws = (id: number, name: string, repoPath: string) =>
+  ({ id, name, repoPath, createdAt: '2024-01-01T00:00:00Z' });
+
 beforeEach(() => {
+  vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.')]);
   // Set up no-op EventSource for App (uses useTasks → useEventStream)
   globalThis.EventSource = vi.fn().mockImplementation(() => ({
     addEventListener: vi.fn(),
@@ -83,5 +92,40 @@ describe('App', () => {
     // Back in list view — no board columns (h3 headers for groups only appear in list)
     expect(screen.queryByText('In Progress')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument();
+  });
+
+  it('hides the workspace filter while only one workspace exists', async () => {
+    render(<App />);
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByLabelText('Workspace filter')).not.toBeInTheDocument();
+  });
+
+  it('shows the workspace filter when two or more workspaces exist', async () => {
+    vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
+    render(<App />);
+    expect(await screen.findByLabelText('Workspace filter')).toBeInTheDocument();
+  });
+
+  it('refetches tasks scoped to the selected workspace', async () => {
+    vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const select = await screen.findByLabelText('Workspace filter');
+    await user.selectOptions(select, 'repo-a');
+
+    expect(api.listTasks).toHaveBeenCalledWith({ workspace: 'repo-a' });
+  });
+
+  it('creates a workspace from the Workspaces modal', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Workspaces' }));
+    await user.type(screen.getByPlaceholderText('workspace-slug'), 'repo-b');
+    await user.type(screen.getByPlaceholderText('Absolute repo path'), 'C:/Git/RepoB');
+    await user.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    expect(api.createWorkspace).toHaveBeenCalledWith({ name: 'repo-b', repoPath: 'C:/Git/RepoB' });
   });
 });

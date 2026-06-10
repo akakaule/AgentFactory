@@ -5,6 +5,7 @@ interface FormFields {
   title: string;
   spec: string;
   acceptanceCriteria: string;
+  workspace?: string;
 }
 
 interface Props {
@@ -12,13 +13,18 @@ interface Props {
   initial?: Pick<Task, 'title' | 'spec' | 'acceptanceCriteria'>;
   onSubmit: (fields: FormFields) => void;
   onCancel?: () => void;
+  workspaces?: string[];
+  initialWorkspace?: string;
 }
 
-export function TaskForm({ mode, initial, onSubmit, onCancel }: Props) {
+export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initialWorkspace }: Props) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [spec, setSpec] = useState(initial?.spec ?? '');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState(initial?.acceptanceCriteria ?? '');
+  const [workspace, setWorkspace] = useState(initialWorkspace ?? workspaces?.[0] ?? 'default');
   const [error, setError] = useState<string | null>(null);
+
+  const showWorkspacePicker = mode === 'create' && (workspaces?.length ?? 0) > 1;
 
   const handleSubmit = () => {
     const t = title.trim();
@@ -29,13 +35,32 @@ export function TaskForm({ mode, initial, onSubmit, onCancel }: Props) {
       return;
     }
     setError(null);
-    onSubmit({ title: t, spec: s, acceptanceCriteria: ac });
+    onSubmit(
+      showWorkspacePicker
+        ? { title: t, spec: s, acceptanceCriteria: ac, workspace }
+        : { title: t, spec: s, acceptanceCriteria: ac },
+    );
   };
 
   return (
     <div style={{ padding: '16px' }}>
       <h3 style={{ marginTop: 0 }}>{mode === 'create' ? 'New Task' : 'Edit Task'}</h3>
       {error && <div style={{ color: '#e5534b', marginBottom: '8px' }}>{error}</div>}
+      {showWorkspacePicker && (
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Workspace</label>
+          <select
+            aria-label="Workspace"
+            value={workspace}
+            onChange={(e) => setWorkspace(e.target.value)}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px' }}
+          >
+            {workspaces!.map((w) => (
+              <option key={w} value={w}>{w}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div style={{ marginBottom: '12px' }}>
         <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Title</label>
         <input
