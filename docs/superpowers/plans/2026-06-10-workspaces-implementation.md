@@ -10,6 +10,15 @@ pass. Run the touched package's suite after each task; full `npm test` at each p
 
 ---
 
+## Phase 0 — land in-flight work
+
+Commit the pending worktree-convention working-tree changes first (`getNextTask.ts` /
+`submitResult.ts` descriptions, `registry.test.ts` worktree assertion, mcp README
+worktree section, root README / `package.json` dev-server notes, `.gitignore`
+`.worktrees/`) — task 2.2 edits those same description lines again.
+
+---
+
 ## Phase 1 — core
 
 ### 1.1 Migration #2: workspace table + task.workspace_id
@@ -24,12 +33,16 @@ pass. Run the touched package's suite after each task; full `npm test` at each p
   - re-running `runMigrations` is a no-op (idempotency via `user_version`).
 - **Note:** seed insert uses `nowIso()` from the migration function (migrations are JS
   functions, not raw SQL — timestamp is fine).
+- **Caution:** the `ALTER TABLE` must **not** carry a `REFERENCES workspace(id)` clause —
+  with `foreign_keys = ON` SQLite rejects a REFERENCES column with a non-NULL default,
+  and the pragma cannot be toggled inside the migration transaction (see spec, Data
+  model). Integrity is app-level.
 
 ### 1.2 Workspace repo + ops: `createWorkspace`, `listWorkspaces`
 
 - **Files:** new `packages/core/src/repo/workspaces.ts`, new
   `packages/core/src/ops/createWorkspace.ts` + `ops/listWorkspaces.ts`,
-  `validate.ts` (slug schema `[a-z0-9][a-z0-9-]*`, non-empty `repoPath`),
+  `validate.ts` (slug schema `^[a-z0-9][a-z0-9-]*$`, max 64 chars, non-empty `repoPath`),
   `types.ts` (`Workspace`), `index.ts` (exports + `createCore` wiring).
 - **Tests:** create → returned shape + listed; duplicate name → `ValidationError`;
   invalid slug (`'My Repo'`, `''`, uppercase) → `ValidationError`.
@@ -46,7 +59,10 @@ pass. Run the touched package's suite after each task; full `npm test` at each p
 
 ### 1.4 Scoped claiming + filtered listing
 
-- **Files:** `ops/claimNextTask.ts`, `repo/tasks.ts` (`nextQueued(workspaceId?)`),
+- **Files:** `ops/claimNextTask.ts` — the claim SELECT is **inlined** there
+  (`claimNextTask.ts:12-14`), not in the repo layer; parameterize it with an optional
+  `workspace_id` filter. `repo/tasks.ts#oldestQueuedRow` is dead code (zero callers) —
+  either route the claim through it with the new param or delete it. Also
   `ops/listTasks.ts`, `index.ts` (signatures `claimNextTask(workspace?)`,
   `listTasks({status?, workspace?})`).
 - **Tests:** queue A1, B1, A2 (A/B workspaces) → claim(`A`) = A1 then A2, never B1;
@@ -55,9 +71,15 @@ pass. Run the touched package's suite after each task; full `npm test` at each p
 
 ### 1.5 `TaskDetail.repoPath` + `getVersion` includes workspaces
 
-- **Files:** `types.ts`, the detail assemblers (`ops/getTask.ts`, `ops/claimNextTask.ts`,
-  and the shared detail builder the ops use), `version.ts` (add
-  `MAX(created_at) FROM workspace` to the union).
+- **Files:** `types.ts`; `version.ts` (add `MAX(created_at) FROM workspace` to the
+  union). There is **no shared detail builder** today — six ops inline the same
+  `{ ...task, activity: recentActivity(...), links: linksFor(...) }` spread (`getTask`,
+  `claimNextTask`, `submitResult`, `updateStatus`, `reviewApprove`,
+  `reviewRequestChanges`). Extract a small shared `toDetail(db, row)` helper (e.g. in
+  `repo/tasks.ts`), switch all six to it, then add `repoPath` there once.
+- **Watch-out:** `claimNextTask.ts:22` re-spreads the row into
+  `toTask({ ...row, status: ..., updated_at: ... })` — the workspace JOIN columns must
+  survive that spread (cover with a test).
 - **Tests:** claimed/fetched detail carries `repoPath` (`'.'` for default); creating a
   workspace bumps `getVersion()`.
 
@@ -113,8 +135,9 @@ pass. Run the touched package's suite after each task; full `npm test` at each p
 
 ### 4.1 API client + types
 
-- **Files:** `client/src/types.ts` (mirror `Workspace`, `Task.workspace`,
-  `TaskDetail.repoPath`), `client/src/api.ts` (`fetchWorkspaces`, `createWorkspace`,
+- **Files:** `client/src/types.ts` (one-line change: add `Workspace` to the existing
+  re-export from `@agentfactory/core` — `Task.workspace` / `TaskDetail.repoPath` flow
+  through automatically), `client/src/api.ts` (`fetchWorkspaces`, `createWorkspace`,
   task create/list accept workspace).
 
 ### 4.2 Task form picker + board filter + badges
@@ -123,7 +146,10 @@ pass. Run the touched package's suite after each task; full `npm test` at each p
   `App.tsx`/`useTasks.ts` (filter state → `?workspace=`), `views/BoardView.tsx` +
   `views/GroupedList.tsx`/`TaskRow.tsx` (badge when ≥ 2 workspaces),
   `components/DetailPanel.tsx` (workspace + repoPath line), plus a minimal workspace
-  create affordance (small section or modal — follow existing component idiom).
+  create affordance (small section or modal). **Idiom note:** no dropdown/select exists
+  anywhere in the client yet; the closest pattern is the List/Board button toggle in
+  `App.tsx`. The workspace filter is also the app's *first* filter control — the
+  server-side `status` filter has no UI today.
 - **Tests** (Testing Library, mirroring existing component tests): form submits chosen
   workspace; filter narrows rendered tasks; badge hidden at 1 workspace / shown at 2;
   workspace create form posts and refreshes the list.
@@ -160,7 +186,5 @@ walkthrough in the browser.
 - **SQLite `ALTER TABLE ... NOT NULL`** requires the `DEFAULT 1`; correctness rests on the
   seeded row being `id = 1` (guaranteed: first insert into a fresh table in the same
   transaction). The migration test asserts it explicitly.
-- **Client `types.ts` drift:** types are mirrored, not imported, in the client — update
-  both or the client silently lags (existing repo convention; keep it).
 - Estimated touch: ~12 source files + ~8 test files across 3 packages; no dependency
   additions.

@@ -51,9 +51,10 @@ workable, but there is no unified board, which defeats the tool's purpose.
 | Decision | Choice | Why |
 |----------|--------|-----|
 | Representation | **First-class `workspace` entity** (table), not a text column on task | Path lives in one place; renames/moves are one-row edits; UI gets a real picker; validation is structural. A `repo_path` column per task duplicates state and makes the dropdown a `DISTINCT` scan. |
-| Workspace identity at API boundaries | **Slug name** (`[a-z0-9][a-z0-9-]*`), unique | Human-typeable in env vars / loop prompts / MCP params; ids stay internal. |
+| Workspace identity at API boundaries | **Slug name** (`^[a-z0-9][a-z0-9-]*$`, max 64 chars), unique | Human-typeable in env vars / loop prompts / MCP params; ids stay internal. |
 | `repo_path` semantics | Absolute path recommended; **`'.'` means "the agent's cwd"** | `'.'` is the back-compat value for the seeded `default` workspace — exactly today's behavior, where the agent works wherever it was launched. The board never touches the path itself (it's data, not config); only agents resolve it. No fs-existence validation server-side. |
 | Backfill | Migration seeds `default` workspace (`repo_path '.'`), all existing tasks get `workspace_id` of that row; column is `NOT NULL` | Every task always has a workspace; no nullable special case threaded through queries and UI. |
+| FK enforcement for `task.workspace_id` | **App-level — no `REFERENCES` clause on the added column** | With `foreign_keys = ON` (set in `openDb`), SQLite rejects `ALTER TABLE ... ADD COLUMN` combining `REFERENCES` with a non-NULL default, and the pragma is a no-op inside the migration's transaction. `createTask` resolves slug → id in-transaction (unknown slug → `NotFoundError`) and workspace deletion is a non-goal, so no dangling-id path exists. |
 | Claim scoping | `claimNextTask(workspace?)`: with a slug → FIFO **within** that workspace; without → global FIFO (today's behavior) | Scoped workers and a "roaming" worker both stay expressible. |
 | Unknown workspace on claim/filter | **Throw `NotFoundError`** | A typo'd worker config should fail loudly, not idle forever on an empty-looking queue. |
 | MCP worker pinning | Optional env **`AGENTFACTORY_WORKSPACE`** on the MCP server = default for `get_next_task`/`list_tasks` when the param is omitted; explicit param overrides | Deploy-time intent lives in the worker's MCP config next to `AGENTFACTORY_DB`; the agent cannot forget to scope itself. Override stays possible because the env is a default, not an ACL — this is a single-user tool. |
@@ -69,18 +70,26 @@ migration #1 / `SCHEMA_SQL` stays frozen):
 ```sql
 CREATE TABLE workspace (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE,      -- slug: [a-z0-9][a-z0-9-]*
+  name       TEXT NOT NULL UNIQUE,      -- slug: ^[a-z0-9][a-z0-9-]*$, max 64 chars
   repo_path  TEXT NOT NULL,             -- absolute path, or '.' = agent cwd
   created_at TEXT NOT NULL
 );
 INSERT INTO workspace(name, repo_path, created_at) VALUES ('default', '.', :now);
-ALTER TABLE task ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1 REFERENCES workspace(id);
+ALTER TABLE task ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1;  -- no REFERENCES, see below
 CREATE INDEX idx_task_workspace ON task(workspace_id, status, seq);
 ```
 
 - The seeded row is the first insert into a fresh table inside the same transaction, so
   `id = 1` is guaranteed; `DEFAULT 1` exists **only** as the backfill mechanism for
   pre-existing rows. `createTask` always sets `workspace_id` explicitly from this point on.
+- The added column deliberately has **no `REFERENCES workspace(id)` clause**: `openDb`
+  sets `PRAGMA foreign_keys = ON`, and SQLite rejects `ALTER TABLE ... ADD COLUMN`
+  combining a `REFERENCES` clause with a non-NULL default ("Cannot add a REFERENCES
+  column with non-NULL default value" — verified against `node:sqlite`). Toggling the
+  pragma off is not an option either: it is a no-op inside a transaction, and
+  `runMigrations` wraps each migration in `BEGIN IMMEDIATE`. Referential integrity is
+  app-level instead — `createTask` resolves slug → id inside its transaction, and
+  workspace deletion is a non-goal, so a dangling `workspace_id` has no code path.
 - `getVersion()` (the SSE change-detection probe) adds `workspace.created_at` to its
   `MAX(...)` union so workspace creation refreshes connected clients.
 
@@ -155,8 +164,9 @@ Worker config example (worker-per-workspace):
 ## Acceptance criteria (feature-level)
 
 1. Fresh DB: migration yields `user_version = 2`, a `default` workspace, and unchanged
-   behavior for all existing flows (full test suite green with no test edits other than
-   additions).
+   behavior for all existing flows (full test suite green; existing tests may need
+   minimal payload-shape touch-ups for the new `workspace` field, but no behavioral
+   rewrites).
 2. Existing v1 DB: opening it migrates in place; all pre-existing tasks belong to
    `default`; nothing else changes.
 3. Two workspaces with queued tasks: a worker claiming with `workspace: A` only ever
