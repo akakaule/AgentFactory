@@ -181,6 +181,75 @@ describe('update_status', () => {
 });
 
 // ---------------------------------------------------------------------------
+// workspace scoping
+// ---------------------------------------------------------------------------
+describe('workspace scoping', () => {
+  type Core = Awaited<ReturnType<typeof makeClient>>['core'];
+  function seedTwoWorkspaces(core: Core) {
+    core.createWorkspace({ name: 'a', repoPath: '/repo-a' });
+    core.createWorkspace({ name: 'b', repoPath: '/repo-b' });
+    const a1 = core.createTask({ ...makeTaskInput('A1'), workspace: 'a' });
+    const b1 = core.createTask({ ...makeTaskInput('B1'), workspace: 'b' });
+    core.updateStatus(a1.key, 'queued', 'human');
+    core.updateStatus(b1.key, 'queued', 'human');
+    return { a1, b1 };
+  }
+
+  it('get_next_task with a workspace param claims only from that workspace; payload carries workspace + repoPath', async () => {
+    const { client, core } = await makeClient();
+    const { b1 } = seedTwoWorkspaces(core);
+
+    const res = await client.callTool({ name: 'get_next_task', arguments: { workspace: 'b' } });
+    expect(res.isError).toBeFalsy();
+    const payload = JSON.parse(textOf(res));
+    expect(payload.key).toBe(b1.key);
+    expect(payload.workspace).toBe('b');
+    expect(payload.repoPath).toBe('/repo-b');
+
+    // nothing queued in 'b' anymore — a1 must not leak across
+    const empty = await client.callTool({ name: 'get_next_task', arguments: { workspace: 'b' } });
+    expect(JSON.parse(textOf(empty)).task).toBeNull();
+  });
+
+  it('AGENTFACTORY_WORKSPACE pin applies when the param is omitted', async () => {
+    const { client, core } = await makeClient({ defaultWorkspace: 'b' });
+    const { b1 } = seedTwoWorkspaces(core);
+
+    const res = await client.callTool({ name: 'get_next_task', arguments: {} });
+    expect(JSON.parse(textOf(res)).key).toBe(b1.key);
+    // a1 is still queued in 'a' but invisible to the pinned worker
+    const empty = await client.callTool({ name: 'get_next_task', arguments: {} });
+    expect(JSON.parse(textOf(empty)).task).toBeNull();
+  });
+
+  it('an explicit param overrides the pin', async () => {
+    const { client, core } = await makeClient({ defaultWorkspace: 'b' });
+    const { a1 } = seedTwoWorkspaces(core);
+
+    const res = await client.callTool({ name: 'get_next_task', arguments: { workspace: 'a' } });
+    expect(JSON.parse(textOf(res)).key).toBe(a1.key);
+  });
+
+  it('an unknown workspace surfaces as a tool error', async () => {
+    const { client } = await makeClient();
+    const res = await client.callTool({ name: 'get_next_task', arguments: { workspace: 'nope' } });
+    expect(res.isError).toBe(true);
+    expect(textOf(res).toLowerCase()).toContain('workspace not found');
+  });
+
+  it('list_tasks filters by workspace, with the same pin fallback and override', async () => {
+    const { client, core } = await makeClient({ defaultWorkspace: 'a' });
+    const { a1, b1 } = seedTwoWorkspaces(core);
+
+    const pinned = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: {} })));
+    expect(pinned.map((t: any) => t.key)).toEqual([a1.key]);
+
+    const overridden = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: { workspace: 'b' } })));
+    expect(overridden.map((t: any) => t.key)).toEqual([b1.key]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // input-schema rejection
 // ---------------------------------------------------------------------------
 describe('input-schema rejection', () => {

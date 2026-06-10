@@ -38,7 +38,7 @@ export function createCore(db: DB) {
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
-    listTasks: (opts: { status?: Status; workspace?: string } = {}) => listTasks(db, opts),
+    listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined } = {}) => listTasks(db, opts),
     getTask: (key: string) => getTask(db, key),
     claimNextTask: (workspace?: string) => claimNextTask(db, workspace),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),

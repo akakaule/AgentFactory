@@ -1,12 +1,12 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { openCore } from '@agentfactory/core';
-import { buildServer } from '../src/server.js';
+import { buildServer, type ServerOptions } from '../src/server.js';
 
-export async function makeClient() {
+export async function makeClient(opts: ServerOptions = {}) {
   const core = openCore(':memory:');
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  const server = buildServer(core);
+  const server = buildServer(core, opts);
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return { client, core };

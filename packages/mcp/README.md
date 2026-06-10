@@ -8,8 +8,8 @@ This package implements the [Model Context Protocol](https://modelcontextprotoco
 
 | Tool | Description |
 |---|---|
-| `list_tasks` | List tasks, optionally filtered by status |
-| `get_next_task` | Claim and return the next available task (status: `queued`) |
+| `list_tasks` | List tasks, optionally filtered by status and/or workspace |
+| `get_next_task` | Claim and return the next available task (status: `queued`), optionally scoped to a workspace |
 | `get_task` | Get a single task by key |
 | `add_comment` | Add a comment to a task |
 | `submit_result` | Submit a result for a completed task |
@@ -17,15 +17,40 @@ This package implements the [Model Context Protocol](https://modelcontextprotoco
 
 **Task creation is human-only** — tasks are created via the web UI. The agent only consumes and progresses work items.
 
-## Worktree convention
+## Workspaces
 
-When the agent claims a task it creates a dedicated git worktree in the target repository **before touching any code**, and does all work inside it:
+Every task belongs to a **workspace** — a named git repository (or any working directory) where its work happens. The claimed task's payload carries `workspace` (the slug) and `repoPath`. The seeded `default` workspace has `repoPath: "."`, meaning "the agent's current working directory" — exactly the single-repo behavior from before workspaces existed.
 
-```sh
-git worktree add .worktrees/AF-7 -b task/AF-7
+**Worker-per-workspace (recommended):** pin the server to one workspace via the `AGENTFACTORY_WORKSPACE` env var. `get_next_task` and `list_tasks` then default to that workspace when the `workspace` param is omitted, so a worker launched for repo A can never accidentally claim repo-B work. An explicit `workspace` param still overrides the pin (it is a default, not an ACL — this is a single-user tool).
+
+```json
+{
+  "mcpServers": {
+    "agentfactory": {
+      "command": "node",
+      "args": ["c:\\Git\\AgentFactory\\packages\\mcp\\dist\\index.js"],
+      "env": {
+        "AGENTFACTORY_DB": "c:\\Git\\AgentFactory\\agentfactory.db",
+        "AGENTFACTORY_WORKSPACE": "shopfloor"
+      }
+    }
+  }
+}
 ```
 
-One task = one worktree = one branch (`task/<key>`). The worktree and branch are recorded on the task via `submit_result` links (kinds `worktree` and `branch`) so the reviewer can find the work, and parallel agents never collide because each task is isolated in its own checkout. Add `.worktrees/` to the target repo's `.gitignore`.
+**Roaming worker:** leave `AGENTFACTORY_WORKSPACE` unset; claims are global FIFO across all workspaces, and the agent reads `repoPath` off each claimed task and works there. This requires the agent session to have filesystem access to every workspace's repo (e.g. `--add-dir`).
+
+A claim or list with an unknown workspace slug fails loudly (tool error) rather than idling on an empty-looking queue — a typo'd worker config should be visible immediately. Workspace creation is human-only (web UI), like task creation.
+
+## Worktree convention
+
+When the agent claims a task it creates a dedicated git worktree **under the task's workspace repository** before touching any code, and does all work inside it:
+
+```sh
+git worktree add <repoPath>/.worktrees/AF-7 -b task/AF-7
+```
+
+When `repoPath` is `.`, resolve it against the agent's current working directory. One task = one worktree = one branch (`task/<key>`). The worktree and branch are recorded on the task via `submit_result` links (kinds `worktree` and `branch`) so the reviewer can find the work, and parallel agents never collide because each task is isolated in its own checkout. Add `.worktrees/` to the target repo's `.gitignore`.
 
 The convention is embedded in the `get_next_task` and `submit_result` tool descriptions, so any MCP agent runtime picks it up without extra prompting.
 

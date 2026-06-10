@@ -7,10 +7,13 @@ import { registerAddComment } from './tools/addComment.js';
 import { registerSubmitResult } from './tools/submitResult.js';
 import { registerUpdateStatus } from './tools/updateStatus.js';
 
-export function buildServer(core: Core): McpServer {
+/** Deploy-time defaults; env is read at the entry point, not in tools. */
+export interface ServerOptions { defaultWorkspace?: string | undefined; }
+
+export function buildServer(core: Core, opts: ServerOptions = {}): McpServer {
   const server = new McpServer({ name: 'agentfactory', version: '0.1.0' });
-  registerListTasks(server, core);
-  registerGetNextTask(server, core);
+  registerListTasks(server, core, opts);
+  registerGetNextTask(server, core, opts);
   registerGetTask(server, core);
   registerAddComment(server, core);
   registerSubmitResult(server, core);
