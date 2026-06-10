@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { TaskDetail } from '../types.js';
 import { api } from '../api.js';
+import { timeAgo } from '../time.js';
 import { useEventStream } from '../useEventStream.js';
 import { StatusBadge } from './StatusBadge.js';
 import { CommentBox } from './CommentBox.js';
@@ -179,6 +180,24 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                     Edit
                   </button>
                 )}
+              </section>
+            )}
+
+            {/* In-progress claim + release */}
+            {task.status === 'in_progress' && (
+              <section style={{ marginBottom: '12px', borderTop: '1px solid #e0e0e0', paddingTop: '12px' }}>
+                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '8px' }}>
+                  Claimed
+                  {task.claimedBy && <> by <strong>{task.claimedBy}</strong></>}
+                  {task.claimedAt && <> · {timeAgo(task.claimedAt)}</>}
+                </div>
+                <button
+                  onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
+                  style={{ padding: '6px 14px' }}
+                  title="Worker gone? Re-queue the task; history is preserved for the next claimant."
+                >
+                  Release claim
+                </button>
               </section>
             )}
 

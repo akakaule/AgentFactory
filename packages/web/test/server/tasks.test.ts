@@ -190,6 +190,19 @@ describe('tasks REST API', () => {
     });
   });
 
+  describe('POST /:key/status — release claim', () => {
+    it('releases an in_progress task to queued and clears claim metadata', async () => {
+      const task = core.createTask({ title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask({ claimedBy: 'worker-1' });
+
+      const res = await post(app, `/api/tasks/${task.key}/status`, { status: 'queued' });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; claimedBy: string | null; claimedAt: string | null };
+      expect(body).toMatchObject({ status: 'queued', claimedBy: null, claimedAt: null });
+    });
+  });
+
   describe('POST /:key/approve', () => {
     it('approves a task in_review → 200, status done', async () => {
       // Create task and drive to in_review via core

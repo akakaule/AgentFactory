@@ -15,6 +15,8 @@ function makeTask(key: string, title: string, status: Task['status'], workspace 
     resultSummary: null,
     seq: 1,
     workspace,
+    claimedBy: null,
+    claimedAt: null,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
   };
@@ -77,5 +79,16 @@ describe('GroupedList', () => {
     const mixed = [makeTask('AF-1', 'A task', 'backlog', 'repo-a')];
     render(<GroupedList tasks={mixed} onSelect={vi.fn()} />);
     expect(screen.queryByText('repo-a')).not.toBeInTheDocument();
+  });
+
+  it('shows a claim chip on claimed in_progress rows', () => {
+    const claimed = { ...makeTask('AF-9', 'Claimed task', 'in_progress'), claimedBy: 'worker-1', claimedAt: '2024-01-01T00:00:00Z' };
+    render(<GroupedList tasks={[claimed]} onSelect={vi.fn()} />);
+    expect(screen.getByText(/worker-1/)).toBeInTheDocument();
+  });
+
+  it('shows no claim chip on unclaimed rows', () => {
+    render(<GroupedList tasks={[makeTask('AF-1', 'Plain task', 'backlog')]} onSelect={vi.fn()} />);
+    expect(screen.queryByText(/claimed/i)).not.toBeInTheDocument();
   });
 });

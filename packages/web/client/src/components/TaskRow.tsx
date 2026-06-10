@@ -1,4 +1,5 @@
 import type { Task } from '../types.js';
+import { timeAgo } from '../time.js';
 import { StatusBadge } from './StatusBadge.js';
 
 interface Props {
@@ -27,6 +28,11 @@ export function TaskRow({ task, onSelect, showWorkspace }: Props) {
         {task.key}
       </span>
       <span style={{ flex: 1 }}>{task.title}</span>
+      {task.status === 'in_progress' && task.claimedAt && (
+        <span style={{ fontSize: '0.75rem', color: '#888' }}>
+          {task.claimedBy ?? 'claimed'} · {timeAgo(task.claimedAt)}
+        </span>
+      )}
       {showWorkspace && (
         <span
           style={{

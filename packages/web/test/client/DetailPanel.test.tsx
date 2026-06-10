@@ -39,6 +39,8 @@ const backlogTask: TaskDetail = {
   seq: 1,
   workspace: 'repo-a',
   repoPath: 'c:/git/repo-a',
+  claimedBy: null,
+  claimedAt: null,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   activity: [
@@ -78,6 +80,17 @@ const inReviewTask: TaskDetail = {
   links: [],
 };
 
+const inProgressTask: TaskDetail = {
+  ...backlogTask,
+  id: 3,
+  key: 'AF-12',
+  status: 'in_progress',
+  claimedBy: 'worker-1',
+  claimedAt: '2024-01-01T00:00:00Z',
+  activity: [],
+  links: [],
+};
+
 async function getApiMock() {
   const mod = await import('../../client/src/api.js');
   return mod.api as unknown as {
@@ -101,6 +114,30 @@ describe('DetailPanel', () => {
     expect(screen.getByText('These are the acceptance criteria')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'PR #42' })).toHaveAttribute('href', 'https://example.com/pr/42');
     expect(screen.getByText('A comment here')).toBeInTheDocument();
+  });
+
+  it('shows the claimant and a Release claim button on an in_progress task', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(inProgressTask);
+    mocked.setStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-12" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText(/worker-1/)).toBeInTheDocument();
+    const release = screen.getByRole('button', { name: 'Release claim' });
+    await user.click(release);
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-12', 'queued');
+  });
+
+  it('shows no Release claim button outside in_progress', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(inReviewTask);
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByText('Implementation complete');
+    expect(screen.queryByRole('button', { name: 'Release claim' })).not.toBeInTheDocument();
   });
 
   it('renders the workspace and repo path', async () => {
