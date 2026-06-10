@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **Spec:** [2026-06-11-claim-recovery-design.md](../specs/2026-06-11-claim-recovery-design.md)
-**Status:** Proposed — awaiting approval
+**Status:** Implemented (2026-06-11)
 
 Four phases, dependency-ordered (`core → mcp → web client → e2e/docs`). TDD per task:
 failing test first, implement, package suite green, full `npm test` at phase ends.

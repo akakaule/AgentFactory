@@ -1,7 +1,7 @@
 # AgentFactory — Claim recovery (claim metadata + human release)
 
 **Date:** 2026-06-11
-**Status:** Proposed — awaiting approval
+**Status:** Implemented (2026-06-11)
 **Grows from:** [2026-06-10 workspaces design](2026-06-10-workspaces-design.md), which deferred
 "the `in_progress` crash-recovery gap (no human transition out of `in_progress`) — real,
 adjacent, and separate". This is that change.

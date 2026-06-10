@@ -102,4 +102,44 @@ describe('e2e: two workspaces, two scoped workers, shared file DB', () => {
     const doneB = await (await app.request('/api/tasks?workspace=repo-b&status=done')).json() as Array<{ key: string }>;
     expect(doneB.map((t) => t.key)).toEqual([b1]);
   });
+
+  it('a stranded claim is released by the human and the next worker sees full history', async () => {
+    dbHuman = openDb(DB_PATH);
+    runMigrations(dbHuman);
+    dbWorkerA = openDb(DB_PATH);
+    dbWorkerB = openDb(DB_PATH);
+
+    const coreHuman = createCore(dbHuman);
+    const workerCrash = createCore(dbWorkerA);
+    const workerRescue = createCore(dbWorkerB);
+    const app = buildApp(coreHuman);
+
+    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a' });
+    const t = await created.json() as { key: string };
+    await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' });
+
+    // worker 1 claims with a label, narrates once, then "dies" (no further calls)
+    const claimed = workerCrash.claimNextTask({ claimedBy: 'worker-1' });
+    expect(claimed).toMatchObject({ key: t.key, claimedBy: 'worker-1' });
+    workerCrash.addComment(t.key, { actor: 'agent', body: 'started investigating' });
+
+    // the human sees who has it and since when, and releases the claim over HTTP
+    const board = await (await app.request('/api/tasks')).json() as Array<{ status: string; claimedBy: string | null }>;
+    expect(board[0]).toMatchObject({ status: 'in_progress', claimedBy: 'worker-1' });
+    const release = await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' });
+    expect(release.status).toBe(200);
+    expect(await release.json()).toMatchObject({ status: 'queued', claimedBy: null, claimedAt: null });
+
+    // a second worker re-claims: metadata is its own, prior history fully visible
+    const reclaimed = workerRescue.claimNextTask({ claimedBy: 'worker-2' });
+    expect(reclaimed).toMatchObject({ key: t.key, claimedBy: 'worker-2', status: 'in_progress' });
+    expect(reclaimed!.activity.some((a) => a.type === 'comment' && a.body === 'started investigating')).toBe(true);
+    expect(reclaimed!.activity.some(
+      (a) => a.type === 'status_change' && a.fromStatus === 'in_progress' && a.toStatus === 'queued' && a.actor === 'human',
+    )).toBe(true);
+
+    // the rescued loop completes
+    workerRescue.submitResult(t.key, { summary: 'rescued and finished' });
+    expect((await post(app, `/api/tasks/${t.key}/approve`)).status).toBe(200);
+  });
 });
