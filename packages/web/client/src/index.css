@@ -1,18 +1,66 @@
+/* ============================== TOKENS (from the design handoff) ============================== */
+:root {
+  --bg:        #0F172A;   /* slate-900 page */
+  --bg-deep:   #0B1222;   /* code / deepest wells */
+  --panel:     #18233A;   /* column wells */
+  --card:      #1E293B;   /* card surface */
+  --card-hi:   #243551;   /* card hover / raised */
+  --line:      #2C3A55;   /* hairlines */
+  --line-soft: #1E2940;
+  --ink:       #E8EDF6;   /* primary text */
+  --ink-2:     #97A5BE;   /* muted */
+  --ink-3:     #64748B;   /* faint */
+
+  --accent:    #3B82F6;   /* blue-500 primary */
+  --accent-2:  #60A5FA;   /* blue-400 links/labels */
+  --active:    #F59E0B;   /* amber — agent running */
+  --active-2:  #FBBF24;
+  --green:     #4ADE80;   /* terminal / success */
+
+  --st-backlog: #64748B;
+  --st-queued:  #60A5FA;
+  --st-progress:#F59E0B;
+  --st-review:  #A78BFA;
+  --st-blocked: #F87171;
+  --st-done:    #4ADE80;
+
+  --r-card: 12px;
+  --r-chip: 7px;
+  --r-pill: 999px;
+
+  --col-w: 312px;
+  --card-pad: 14px;
+  --card-gap: 10px;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+
 body {
-  margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f8f9fa;
-  color: #1a1a1a;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-button {
-  cursor: pointer;
-  font-size: 0.875rem;
-}
+.mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 
-input, textarea {
-  font-family: inherit;
-  font-size: 0.875rem;
+button { font-family: inherit; cursor: pointer; font-size: 0.875rem; }
+input, textarea, select { font-family: inherit; font-size: 0.875rem; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #2A3A57; border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #34466A; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes af-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.55); }
+  50%     { box-shadow: 0 0 0 5px rgba(245,158,11,0); }
 }
+@keyframes af-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes af-cardin { from { transform: translateY(6px); } to { transform: none; } }
+@keyframes af-slidein { from { transform: translateX(30px); } to { transform: none; } }
+@keyframes af-flash { 0% { background: rgba(96,165,250,0.18); } 100% { background: transparent; } }

@@ -15,17 +15,18 @@ export function CommentBox({ onSubmit }: Props) {
   };
 
   return (
-    <div style={{ marginTop: '16px' }}>
+    <div className="af-cbox">
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Add a comment…"
         rows={3}
-        style={{ width: '100%', boxSizing: 'border-box', padding: '8px', resize: 'vertical' }}
       />
-      <button onClick={handleSubmit} style={{ marginTop: '4px' }}>
-        Comment
-      </button>
+      <div className="row">
+        <button className="af-btn-primary" style={{ height: 32 }} onClick={handleSubmit}>
+          Comment
+        </button>
+      </div>
     </div>
   );
 }

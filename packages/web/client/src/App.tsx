@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Status, Task } from './types.js';
+import { STATUS_LABELS } from './status.js';
 import { useTasks } from './useTasks.js';
 import { useWorkspaces } from './useWorkspaces.js';
 import { api } from './api.js';
@@ -7,117 +9,112 @@ import { BoardView } from './views/BoardView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
+import { Mark, I } from './icons.js';
 
-type View = 'list' | 'board';
+type View = 'board' | 'list';
+
+/** ticker line derived from real board changes between SSE refetches */
+function useChangeTicker(tasks: Task[]): string | null {
+  const [line, setLine] = useState<string | null>(null);
+  const prev = useRef<Map<string, Status> | null>(null);
+  useEffect(() => {
+    const cur = new Map(tasks.map((t) => [t.key, t.status] as const));
+    if (prev.current !== null) {
+      for (const [key, status] of cur) {
+        const before = prev.current.get(key);
+        if (before === undefined) { setLine(`${key} created`); break; }
+        if (before !== status) { setLine(`${key} → ${STATUS_LABELS[status]}`); break; }
+      }
+    }
+    if (tasks.length > 0 || prev.current !== null) prev.current = cur;
+  }, [tasks]);
+  return line;
+}
 
 export function App() {
-  const [view, setView] = useState<View>('list');
+  const [view, setView] = useState<View>('board');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
-  const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
+  const [wsFilter, setWsFilter] = useState('all');
+  const [query, setQuery] = useState('');
   const [lastWorkspace, setLastWorkspace] = useState('default');
   const { workspaces, refetch: refetchWorkspaces } = useWorkspaces();
-  const { tasks, refetch } = useTasks(workspaceFilter);
+  const { tasks, refetch } = useTasks(); // all tasks; filtering is client-side
+  const ticker = useChangeTicker(tasks);
 
-  const multiWorkspace = workspaces.length >= 2;
+  const multiWs = workspaces.length >= 2;
+  const showBadges = multiWs && wsFilter === 'all'; // badge only in the all-workspaces view
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: tasks.length };
+    for (const w of workspaces) c[w.name] = tasks.filter((t) => t.workspace === w.name).length;
+    return c;
+  }, [tasks, workspaces]);
+
+  const q = query.trim().toLowerCase();
+  const visible = tasks.filter((t) =>
+    (wsFilter === 'all' || t.workspace === wsFilter) &&
+    (!q || t.key.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) || t.spec.toLowerCase().includes(q)));
+
+  const moveTask = (key: string, to: Status) => {
+    api.setStatus(key, to).then(refetch).catch(() => {});
+  };
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          padding: '12px 20px',
-          borderBottom: '1px solid #e0e0e0',
-          backgroundColor: '#fff',
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-        }}
-      >
-        <h1 style={{ margin: 0, fontSize: '1.25rem' }}>AgentFactory</h1>
-        {multiWorkspace && (
-          <select
-            aria-label="Workspace filter"
-            value={workspaceFilter ?? ''}
-            onChange={(e) => setWorkspaceFilter(e.target.value || null)}
-            style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ccc' }}
-          >
-            <option value="">All workspaces</option>
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.name}>{w.name}</option>
-            ))}
-          </select>
-        )}
-        <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
-          <button
-            onClick={() => setView('list')}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: view === 'list' ? '#5b8def' : '#f0f0f0',
-              color: view === 'list' ? '#fff' : '#333',
-              border: 'none',
-              borderRadius: '4px 0 0 4px',
-              cursor: 'pointer',
-            }}
-          >
-            List
-          </button>
-          <button
-            onClick={() => setView('board')}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: view === 'board' ? '#5b8def' : '#f0f0f0',
-              color: view === 'board' ? '#fff' : '#333',
-              border: 'none',
-              borderRadius: '0 4px 4px 0',
-              cursor: 'pointer',
-            }}
-          >
-            Board
-          </button>
+    <div id="app">
+      <header className="af-header">
+        <div className="af-brand">
+          <Mark />
+          <h1 className="af-title">AgentFactory<span className="dim"> · board</span></h1>
         </div>
-        <button
-          onClick={() => setManagingWorkspaces(true)}
-          style={{
-            padding: '4px 14px',
-            backgroundColor: '#f0f0f0',
-            color: '#333',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          Workspaces
-        </button>
-        <button
-          onClick={() => setCreating(true)}
-          style={{
-            padding: '4px 14px',
-            backgroundColor: '#46c878',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          New task
+        <span className="af-sep"></span>
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          value={wsFilter}
+          counts={counts}
+          onChange={setWsFilter}
+          onNewWorkspace={() => setManagingWorkspaces(true)}
+        />
+        <label className="af-search">
+          {I.search({})}
+          <input placeholder="Search tasks…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+
+        <span className="af-spacer"></span>
+
+        {ticker && (
+          <div className="af-ticker">
+            <span className="ic">›</span><span>{ticker}</span>
+          </div>
+        )}
+
+        <div className="af-view">
+          <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button>
+          <button className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}>Board</button>
+        </div>
+
+        <button className="af-btn-primary" onClick={() => setCreating(true)}>
+          {I.plus({ width: 15, height: 15 })}New task
         </button>
       </header>
 
-      {/* Main content */}
-      <main style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        {view === 'list' ? (
-          <GroupedList tasks={tasks} onSelect={setSelectedKey} showWorkspaceBadges={multiWorkspace} />
-        ) : (
-          <BoardView tasks={tasks} onSelect={setSelectedKey} showWorkspaceBadges={multiWorkspace} />
-        )}
-      </main>
+      {view === 'board' ? (
+        <BoardView
+          tasks={visible}
+          onSelect={setSelectedKey}
+          showWorkspaceBadges={showBadges}
+          workspaces={workspaces}
+          onMove={moveTask}
+          onAddTask={() => setCreating(true)}
+        />
+      ) : (
+        <main className="af-main">
+          <GroupedList tasks={visible} onSelect={setSelectedKey} showWorkspaceBadges={showBadges} />
+        </main>
+      )}
 
-      {/* Detail panel (slide-over) */}
       {selectedKey && (
         <DetailPanel
           taskKey={selectedKey}
@@ -126,33 +123,13 @@ export function App() {
         />
       )}
 
-      {/* Create task modal */}
       {creating && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 200,
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '8px',
-              width: '560px',
-              maxWidth: '95vw',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
+        <div className="af-overlay">
+          <div className="af-modal">
             <TaskForm
               mode="create"
               workspaces={workspaces.map((w) => w.name)}
-              initialWorkspace={lastWorkspace}
+              initialWorkspace={wsFilter !== 'all' ? wsFilter : lastWorkspace}
               onSubmit={async (b) => {
                 await api.createTask(b);
                 if (b.workspace) setLastWorkspace(b.workspace);
@@ -165,7 +142,6 @@ export function App() {
         </div>
       )}
 
-      {/* Workspaces modal */}
       {managingWorkspaces && (
         <WorkspacesModal
           workspaces={workspaces}

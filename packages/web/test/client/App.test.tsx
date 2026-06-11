@@ -94,34 +94,39 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument();
   });
 
-  it('hides the workspace filter while only one workspace exists', async () => {
+  it('always shows the workspace switcher, defaulting to All workspaces', async () => {
     render(<App />);
-    await screen.findByRole('heading', { level: 1 });
-    expect(screen.queryByLabelText('Workspace filter')).not.toBeInTheDocument();
+    const switcher = await screen.findByLabelText('Workspace filter');
+    expect(switcher).toHaveTextContent('All workspaces');
   });
 
-  it('shows the workspace filter when two or more workspaces exist', async () => {
+  it('filters the board to the selected workspace', async () => {
     vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
-    render(<App />);
-    expect(await screen.findByLabelText('Workspace filter')).toBeInTheDocument();
-  });
-
-  it('refetches tasks scoped to the selected workspace', async () => {
-    vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
+    const mkTask = (key: string, title: string, workspace: string) => ({
+      id: Math.random(), key, title, status: 'backlog' as const, spec: 's', acceptanceCriteria: 'a',
+      resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null,
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    });
+    vi.mocked(api.listTasks).mockResolvedValue([mkTask('AF-1', 'Default task', 'default'), mkTask('AF-2', 'Repo-a task', 'repo-a')]);
     const user = userEvent.setup();
     render(<App />);
 
-    const select = await screen.findByLabelText('Workspace filter');
-    await user.selectOptions(select, 'repo-a');
+    expect(await screen.findByText('Default task')).toBeInTheDocument();
+    expect(screen.getByText('Repo-a task')).toBeInTheDocument();
 
-    expect(api.listTasks).toHaveBeenCalledWith({ workspace: 'repo-a' });
+    await user.click(screen.getByLabelText('Workspace filter'));
+    await user.click(screen.getByRole('menu').querySelector('button.af-ws-opt:nth-child(3)')!);
+
+    expect(screen.queryByText('Default task')).not.toBeInTheDocument();
+    expect(screen.getByText('Repo-a task')).toBeInTheDocument();
   });
 
-  it('creates a workspace from the Workspaces modal', async () => {
+  it('creates a workspace from the switcher’s "New workspace" entry', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Workspaces' }));
+    await user.click(await screen.findByLabelText('Workspace filter'));
+    await user.click(screen.getByRole('button', { name: /New workspace/ }));
     await user.type(screen.getByPlaceholderText('workspace-slug'), 'repo-b');
     await user.type(screen.getByPlaceholderText('Absolute repo path'), 'C:/Git/RepoB');
     await user.click(screen.getByRole('button', { name: 'Create workspace' }));

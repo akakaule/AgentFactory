@@ -13,17 +13,15 @@ export function StatusBadge({ status }: Props) {
   const color = STATUS_COLORS[status];
   return (
     <span
+      className="af-pill"
       style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: '12px',
-        backgroundColor: color,
-        color: '#fff',
-        fontSize: '0.75rem',
-        fontWeight: 600,
+        color,
+        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+        fontSize: '0.72rem',
         whiteSpace: 'nowrap',
       }}
     >
+      <span className="d" style={{ background: color }}></span>
       {label}
     </span>
   );

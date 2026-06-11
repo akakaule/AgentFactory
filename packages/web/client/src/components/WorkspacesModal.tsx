@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Workspace } from '../types.js';
 import { api } from '../api.js';
+import { wsColor } from '../wsColor.js';
 
 interface Props {
   workspaces: Workspace[];
@@ -31,61 +32,40 @@ export function WorkspacesModal({ workspaces, onCreated, onClose }: Props) {
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 200,
-      }}
-    >
-      <div
-        style={{
-          backgroundColor: '#fff',
-          borderRadius: '8px',
-          width: '520px',
-          maxWidth: '95vw',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-          padding: '16px',
-        }}
-      >
+    <div className="af-overlay">
+      <div className="af-modal" style={{ padding: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0 }}>Workspaces</h3>
-          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer' }}>
-            ✕
-          </button>
+          <button className="af-x" onClick={onClose}>✕</button>
         </div>
 
         <div style={{ margin: '12px 0' }}>
           {workspaces.map((w) => (
-            <div key={w.id} style={{ display: 'flex', gap: '8px', padding: '6px 0', borderBottom: '1px solid #eee' }}>
+            <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid var(--line-soft)' }}>
+              <span className="af-ws-dot" style={{ background: wsColor(workspaces, w.name) }}></span>
               <span style={{ fontWeight: 600, minWidth: '120px' }}>{w.name}</span>
-              <code style={{ color: '#666' }}>{w.repoPath}</code>
+              <code className="mono" style={{ color: 'var(--ink-3)', fontSize: '12px' }}>{w.repoPath}</code>
             </div>
           ))}
         </div>
 
-        {error && <div style={{ color: '#e5534b', marginBottom: '8px' }}>{error}</div>}
+        {error && <div className="af-err" style={{ marginBottom: '8px' }}>{error}</div>}
         <div style={{ display: 'flex', gap: '8px' }}>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="workspace-slug"
-            style={{ flex: '0 0 160px', padding: '6px 8px' }}
+            style={{ flex: '0 0 160px', padding: '6px 10px' }}
           />
           <input
             type="text"
             value={repoPath}
             onChange={(e) => setRepoPath(e.target.value)}
             placeholder="Absolute repo path"
-            style={{ flex: 1, padding: '6px 8px' }}
+            style={{ flex: 1, padding: '6px 10px' }}
           />
-          <button onClick={handleCreate} style={{ padding: '6px 14px' }}>
+          <button className="af-btn-primary" onClick={handleCreate}>
             Create workspace
           </button>
         </div>

@@ -1,43 +1,61 @@
-import type { Task, Status } from '../types.js';
-import { StatusBadge } from './StatusBadge.js';
-import { TaskRow } from './TaskRow.js';
+import type { DragEvent } from 'react';
+import type { Task, Status, Workspace } from '../types.js';
+import { STATUS_LABELS, STATUS_COLORS } from '../status.js';
+import { TaskCard } from './TaskCard.js';
+import { wsColor } from '../wsColor.js';
+import { I } from '../icons.js';
 
 interface Props {
   status: Status;
   tasks: Task[];
   onSelect: (key: string) => void;
   showWorkspaceBadges?: boolean;
+  workspaces?: Workspace[];
+  dragOver?: boolean;
+  draggingKey?: string | null;
+  onDragStart?: (e: DragEvent, key: string) => void;
+  onDragEnd?: () => void;
+  onDragOver?: (e: DragEvent) => void;
+  onDrop?: (e: DragEvent) => void;
+  onAddTask?: () => void;
 }
 
-export function StatusColumn({ status, tasks, onSelect, showWorkspaceBadges }: Props) {
+export function StatusColumn({
+  status, tasks, onSelect, showWorkspaceBadges, workspaces = [],
+  dragOver, draggingKey, onDragStart, onDragEnd, onDragOver, onDrop, onAddTask,
+}: Props) {
+  const hue = STATUS_COLORS[status];
   return (
-    <div
-      style={{
-        minWidth: '220px',
-        flex: '1 1 0',
-        border: '1px solid #e0e0e0',
-        borderRadius: '6px',
-        overflow: 'hidden',
-      }}
+    <section
+      className={'af-col' + (dragOver ? ' dragover' : '')}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      aria-label={STATUS_LABELS[status]}
     >
-      <div
-        style={{
-          padding: '8px 12px',
-          borderBottom: '1px solid #e0e0e0',
-          backgroundColor: '#fafafa',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}
-      >
-        <StatusBadge status={status} />
-        <span style={{ fontSize: '0.8rem', color: '#666' }}>{tasks.length}</span>
+      <div className="af-col-rail" style={{ background: hue }}></div>
+      <div className="af-col-head">
+        <span className="af-col-dot" style={{ background: hue }}></span>
+        <span className="af-col-name">{STATUS_LABELS[status]}</span>
+        <span className="af-col-count">{tasks.length}</span>
       </div>
-      <div>
+      <div className="af-col-body">
+        {tasks.length === 0 && <div className="af-col-empty">No tasks</div>}
         {tasks.map((task) => (
-          <TaskRow key={task.key} task={task} onSelect={onSelect} showWorkspace={showWorkspaceBadges} />
+          <TaskCard
+            key={task.key}
+            task={task}
+            onOpen={onSelect}
+            showWorkspace={showWorkspaceBadges}
+            wsHue={wsColor(workspaces, task.workspace)}
+            dragging={draggingKey === task.key}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
         ))}
+        {status === 'backlog' && onAddTask && (
+          <button className="af-add" onClick={onAddTask}>{I.plus({})}Add task</button>
+        )}
       </div>
-    </div>
+    </section>
   );
 }

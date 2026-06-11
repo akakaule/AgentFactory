@@ -45,7 +45,7 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
   return (
     <div style={{ padding: '16px' }}>
       <h3 style={{ marginTop: 0 }}>{mode === 'create' ? 'New Task' : 'Edit Task'}</h3>
-      {error && <div style={{ color: '#e5534b', marginBottom: '8px' }}>{error}</div>}
+      {error && <div className="af-err" style={{ marginBottom: '8px' }}>{error}</div>}
       {showWorkspacePicker && (
         <div style={{ marginBottom: '12px' }}>
           <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Workspace</label>
@@ -92,11 +92,11 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
         />
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
-        <button onClick={handleSubmit} style={{ padding: '6px 16px' }}>
+        <button className="af-btn-primary" onClick={handleSubmit}>
           {mode === 'create' ? 'Create' : 'Save'}
         </button>
         {onCancel && (
-          <button onClick={onCancel} style={{ padding: '6px 16px' }}>
+          <button className="af-mini" style={{ height: 34 }} onClick={onCancel}>
             Cancel
           </button>
         )}

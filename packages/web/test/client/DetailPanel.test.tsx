@@ -124,7 +124,8 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-12" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText(/worker-1/)).toBeInTheDocument();
+    // claimant appears in the claim line and as Owner in the details grid
+    expect((await screen.findAllByText(/worker-1/)).length).toBeGreaterThan(0);
     const release = screen.getByRole('button', { name: 'Release claim' });
     await user.click(release);
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-12', 'queued');
@@ -146,17 +147,18 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText('repo-a')).toBeInTheDocument();
+    // workspace shows in the drawer head badge and the details grid
+    expect((await screen.findAllByText('repo-a')).length).toBeGreaterThan(0);
     expect(screen.getByText('c:/git/repo-a')).toBeInTheDocument();
   });
 
-  it('renders the "Release to Queued" button for a backlog task', async () => {
+  it('renders the "Queue task" button for a backlog task', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(backlogTask);
 
     render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByRole('button', { name: 'Release to Queued' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Queue task' })).toBeInTheDocument();
   });
 
   it('renders ReviewActions for an in_review task', async () => {
@@ -202,7 +204,7 @@ describe('DetailPanel', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('refetches the panel and calls onChanged after "Release to Queued"', async () => {
+  it('refetches the panel and calls onChanged after "Queue task"', async () => {
     const mocked = await getApiMock();
     const queuedTask: TaskDetail = { ...backlogTask, status: 'queued' };
     mocked.getTask.mockClear();
@@ -215,7 +217,7 @@ describe('DetailPanel', () => {
     render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={onChanged} />);
 
     // Initial load — one getTask call for the mount fetch.
-    const releaseButton = await screen.findByRole('button', { name: 'Release to Queued' });
+    const releaseButton = await screen.findByRole('button', { name: 'Queue task' });
     const callsAfterMount = mocked.getTask.mock.calls.length;
     expect(callsAfterMount).toBe(1);
 

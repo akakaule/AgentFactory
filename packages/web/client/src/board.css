@@ -1,0 +1,227 @@
+/* ============================================================
+   AgentFactory board — component styles (from the design handoff)
+   ============================================================ */
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(59,130,246,0.06), transparent 60%),
+    var(--bg);
+}
+
+/* ============================== HEADER ============================== */
+.af-header {
+  flex: none; display: flex; align-items: center; gap: 14px;
+  padding: 0 20px; height: 58px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #16223A, #131D31);
+  position: relative; z-index: 30;
+}
+.af-brand { display: flex; align-items: center; gap: 11px; }
+.af-mark { width: 30px; height: 30px; flex: none; }
+.af-title { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: var(--ink); margin: 0; }
+.af-title .dim { color: var(--ink-3); font-weight: 500; }
+.af-sep { width: 1px; height: 26px; background: var(--line); }
+
+.af-ws { position: relative; }
+.af-ws-btn {
+  display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 11px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink); font-size: 13px; transition: border-color .15s, background .15s;
+}
+.af-ws-btn:hover { border-color: #3A4D70; background: var(--card-hi); }
+.af-ws-dot { width: 8px; height: 8px; border-radius: 99px; flex: none; }
+.af-ws-name { font-weight: 600; white-space: nowrap; }
+.af-ws-repo { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); }
+.af-ws-menu {
+  position: absolute; top: 40px; left: 0; min-width: 280px; z-index: 40;
+  background: #16223A; border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.5); padding: 6px; animation: af-rise .12s ease-out;
+}
+.af-ws-opt { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; color: var(--ink); }
+.af-ws-opt:hover { background: rgba(96,165,250,0.10); }
+.af-ws-opt.on { background: rgba(59,130,246,0.14); }
+.af-ws-opt .col { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+.af-ws-opt .nm { font-size: 13px; font-weight: 600; color: var(--ink); }
+.af-ws-opt .rp { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); }
+.af-ws-opt .cnt { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-2); background: var(--panel); padding: 2px 7px; border-radius: 99px; }
+.af-ws-new { border-top: 1px solid var(--line-soft); margin-top: 5px; padding-top: 9px; color: var(--accent-2); font-size: 13px; font-weight: 600; }
+
+.af-search { position: relative; display: flex; align-items: center; }
+.af-search svg { position: absolute; left: 10px; width: 15px; height: 15px; color: var(--ink-3); pointer-events: none; }
+.af-search input {
+  width: 210px; height: 34px; padding: 0 12px 0 31px;
+  background: var(--bg-deep); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink); font-family: inherit; font-size: 13px; outline: none; transition: border-color .15s, width .2s;
+}
+.af-search input::placeholder { color: var(--ink-3); }
+.af-search input:focus { border-color: var(--accent); width: 240px; }
+
+.af-spacer { flex: 1; }
+
+.af-ticker {
+  display: flex; align-items: center; gap: 7px; max-width: 360px; overflow: hidden;
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--green);
+  white-space: nowrap; text-overflow: ellipsis;
+}
+.af-ticker .ic { opacity: .8; }
+
+.af-view { display: flex; gap: 0; }
+.af-view button {
+  height: 34px; padding: 0 13px; font-size: 13px; font-weight: 600;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink-2);
+}
+.af-view button:first-child { border-radius: 9px 0 0 9px; }
+.af-view button:last-child { border-radius: 0 9px 9px 0; border-left: none; }
+.af-view button.on { background: var(--card-hi); color: var(--ink); }
+
+.af-btn-primary {
+  display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; white-space: nowrap;
+  background: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 70%, white);
+  border-radius: 9px; color: #fff; font-size: 13px; font-weight: 600; transition: filter .15s;
+}
+.af-btn-primary:hover { filter: brightness(1.08); }
+
+.af-mini { height: 30px; padding: 0 11px; border-radius: 7px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); }
+.af-mini:hover { color: var(--ink); border-color: #3A4D70; }
+.af-mini.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+.af-mini.danger { color: var(--st-blocked); border-color: color-mix(in srgb, var(--st-blocked) 40%, var(--line)); }
+
+/* ============================== BOARD ============================== */
+.af-board { flex: 1; display: flex; gap: 14px; padding: 16px 18px 18px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
+.af-col {
+  width: var(--col-w); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border: 1px solid var(--line-soft); border-radius: 14px;
+  transition: border-color .15s, background .15s;
+}
+.af-col.dragover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.af-col-head { flex: none; display: flex; align-items: center; gap: 9px; padding: 12px 13px 10px; }
+.af-col-rail { height: 3px; border-radius: 99px 99px 0 0; }
+.af-col-dot { width: 9px; height: 9px; border-radius: 99px; flex: none; }
+.af-col-name { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13.5px; color: var(--ink); letter-spacing: .01em; white-space: nowrap; }
+.af-col-count { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); background: var(--bg-deep); padding: 1px 8px; border-radius: 99px; min-width: 22px; text-align: center; flex: none; margin-left: auto; }
+.af-col-body { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: var(--card-gap); padding: 2px 10px 10px; }
+.af-col-empty { color: var(--ink-3); font-size: 12px; text-align: center; padding: 18px 8px; border: 1px dashed var(--line); border-radius: 10px; }
+.af-add {
+  flex: none; display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 9px 11px; margin-top: 2px; background: transparent; border: 1px dashed transparent;
+  border-radius: 9px; color: var(--ink-3); font-size: 12.5px; font-weight: 500; transition: all .15s;
+}
+.af-add:hover { color: var(--ink-2); background: rgba(255,255,255,0.025); border-color: var(--line); }
+.af-add svg { width: 14px; height: 14px; }
+
+/* ============================== CARD ============================== */
+.af-card {
+  position: relative; background: var(--card); border: 1px solid var(--line-soft);
+  border-radius: var(--r-card); padding: var(--card-pad); padding-left: calc(var(--card-pad) + 3px);
+  overflow: hidden; transition: border-color .14s, background .14s, transform .14s, box-shadow .14s;
+  animation: af-cardin .18s ease-out; cursor: pointer;
+}
+.af-card:hover { border-color: #3A4D70; background: var(--card-hi); transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
+.af-card:active { cursor: grabbing; }
+.af-card.dragging { opacity: .45; }
+.af-bar { position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 99px; }
+.af-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.af-key { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600; color: var(--ink-2); letter-spacing: .02em; }
+.af-wsbadge { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); }
+.af-card-title { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 14px; line-height: 1.32; color: var(--ink); margin-bottom: 6px; text-wrap: pretty; }
+.af-card-spec { font-size: 12px; line-height: 1.45; color: var(--ink-2); margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.af-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.af-chip { display: inline-flex; align-items: center; gap: 5px; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--ink-2); background: var(--bg-deep); border: 1px solid var(--line-soft); padding: 2px 7px; border-radius: 6px; }
+.af-chip svg { width: 11px; height: 11px; opacity: .8; }
+.af-meta-i { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink-3); }
+.af-meta-i svg { width: 12px; height: 12px; }
+.af-actor { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 8px 2px 6px; border-radius: 99px; }
+.af-actor.agent { color: var(--active-2); background: color-mix(in srgb, var(--active) 14%, transparent); }
+.af-actor.agent.run { background: color-mix(in srgb, var(--active) 20%, transparent); }
+.af-actor.human { color: var(--accent-2); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.af-actor .av { width: 16px; height: 16px; border-radius: 99px; display: grid; place-items: center; }
+.af-actor .av svg { width: 12px; height: 12px; }
+.af-runpip { width: 7px; height: 7px; border-radius: 99px; background: var(--active); animation: af-pulse 1.4s infinite; }
+.af-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+.af-tag.review { color: var(--st-review); background: color-mix(in srgb, var(--st-review) 15%, transparent); }
+.af-tag svg { width: 12px; height: 12px; }
+
+/* ============================== DRAWER ============================== */
+.af-scrim { position: fixed; inset: 0; background: rgba(8,12,22,0.5); z-index: 50; animation: af-rise .15s; }
+.af-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 460px; max-width: 92vw; z-index: 51;
+  background: #131D31; border-left: 1px solid var(--line); display: flex; flex-direction: column;
+  box-shadow: -24px 0 60px rgba(0,0,0,0.45); animation: af-slidein .22s cubic-bezier(.2,.7,.2,1);
+}
+.af-drawer-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.af-drawer-head .af-key { font-size: 13px; }
+.af-x { margin-left: auto; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: transparent; border: 1px solid transparent; color: var(--ink-2); font-size: 14px; }
+.af-x:hover { background: var(--card); border-color: var(--line); color: var(--ink); }
+.af-drawer-body { flex: 1; overflow-y: auto; padding: 18px; }
+.af-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 99px; }
+.af-pill .d { width: 8px; height: 8px; border-radius: 99px; }
+.af-d-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 22px; line-height: 1.25; color: var(--ink); margin: 14px 0 12px; text-wrap: pretty; }
+.af-d-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.af-claimline { font-size: 12.5px; color: var(--ink-2); }
+.af-claimline strong { color: var(--active-2); }
+.af-sl { font-family: "Space Grotesk", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin: 20px 0 8px; }
+.af-d-body { font-size: 13.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
+.af-result { font-size: 13px; line-height: 1.6; color: var(--ink); background: var(--bg-deep); border: 1px solid var(--line-soft); border-left: 2px solid var(--active); border-radius: 10px; padding: 13px 15px; white-space: pre-wrap; }
+.af-links { display: flex; flex-direction: column; gap: 6px; }
+.af-link { display: flex; align-items: center; gap: 9px; padding: 9px 11px; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 9px; text-decoration: none; }
+.af-link:hover { border-color: var(--accent); }
+.af-link .lk { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--accent-2); }
+.af-link .ty { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); }
+.af-link svg { width: 14px; height: 14px; color: var(--ink-3); flex: none; }
+
+.af-tl { display: flex; flex-direction: column; }
+.af-tl-i { display: grid; grid-template-columns: 18px 1fr auto; gap: 11px; padding-bottom: 14px; position: relative; }
+.af-tl-i:not(:last-child)::before { content: ""; position: absolute; left: 8px; top: 16px; bottom: 0; width: 1.5px; background: var(--line); }
+.af-tl-dot { width: 16px; height: 16px; border-radius: 99px; display: grid; place-items: center; background: var(--card); border: 1px solid var(--line); z-index: 1; margin-top: 1px; }
+.af-tl-dot svg { width: 10px; height: 10px; }
+.af-tl-dot.agent { color: var(--active-2); border-color: color-mix(in srgb, var(--active) 50%, var(--line)); }
+.af-tl-dot.human { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.af-tl-main { min-width: 0; }
+.af-tl-line { font-size: 12.5px; color: var(--ink); }
+.af-tl-line .who { font-weight: 700; }
+.af-tl-line .who.agent { color: var(--active-2); }
+.af-tl-line .who.human { color: var(--accent-2); }
+.af-tl-line .kind { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-3); }
+.af-tl-line .mv { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-2); }
+.af-tl-text { font-size: 12.5px; line-height: 1.5; color: var(--ink-2); margin-top: 4px; white-space: pre-wrap; }
+.af-tl-time { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+
+.af-cbox { margin-top: 14px; display: flex; flex-direction: column; gap: 9px; }
+.af-cbox textarea { width: 100%; min-height: 64px; resize: vertical; padding: 11px 13px; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-family: inherit; font-size: 13px; outline: none; }
+.af-cbox textarea:focus { border-color: var(--accent); }
+.af-cbox .row { display: flex; justify-content: flex-end; gap: 8px; }
+
+.af-def { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; font-size: 13px; }
+.af-def dt { color: var(--ink-3); }
+.af-def dd { margin: 0; color: var(--ink); font-weight: 500; }
+.af-def dd.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+
+/* ============================== MODALS (task form / workspaces) ============================== */
+.af-overlay {
+  position: fixed; inset: 0; background: rgba(8,12,22,0.55); z-index: 60;
+  display: flex; align-items: center; justify-content: center; animation: af-rise .15s;
+}
+.af-modal {
+  background: #131D31; border: 1px solid var(--line); border-radius: 14px;
+  width: 560px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.5);
+}
+.af-modal h3 { font-family: "Space Grotesk", sans-serif; color: var(--ink); }
+.af-modal label { color: var(--ink-2); font-size: 12.5px; }
+.af-modal input, .af-modal textarea, .af-modal select {
+  background: var(--bg-deep); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink); outline: none;
+}
+.af-modal input:focus, .af-modal textarea:focus, .af-modal select:focus { border-color: var(--accent); }
+.af-modal .af-err { color: var(--st-blocked); }
+
+/* ============================== LIST VIEW ============================== */
+.af-list-group h3 {
+  font-family: "Space Grotesk", sans-serif; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+  margin: 0 0 4px; padding: 6px 12px; background: var(--panel); color: var(--ink-2); border-radius: 8px;
+}
+.af-main { flex: 1; overflow-y: auto; padding: 16px 20px; }

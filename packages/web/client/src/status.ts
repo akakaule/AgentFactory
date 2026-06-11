@@ -19,10 +19,10 @@ export const STATUS_LABELS: Record<Status, string> = {
 };
 
 export const STATUS_COLORS: Record<Status, string> = {
-  backlog: '#9aa0a6',
-  queued: '#5b8def',
-  in_progress: '#e0a800',
-  in_review: '#7aa0ff',
-  blocked: '#e5534b',
-  done: '#46c878',
+  backlog: '#64748B',
+  queued: '#60A5FA',
+  in_progress: '#F59E0B',
+  in_review: '#A78BFA',
+  blocked: '#F87171',
+  done: '#4ADE80',
 };
