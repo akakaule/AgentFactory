@@ -11,3 +11,6 @@ dist/
 
 # per-task agent worktrees (one task = one worktree, see packages/mcp/README.md)
 .worktrees/
+
+# local scratch scripts (machine-specific paths)
+.af-*.mjs
