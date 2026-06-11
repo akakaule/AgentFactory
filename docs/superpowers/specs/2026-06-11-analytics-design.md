@@ -1,7 +1,7 @@
 # AgentFactory — Analytics & metrics (claude-design handoff)
 
 **Date:** 2026-06-11
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 **Grows from:** the analytics design brief handed to claude-design (`site/analytics-brief.md`,
 draft in `site/analytics-mockup.html`) and the returned design bundle (chat "Agent Task
 Board", files `AgentFactory Board.html` + `analytics.jsx` + `board-data.jsx` +

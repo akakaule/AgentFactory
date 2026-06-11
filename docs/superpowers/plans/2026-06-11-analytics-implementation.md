@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **Spec:** [2026-06-11-analytics-design.md](../specs/2026-06-11-analytics-design.md)
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 
 Seven phases, dependency-ordered (`core derivation → core capture → web server → mcp →
 client lib → client UI → e2e/docs`). TDD per task; package suite green per phase; rebuild

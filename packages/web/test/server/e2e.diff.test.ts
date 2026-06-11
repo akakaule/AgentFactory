@@ -50,7 +50,8 @@ describe('e2e: review diff over HTTP from a real workspace repo', () => {
     cleanupRepo(repoDir);
   });
 
-  it('serves the worker diff for review, and follows the branch of a re-submission', async () => {
+  // real git fixtures are slow under full-suite parallelism on Windows
+  it('serves the worker diff for review, and follows the branch of a re-submission', { timeout: 30000 }, async () => {
     dbHuman = openDb(DB_PATH);
     runMigrations(dbHuman);
     dbWorker = openDb(DB_PATH);
