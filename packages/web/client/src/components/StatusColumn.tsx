@@ -9,15 +9,15 @@ interface Props {
   status: Status;
   tasks: Task[];
   onSelect: (key: string) => void;
-  showWorkspaceBadges?: boolean;
-  workspaces?: Workspace[];
-  dragOver?: boolean;
-  draggingKey?: string | null;
-  onDragStart?: (e: DragEvent, key: string) => void;
-  onDragEnd?: () => void;
-  onDragOver?: (e: DragEvent) => void;
-  onDrop?: (e: DragEvent) => void;
-  onAddTask?: () => void;
+  showWorkspaceBadges?: boolean | undefined;
+  workspaces?: Workspace[] | undefined;
+  dragOver?: boolean | undefined;
+  draggingKey?: string | null | undefined;
+  onDragStart?: ((e: DragEvent, key: string) => void) | undefined;
+  onDragEnd?: (() => void) | undefined;
+  onDragOver?: ((e: DragEvent) => void) | undefined;
+  onDrop?: ((e: DragEvent) => void) | undefined;
+  onAddTask?: (() => void) | undefined;
 }
 
 export function StatusColumn({

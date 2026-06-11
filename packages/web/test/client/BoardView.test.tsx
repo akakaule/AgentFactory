@@ -14,6 +14,9 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     acceptanceCriteria: 'ac',
     resultSummary: null,
     seq: 1,
+    workspace: 'default',
+    claimedBy: null,
+    claimedAt: null,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
   };

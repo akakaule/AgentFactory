@@ -5,7 +5,7 @@ import { StatusBadge } from './StatusBadge.js';
 interface Props {
   task: Task;
   onSelect: (key: string) => void;
-  showWorkspace?: boolean;
+  showWorkspace?: boolean | undefined;
 }
 
 export function TaskRow({ task, onSelect, showWorkspace }: Props) {

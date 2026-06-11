@@ -7,11 +7,11 @@ import { I } from '../icons.js';
 interface Props {
   task: Task;
   onOpen: (key: string) => void;
-  showWorkspace?: boolean;
-  wsHue?: string;
-  dragging?: boolean;
-  onDragStart?: (e: DragEvent, key: string) => void;
-  onDragEnd?: () => void;
+  showWorkspace?: boolean | undefined;
+  wsHue?: string | undefined;
+  dragging?: boolean | undefined;
+  onDragStart?: ((e: DragEvent, key: string) => void) | undefined;
+  onDragEnd?: (() => void) | undefined;
 }
 
 function ActorChip({ task }: { task: Task }) {
