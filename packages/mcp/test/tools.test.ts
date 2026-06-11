@@ -134,6 +134,40 @@ describe('submit_result', () => {
     expect(JSON.stringify(detail)).toContain(link.url);
   });
 
+  it('records optional usage metrics alongside the result', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: {
+        key: t.key, summary: 'Done!', links: [],
+        metrics: { model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92 },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+
+    const detail = core.getTask(t.key);
+    expect(detail.status).toBe('in_review');
+    expect(detail.metrics).toMatchObject({ model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92 });
+  });
+
+  it('submitting without metrics leaves the task unreported (null, not zero)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'Done!', links: [] },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(core.getTask(t.key).metrics).toMatchObject({ tokensIn: null, tokensOut: null, costUsd: null, model: null });
+  });
+
   it('returns isError when submitting result on a backlog task', async () => {
     const { client, core } = await makeClient();
     const t = core.createTask(makeTaskInput('Backlog task'));

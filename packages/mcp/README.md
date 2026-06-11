@@ -78,6 +78,15 @@ then submits with a `branch` link (label = the branch name, e.g. `task/AF-7`) pl
 
 The convention is embedded in the `get_next_task` and `submit_result` tool descriptions, so any MCP agent runtime picks it up without extra prompting.
 
+## Usage metrics (optional)
+
+The board's analytics can track tokens/cost per task. Two capture paths:
+
+1. **Best-effort at submit** — `submit_result` accepts an optional `metrics` object (`{ model, tokensIn, tokensOut, costUsd }`). Interactive agents rarely know exact usage; estimates are fine, omissions are fine.
+2. **Exact, post-run** — a loop wrapper that runs `claude -p --output-format json` gets precise usage and cost in the result envelope *after* the session ends, and can `POST /api/tasks/<key>/metrics` on the web API (same fields plus `reportedBy`).
+
+Reports accumulate per task (a re-submission after feedback adds usage); an unreported task shows **n/a** on the board — never zero.
+
 ## Build
 
 Build core first (the mcp package depends on it), then mcp:

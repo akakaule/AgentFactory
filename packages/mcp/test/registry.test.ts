@@ -42,4 +42,12 @@ describe('tool registry', () => {
     expect(submit?.description).toMatch(/git push -u origin/);
     expect(submit?.description).toMatch(/git worktree remove/);
   });
+
+  it('invites best-effort usage metrics on submit', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const submit = tools.find((t) => t.name === 'submit_result');
+    expect(submit?.description).toMatch(/metrics/);
+    expect(submit?.description).toMatch(/best-effort/);
+  });
 });
