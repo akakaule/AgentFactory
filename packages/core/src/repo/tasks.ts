@@ -53,6 +53,10 @@ export function setStatus(db: DB, id: number, status: Status, ts: string): void 
 export function setResultSummary(db: DB, id: number, summary: string, ts: string): void {
   db.prepare('UPDATE task SET result_summary = ?, updated_at = ? WHERE id = ?').run(summary, ts, id);
 }
+export function deleteRowById(db: DB, id: number): void {
+  // activity and link rows go with it (ON DELETE CASCADE; foreign_keys=ON per connection)
+  db.prepare('DELETE FROM task WHERE id = ?').run(id);
+}
 export function touch(db: DB, id: number, ts: string): void {
   db.prepare('UPDATE task SET updated_at = ? WHERE id = ?').run(ts, id);
 }

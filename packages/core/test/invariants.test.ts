@@ -9,6 +9,7 @@ import { addComment } from '../src/ops/addComment.js';
 import { submitResult } from '../src/ops/submitResult.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
+import { deleteTask } from '../src/ops/deleteTask.js';
 import { createCore } from '../src/index.js';
 
 // Helper to count activity rows in the DB
@@ -21,7 +22,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const db = makeTestDb();
     const ts = '2026-01-01T00:00:00.000Z';
     createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts);
-    expect(getVersion(db)).toBe(ts);
+    expect(getVersion(db)).toBe(`${ts}#1`);
     expect(countActivity(db)).toBe(1);
   });
 
@@ -32,7 +33,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     const before = countActivity(db);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    expect(getVersion(db)).toBe(ts2);
+    expect(getVersion(db)).toBe(`${ts2}#1`);
     expect(countActivity(db)).toBe(before + 1);
   });
 
@@ -45,7 +46,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
     const before = countActivity(db);
     claimNextTask(db, undefined, () => ts3);
-    expect(getVersion(db)).toBe(ts3);
+    expect(getVersion(db)).toBe(`${ts3}#1`);
     expect(countActivity(db)).toBe(before + 1);
   });
 
@@ -56,7 +57,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     const before = countActivity(db);
     addComment(db, task.key, { actor: 'agent', body: 'hello' }, () => ts2);
-    expect(getVersion(db)).toBe(ts2);
+    expect(getVersion(db)).toBe(`${ts2}#1`);
     expect(countActivity(db)).toBe(before + 1);
   });
 
@@ -71,7 +72,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     claimNextTask(db, undefined, () => ts3);
     const before = countActivity(db);
     submitResult(db, task.key, { summary: 'done!' }, () => ts4);
-    expect(getVersion(db)).toBe(ts4);
+    expect(getVersion(db)).toBe(`${ts4}#1`);
     expect(countActivity(db)).toBeGreaterThan(before);
   });
 
@@ -88,7 +89,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     submitResult(db, task.key, { summary: 'done!' }, () => ts4);
     const before = countActivity(db);
     reviewApprove(db, task.key, () => ts5);
-    expect(getVersion(db)).toBe(ts5);
+    expect(getVersion(db)).toBe(`${ts5}#1`);
     expect(countActivity(db)).toBe(before + 1);
   });
 
@@ -105,8 +106,18 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     submitResult(db, task.key, { summary: 'done!' }, () => ts4);
     const before = countActivity(db);
     reviewRequestChanges(db, task.key, { feedback: 'needs work' }, () => ts5);
-    expect(getVersion(db)).toBe(ts5);
+    expect(getVersion(db)).toBe(`${ts5}#1`);
     expect(countActivity(db)).toBeGreaterThan(before);
+  });
+
+  it('deleteTask: changes the version and removes the task activity', () => {
+    const db = makeTestDb();
+    const ts = '2026-01-01T00:00:00.000Z';
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts);
+    const before = getVersion(db);
+    deleteTask(db, task.key);
+    expect(getVersion(db)).not.toBe(before);
+    expect(countActivity(db)).toBe(0);
   });
 
   it('updateTask: bumps version (via updated_at) but adds NO activity row', () => {
@@ -116,7 +127,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     const before = countActivity(db);
     updateTask(db, task.key, { title: 'Updated title' }, () => ts2);
-    expect(getVersion(db)).toBe(ts2);
+    expect(getVersion(db)).toBe(`${ts2}#1`);
     // updateTask must NOT add any activity row
     expect(countActivity(db)).toBe(before);
   });
