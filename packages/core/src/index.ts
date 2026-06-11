@@ -16,6 +16,9 @@ export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type AnalyticsData } from './ops/analyticsRows.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
+export { addAttachment } from './ops/addAttachment.js';
+export { deleteAttachment } from './ops/deleteAttachment.js';
+export { getAttachment } from './ops/getAttachment.js';
 export { deriveTaskMetrics, type DerivedTaskMetrics, type ActivityStep } from './metrics.js';
 export { createWorkspace } from './ops/createWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
@@ -36,9 +39,12 @@ import { reviewApprove } from './ops/reviewApprove.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
 import { addTaskMetrics } from './ops/addTaskMetrics.js';
+import { addAttachment } from './ops/addAttachment.js';
+import { deleteAttachment } from './ops/deleteAttachment.js';
+import { getAttachment } from './ops/getAttachment.js';
 import { createWorkspace } from './ops/createWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, AddTaskMetricsInput } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB) {
@@ -58,6 +64,9 @@ export function createCore(db: DB) {
     reviewRequestChanges: (key: string, input: { feedback: string }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
     addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, input),
+    addAttachment: (key: string, input: AddAttachmentInput) => addAttachment(db, key, input),
+    deleteAttachment: (id: number) => deleteAttachment(db, id),
+    getAttachment: (id: number) => getAttachment(db, id),
     getVersion: () => getVersion(db),
   };
 }

@@ -3,6 +3,7 @@ import type { Task, TaskDetail, Status, UpdateTaskInput } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps } from './activity.js';
 import { linksFor } from './links.js';
+import { attachmentsMeta } from './attachments.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
@@ -34,6 +35,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     repoPath: r.workspace_repo_path,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
+    attachments: attachmentsMeta(db, r.id),
     metrics: {
       ...deriveTaskMetrics(activitySteps(db, r.id), nowIso()),
       ...tokenAggregateFor(db, r.id),

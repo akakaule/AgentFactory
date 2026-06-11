@@ -17,6 +17,7 @@ export interface Activity {
   fromStatus: Status | null; toStatus: Status | null; body: string; createdAt: string;
 }
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
+export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
 
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
@@ -25,7 +26,7 @@ export interface TaskMetricsView {
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
 }
 
-export interface TaskDetail extends Task { activity: Activity[]; links: Link[]; repoPath: string; metrics: TaskMetricsView; }
+export interface TaskDetail extends Task { activity: Activity[]; links: Link[]; attachments: Attachment[]; repoPath: string; metrics: TaskMetricsView; }
 
 export interface CreateTaskInput { title: string; spec: string; acceptanceCriteria: string; workspace?: string | undefined; }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
@@ -35,6 +36,10 @@ export interface SubmitResultInput { summary: string; links?: LinkInput[]; }
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;
 }
+export interface AddAttachmentInput { filename: string; mime: string; dataBase64: string; }
+
+export const ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
+export const ATTACHMENT_MAX_BYTES = 4 * 1024 * 1024;
 
 export const RECENT_ACTIVITY_LIMIT = 50;
 export const KEY_PREFIX = 'AF';

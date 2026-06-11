@@ -74,3 +74,17 @@ CREATE TABLE IF NOT EXISTS task_metric (
 );
 CREATE INDEX IF NOT EXISTS idx_metric_task ON task_metric(task_id);
 `;
+
+// Migration #5 — spec image attachments. Bytes live in the shared SQLite (one-file
+// model); cascade with the task; mutations are backlog-only and bump task.updated_at.
+export const MIGRATION_5_SQL = `
+CREATE TABLE IF NOT EXISTS attachment (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  filename   TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  bytes      BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attachment_task ON attachment(task_id);
+`;

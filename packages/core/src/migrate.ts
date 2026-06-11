@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL } from './schema.js';
 
 const MIGRATIONS: ((db: DB) => void)[] = [
   (db) => db.exec(SCHEMA_SQL),
@@ -14,6 +14,7 @@ const MIGRATIONS: ((db: DB) => void)[] = [
   },
   (db) => db.exec(MIGRATION_3_SQL),
   (db) => db.exec(MIGRATION_4_SQL),
+  (db) => db.exec(MIGRATION_5_SQL),
 ];
 
 export function runMigrations(db: DB): void {

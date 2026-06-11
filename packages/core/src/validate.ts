@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from './errors.js';
+import { ATTACHMENT_MIMES } from './types.js';
 
 const nonEmpty = z.string().trim().min(1);
 const workspaceSlug = z
@@ -34,6 +35,12 @@ export const taskMetricsSchema = z
     (o) => o.model !== undefined || o.tokensIn !== undefined || o.tokensOut !== undefined || o.costUsd !== undefined,
     'at least one metric field required (model, tokensIn, tokensOut, costUsd)',
   );
+
+export const attachmentSchema = z.object({
+  filename: nonEmpty,
+  mime: z.enum(ATTACHMENT_MIMES),
+  dataBase64: z.string(), // emptiness/size checked after decoding
+});
 
 export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input);
