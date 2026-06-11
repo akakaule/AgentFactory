@@ -1,7 +1,7 @@
 # AgentFactory — Delete tasks
 
 **Date:** 2026-06-11
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 **Grows from:** [2026-06-09 task board design](2026-06-09-agent-loop-task-board-design.md) —
 the lifecycle covers create through done (and now reopen), but nothing ever leaves the
 board.

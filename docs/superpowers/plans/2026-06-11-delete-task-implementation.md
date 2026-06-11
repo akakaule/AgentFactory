@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **Spec:** [2026-06-11-delete-task-design.md](../specs/2026-06-11-delete-task-design.md)
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 
 Three phases (`core → web → closeout`). TDD per task: failing test first, implement,
 package suite green, full `npm test` at the end. No schema change, no MCP changes, no

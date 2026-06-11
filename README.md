@@ -71,6 +71,10 @@ When a worker submits a result with a `branch` link (the convention: branch `tas
 
 Workers finish every task by pushing `task/<key>` to `origin` and removing their worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch. If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable GitHub's *delete branch on merge* so merged task branches clean themselves up.
 
+### Deleting tasks
+
+Open a task and use **Delete task** at the bottom of the drawer (it arms into a red *Confirm delete?* — second click deletes). The task and its whole activity/link history are gone for good; there is no archive. In-progress tasks are protected: release the claim first, then delete. Deletion is human-only — agents have no delete tool.
+
 ### Run tests
 
 ```bash
