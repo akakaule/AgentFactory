@@ -14,3 +14,10 @@ export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional() });
+export const metricsBody = z.object({
+  model: z.string().min(1).optional(),
+  tokensIn: z.number().int().nonnegative().optional(),
+  tokensOut: z.number().int().nonnegative().optional(),
+  costUsd: z.number().nonnegative().optional(),
+  reportedBy: z.string().min(1).optional(),
+}); // ≥1 metric field is enforced by core's ValidationError → 400
