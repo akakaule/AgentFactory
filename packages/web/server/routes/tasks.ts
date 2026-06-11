@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
-import type { UpdateTaskInput } from '@agentfactory/core';
+import { NotFoundError, type UpdateTaskInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery } from '../schemas.js';
+import { branchDiff } from '../git.js';
 
 export function taskRoutes(core: Core) {
   const r = new Hono();
@@ -13,6 +14,14 @@ export function taskRoutes(core: Core) {
   });
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
+
+  r.get('/:key/diff', async (c) => {
+    const task = core.getTask(c.req.param('key'));
+    const branchLink = task.links.filter((l) => l.kind === 'branch').at(-1);
+    if (!branchLink) throw new NotFoundError(`no branch link recorded for ${task.key}`);
+    const { baseRef, diff } = await branchDiff(task.repoPath, branchLink.label);
+    return c.json({ branch: branchLink.label, baseRef, diff });
+  });
 
   r.post('/', zValidator('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
 
