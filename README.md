@@ -63,6 +63,10 @@ A pinned worker only ever claims its own workspace's tasks. The claimed payload 
 
 Every claim records who took it and when (workers identify via `AGENTFACTORY_WORKER`, defaulting to the workspace pin), shown on In Progress cards. If a worker dies mid-task, open the task and hit **Release claim** — it re-queues with full history preserved, so the next claimant picks up exactly where the dead one left off.
 
+### Reviewing changes (diff view)
+
+When a worker submits a result with a `branch` link (the convention: branch `task/<key>`), the task's detail panel shows a **Changes** section — files changed and +/− counts — and a **View diff** button that opens the full per-file, line-level diff right on the board. The diff is computed live from the workspace repo (merge-base against the default branch), so commits that landed on main after the branch point never pollute the review. Approve or request changes without leaving the board.
+
 ### Run tests
 
 ```bash

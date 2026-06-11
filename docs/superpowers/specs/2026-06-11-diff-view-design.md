@@ -1,7 +1,7 @@
 # AgentFactory — Diff view (review a task's code changes on the board)
 
 **Date:** 2026-06-11
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 **Grows from:** [2026-06-09 task board design](2026-06-09-agent-loop-task-board-design.md) —
 the board records *references* to agent work (branch/worktree/PR links) but cannot show the
 work itself; and [2026-06-11 claim recovery](2026-06-11-claim-recovery-design.md), which made

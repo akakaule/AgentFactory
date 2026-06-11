@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **Spec:** [2026-06-11-diff-view-design.md](../specs/2026-06-11-diff-view-design.md)
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 
 Six phases, dependency-ordered (`server git module → route → client parser → viewer →
 panel integration → e2e/docs`). TDD per task: failing test first, implement, package suite
