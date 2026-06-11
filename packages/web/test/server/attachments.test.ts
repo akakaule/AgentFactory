@@ -46,6 +46,12 @@ describe('attachments over HTTP', () => {
     expect(res.status).toBe(409);
   });
 
+  it('attachment bytes disappear with the task (end to end over HTTP)', async () => {
+    const meta = await (await post(app, `/api/tasks/${key}/attachments`, { filename: 'a.png', mime: 'image/png', dataBase64: PNG_B64 })).json() as { id: number };
+    expect((await app.request(`/api/tasks/${key}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await app.request(`/api/attachments/${meta.id}`)).status).toBe(404);
+  });
+
   it('rejects bad mime with 400 and unknown ids with 404', async () => {
     expect((await post(app, `/api/tasks/${key}/attachments`, { filename: 'a.pdf', mime: 'application/pdf', dataBase64: PNG_B64 })).status).toBe(400);
     expect((await post(app, '/api/tasks/AF-9999/attachments', { filename: 'a.png', mime: 'image/png', dataBase64: PNG_B64 })).status).toBe(404);

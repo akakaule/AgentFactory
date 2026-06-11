@@ -1,7 +1,7 @@
 # AgentFactory — Image attachments (paste into the spec, hand to the agent)
 
 **Date:** 2026-06-11
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 **Grows from:** [2026-06-09 task board design](2026-06-09-agent-loop-task-board-design.md) —
 the spec is the agent's brief, but it has been text-only.
 

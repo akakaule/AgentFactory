@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **Spec:** [2026-06-11-image-attachments-design.md](../specs/2026-06-11-image-attachments-design.md)
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 
 Five phases (`core → web server → mcp → client → e2e/docs`). TDD per task; rebuild core
 before web suites; no new dependencies.
