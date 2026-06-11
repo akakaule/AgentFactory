@@ -263,8 +263,14 @@
 .af-diff-line { display: grid; grid-template-columns: 44px 44px 1fr; font-family: "IBM Plex Mono", monospace; font-size: 12px; line-height: 1.7; }
 .af-diff-line .ln { user-select: none; text-align: right; padding-right: 8px; color: var(--ink-3); border-right: 1px solid var(--line-soft); }
 .af-diff-line .code { padding: 0 10px; white-space: pre-wrap; word-break: break-all; color: var(--ink); }
-.af-diff-line.add { background: color-mix(in srgb, var(--green) 12%, transparent); }
-.af-diff-line.del { background: color-mix(in srgb, var(--st-blocked) 12%, transparent); }
+/* keep columns aligned across signed and unsigned lines: every row gets a 1-char prefix */
+.af-diff-line .code::before { content: ' '; user-select: none; }
+.af-diff-line.add { background: color-mix(in srgb, var(--green) 24%, transparent); box-shadow: inset 3px 0 0 var(--green); }
+.af-diff-line.add .code::before { content: '+'; color: var(--green); font-weight: 700; }
+.af-diff-line.add .ln { color: color-mix(in srgb, var(--green) 65%, var(--ink-3)); }
+.af-diff-line.del { background: color-mix(in srgb, var(--st-blocked) 24%, transparent); box-shadow: inset 3px 0 0 var(--st-blocked); }
+.af-diff-line.del .code::before { content: '−'; color: var(--st-blocked); font-weight: 700; }
+.af-diff-line.del .ln { color: color-mix(in srgb, var(--st-blocked) 65%, var(--ink-3)); }
 .af-diff-line.meta .code, .af-diff-line.hunkhead .code { color: var(--ink-3); }
 .af-diff-line.hunkhead { background: var(--panel); }
 .af-diff-line.hunkhead .code { color: var(--accent-2); }
