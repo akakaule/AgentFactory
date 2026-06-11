@@ -142,6 +142,34 @@ describe('tasks REST API', () => {
     });
   });
 
+  describe('DELETE /api/tasks/:key', () => {
+    it('deletes a task with 204; the task is gone afterward', async () => {
+      const r = await post(app, '/api/tasks', { title: 'Doomed', spec: 'Spec', acceptanceCriteria: 'AC' });
+      const created = await r.json() as { key: string };
+
+      const res = await app.request(`/api/tasks/${created.key}`, { method: 'DELETE' });
+      expect(res.status).toBe(204);
+
+      expect((await app.request(`/api/tasks/${created.key}`)).status).toBe(404);
+    });
+
+    it('rejects deleting an in_progress task with 409 JSON', async () => {
+      const task = core.createTask({ title: 'Live', spec: 'Spec', acceptanceCriteria: 'AC' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask();
+
+      const res = await app.request(`/api/tasks/${task.key}`, { method: 'DELETE' });
+      expect(res.status).toBe(409);
+      expect((await res.json() as { message: string }).message).toMatch(/release the claim/);
+
+      expect((await app.request(`/api/tasks/${task.key}`)).status).toBe(200);
+    });
+
+    it('unknown key → 404', async () => {
+      expect((await app.request('/api/tasks/AF-9999', { method: 'DELETE' })).status).toBe(404);
+    });
+  });
+
   describe('POST /:key/comment', () => {
     it('adds comment with 201 and actor is human (server-injected)', async () => {
       const r = await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });

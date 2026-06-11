@@ -34,6 +34,11 @@ export function taskRoutes(core: Core) {
     return c.json(core.updateTask(c.req.param('key'), fields));
   });
 
+  r.delete('/:key', (c) => {
+    core.deleteTask(c.req.param('key'));
+    return c.body(null, 204);
+  });
+
   r.post('/:key/comment', zValidator('json', commentBody), (c) =>
     c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body }), 201));
 

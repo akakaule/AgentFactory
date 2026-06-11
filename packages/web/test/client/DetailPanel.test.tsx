@@ -15,6 +15,7 @@ vi.mock('../../client/src/api.js', () => ({
     requestChanges: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue({}),
     getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '' }),
+    deleteTask: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -102,6 +103,7 @@ async function getApiMock() {
     addComment: ReturnType<typeof vi.fn>;
     updateTask: ReturnType<typeof vi.fn>;
     getDiff: ReturnType<typeof vi.fn>;
+    deleteTask: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -244,6 +246,39 @@ describe('DetailPanel', () => {
     await screen.findByText('This is the spec');
     expect(screen.queryByText('Changes')).not.toBeInTheDocument();
     expect(mocked.getDiff).not.toHaveBeenCalled();
+  });
+
+  it('deletes a task through the two-step confirm and closes the panel', async () => {
+    const mocked = await getApiMock();
+    mocked.deleteTask.mockClear();
+    mocked.getTask.mockResolvedValue(backlogTask);
+    const onClose = vi.fn();
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-10" onClose={onClose} onChanged={onChanged} />);
+
+    const del = await screen.findByRole('button', { name: 'Delete task' });
+    await user.click(del);
+    // first click only arms — nothing deleted yet
+    expect(mocked.deleteTask).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Confirm delete?' }));
+    expect(mocked.deleteTask).toHaveBeenCalledWith('AF-10');
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it('hides the delete button on an in_progress task', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(inProgressTask);
+
+    render(<DetailPanel taskKey="AF-12" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByRole('button', { name: 'Release claim' });
+    expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
   });
 
   it('calls onClose when the close button is clicked', async () => {

@@ -43,6 +43,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const refetch = useCallback(() => {
     api.getTask(taskKey)
@@ -53,6 +54,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   useEffect(() => {
     setTask(null);
     setEditing(false);
+    setConfirmingDelete(false);
     refetch();
   }, [refetch]);
 
@@ -189,6 +191,23 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               </div>
 
               <CommentBox onSubmit={(b) => api.addComment(task.key, b).then(afterMutation).catch(() => {})} />
+
+              {task.status !== 'in_progress' && (
+                <div className="af-danger-row">
+                  <button
+                    className={'af-danger' + (confirmingDelete ? ' armed' : '')}
+                    onClick={() => {
+                      if (!confirmingDelete) { setConfirmingDelete(true); return; }
+                      api.deleteTask(task.key)
+                        .then(() => { onChanged(); onClose(); })
+                        .catch(() => setConfirmingDelete(false));
+                    }}
+                    title="Permanently deletes this task with its activity and links."
+                  >
+                    {confirmingDelete ? 'Confirm delete?' : 'Delete task'}
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
