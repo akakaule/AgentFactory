@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentFactory — Analytics (draft mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── AgentFactory design tokens (verbatim from packages/web/client/src/index.css) ── */
+  :root {
+    --bg: #0F172A; --bg-deep: #0B1222; --panel: #18233A; --card: #1E293B; --card-hi: #243551;
+    --line: #2C3A55; --line-soft: #1E2940;
+    --ink: #E8EDF6; --ink-2: #97A5BE; --ink-3: #64748B;
+    --accent: #3B82F6; --accent-2: #60A5FA; --active: #F59E0B; --active-2: #FBBF24; --green: #4ADE80;
+    --st-backlog: #64748B; --st-queued: #60A5FA; --st-progress: #F59E0B; --st-review: #A78BFA;
+    --st-blocked: #F87171; --st-done: #4ADE80;
+    --r-card: 12px; --r-chip: 7px; --r-pill: 999px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 "IBM Plex Sans", sans-serif; }
+  .mono { font-family: "IBM Plex Mono", monospace; }
+  h1, h2, h3, .sg { font-family: "Space Grotesk", sans-serif; }
+
+  /* header mirrors .af-header */
+  .hdr { display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line); }
+  .hdr .brand { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 16px; }
+  .hdr .brand span { color: var(--ink-3); font-weight: 500; }
+  .chips { display: flex; gap: 6px; margin-left: auto; }
+  .chip { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); background: var(--panel);
+          border: 1px solid var(--line); border-radius: var(--r-pill); padding: 4px 12px; cursor: pointer; }
+  .chip.on { color: var(--accent-2); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+  .sl { font-family: "Space Grotesk", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .1em;
+        text-transform: uppercase; color: var(--ink-3); margin: 4px 0 -8px; }
+
+  /* KPI cards */
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .kpi { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-card); padding: 14px 16px; }
+  .kpi .v { font-family: "Space Grotesk", sans-serif; font-size: 24px; font-weight: 700; }
+  .kpi .l { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .kpi .d { font-family: "IBM Plex Mono", monospace; font-size: 11px; margin-top: 6px; color: var(--ink-3); }
+  .kpi .d .up { color: var(--green); } .kpi .d .down { color: var(--st-blocked); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--r-card); padding: 16px 18px; }
+  .panel h3 { margin: 0 0 12px; font-size: 13.5px; font-weight: 600; }
+  .panel h3 small { color: var(--ink-3); font-weight: 400; font-family: "IBM Plex Sans", sans-serif; }
+
+  /* horizontal stage bars */
+  .stage { display: grid; grid-template-columns: 110px 1fr 64px; align-items: center; gap: 10px; padding: 5px 0; }
+  .stage .n { font-size: 12.5px; color: var(--ink-2); }
+  .stage .bar { height: 10px; border-radius: 5px; background: var(--bg-deep); overflow: hidden; }
+  .stage .bar i { display: block; height: 100%; border-radius: 5px; }
+  .stage .t { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-2); text-align: right; }
+
+  /* vertical throughput bars */
+  .tp { display: flex; align-items: flex-end; gap: 6px; height: 110px; padding-top: 6px; }
+  .tp .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; }
+  .tp .b { width: 100%; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--green) 55%, var(--panel)); }
+  .tp .b.hot { background: var(--green); }
+  .tp .d { font-family: "IBM Plex Mono", monospace; font-size: 9.5px; color: var(--ink-3); }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { font-family: "Space Grotesk", sans-serif; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+       color: var(--ink-3); text-align: left; font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
+  td.mono, th.r, td.r { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+  th.r, td.r { text-align: right; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600;
+          padding: 2px 9px; border-radius: var(--r-pill); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 99px; }
+  .good { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+  .warn { color: var(--active-2); background: color-mix(in srgb, var(--active) 14%, transparent); }
+  .bad  { color: var(--st-blocked); background: color-mix(in srgb, var(--st-blocked) 14%, transparent); }
+
+  /* drawer excerpt: per-task metrics strip */
+  .drawer-mock { width: 460px; background: #131D31; border: 1px solid var(--line); border-radius: var(--r-card); padding: 18px; }
+  .timeline { display: flex; align-items: center; gap: 0; margin: 10px 0 4px; }
+  .seg { height: 8px; } .seg:first-child { border-radius: 4px 0 0 4px; } .seg:last-child { border-radius: 0 4px 4px 0; }
+  .tl-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+  .tl-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+  .tl-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+  .mchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+  .mchip { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-2); background: var(--bg-deep);
+           border: 1px solid var(--line-soft); border-radius: var(--r-chip); padding: 4px 9px; }
+  .mchip b { color: var(--ink); font-weight: 500; }
+  .mchip .g { color: var(--green); } .mchip .r { color: var(--st-blocked); }
+
+  .caption { font-size: 12px; color: var(--ink-3); margin-top: 8px; }
+  .note { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); text-align: center; padding: 18px 0 26px; }
+  .row { display: flex; gap: 18px; align-items: flex-start; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="brand">AgentFactory <span>· analytics</span></div>
+  <div class="chips">
+    <span class="chip">All workspaces ▾</span>
+    <span class="chip on">7d</span><span class="chip">30d</span><span class="chip">All</span>
+  </div>
+</div>
+
+<main>
+
+  <!-- ════════ KPI row ════════ -->
+  <div class="kpis">
+    <div class="kpi"><div class="v">14</div><div class="l">Tasks done</div><div class="d"><span class="up">▲ 4</span> vs prev 7d</div></div>
+    <div class="kpi"><div class="v">3.4h</div><div class="l">Median cycle time</div><div class="d">created → done</div></div>
+    <div class="kpi"><div class="v">38m</div><div class="l">Median work time</div><div class="d">claim → submit</div></div>
+    <div class="kpi"><div class="v">71%</div><div class="l">First-pass approval</div><div class="d">10 / 14 no feedback</div></div>
+    <div class="kpi"><div class="v">7%</div><div class="l">Reopen rate</div><div class="d">1 / 14 post-done</div></div>
+    <div class="kpi"><div class="v">$1.84</div><div class="l">Cost / accepted task</div><div class="d">worker-reported</div></div>
+  </div>
+
+  <!-- ════════ Flow + throughput ════════ -->
+  <div class="grid2">
+    <div class="panel">
+      <h3>Where time goes <small>· median per stage</small></h3>
+      <div class="stage"><span class="n">Queue wait</span><span class="bar"><i style="width:18%;background:var(--st-queued)"></i></span><span class="t">22m</span></div>
+      <div class="stage"><span class="n">Work</span><span class="bar"><i style="width:34%;background:var(--st-progress)"></i></span><span class="t">38m</span></div>
+      <div class="stage"><span class="n">Review wait</span><span class="bar"><i style="width:62%;background:var(--st-review)"></i></span><span class="t">1.2h</span></div>
+      <div class="stage"><span class="n">Blocked</span><span class="bar"><i style="width:7%;background:var(--st-blocked)"></i></span><span class="t">6m</span></div>
+      <div class="caption">Review wait dominates — the human is the bottleneck, not the agents.</div>
+    </div>
+    <div class="panel">
+      <h3>Throughput <small>· tasks done per day, last 14 days</small></h3>
+      <div class="tp">
+        <div class="col"><div class="b" style="height:25%"></div><span class="d">29</span></div>
+        <div class="col"><div class="b" style="height:45%"></div><span class="d">30</span></div>
+        <div class="col"><div class="b" style="height:10%"></div><span class="d">31</span></div>
+        <div class="col"><div class="b" style="height:0%"></div><span class="d">01</span></div>
+        <div class="col"><div class="b" style="height:35%"></div><span class="d">02</span></div>
+        <div class="col"><div class="b" style="height:55%"></div><span class="d">03</span></div>
+        <div class="col"><div class="b" style="height:30%"></div><span class="d">04</span></div>
+        <div class="col"><div class="b" style="height:20%"></div><span class="d">05</span></div>
+        <div class="col"><div class="b" style="height:60%"></div><span class="d">06</span></div>
+        <div class="col"><div class="b" style="height:40%"></div><span class="d">07</span></div>
+        <div class="col"><div class="b" style="height:15%"></div><span class="d">08</span></div>
+        <div class="col"><div class="b" style="height:70%"></div><span class="d">09</span></div>
+        <div class="col"><div class="b" style="height:50%"></div><span class="d">10</span></div>
+        <div class="col"><div class="b hot" style="height:100%"></div><span class="d">11</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ Quality + tokens ════════ -->
+  <div class="grid2">
+    <div class="panel">
+      <h3>Review round-trips <small>· feedback loops before approval</small></h3>
+      <div class="stage"><span class="n">First pass</span><span class="bar"><i style="width:71%;background:var(--green)"></i></span><span class="t">10</span></div>
+      <div class="stage"><span class="n">1 round</span><span class="bar"><i style="width:21%;background:var(--active)"></i></span><span class="t">3</span></div>
+      <div class="stage"><span class="n">2+ rounds</span><span class="bar"><i style="width:7%;background:var(--st-blocked)"></i></span><span class="t">1</span></div>
+      <div class="caption">Trending down = specs and acceptance criteria are getting sharper.</div>
+    </div>
+    <div class="panel">
+      <h3>Tokens by model <small>· worker-reported, 7d</small></h3>
+      <div class="stage"><span class="n mono">fable-5</span><span class="bar"><i style="width:74%;background:var(--accent)"></i></span><span class="t">612k</span></div>
+      <div class="stage"><span class="n mono">opus-4-8</span><span class="bar"><i style="width:30%;background:var(--accent-2)"></i></span><span class="t">241k</span></div>
+      <div class="stage"><span class="n mono">haiku-4-5</span><span class="bar"><i style="width:9%;background:var(--ink-3)"></i></span><span class="t">73k</span></div>
+      <div class="caption">2 of 14 tasks have no metrics (interactive workers don't self-report) — shown as "n/a", never as zero.</div>
+    </div>
+  </div>
+
+  <!-- ════════ Workers ════════ -->
+  <div class="panel">
+    <h3>Workers <small>· 7d</small></h3>
+    <table>
+      <tr><th>Worker</th><th>Workspace</th><th class="r">Claims</th><th class="r">Done</th><th>First-pass</th><th class="r">Med. work</th><th class="r">Releases</th><th class="r">Tokens</th><th class="r">Cost</th></tr>
+      <tr><td class="mono">pmd</td><td class="mono">pmd</td><td class="r">9</td><td class="r">8</td><td><span class="pill good">78%</span></td><td class="r">31m</td><td class="r">0</td><td class="r">512k</td><td class="r">$11.20</td></tr>
+      <tr><td class="mono">shopfloor-1</td><td class="mono">shopfloor</td><td class="r">6</td><td class="r">5</td><td><span class="pill warn">60%</span></td><td class="r">52m</td><td class="r">1</td><td class="r">341k</td><td class="r">$8.90</td></tr>
+      <tr><td class="mono" style="color:var(--ink-3)">(unlabeled)</td><td class="mono">default</td><td class="r">1</td><td class="r">1</td><td><span class="pill good">100%</span></td><td class="r">12m</td><td class="r">0</td><td class="r" style="color:var(--ink-3)">n/a</td><td class="r" style="color:var(--ink-3)">n/a</td></tr>
+    </table>
+  </div>
+
+  <!-- ════════ Per-task strip (drawer excerpt) ════════ -->
+  <div class="sl">Companion change — task detail drawer gains a Metrics section</div>
+  <div class="row">
+    <div class="drawer-mock">
+      <div class="sl" style="margin:0 0 2px">Metrics</div>
+      <div class="timeline">
+        <span class="seg" style="width:12%;background:var(--st-queued)"></span>
+        <span class="seg" style="width:34%;background:var(--st-progress)"></span>
+        <span class="seg" style="width:54%;background:var(--st-review)"></span>
+      </div>
+      <div class="tl-legend">
+        <span><i style="background:var(--st-queued)"></i>queued 12m</span>
+        <span><i style="background:var(--st-progress)"></i>worked 38m</span>
+        <span><i style="background:var(--st-review)"></i>review 1.1h</span>
+      </div>
+      <div class="mchips">
+        <span class="mchip">2 review rounds</span>
+        <span class="mchip"><span class="g">+120</span> <span class="r">−45</span> · 6 files</span>
+        <span class="mchip">3 commits</span>
+        <span class="mchip"><b>41k</b> in / <b>9k</b> out</span>
+        <span class="mchip">$0.92 · <b>fable-5</b></span>
+      </div>
+    </div>
+    <div class="caption" style="max-width:420px">
+      Lives between <b>Changes</b> and <b>Details</b> in the existing drawer.
+      Timeline is computed from the activity log; diffstat/commits from the task branch;
+      token chips appear only when a worker reported metrics.
+    </div>
+  </div>
+
+  <div class="note">DRAFT MOCKUP · fake data · layout & hierarchy only — visual design to be refined by claude-design</div>
+</main>
+</body>
+</html>
