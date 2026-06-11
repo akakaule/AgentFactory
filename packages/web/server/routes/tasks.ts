@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
 import { NotFoundError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 
 export function taskRoutes(core: Core) {
@@ -55,6 +55,9 @@ export function taskRoutes(core: Core) {
     if (b.reportedBy !== undefined) input.reportedBy = b.reportedBy;
     return c.json(core.addTaskMetrics(c.req.param('key'), input), 201);
   });
+
+  r.post('/:key/attachments', zValidator('json', attachmentBody), (c) =>
+    c.json(core.addAttachment(c.req.param('key'), c.req.valid('json')), 201));
 
   r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'))));
 

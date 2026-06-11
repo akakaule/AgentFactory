@@ -4,6 +4,7 @@ import type { Core } from './types.js';
 import { taskRoutes } from './routes/tasks.js';
 import { workspaceRoutes } from './routes/workspaces.js';
 import { analyticsRoutes } from './routes/analytics.js';
+import { attachmentRoutes } from './routes/attachments.js';
 import { mapError } from './errors.js';
 import { registerSse } from './sse.js';
 
@@ -12,6 +13,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number } = {}): Hon
   app.route('/api/tasks', taskRoutes(core));
   app.route('/api/workspaces', workspaceRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
+  app.route('/api/attachments', attachmentRoutes(core));
   registerSse(app, core, opts.sseIntervalMs ?? 1000);
   app.onError((err, c) => {
     const httpErr = err instanceof HTTPException ? err : mapError(err);
