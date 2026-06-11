@@ -43,6 +43,16 @@ describe('tool registry', () => {
     expect(submit?.description).toMatch(/git worktree remove/);
   });
 
+  it('names branches feature/<key>-<kebab-title> for PR-based flows', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const next = tools.find((t) => t.name === 'get_next_task');
+    expect(next?.description).toMatch(/feature\/<task-key>-<kebab-title>/);
+    expect(next?.description).not.toMatch(/-b task\//);
+    const submit = tools.find((t) => t.name === 'submit_result');
+    expect(submit?.description).toMatch(/git push -u origin feature\//);
+  });
+
   it('invites best-effort usage metrics on submit', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();

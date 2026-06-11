@@ -29,6 +29,15 @@ const tasks: Task[] = [
 ];
 
 describe('BoardView', () => {
+  it('shows the conventional feature branch chip on claimed cards', () => {
+    const claimed = {
+      ...makeTask('AF-7', 'Barcode scanner intake form', 'in_progress'),
+      claimedBy: 'worker-1', claimedAt: '2024-01-01T00:00:00Z',
+    };
+    render(<BoardView tasks={[claimed]} onSelect={vi.fn()} />);
+    expect(screen.getByText('feature/AF-7-barcode-scanner-intake-form')).toBeInTheDocument();
+  });
+
   it('renders a column for every status in lifecycle order', () => {
     render(<BoardView tasks={tasks} onSelect={vi.fn()} />);
 
