@@ -4,6 +4,7 @@ import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps } from './activity.js';
 import { linksFor } from './links.js';
 import { deriveTaskMetrics } from '../metrics.js';
+import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
 
 export interface TaskRow {
@@ -35,7 +36,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     links: linksFor(db, r.id),
     metrics: {
       ...deriveTaskMetrics(activitySteps(db, r.id), nowIso()),
-      model: null, tokensIn: null, tokensOut: null, costUsd: null,
+      ...tokenAggregateFor(db, r.id),
     },
   };
 }

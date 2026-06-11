@@ -57,3 +57,20 @@ export const MIGRATION_3_SQL = `
 ALTER TABLE task ADD COLUMN claimed_by TEXT;
 ALTER TABLE task ADD COLUMN claimed_at TEXT;
 `;
+
+// Migration #4 — worker-reported usage. One row per report (a re-submission after
+// feedback adds another); aggregate = SUM tokens/cost, latest non-null model.
+// All metric fields nullable: unreported is a first-class state, never zero.
+export const MIGRATION_4_SQL = `
+CREATE TABLE IF NOT EXISTS task_metric (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  model       TEXT,
+  tokens_in   INTEGER,
+  tokens_out  INTEGER,
+  cost_usd    REAL,
+  reported_by TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_metric_task ON task_metric(task_id);
+`;

@@ -32,6 +32,9 @@ export interface CreateWorkspaceInput { name: string; repoPath: string; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput { summary: string; links?: LinkInput[]; }
+export interface AddTaskMetricsInput {
+  model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;
+}
 
 export const RECENT_ACTIVITY_LIMIT = 50;
 export const KEY_PREFIX = 'AF';

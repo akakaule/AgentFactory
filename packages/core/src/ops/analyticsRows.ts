@@ -2,6 +2,7 @@ import type { DB } from '../db.js';
 import type { Status, TaskMetricsView } from '../types.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { activitySteps } from '../repo/activity.js';
+import { tokenAggregateFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
 
 export interface AnalyticsTaskRow extends TaskMetricsView {
@@ -31,8 +32,8 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
     const derived = deriveTaskMetrics(steps, ts);
     tasks.push({
       ...derived,
+      ...tokenAggregateFor(db, r.id),
       key: r.key, workspace: r.workspace, status: r.status, worker: r.claimed_by,
-      model: null, tokensIn: null, tokensOut: null, costUsd: null,
     });
 
     // a human in_progress → queued transition is a stranded-claim release,

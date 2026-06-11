@@ -23,9 +23,9 @@ const claimRow = (db: DB, key: string) =>
     { claimed_by: string | null; claimed_at: string | null };
 
 describe('migration #3: claim columns', () => {
-  it('fresh DB → user_version 3, claim columns present and NULL', () => {
+  it('fresh DB → user_version 4, claim columns present and NULL', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 4 });
     const key = seedQueued(db);
     expect(claimRow(db, key)).toEqual({ claimed_by: null, claimed_at: null });
   });
@@ -45,7 +45,7 @@ describe('migration #3: claim columns', () => {
     ).run();
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 4 });
     expect(claimRow(db, 'AF-1')).toEqual({ claimed_by: null, claimed_at: null });
   });
 });

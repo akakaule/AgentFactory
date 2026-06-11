@@ -22,6 +22,18 @@ export const submitResultSchema = z.object({
 });
 export const commentSchema = z.object({ body: nonEmpty });
 export const feedbackSchema = z.object({ feedback: nonEmpty });
+export const taskMetricsSchema = z
+  .object({
+    model: nonEmpty.optional(),
+    tokensIn: z.number().int().nonnegative().optional(),
+    tokensOut: z.number().int().nonnegative().optional(),
+    costUsd: z.number().nonnegative().optional(),
+    reportedBy: nonEmpty.optional(),
+  })
+  .refine(
+    (o) => o.model !== undefined || o.tokensIn !== undefined || o.tokensOut !== undefined || o.costUsd !== undefined,
+    'at least one metric field required (model, tokensIn, tokensOut, costUsd)',
+  );
 
 export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input);
