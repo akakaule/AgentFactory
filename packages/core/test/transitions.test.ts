@@ -7,6 +7,7 @@ const VALID: [string, string, string][] = [
   ['in_progress','queued','human'], // release a stranded claim
   ['blocked','in_progress','agent'], ['blocked','queued','human'],
   ['in_review','done','human'], ['in_review','queued','human'],
+  ['done','queued','human'], // reopen (e.g. CI failed on the PR)
 ];
 
 describe('isValidTransition', () => {
@@ -17,9 +18,10 @@ describe('isValidTransition', () => {
     expect(isValidTransition('in_review','done','agent')).toBe(false);
     expect(isValidTransition('queued','in_progress','human')).toBe(false);
     expect(isValidTransition('in_progress','queued','agent')).toBe(false); // release is human-only
+    expect(isValidTransition('done','queued','agent')).toBe(false); // reopen is human-only
   });
   it('rejects edges not in the table', () => {
-    for (const [f, t] of [['backlog','done'],['queued','in_review'],['done','queued'],['backlog','in_progress'],['in_review','in_progress'],['done','done']] as const)
+    for (const [f, t] of [['backlog','done'],['queued','in_review'],['backlog','in_progress'],['in_review','in_progress'],['done','done']] as const)
       expect(isValidTransition(f as any, t as any, 'human')).toBe(false);
   });
 });

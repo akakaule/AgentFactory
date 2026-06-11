@@ -84,13 +84,30 @@ describe('updateStatus', () => {
     expect(act!.fromStatus).toBe('blocked');
   });
 
+  it('done → queued (human): reopen clears stale claim metadata and logs the move', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    // a finished task keeps its last claimant as provenance — reopen must clear it
+    db.prepare("UPDATE task SET status='done', claimed_by='worker-1', claimed_at='2030-07-31T09:00:00.000Z' WHERE key=?").run(task.key);
+
+    const detail = updateStatus(db, task.key, 'queued', 'human', fixedNow);
+
+    expect(detail.status).toBe('queued');
+    expect(detail.claimedBy).toBeNull();
+    expect(detail.claimedAt).toBeNull();
+
+    const act = detail.activity.find(a => a.type === 'status_change' && a.fromStatus === 'done');
+    expect(act).toBeDefined();
+    expect(act!.actor).toBe('human');
+    expect(act!.toStatus).toBe('queued');
+  });
+
   // ── Invalid edges (wrong transition, nothing changed) ─────────────────────
 
   it.each<[Status, Status, Actor]>([
     ['backlog',     'in_progress', 'human'],
     ['queued',      'done',        'human'],
     ['in_progress', 'done',        'agent'],
-    ['done',        'queued',      'human'],
     ['backlog',     'done',        'agent'],
   ])('rejects %s → %s (%s): InvalidTransitionError, nothing changed', (from, to, actor) => {
     const db = makeTestDb();
@@ -117,6 +134,17 @@ describe('updateStatus', () => {
 
     const row = findRowByKey(db, task.key)!;
     expect(row.status).toBe('queued');
+  });
+
+  it('done → queued with actor agent: InvalidTransitionError (reopen is human-only)', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='done' WHERE key=?").run(task.key);
+
+    expect(() => updateStatus(db, task.key, 'queued', 'agent', fixedNow)).toThrow(InvalidTransitionError);
+
+    const row = findRowByKey(db, task.key)!;
+    expect(row.status).toBe('done');
   });
 
   it('in_review → done with actor agent: InvalidTransitionError', () => {

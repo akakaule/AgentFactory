@@ -14,6 +14,7 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'blocked',     to: 'queued',      by: 'human' },
   { from: 'in_review',   to: 'done',        by: 'human' },
   { from: 'in_review',   to: 'queued',      by: 'human' },
+  { from: 'done',        to: 'queued',      by: 'human' }, // reopen (e.g. CI failed on the PR)
 ] as const;
 
 export function isValidTransition(from: Status, to: Status, by: Actor): boolean {
