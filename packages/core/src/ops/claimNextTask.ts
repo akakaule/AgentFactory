@@ -24,6 +24,9 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor: 'agent',
       fromStatus: 'queued', toStatus: 'in_progress', createdAt: ts,
+      // worker label rides the claim row so releases stay attributable after
+      // claimed_by is cleared on re-queue (analytics: stranded releases per worker)
+      body: claimedBy ?? '',
     });
     return toDetail(db, { ...row, status: 'in_progress', claimed_by: claimedBy, claimed_at: ts, updated_at: ts });
   });

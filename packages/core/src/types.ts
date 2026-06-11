@@ -17,7 +17,15 @@ export interface Activity {
   fromStatus: Status | null; toStatus: Status | null; body: string; createdAt: string;
 }
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
-export interface TaskDetail extends Task { activity: Activity[]; links: Link[]; repoPath: string; }
+
+/** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
+export interface TaskMetricsView {
+  queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
+  rounds: number; reopened: boolean; claimCount: number; doneAt: string | null;
+  model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
+}
+
+export interface TaskDetail extends Task { activity: Activity[]; links: Link[]; repoPath: string; metrics: TaskMetricsView; }
 
 export interface CreateTaskInput { title: string; spec: string; acceptanceCriteria: string; workspace?: string | undefined; }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }

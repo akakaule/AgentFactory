@@ -1,8 +1,10 @@
 import type { DB } from '../db.js';
 import type { Task, TaskDetail, Status, UpdateTaskInput } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity } from './activity.js';
+import { recentActivity, activitySteps } from './activity.js';
 import { linksFor } from './links.js';
+import { deriveTaskMetrics } from '../metrics.js';
+import { nowIso } from '../time.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
@@ -31,6 +33,10 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     repoPath: r.workspace_repo_path,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
+    metrics: {
+      ...deriveTaskMetrics(activitySteps(db, r.id), nowIso()),
+      model: null, tokensIn: null, tokensOut: null, costUsd: null,
+    },
   };
 }
 

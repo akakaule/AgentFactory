@@ -14,6 +14,8 @@ export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
+export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type AnalyticsData } from './ops/analyticsRows.js';
+export { deriveTaskMetrics, type DerivedTaskMetrics, type ActivityStep } from './metrics.js';
 export { createWorkspace } from './ops/createWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
 
@@ -31,6 +33,7 @@ import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
 import { reviewApprove } from './ops/reviewApprove.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
+import { analyticsRows } from './ops/analyticsRows.js';
 import { createWorkspace } from './ops/createWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput } from './types.js';
@@ -51,6 +54,7 @@ export function createCore(db: DB) {
     updateStatus: (key: string, status: Status, actor: Actor) => updateStatus(db, key, status, actor),
     reviewApprove: (key: string) => reviewApprove(db, key),
     reviewRequestChanges: (key: string, input: { feedback: string }) => reviewRequestChanges(db, key, input),
+    analyticsRows: () => analyticsRows(db),
     getVersion: () => getVersion(db),
   };
 }
