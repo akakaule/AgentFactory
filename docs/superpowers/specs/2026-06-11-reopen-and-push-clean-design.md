@@ -1,7 +1,7 @@
 # AgentFactory — Reopen + push-and-clean worker convention (closing the PR loop)
 
 **Date:** 2026-06-11
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 **Grows from:** [2026-06-11 diff view](2026-06-11-diff-view-design.md), which made review
 possible on the board, and [2026-06-11 claim recovery](2026-06-11-claim-recovery-design.md),
 whose "human rescue via one transition rule" pattern this reuses. Together they close the

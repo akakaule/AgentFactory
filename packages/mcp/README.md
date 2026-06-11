@@ -48,6 +48,8 @@ Every claim records **who** (`claimed_by`) and **when** (`claimed_at`) on the ta
 
 If a worker dies mid-task, the task sits in In Progress with its claim age visible. A human releases it from the web UI (**Release claim**, `in_progress → queued`) — the claim is cleared, all activity history is preserved, and the next claimant picks it up with full context. Agents cannot release claims.
 
+The same rescue shape covers failed PR builds: a human comments the CI failure on the done task and **reopens** it (`done → queued`, web UI). The next claimant sees the whole thread, continues on the existing `task/<key>` branch, and its push updates the same PR. Agents cannot reopen tasks.
+
 ## Worktree convention
 
 When the agent claims a task it creates a dedicated git worktree **under the task's workspace repository** before touching any code, and does all work inside it:
@@ -56,7 +58,23 @@ When the agent claims a task it creates a dedicated git worktree **under the tas
 git worktree add <repoPath>/.worktrees/AF-7 -b task/AF-7
 ```
 
-When `repoPath` is `.`, resolve it against the agent's current working directory. One task = one worktree = one branch (`task/<key>`). The worktree and branch are recorded on the task via `submit_result` links (kinds `worktree` and `branch`) so the reviewer can find the work, and parallel agents never collide because each task is isolated in its own checkout. Add `.worktrees/` to the target repo's `.gitignore`.
+If the branch already exists — the task came back via review feedback or a reopen — the worktree is added **from** it instead (no `-b`), so work continues on the same branch and pushes update the same PR:
+
+```sh
+git worktree add <repoPath>/.worktrees/AF-7 task/AF-7
+```
+
+When `repoPath` is `.`, resolve it against the agent's current working directory. One task = one worktree = one branch (`task/<key>`); parallel agents never collide because each task is isolated in its own checkout. Add `.worktrees/` to the target repo's `.gitignore`.
+
+**Finish protocol** — before calling `submit_result`, the worker leaves nothing behind:
+
+```sh
+git -C <worktree> push -u origin task/AF-7   # the branch is the durable record
+git worktree remove <repoPath>/.worktrees/AF-7   # refuses on uncommitted changes
+git worktree prune
+```
+
+then submits with a `branch` link (label = the branch name, e.g. `task/AF-7`) plus a PR link if one exists. The board's diff view reads the *branch*, so review needs nothing from the worktree — and the human can open a PR from the pushed branch at any time.
 
 The convention is embedded in the `get_next_task` and `submit_result` tool descriptions, so any MCP agent runtime picks it up without extra prompting.
 

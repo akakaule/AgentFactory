@@ -26,4 +26,20 @@ describe('tool registry', () => {
     const submit = tools.find((t) => t.name === 'submit_result');
     expect(submit?.description).toMatch(/worktree/);
   });
+
+  it('instructs the agent to reuse an existing task branch on re-claim', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const next = tools.find((t) => t.name === 'get_next_task');
+    expect(next?.description).toMatch(/already exists/);
+    expect(next?.description).toMatch(/without `-b`/);
+  });
+
+  it('instructs the agent to push and remove the worktree before submitting', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const submit = tools.find((t) => t.name === 'submit_result');
+    expect(submit?.description).toMatch(/git push -u origin/);
+    expect(submit?.description).toMatch(/git worktree remove/);
+  });
 });

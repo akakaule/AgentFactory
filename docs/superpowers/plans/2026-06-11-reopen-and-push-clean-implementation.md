@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **Spec:** [2026-06-11-reopen-and-push-clean-design.md](../specs/2026-06-11-reopen-and-push-clean-design.md)
-**Status:** Approved (2026-06-11)
+**Status:** Implemented (2026-06-11)
 
 Three phases, dependency-ordered (`core → web → mcp/docs`). TDD per task: failing test
 first, implement, package suite green, full `npm test` at the end. No new ops, routes,

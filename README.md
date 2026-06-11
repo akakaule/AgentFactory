@@ -67,6 +67,10 @@ Every claim records who took it and when (workers identify via `AGENTFACTORY_WOR
 
 When a worker submits a result with a `branch` link (the convention: branch `task/<key>`), the task's detail panel shows a **Changes** section — files changed and +/− counts — and a **View diff** button that opens the full per-file, line-level diff right on the board. The diff is computed live from the workspace repo (merge-base against the default branch), so commits that landed on main after the branch point never pollute the review. Approve or request changes without leaving the board.
 
+### The PR loop (push, clean up, reopen)
+
+Workers finish every task by pushing `task/<key>` to `origin` and removing their worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch. If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable GitHub's *delete branch on merge* so merged task branches clean themselves up.
+
 ### Run tests
 
 ```bash
