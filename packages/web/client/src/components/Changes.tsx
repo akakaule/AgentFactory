@@ -9,7 +9,7 @@ interface Props {
   updatedAt: string; // refetch key: SSE bumps it exactly when this task changes
 }
 
-interface Loaded { branch: string; baseRef: string; parsed: ParsedDiff; }
+interface Loaded { branch: string; baseRef: string; parsed: ParsedDiff; commits: number; }
 
 export function Changes({ taskKey, branchLabel, updatedAt }: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -21,7 +21,7 @@ export function Changes({ taskKey, branchLabel, updatedAt }: Props) {
     setLoaded(null);
     setError(null);
     api.getDiff(taskKey)
-      .then((d) => { if (alive) setLoaded({ branch: d.branch, baseRef: d.baseRef, parsed: parseUnifiedDiff(d.diff) }); })
+      .then((d) => { if (alive) setLoaded({ branch: d.branch, baseRef: d.baseRef, parsed: parseUnifiedDiff(d.diff), commits: d.commits }); })
       .catch((e: Error) => { if (alive) setError(e.message); });
     return () => { alive = false; };
   }, [taskKey, branchLabel, updatedAt]);
@@ -40,6 +40,7 @@ export function Changes({ taskKey, branchLabel, updatedAt }: Props) {
             <span>{loaded.parsed.files.length} file{loaded.parsed.files.length === 1 ? '' : 's'}</span>
             <span className="a">+{loaded.parsed.adds}</span>
             <span className="d">−{loaded.parsed.dels}</span>
+            <span>· {loaded.commits} commit{loaded.commits === 1 ? '' : 's'}</span>
           </span>
           <button className="af-mini" onClick={() => setOpen(true)}>View diff</button>
         </div>

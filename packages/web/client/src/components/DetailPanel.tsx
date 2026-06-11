@@ -8,6 +8,7 @@ import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
+import { TaskMetrics } from './TaskMetrics.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -160,6 +161,9 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               {branchLink && (
                 <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} />
               )}
+
+              <div className="af-sl">Metrics</div>
+              <TaskMetrics metrics={task.metrics} />
 
               {task.links.length > 0 && (<>
                 <div className="af-sl">Links</div>

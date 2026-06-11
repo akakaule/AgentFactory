@@ -14,7 +14,7 @@ vi.mock('../../client/src/api.js', () => ({
     approve: vi.fn().mockResolvedValue({}),
     requestChanges: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue({}),
-    getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '' }),
+    getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '', commits: 0 }),
     deleteTask: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -30,6 +30,12 @@ beforeEach(() => {
   })) as unknown as typeof EventSource;
 });
 
+const noMetrics: TaskDetail['metrics'] = {
+  queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0,
+  rounds: 0, reopened: false, claimCount: 0, doneAt: null,
+  model: null, tokensIn: null, tokensOut: null, costUsd: null,
+};
+
 const backlogTask: TaskDetail = {
   id: 1,
   key: 'AF-10',
@@ -43,6 +49,7 @@ const backlogTask: TaskDetail = {
   repoPath: 'c:/git/repo-a',
   claimedBy: null,
   claimedAt: null,
+  metrics: noMetrics,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   activity: [
@@ -193,6 +200,34 @@ describe('DetailPanel', () => {
     // Wait for render
     await screen.findByText('This is the spec');
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
+
+  it('renders the Metrics strip with reported usage', async () => {
+    const mocked = await getApiMock();
+    const reported: TaskDetail = {
+      ...inReviewTask,
+      key: 'AF-15',
+      metrics: {
+        ...noMetrics, claimCount: 1, queueMin: 12, workMin: 38, reviewMin: 66,
+        model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92,
+      },
+    };
+    mocked.getTask.mockResolvedValue(reported);
+
+    render(<DetailPanel taskKey="AF-15" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('Metrics')).toBeInTheDocument();
+    expect(screen.getByText('41k')).toBeInTheDocument();
+    expect(screen.getByText('claude-fable-5')).toBeInTheDocument();
+  });
+
+  it('shows the no-metrics line for an unworked task', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(backlogTask);
+
+    render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText(/hasn't been worked/)).toBeInTheDocument();
   });
 
   it('shows a Reopen button on a done task and re-queues on click', async () => {

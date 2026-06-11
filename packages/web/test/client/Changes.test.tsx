@@ -20,21 +20,22 @@ beforeEach(async () => {
 const props = { taskKey: 'AF-7', branchLabel: 'task/AF-7', updatedAt: '2024-01-01T00:00:00Z' };
 
 describe('Changes', () => {
-  it('fetches the diff and shows a compact stat', async () => {
+  it('fetches the diff and shows a compact stat with commits', async () => {
     const mocked = await getApiMock();
-    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: MODIFY_MULTI_HUNK });
+    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: MODIFY_MULTI_HUNK, commits: 3 });
 
     render(<Changes {...props} />);
 
     expect(await screen.findByText('1 file')).toBeInTheDocument();
     expect(screen.getByText('+3')).toBeInTheDocument();
     expect(screen.getByText('−2')).toBeInTheDocument();
+    expect(screen.getByText('· 3 commits')).toBeInTheDocument();
     expect(mocked.getDiff).toHaveBeenCalledWith('AF-7');
   });
 
   it('opens the diff modal without refetching', async () => {
     const mocked = await getApiMock();
-    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: MODIFY_MULTI_HUNK });
+    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: MODIFY_MULTI_HUNK, commits: 1 });
     const user = userEvent.setup();
 
     render(<Changes {...props} />);
@@ -48,7 +49,7 @@ describe('Changes', () => {
 
   it('shows "No changes" for an empty diff and offers no button', async () => {
     const mocked = await getApiMock();
-    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: '' });
+    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: '', commits: 0 });
 
     render(<Changes {...props} />);
 
