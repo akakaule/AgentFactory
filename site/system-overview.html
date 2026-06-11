@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentFactory — System overview: Azure DevOps · ado-bridge · agents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0F172A; --bg-deep:#0B1222; --panel:#18233A; --card:#1E293B; --line:#2C3A55; --line-soft:#1E2940;
+    --ink:#E8EDF6; --ink-2:#97A5BE; --ink-3:#64748B;
+    --accent:#3B82F6; --accent-2:#60A5FA; --active:#F59E0B; --active-2:#FBBF24; --green:#4ADE80;
+    --review:#A78BFA; --blocked:#F87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 "IBM Plex Sans",sans-serif; }
+  header.page { padding:26px 30px 6px; max-width:1560px; margin:0 auto; }
+  header.page h1 { font-family:"Space Grotesk",sans-serif; font-size:22px; margin:0; }
+  header.page h1 span { color:var(--ink-3); font-weight:500; }
+  header.page p { color:var(--ink-2); max-width:980px; margin:8px 0 0; }
+  main { max-width:1560px; margin:0 auto; padding:10px 30px 60px; }
+  svg { width:100%; height:auto; display:block; }
+  svg text { font-family:"IBM Plex Sans",sans-serif; }
+  .grotesk { font-family:"Space Grotesk",sans-serif !important; }
+  .mono { font-family:"IBM Plex Mono",monospace !important; }
+
+  .legend { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:26px; }
+  .steps { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px; padding:18px 22px; }
+  .steps h2, .loops h2 { font-family:"Space Grotesk",sans-serif; font-size:14px; margin:0 0 12px; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-2); }
+  .steps ol { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:9px; }
+  .steps li { display:flex; gap:11px; font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .steps li b { color:var(--ink); font-weight:600; }
+  .steps li .mono { color:var(--accent-2); font-size:12px; }
+  .n { flex:none; width:22px; height:22px; border-radius:99px; display:grid; place-items:center; font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600; margin-top:1px; }
+  .n.b { background:color-mix(in srgb,var(--accent) 22%,transparent); color:var(--accent-2); }
+  .n.a { background:color-mix(in srgb,var(--active) 22%,transparent); color:var(--active-2); }
+  .n.g { background:color-mix(in srgb,var(--green) 20%,transparent); color:var(--green); }
+  .n.r { background:color-mix(in srgb,var(--review) 22%,transparent); color:var(--review); }
+  .loops { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px; padding:18px 22px; }
+  .loops .lp { display:flex; gap:11px; margin-bottom:12px; font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .loops .lp i { flex:none; font-style:normal; font-size:15px; margin-top:-1px; }
+  .loops .lp b { color:var(--ink); }
+  .loops .mono { color:var(--accent-2); font-size:12px; }
+  .keyline { margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft); display:flex; flex-wrap:wrap; gap:16px; font-size:12px; color:var(--ink-2); }
+  .keyline span { display:inline-flex; align-items:center; gap:7px; }
+  .keyline i { width:22px; height:3px; border-radius:2px; display:inline-block; }
+  footer { text-align:center; font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-3); padding:0 0 30px; }
+  @media (max-width:1000px){ .legend { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>AgentFactory <span>· system overview</span></h1>
+  <p>Azure DevOps backlogs feed the board through per-workspace <b>ado-bridge</b> loops; pinned agents claim over MCP, work in
+     isolated worktrees inside each workspace's git repo, and push <span class="mono" style="color:var(--accent-2)">feature/&lt;key&gt;-&lt;title&gt;</span> branches
+     back to origin. The board is the human checkpoint — and the only shared state is one SQLite file.</p>
+</header>
+<main>
+<svg viewBox="0 0 1560 1030" role="img" aria-label="AgentFactory system diagram">
+  <defs>
+    <marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#60A5FA"/></marker>
+    <marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#F59E0B"/></marker>
+    <marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4ADE80"/></marker>
+    <marker id="mr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#A78BFA"/></marker>
+  </defs>
+
+  <!-- ════════════ AZURE DEVOPS ════════════ -->
+  <rect x="28" y="56" width="306" height="610" rx="14" fill="#131D31" stroke="#2C3A55"/>
+  <text x="48" y="88" class="grotesk" font-size="15" font-weight="700" fill="#E8EDF6">AZURE DEVOPS</text>
+  <text x="48" y="106" class="mono" font-size="11" fill="#64748B">dev.azure.com/&lt;org&gt;</text>
+
+  <!-- Boards: project A -->
+  <rect x="46" y="122" width="270" height="148" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <text x="60" y="146" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">Boards · Project A</text>
+  <text x="60" y="166" class="mono" font-size="11" fill="#97A5BE">AB#123 User Story · New · unassigned</text>
+  <text x="60" y="184" class="mono" font-size="11" fill="#97A5BE">AB#124 User Story · New · #ai-agent</text>
+  <text x="60" y="202" class="mono" font-size="11" fill="#64748B">AB#119 · Closed ✓ result comment</text>
+  <rect x="58" y="216" width="246" height="40" rx="7" fill="#0B1222" stroke="#1E2940"/>
+  <text x="70" y="232" font-size="10.5" fill="#64748B">WIQL: backlog order · tags as markers</text>
+  <text x="70" y="247" class="mono" font-size="10.5" fill="#64748B">agentfactory · AF:AF-12 · rev-safe claims</text>
+
+  <!-- Boards: project B -->
+  <rect x="46" y="288" width="270" height="92" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <text x="60" y="312" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">Boards · Project B</text>
+  <text x="60" y="332" class="mono" font-size="11" fill="#97A5BE">PBI #88 · Approved · unassigned</text>
+  <text x="60" y="350" class="mono" font-size="11" fill="#64748B">Scrum template · own bridge + PAT</text>
+
+  <!-- Repos + pipelines -->
+  <rect x="46" y="400" width="270" height="246" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <text x="60" y="424" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">Repos &amp; Pipelines</text>
+  <text x="60" y="446" class="mono" font-size="11" fill="#4ADE80">feature/AF-12-barcode-scanner…  ⇡</text>
+  <text x="60" y="464" class="mono" font-size="11" fill="#4ADE80">feature/AF-15-nightly-sync…    ⇡</text>
+  <rect x="58" y="478" width="246" height="64" rx="7" fill="#0B1222" stroke="#1E2940"/>
+  <text x="70" y="497" font-size="11.5" fill="#E8EDF6">Pull Request <tspan fill="#64748B">(opened by the human)</tspan></text>
+  <text x="70" y="514" font-size="11" fill="#97A5BE">CI pipeline runs on the PR</text>
+  <text x="70" y="531" font-size="11" fill="#97A5BE">✓ merge · ✗ comment + Reopen task ↩</text>
+  <text x="60" y="566" font-size="11" fill="#64748B">push lands here when origin is ADO —</text>
+  <text x="60" y="582" font-size="11" fill="#64748B">GitHub or any remote works the same</text>
+  <text x="60" y="626" class="mono" font-size="10.5" fill="#64748B">delete branch on merge: ON</text>
+
+  <!-- ════════════ BRIDGES ════════════ -->
+  <rect x="402" y="106" width="238" height="176" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="402" y="106" width="238" height="3" rx="2" fill="#60A5FA"/>
+  <text x="418" y="132" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">ado-bridge · agent-demo</text>
+  <text x="418" y="150" class="mono" font-size="10.5" fill="#64748B">Run-AdoBridgeLoop.ps1 · 1/min</text>
+  <text x="418" y="172" font-size="11.5" fill="#97A5BE">producer: claim item → design</text>
+  <text x="418" y="189" font-size="11.5" fill="#97A5BE">→ queued task · close on done</text>
+  <rect x="416" y="202" width="210" height="34" rx="7" fill="#0B1222" stroke="#1E2940"/>
+  <circle cx="434" cy="219" r="9" fill="rgba(245,158,11,0.18)"/><text x="434" y="223" text-anchor="middle" class="mono" font-size="10" fill="#FBBF24">2</text>
+  <text x="450" y="223" class="mono" font-size="10.5" fill="#97A5BE">claude -p → spec + acceptance</text>
+  <text x="418" y="258" class="mono" font-size="10.5" fill="#64748B">PAT: ado-bridge-pat-agent-demo</text>
+  <text x="418" y="274" class="mono" font-size="10.5" fill="#64748B">stateless · markers self-heal</text>
+
+  <rect x="402" y="306" width="238" height="120" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="402" y="306" width="238" height="3" rx="2" fill="#60A5FA"/>
+  <text x="418" y="332" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">ado-bridge · shopfloor</text>
+  <text x="418" y="350" class="mono" font-size="10.5" fill="#64748B">own config · own PAT · Project B</text>
+  <text x="418" y="372" font-size="11.5" fill="#97A5BE">one bridge per workspace —</text>
+  <text x="418" y="389" font-size="11.5" fill="#97A5BE">they never touch each other's</text>
+  <text x="418" y="406" font-size="11.5" fill="#97A5BE">items or tasks</text>
+
+  <!-- ════════════ AGENTFACTORY ════════════ -->
+  <rect x="712" y="56" width="350" height="660" rx="14" fill="#131D31" stroke="#2C3A55"/>
+  <text x="732" y="88" class="grotesk" font-size="15" font-weight="700" fill="#E8EDF6">AGENTFACTORY</text>
+  <text x="732" y="106" class="mono" font-size="11" fill="#64748B">the board · never runs agents</text>
+
+  <!-- web ui -->
+  <rect x="730" y="122" width="314" height="148" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <rect x="730" y="122" width="314" height="3" rx="2" fill="#A78BFA"/>
+  <text x="744" y="146" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">Web UI <tspan class="mono" font-size="10.5" fill="#64748B">:8787</tspan></text>
+  <text x="744" y="166" font-size="11.5" fill="#97A5BE">Board · List · Analytics · Diff view</text>
+  <rect x="742" y="180" width="290" height="52" rx="7" fill="rgba(167,139,250,0.10)" stroke="rgba(167,139,250,0.35)"/>
+  <circle cx="762" cy="206" r="10" fill="rgba(167,139,250,0.25)"/><text x="762" y="210" text-anchor="middle" class="mono" font-size="10.5" fill="#A78BFA">8</text>
+  <text x="780" y="200" font-size="11.5" fill="#E8EDF6" font-weight="600">HUMAN CHECKPOINT</text>
+  <text x="780" y="216" font-size="11" fill="#97A5BE">review diff → Approve / Request changes</text>
+  <text x="744" y="254" font-size="11" fill="#64748B">paste images into specs · Reopen on CI fail · Release stranded claims</text>
+
+  <!-- api -->
+  <rect x="730" y="286" width="314" height="56" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <text x="744" y="310" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">HTTP API + SSE <tspan class="mono" font-size="10.5" fill="#64748B">Hono</tspan></text>
+  <text x="744" y="328" class="mono" font-size="10.5" fill="#97A5BE">tasks · diff · analytics · metrics · attachments</text>
+
+  <!-- sqlite -->
+  <rect x="730" y="358" width="314" height="180" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <text x="744" y="382" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">SQLite <tspan class="mono" font-size="10.5" fill="#64748B">one file · the only shared state</tspan></text>
+  <text x="744" y="401" class="mono" font-size="10.5" fill="#97A5BE">task · activity · link · metric · attachment</text>
+  <text x="744" y="424" class="grotesk" font-size="11" font-weight="600" fill="#64748B" letter-spacing="1">WORKSPACES → REPOS</text>
+  <rect x="742" y="434" width="290" height="26" rx="6" fill="#0B1222"/><circle cx="757" cy="447" r="4" fill="#60A5FA"/><text x="768" y="451" class="mono" font-size="11" fill="#E8EDF6">agent-demo</text><text x="1024" y="451" text-anchor="end" class="mono" font-size="10.5" fill="#64748B">c:\git\AgentDemo</text>
+  <rect x="742" y="466" width="290" height="26" rx="6" fill="#0B1222"/><circle cx="757" cy="479" r="4" fill="#A78BFA"/><text x="768" y="483" class="mono" font-size="11" fill="#E8EDF6">shopfloor</text><text x="1024" y="483" text-anchor="end" class="mono" font-size="10.5" fill="#64748B">c:\Git\Shopfloor</text>
+  <rect x="742" y="498" width="290" height="26" rx="6" fill="#0B1222"/><circle cx="757" cy="511" r="4" fill="#4ADE80"/><text x="768" y="515" class="mono" font-size="11" fill="#E8EDF6">pmd</text><text x="1024" y="515" text-anchor="end" class="mono" font-size="10.5" fill="#64748B">c:\Git\AKP\PMD</text>
+
+  <!-- mcp -->
+  <rect x="730" y="554" width="314" height="140" rx="10" fill="#1E293B" stroke="#1E2940"/>
+  <rect x="730" y="554" width="314" height="3" rx="2" fill="#F59E0B"/>
+  <text x="744" y="578" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">MCP server <tspan class="mono" font-size="10.5" fill="#64748B">stdio · one per agent session</tspan></text>
+  <text x="744" y="598" class="mono" font-size="10.5" fill="#97A5BE">get_next_task · get_task · submit_result</text>
+  <text x="744" y="614" class="mono" font-size="10.5" fill="#97A5BE">add_comment · update_status</text>
+  <text x="744" y="636" font-size="11" fill="#64748B">pinned: AGENTFACTORY_WORKSPACE</text>
+  <text x="744" y="652" font-size="11" fill="#64748B">labeled: AGENTFACTORY_WORKER</text>
+  <text x="744" y="674" font-size="11" fill="#64748B">specs travel with images + conventions</text>
+
+  <!-- ════════════ AGENTS ════════════ -->
+  <rect x="1130" y="56" width="200" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1130" y="56" width="200" height="3" rx="2" fill="#F59E0B"/>
+  <circle cx="1148" cy="84" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite"/></circle>
+  <text x="1160" y="88" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">agent · demo-1</text>
+  <text x="1146" y="108" class="mono" font-size="10.5" fill="#64748B">Run-AgentFactoryLoop.ps1</text>
+  <text x="1146" y="124" class="mono" font-size="10.5" fill="#64748B">headless claude -p</text>
+  <text x="1146" y="146" font-size="11.5" fill="#97A5BE">pinned → agent-demo</text>
+  <text x="1146" y="164" font-size="11" fill="#97A5BE">claims FIFO · one task at a time</text>
+  <text x="1146" y="186" class="mono" font-size="10.5" fill="#FBBF24">working AF-12 · pulsing on board</text>
+  <text x="1146" y="206" class="mono" font-size="10.5" fill="#64748B">reports tokens via metrics</text>
+  <text x="1146" y="226" class="mono" font-size="10.5" fill="#64748B">wrapper posts exact usage</text>
+
+  <rect x="1130" y="270" width="200" height="150" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1130" y="270" width="200" height="3" rx="2" fill="#F59E0B"/>
+  <circle cx="1148" cy="298" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="2.1s" repeatCount="indefinite"/></circle>
+  <text x="1160" y="302" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">agent · shopfloor-1</text>
+  <text x="1146" y="322" class="mono" font-size="10.5" fill="#64748B">second loop · own terminal</text>
+  <text x="1146" y="344" font-size="11.5" fill="#97A5BE">pinned → shopfloor</text>
+  <text x="1146" y="362" font-size="11" fill="#97A5BE">never claims another</text>
+  <text x="1146" y="378" font-size="11" fill="#97A5BE">workspace's tasks</text>
+  <text x="1146" y="402" class="mono" font-size="10.5" fill="#FBBF24">working SF-3</text>
+
+  <rect x="1130" y="444" width="200" height="140" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1130" y="444" width="200" height="3" rx="2" fill="#60A5FA"/>
+  <text x="1146" y="472" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">agent · pmd</text>
+  <text x="1146" y="492" class="mono" font-size="10.5" fill="#64748B">interactive Claude Code</text>
+  <text x="1146" y="508" class="mono" font-size="10.5" fill="#64748B">session ("/loop" or manual)</text>
+  <text x="1146" y="530" font-size="11.5" fill="#97A5BE">pinned → pmd</text>
+  <text x="1146" y="548" font-size="11" fill="#97A5BE">same MCP tools — any</text>
+  <text x="1146" y="564" font-size="11" fill="#97A5BE">runtime can be a worker</text>
+
+  <!-- ════════════ REPOS ════════════ -->
+  <rect x="1370" y="56" width="166" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1370" y="56" width="166" height="3" rx="2" fill="#4ADE80"/>
+  <text x="1386" y="84" class="grotesk" font-size="12" font-weight="600" fill="#E8EDF6">AgentDemo repo</text>
+  <text x="1386" y="104" class="mono" font-size="10" fill="#64748B">c:\git\AgentDemo</text>
+  <rect x="1382" y="116" width="142" height="56" rx="7" fill="#0B1222" stroke="#1E2940"/>
+  <text x="1392" y="134" class="mono" font-size="10" fill="#97A5BE">.worktrees/AF-12</text>
+  <text x="1392" y="150" class="mono" font-size="10" fill="#4ADE80">feature/AF-12-…</text>
+  <text x="1392" y="166" class="mono" font-size="10" fill="#64748B">isolated checkout</text>
+  <text x="1386" y="192" font-size="10.5" fill="#97A5BE">commit → push → remove</text>
+  <text x="1386" y="208" font-size="10.5" fill="#97A5BE">worktree → submit</text>
+  <text x="1386" y="230" class="mono" font-size="10" fill="#64748B">parallel agents never collide</text>
+
+  <rect x="1370" y="270" width="166" height="150" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1370" y="270" width="166" height="3" rx="2" fill="#4ADE80"/>
+  <text x="1386" y="298" class="grotesk" font-size="12" font-weight="600" fill="#E8EDF6">Shopfloor repo</text>
+  <text x="1386" y="318" class="mono" font-size="10" fill="#64748B">c:\Git\Shopfloor</text>
+  <text x="1386" y="340" class="mono" font-size="10" fill="#97A5BE">.worktrees/SF-3</text>
+  <text x="1386" y="356" class="mono" font-size="10" fill="#4ADE80">feature/SF-3-…</text>
+  <text x="1386" y="380" font-size="10.5" fill="#97A5BE">own origin — different</text>
+  <text x="1386" y="396" font-size="10.5" fill="#97A5BE">ADO project or GitHub</text>
+
+  <rect x="1370" y="444" width="166" height="140" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1370" y="444" width="166" height="3" rx="2" fill="#4ADE80"/>
+  <text x="1386" y="472" class="grotesk" font-size="12" font-weight="600" fill="#E8EDF6">PMD repo</text>
+  <text x="1386" y="492" class="mono" font-size="10" fill="#64748B">c:\Git\AKP\PMD</text>
+  <text x="1386" y="514" class="mono" font-size="10" fill="#97A5BE">.worktrees/AF-9</text>
+  <text x="1386" y="530" class="mono" font-size="10" fill="#4ADE80">feature/AF-9-…</text>
+  <text x="1386" y="554" font-size="10.5" fill="#97A5BE">diff view reads branches</text>
+  <text x="1386" y="570" font-size="10.5" fill="#97A5BE">read-only from the board</text>
+
+  <!-- ════════════ ARROWS ════════════ -->
+  <!-- 1: ADO A -> bridge A (claim) -->
+  <path d="M316 160 H400" stroke="#60A5FA" stroke-width="2" fill="none" marker-end="url(#mb)"/>
+  <circle cx="346" cy="160" r="10" fill="#0F172A" stroke="#60A5FA"/><text x="346" y="164" text-anchor="middle" class="mono" font-size="10.5" fill="#60A5FA">1</text>
+  <!-- 9: bridge A -> ADO A (close) -->
+  <path d="M400 244 H316" stroke="#60A5FA" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#mb)"/>
+  <circle cx="358" cy="244" r="10" fill="#0F172A" stroke="#60A5FA"/><text x="358" y="248" text-anchor="middle" class="mono" font-size="10.5" fill="#60A5FA">9</text>
+  <!-- B project to bridge B -->
+  <path d="M316 340 H400" stroke="#60A5FA" stroke-width="2" fill="none" marker-end="url(#mb)"/>
+  <path d="M400 386 H316" stroke="#60A5FA" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#mb)"/>
+
+  <!-- 3: bridges -> AF API -->
+  <path d="M640 180 C690 180 690 300 728 306" stroke="#60A5FA" stroke-width="2" fill="none" marker-end="url(#mb)"/>
+  <circle cx="678" cy="216" r="10" fill="#0F172A" stroke="#60A5FA"/><text x="678" y="220" text-anchor="middle" class="mono" font-size="10.5" fill="#60A5FA">3</text>
+  <path d="M640 366 C690 366 686 330 728 322" stroke="#60A5FA" stroke-width="2" fill="none" marker-end="url(#mb)"/>
+
+  <!-- 4/7: MCP <-> agents -->
+  <path d="M1044 590 C1100 590 1090 120 1128 116" stroke="#F59E0B" stroke-width="2" fill="none" marker-end="url(#ma)"/>
+  <path d="M1128 150 C1086 160 1100 600 1044 606" stroke="#F59E0B" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ma)"/>
+  <circle cx="1095" cy="306" r="10" fill="#0F172A" stroke="#F59E0B"/><text x="1095" y="310" text-anchor="middle" class="mono" font-size="10.5" fill="#FBBF24">4</text>
+  <circle cx="1095" cy="346" r="10" fill="#0F172A" stroke="#F59E0B"/><text x="1095" y="350" text-anchor="middle" class="mono" font-size="10.5" fill="#FBBF24">7</text>
+  <path d="M1044 622 C1096 622 1090 330 1128 324" stroke="#F59E0B" stroke-width="2" fill="none" marker-end="url(#ma)"/>
+  <path d="M1128 356 C1094 364 1098 632 1044 638" stroke="#F59E0B" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ma)"/>
+  <path d="M1044 654 C1098 654 1094 504 1128 500" stroke="#F59E0B" stroke-width="2" fill="none" marker-end="url(#ma)"/>
+  <path d="M1128 530 C1096 536 1100 664 1044 670" stroke="#F59E0B" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ma)"/>
+
+  <!-- 5: agents -> repos -->
+  <path d="M1330 140 H1368" stroke="#4ADE80" stroke-width="2" fill="none" marker-end="url(#mg)"/>
+  <circle cx="1349" cy="140" r="10" fill="#0F172A" stroke="#4ADE80"/><text x="1349" y="144" text-anchor="middle" class="mono" font-size="10.5" fill="#4ADE80">5</text>
+  <path d="M1330 344 H1368" stroke="#4ADE80" stroke-width="2" fill="none" marker-end="url(#mg)"/>
+  <path d="M1330 514 H1368" stroke="#4ADE80" stroke-width="2" fill="none" marker-end="url(#mg)"/>
+
+  <!-- 6: repos -> ADO repos (push, around the bottom) -->
+  <path d="M1453 588 V960 H181 V648" stroke="#4ADE80" stroke-width="2.5" fill="none" marker-end="url(#mg)"/>
+  <circle cx="800" cy="960" r="11" fill="#0F172A" stroke="#4ADE80"/><text x="800" y="964" text-anchor="middle" class="mono" font-size="11" fill="#4ADE80">6</text>
+  <text x="824" y="950" class="mono" font-size="11.5" fill="#4ADE80">git push -u origin feature/&lt;key&gt;-&lt;kebab-title&gt;</text>
+  <text x="824" y="968" font-size="11" fill="#64748B">the branch is the durable record — PR opens from it; the worktree is already gone</text>
+
+  <!-- column captions -->
+  <text x="181" y="40" text-anchor="middle" class="grotesk" font-size="11" fill="#64748B" letter-spacing="2">BACKLOG + PR HOST</text>
+  <text x="521" y="40" text-anchor="middle" class="grotesk" font-size="11" fill="#64748B" letter-spacing="2">PRODUCERS</text>
+  <text x="887" y="40" text-anchor="middle" class="grotesk" font-size="11" fill="#64748B" letter-spacing="2">STATE + REVIEW</text>
+  <text x="1230" y="40" text-anchor="middle" class="grotesk" font-size="11" fill="#64748B" letter-spacing="2">CONSUMERS</text>
+  <text x="1453" y="40" text-anchor="middle" class="grotesk" font-size="11" fill="#64748B" letter-spacing="2">WORKSPACES</text>
+</svg>
+
+<div class="legend">
+  <div class="steps">
+    <h2>The loop, end to end</h2>
+    <ol>
+      <li><span class="n b">1</span><span><b>Bridge claims a work item</b> — unassigned (or <span class="mono">#ai-agent</span>-tagged) items in backlog order; the assignment PATCH is rev-guarded, so a concurrent human assignment wins.</span></li>
+      <li><span class="n a">2</span><span><b>Design generation</b> — <span class="mono">claude -p</span> turns the work item into a spec + acceptance criteria.</span></li>
+      <li><span class="n b">3</span><span><b>Task created &amp; queued</b> — titled <span class="mono">AB#123: …</span> (the dedup key); the ADO item is tagged <span class="mono">agentfactory · AF:&lt;key&gt;</span>.</span></li>
+      <li><span class="n a">4</span><span><b>Agent claims over MCP</b> — <span class="mono">get_next_task</span>, FIFO within its pinned workspace; the payload carries spec, acceptance, prior feedback, pasted images, and <span class="mono">repoPath</span>.</span></li>
+      <li><span class="n g">5</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide.</span></li>
+      <li><span class="n g">6</span><span><b>Finish protocol</b> — commit → <span class="mono">push -u origin</span> → remove worktree. The pushed branch is the durable record.</span></li>
+      <li><span class="n a">7</span><span><b>submit_result</b> — summary + branch link + token metrics → task lands <b>In Review</b>.</span></li>
+      <li><span class="n r">8</span><span><b>Human checkpoint</b> — diff view on the board; Approve → done, or Request changes (feedback rides the next claim, same branch).</span></li>
+      <li><span class="n b">9</span><span><b>Bridge closes the circle</b> — posts the result summary to AB#123 and closes it. The human opens the PR from the pushed branch; CI fails → comment + <b>Reopen</b> ↩.</span></li>
+    </ol>
+  </div>
+  <div class="loops">
+    <h2>Rescue loops &amp; invariants</h2>
+    <div class="lp"><i>↩</i><span><b>Request changes</b> — <span class="mono">in_review → queued</span> with feedback; the next claim continues on the <em>same</em> branch, so pushes update the same PR.</span></div>
+    <div class="lp"><i>↩</i><span><b>Reopen</b> — <span class="mono">done → queued</span> when the PR build fails; paste the CI log as a comment first. Same branch, same PR.</span></div>
+    <div class="lp"><i>⚑</i><span><b>Release claim</b> — a dead worker's <span class="mono">in_progress</span> task is re-queued by the human; full history survives for the next claimant.</span></div>
+    <div class="lp"><i>◎</i><span><b>One SQLite file is the only shared state</b> — bridges (HTTP), agents (MCP), and the UI all converge on it; SSE fans changes out live. The board never runs agents and never writes to a repo.</span></div>
+    <div class="lp"><i>⇄</i><span><b>Scale by adding pairs</b> — each new repo = one workspace + one pinned bridge + one pinned worker. Queues never leak across workspaces; analytics splits per worker/workspace.</span></div>
+    <div class="keyline">
+      <span><i style="background:#60A5FA"></i>bridge / HTTP</span>
+      <span><i style="background:#F59E0B"></i>agent / MCP</span>
+      <span><i style="background:#4ADE80"></i>git</span>
+      <span><i style="background:#A78BFA"></i>human review</span>
+      <span><i style="background:#64748B;height:2px;border-bottom:2px dashed #64748B;background:transparent"></i>dashed = response / outbound</span>
+    </div>
+  </div>
+</div>
+</main>
+<footer>AgentFactory · system overview · generated 2026-06-11</footer>
+</body>
+</html>
