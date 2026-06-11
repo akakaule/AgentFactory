@@ -113,6 +113,44 @@ describe('add_comment', () => {
 });
 
 // ---------------------------------------------------------------------------
+// spec image attachments — handed over as MCP image content blocks
+// ---------------------------------------------------------------------------
+describe('attachment hand-over', () => {
+  const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6]);
+  const PNG_B64 = Buffer.from(PNG_BYTES).toString('base64');
+
+  it('get_task carries one image block per attachment, bytes intact', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task with screenshot'));
+    core.addAttachment(t.key, { filename: 'shot.png', mime: 'image/png', dataBase64: PNG_B64 });
+
+    const res = await client.callTool({ name: 'get_task', arguments: { key: t.key } });
+    expect(res.isError).toBeFalsy();
+    const content = res.content as Array<{ type: string; data?: string; mimeType?: string }>;
+    expect(content[0]!.type).toBe('text');
+    expect(content[1]).toMatchObject({ type: 'image', mimeType: 'image/png', data: PNG_B64 });
+  });
+
+  it('get_next_task hands the claimed task its images', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Claim me'));
+    core.addAttachment(t.key, { filename: 'shot.png', mime: 'image/png', dataBase64: PNG_B64 });
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const res = await client.callTool({ name: 'get_next_task', arguments: {} });
+    const content = res.content as Array<{ type: string; mimeType?: string }>;
+    expect(content.some((c) => c.type === 'image' && c.mimeType === 'image/png')).toBe(true);
+  });
+
+  it('tasks without attachments are unchanged (single text block)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Plain task'));
+    const res = await client.callTool({ name: 'get_task', arguments: { key: t.key } });
+    expect((res.content as unknown[]).length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // submit_result
 // ---------------------------------------------------------------------------
 describe('submit_result', () => {

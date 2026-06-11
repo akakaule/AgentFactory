@@ -53,6 +53,13 @@ describe('tool registry', () => {
     expect(submit?.description).toMatch(/git push -u origin feature\//);
   });
 
+  it('tells the agent spec images arrive as image content', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const next = tools.find((t) => t.name === 'get_next_task');
+    expect(next?.description).toMatch(/image content/);
+  });
+
   it('invites best-effort usage metrics on submit', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
