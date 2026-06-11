@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, type ReactElement } from 'react';
 import type { TaskDetail, Activity, LinkKind } from '../types.js';
 import { STATUS_LABELS, STATUS_COLORS } from '../status.js';
-import { api } from '../api.js';
+import { api, attachmentUrl } from '../api.js';
 import { timeAgo, shortTime } from '../time.js';
 import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
@@ -140,8 +140,14 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 <TaskForm
                   mode="edit"
                   initial={task}
-                  onSubmit={(fields) =>
-                    api.updateTask(task.key, fields).then(() => { setEditing(false); afterMutation(); }).catch(() => {})
+                  onSubmit={(fields, images, removedIds) =>
+                    api.updateTask(task.key, fields)
+                      .then(async () => {
+                        for (const id of removedIds) await api.deleteAttachment(id);
+                        for (const img of images) await api.addAttachment(task.key, img);
+                      })
+                      .then(() => { setEditing(false); afterMutation(); })
+                      .catch(() => {})
                   }
                   onCancel={() => setEditing(false)}
                 />
@@ -149,6 +155,15 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
 
               <div className="af-sl">Spec</div>
               <div className="af-d-body">{task.spec}</div>
+              {task.attachments.length > 0 && (
+                <div className="af-atts">
+                  {task.attachments.map((a) => (
+                    <a key={a.id} className="af-att" href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" title={a.filename}>
+                      <img src={attachmentUrl(a.id)} alt={a.filename} />
+                    </a>
+                  ))}
+                </div>
+              )}
 
               <div className="af-sl">Acceptance criteria</div>
               <div className="af-d-body">{task.acceptanceCriteria}</div>

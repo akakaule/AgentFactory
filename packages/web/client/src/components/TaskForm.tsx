@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import type { Task } from '../types.js';
+import { useState, type ClipboardEvent } from 'react';
+import type { Task, Attachment } from '../types.js';
+import { attachmentUrl } from '../api.js';
+import { downscalePastedImage } from '../image.js';
 
 interface FormFields {
   title: string;
@@ -8,10 +10,12 @@ interface FormFields {
   workspace?: string;
 }
 
+export interface PendingImage { filename: string; mime: string; dataBase64: string; }
+
 interface Props {
   mode: 'create' | 'edit';
-  initial?: Pick<Task, 'title' | 'spec' | 'acceptanceCriteria'>;
-  onSubmit: (fields: FormFields) => void;
+  initial?: Pick<Task, 'title' | 'spec' | 'acceptanceCriteria'> & { attachments?: Attachment[] };
+  onSubmit: (fields: FormFields, images: PendingImage[], removedIds: number[]) => void;
   onCancel?: () => void;
   workspaces?: string[];
   initialWorkspace?: string;
@@ -22,9 +26,29 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
   const [spec, setSpec] = useState(initial?.spec ?? '');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState(initial?.acceptanceCriteria ?? '');
   const [workspace, setWorkspace] = useState(initialWorkspace ?? workspaces?.[0] ?? 'default');
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const [removedIds, setRemovedIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const showWorkspacePicker = mode === 'create' && (workspaces?.length ?? 0) > 1;
+  const existing = (initial?.attachments ?? []).filter((a) => !removedIds.includes(a.id));
+
+  const handlePaste = (e: ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((i) => i.type.startsWith('image/'))
+      .map((i) => i.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return; // plain text pastes flow through untouched
+    e.preventDefault();
+    for (const f of files) {
+      downscalePastedImage(f)
+        .then((img) => {
+          setImages((arr) => [...arr, { filename: f.name || 'pasted.png', ...img }]);
+          setError(null);
+        })
+        .catch((err: Error) => setError(err.message));
+    }
+  };
 
   const handleSubmit = () => {
     const t = title.trim();
@@ -39,11 +63,13 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
       showWorkspacePicker
         ? { title: t, spec: s, acceptanceCriteria: ac, workspace }
         : { title: t, spec: s, acceptanceCriteria: ac },
+      images,
+      removedIds,
     );
   };
 
   return (
-    <div style={{ padding: '16px' }}>
+    <div style={{ padding: '16px' }} onPaste={handlePaste}>
       <h3 style={{ marginTop: 0 }}>{mode === 'create' ? 'New Task' : 'Edit Task'}</h3>
       {error && <div className="af-err" style={{ marginBottom: '8px' }}>{error}</div>}
       {showWorkspacePicker && (
@@ -80,6 +106,23 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
           style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', resize: 'vertical' }}
           placeholder="Describe the task…"
         />
+        {(existing.length > 0 || images.length > 0) && (
+          <div className="af-atts">
+            {existing.map((a) => (
+              <span className="af-att" key={`e${a.id}`}>
+                <img src={attachmentUrl(a.id)} alt={a.filename} />
+                <button className="rm" aria-label={`Remove ${a.filename}`} onClick={() => setRemovedIds((ids) => [...ids, a.id])}>✕</button>
+              </span>
+            ))}
+            {images.map((img, i) => (
+              <span className="af-att" key={`p${i}`}>
+                <img src={`data:${img.mime};base64,${img.dataBase64}`} alt={img.filename} />
+                <button className="rm" aria-label={`Remove ${img.filename}`} onClick={() => setImages((arr) => arr.filter((_, j) => j !== i))}>✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="af-paste-hint">Paste images to attach — they reach the agent with the spec.</div>
       </div>
       <div style={{ marginBottom: '12px' }}>
         <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Acceptance Criteria</label>

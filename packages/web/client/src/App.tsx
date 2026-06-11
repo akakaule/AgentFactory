@@ -136,8 +136,9 @@ export function App() {
               mode="create"
               workspaces={workspaces.map((w) => w.name)}
               initialWorkspace={wsFilter !== 'all' ? wsFilter : lastWorkspace}
-              onSubmit={async (b) => {
-                await api.createTask(b);
+              onSubmit={async (b, images) => {
+                const task = await api.createTask(b);
+                for (const img of images) await api.addAttachment(task.key, img);
                 if (b.workspace) setLastWorkspace(b.workspace);
                 setCreating(false);
                 refetch();

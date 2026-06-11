@@ -16,7 +16,10 @@ vi.mock('../../client/src/api.js', () => ({
     addComment: vi.fn().mockResolvedValue({}),
     getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '', commits: 0 }),
     deleteTask: vi.fn().mockResolvedValue(undefined),
+    deleteAttachment: vi.fn().mockResolvedValue(undefined),
+    addAttachment: vi.fn().mockResolvedValue({}),
   },
+  attachmentUrl: (id: number) => `/api/attachments/${id}`,
 }));
 
 // Safe EventSource stub for DetailPanel (uses useEventStream internally)
@@ -50,6 +53,7 @@ const backlogTask: TaskDetail = {
   claimedBy: null,
   claimedAt: null,
   metrics: noMetrics,
+  attachments: [],
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   activity: [
@@ -200,6 +204,22 @@ describe('DetailPanel', () => {
     // Wait for render
     await screen.findByText('This is the spec');
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
+
+  it('renders spec image thumbnails linking to the binary route', async () => {
+    const mocked = await getApiMock();
+    const withImage: TaskDetail = {
+      ...backlogTask,
+      key: 'AF-16',
+      attachments: [{ id: 9, taskId: 1, filename: 'mock.png', mime: 'image/png', size: 123 }],
+    };
+    mocked.getTask.mockResolvedValue(withImage);
+
+    render(<DetailPanel taskKey="AF-16" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const img = await screen.findByAltText('mock.png');
+    expect(img).toHaveAttribute('src', '/api/attachments/9');
+    expect(img.closest('a')).toHaveAttribute('href', '/api/attachments/9');
   });
 
   it('renders the Metrics strip with reported usage', async () => {
