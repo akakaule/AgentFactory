@@ -1,5 +1,7 @@
 import type { Task, TaskDetail, Activity, Status, Workspace } from './types.js';
 
+export interface TaskDiff { branch: string; baseRef: string; diff: string; }
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init?.body ? { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } } : init);
   if (!res.ok) {
@@ -20,6 +22,7 @@ export const api = {
     return req<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`);
   },
   getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
+  getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
   createTask: (b: { title: string; spec: string; acceptanceCriteria: string; workspace?: string }) => req<Task>('/api/tasks', body(b)),
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
   createWorkspace: (b: { name: string; repoPath: string }) => req<Workspace>('/api/workspaces', body(b)),

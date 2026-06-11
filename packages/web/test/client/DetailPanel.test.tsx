@@ -14,6 +14,7 @@ vi.mock('../../client/src/api.js', () => ({
     approve: vi.fn().mockResolvedValue({}),
     requestChanges: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue({}),
+    getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '' }),
   },
 }));
 
@@ -100,6 +101,7 @@ async function getApiMock() {
     requestChanges: ReturnType<typeof vi.fn>;
     addComment: ReturnType<typeof vi.fn>;
     updateTask: ReturnType<typeof vi.fn>;
+    getDiff: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -189,6 +191,34 @@ describe('DetailPanel', () => {
     // Wait for render
     await screen.findByText('This is the spec');
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
+
+  it('renders a Changes section for a task with a branch link', async () => {
+    const mocked = await getApiMock();
+    mocked.getDiff.mockClear();
+    const branchTask: TaskDetail = {
+      ...inReviewTask,
+      key: 'AF-13',
+      links: [{ id: 2, taskId: 2, kind: 'branch', label: 'task/AF-13', url: 'https://example.com/b' }],
+    };
+    mocked.getTask.mockResolvedValue(branchTask);
+
+    render(<DetailPanel taskKey="AF-13" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('Changes')).toBeInTheDocument();
+    await waitFor(() => expect(mocked.getDiff).toHaveBeenCalledWith('AF-13'));
+  });
+
+  it('shows no Changes section without a branch link', async () => {
+    const mocked = await getApiMock();
+    mocked.getDiff.mockClear();
+    mocked.getTask.mockResolvedValue(backlogTask); // pr link only
+
+    render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByText('This is the spec');
+    expect(screen.queryByText('Changes')).not.toBeInTheDocument();
+    expect(mocked.getDiff).not.toHaveBeenCalled();
   });
 
   it('calls onClose when the close button is clicked', async () => {

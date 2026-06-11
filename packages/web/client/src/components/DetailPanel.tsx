@@ -7,6 +7,7 @@ import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { TaskForm } from './TaskForm.js';
+import { Changes } from './Changes.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -63,6 +64,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   };
 
   const hue = task ? STATUS_COLORS[task.status] : 'var(--ink-2)';
+  const branchLink = task?.links.filter((l) => l.kind === 'branch').at(-1);
 
   return (
     <>
@@ -143,6 +145,10 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 <div className="af-sl">Result summary</div>
                 <div className="af-result">{task.resultSummary}</div>
               </>)}
+
+              {branchLink && (
+                <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} />
+              )}
 
               {task.links.length > 0 && (<>
                 <div className="af-sl">Links</div>
