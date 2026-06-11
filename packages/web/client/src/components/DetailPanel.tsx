@@ -115,6 +115,15 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                     Release claim
                   </button>
                 </>)}
+                {task.status === 'done' && (
+                  <button
+                    className="af-mini"
+                    onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
+                    title="PR build failed? Comment the failure first, then reopen — the next claimant gets the full history and pushes to the same branch/PR."
+                  >
+                    Reopen
+                  </button>
+                )}
               </div>
 
               {task.status === 'in_review' && (

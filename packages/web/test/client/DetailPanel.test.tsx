@@ -193,6 +193,31 @@ describe('DetailPanel', () => {
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
   });
 
+  it('shows a Reopen button on a done task and re-queues on click', async () => {
+    const mocked = await getApiMock();
+    mocked.setStatus.mockClear();
+    const doneTask: TaskDetail = { ...inReviewTask, key: 'AF-14', status: 'done' };
+    mocked.getTask.mockResolvedValue(doneTask);
+    mocked.setStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-14" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const reopen = await screen.findByRole('button', { name: 'Reopen' });
+    await user.click(reopen);
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-14', 'queued');
+  });
+
+  it('shows no Reopen button outside done', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(inReviewTask);
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByText('Implementation complete');
+    expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
+  });
+
   it('renders a Changes section for a task with a branch link', async () => {
     const mocked = await getApiMock();
     mocked.getDiff.mockClear();

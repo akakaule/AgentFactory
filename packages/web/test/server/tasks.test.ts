@@ -203,6 +203,21 @@ describe('tasks REST API', () => {
     });
   });
 
+  describe('POST /:key/status — reopen', () => {
+    it('reopens a done task to queued and clears claim metadata', async () => {
+      const task = core.createTask({ title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask({ claimedBy: 'worker-1' });
+      core.submitResult(task.key, { summary: 'Done!' });
+      core.reviewApprove(task.key);
+
+      const res = await post(app, `/api/tasks/${task.key}/status`, { status: 'queued' });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; claimedBy: string | null; claimedAt: string | null };
+      expect(body).toMatchObject({ status: 'queued', claimedBy: null, claimedAt: null });
+    });
+  });
+
   describe('POST /:key/approve', () => {
     it('approves a task in_review → 200, status done', async () => {
       // Create task and drive to in_review via core
