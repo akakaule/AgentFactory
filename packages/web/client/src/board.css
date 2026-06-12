@@ -328,6 +328,10 @@
 .an-ph h3 { font-family: "Space Grotesk", sans-serif; font-size: 13.5px; font-weight: 600; margin: 0; white-space: nowrap; }
 .an-ph small { color: var(--ink-3); font-size: 11.5px; font-weight: 400; }
 .an-ph .right { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-2); }
+.an-tg { margin-left: auto; display: flex; gap: 2px; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: var(--r-chip); padding: 2px; }
+.an-tg button { height: 21px; padding: 0 9px; border: none; background: transparent; color: var(--ink-3); font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 500; border-radius: 5px; cursor: pointer; transition: all .14s; }
+.an-tg button:hover { color: var(--ink); }
+.an-tg button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-2); }
 
 .an-stage { display: grid; grid-template-columns: 116px 1fr 58px; align-items: center; gap: 12px; padding: 5px 0; }
 .an-stage .n { font-size: 12.5px; color: var(--ink-2); display: flex; align-items: center; gap: 7px; }

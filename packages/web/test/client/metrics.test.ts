@@ -100,6 +100,40 @@ describe('computeAnalytics', () => {
     ]);
   });
 
+  it('sums tokens by workspace, counting only reported tasks, sorted descending', () => {
+    const a = computeAnalytics(data([
+      doneRow({ workspace: 'demo', tokensIn: 50000, tokensOut: 5000 }),
+      doneRow({ workspace: 'demo', tokensIn: 20000, tokensOut: 2000 }),
+      doneRow({ workspace: 'demo', tokensIn: null, tokensOut: null, model: null }), // mixed: unreported, excluded from the bar
+      doneRow({ workspace: 'shop', tokensIn: 1000, tokensOut: 100 }),
+    ]), 'all', 7, NOW);
+    expect(a.tokensByWorkspace).toEqual([
+      { workspace: 'demo', tokens: 77000 }, // only the two reported demo tasks; the unreported one is excluded, never zero
+      { workspace: 'shop', tokens: 1100 },
+    ]);
+    expect(a.tokWsMax).toBe(77000);
+    // coverage spans both groupings identically: 3 of 4 done tasks reported usage
+    expect(a.tokenCoverage).toMatchObject({ reported: 3, total: 4 });
+  });
+
+  it('respects the workspace + range filters for tokensByWorkspace', () => {
+    const a = computeAnalytics(data([
+      doneRow({ workspace: 'demo', tokensIn: 50000, tokensOut: 5000 }),
+      doneRow({ workspace: 'shop', tokensIn: 1000, tokensOut: 100 }),
+      doneRow({ workspace: 'demo', doneAt: daysAgo(40), tokensIn: 9000, tokensOut: 9000 }), // out of range
+    ]), 'demo', 7, NOW);
+    expect(a.tokensByWorkspace).toEqual([{ workspace: 'demo', tokens: 55000 }]);
+    expect(a.tokWsMax).toBe(55000);
+  });
+
+  it('leaves tokensByWorkspace empty (max 1) when nothing reported', () => {
+    const a = computeAnalytics(data([
+      doneRow({ tokensIn: null, tokensOut: null, model: null }),
+    ]), 'all', 7, NOW);
+    expect(a.tokensByWorkspace).toEqual([]);
+    expect(a.tokWsMax).toBe(1);
+  });
+
   it('groups workers, excludes null workers, and rolls stranded releases into "(unlabeled)"', () => {
     const a = computeAnalytics(data([
       doneRow({ worker: 'worker-1', rounds: 0 }),

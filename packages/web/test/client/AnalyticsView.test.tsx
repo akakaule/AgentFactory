@@ -78,6 +78,55 @@ describe('AnalyticsView', () => {
     expect(screen.getByText(/workspace: shopfloor/)).toBeInTheDocument();
   });
 
+  it('toggles the tokens panel between model and workspace groupings', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [
+        doneRow({ workspace: 'alpha', model: 'claude-fable-5', tokensIn: 50000, tokensOut: 5000 }),
+        doneRow({ workspace: 'beta', model: 'claude-haiku-4-5', tokensIn: 1000, tokensOut: 100 }),
+      ],
+      stranded: [],
+    });
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    // model grouping by default
+    expect(await screen.findByText('Tokens by model')).toBeInTheDocument();
+    expect(screen.getByText('claude-fable-5')).toBeInTheDocument();
+    expect(screen.getByText('claude-haiku-4-5')).toBeInTheDocument();
+
+    // switch to workspace grouping — title updates, model bars give way to workspace bars
+    await user.click(screen.getByRole('button', { name: 'Workspace' }));
+    expect(screen.getByText('Tokens by workspace')).toBeInTheDocument();
+    expect(screen.queryByText('claude-fable-5')).not.toBeInTheDocument();
+    expect(screen.getAllByText('alpha').length).toBeGreaterThanOrEqual(1); // workspace bar (also appears in the workers table)
+    expect(screen.getAllByText('beta').length).toBeGreaterThanOrEqual(1);
+    // coverage note persists across both modes
+    expect(screen.getByText('2 of 2')).toBeInTheDocument();
+
+    // and back to model
+    await user.click(screen.getByRole('button', { name: 'Model' }));
+    expect(screen.getByText('Tokens by model')).toBeInTheDocument();
+    expect(screen.getByText('claude-fable-5')).toBeInTheDocument();
+  });
+
+  it('shows the per-grouping empty state in both token modes', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [doneRow({ tokensIn: null, tokensOut: null, costUsd: null, model: null })], // done but no usage reported
+      stranded: [],
+    });
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+    await screen.findByText('Tasks done');
+
+    expect(screen.getByText('No worker reported token usage in this range.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Workspace' }));
+    expect(screen.getByText('No worker reported token usage in this range.')).toBeInTheDocument();
+  });
+
   it('range buttons call onRange', async () => {
     const mocked = await getApiMock();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [] });

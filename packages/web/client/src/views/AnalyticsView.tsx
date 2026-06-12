@@ -35,8 +35,11 @@ function AnalyticsEmpty({ ws, rangeDays }: { ws: string; rangeDays: number | nul
   );
 }
 
+type TokGroup = 'model' | 'workspace';
+
 export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [tokGroup, setTokGroup] = useState<TokGroup>('model');
   const refetch = useCallback(() => { api.getAnalytics().then(setData).catch(() => {}); }, []);
   useEffect(refetch, [refetch]);
   useEventStream(refetch);
@@ -61,7 +64,13 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
 
         {!a && <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Loading…</div>}
         {a && !a.hasData && <AnalyticsEmpty ws={ws} rangeDays={rangeDays} />}
-        {a && a.hasData && (() => { const k = a.kpis; return (<>
+        {a && a.hasData && (() => {
+          const k = a.kpis;
+          const tokRows = tokGroup === 'model'
+            ? a.tokensByModel.map((t) => ({ key: t.model, val: t.tokens }))
+            : a.tokensByWorkspace.map((t) => ({ key: t.workspace, val: t.tokens }));
+          const tokMax = tokGroup === 'model' ? a.tokMax : a.tokWsMax;
+          return (<>
           {/* KPIs */}
           <div className="an-kpis">
             <div className="an-kpi">
@@ -142,10 +151,16 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
             </div>
 
             <div className="an-panel">
-              <div className="an-ph"><h3>Tokens by model</h3><small>· worker-reported</small></div>
-              {a.tokensByModel.length === 0
+              <div className="an-ph">
+                <h3>Tokens by {tokGroup}</h3><small>· worker-reported</small>
+                <div className="an-tg">
+                  <button className={tokGroup === 'model' ? 'on' : ''} onClick={() => setTokGroup('model')}>Model</button>
+                  <button className={tokGroup === 'workspace' ? 'on' : ''} onClick={() => setTokGroup('workspace')}>Workspace</button>
+                </div>
+              </div>
+              {tokRows.length === 0
                 ? <div className="an-caption" style={{ marginTop: 2 }}>No worker reported token usage in this range.</div>
-                : a.tokensByModel.map((t) => <StageRow key={t.model} label={t.model} hue="var(--accent)" mono val={t.tokens} max={a.tokMax} fmt={fmtNum} />)}
+                : tokRows.map((t) => <StageRow key={t.key} label={t.key} hue="var(--accent)" mono val={t.val} max={tokMax} fmt={fmtNum} />)}
               <div className="an-cov">
                 {I.info({})}
                 <div className="tx">
