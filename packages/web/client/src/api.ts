@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status, Workspace, Attachment } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment } from './types.js';
 import type { AnalyticsData } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -32,7 +32,7 @@ export const api = {
     req<Attachment>(`/api/tasks/${key}/attachments`, body(b)),
   deleteAttachment: (id: number) => req<void>(`/api/attachments/${id}`, { method: 'DELETE' }),
   postMetrics: (key: string, b: MetricsReport) => req<TaskDetail>(`/api/tasks/${key}/metrics`, body(b)),
-  createTask: (b: { title: string; spec: string; acceptanceCriteria: string; workspace?: string }) => req<Task>('/api/tasks', body(b)),
+  createTask: (b: { title: string; spec: string; acceptanceCriteria?: string; stage?: Stage; workspace?: string }) => req<Task>('/api/tasks', body(b)),
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
   createWorkspace: (b: { name: string; repoPath: string }) => req<Workspace>('/api/workspaces', body(b)),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),

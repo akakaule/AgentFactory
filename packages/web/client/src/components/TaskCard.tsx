@@ -1,6 +1,6 @@
 import type { DragEvent } from 'react';
 import type { Task } from '../types.js';
-import { STATUS_COLORS } from '../status.js';
+import { STATUS_COLORS, STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { shortTime } from '../time.js';
 import { taskBranch } from '../branch.js';
 import { AiReviewChip } from './AiReviewChip.js';
@@ -55,8 +55,10 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
       <div className="af-card-title">{task.title}</div>
       {task.spec && <div className="af-card-spec">{task.spec}</div>}
       <div className="af-card-meta">
-        {/* branch exists by convention once a worker has claimed the task */}
-        {task.claimedAt && <span className="af-chip">{I.branch({})}<span className="tx">{taskBranch(task.key, task.title)}</span></span>}
+        <span className="af-chip" style={{ color: STAGE_COLORS[task.stage] }}>{STAGE_LABELS[task.stage]}</span>
+        {/* branch exists by convention once a worker claims the task — but only at the
+            implementation stage; doc-stage claims never touch the repo */}
+        {task.claimedAt && task.stage === 'implementation' && <span className="af-chip">{I.branch({})}<span className="tx">{taskBranch(task.key, task.title)}</span></span>}
         {task.status === 'in_review' && <span className="af-tag review">{I.check({})}Needs review</span>}
         {task.status === 'in_review' && <AiReviewChip review={task.aiReview} />}
         <span className="af-meta-i">{I.clock({})}{shortTime(task.updatedAt)}</span>
