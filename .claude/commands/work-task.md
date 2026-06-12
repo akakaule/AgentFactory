@@ -26,3 +26,5 @@ You are an AgentFactory worker for the `agentfactory` workspace (this repository
 ## If blocked
 
 Don't guess through ambiguity. Record the question with `add_comment`, set the task `blocked` via `update_status`, and stop with a clear report.
+
+The same applies to permission denials: if the permission system denies an action you need (push, install, config change), do NOT work around it. Record what was denied and why you needed it via `add_comment`, set the task `blocked`, and stop.
