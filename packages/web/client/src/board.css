@@ -151,6 +151,34 @@
 .af-tag.review { color: var(--st-review); background: color-mix(in srgb, var(--st-review) 15%, transparent); }
 .af-tag svg { width: 12px; height: 12px; }
 
+/* AI-review verdict chip (in_review card + drawer) — amber for open findings, green for clean */
+.af-airev { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; color: var(--active-2); background: color-mix(in srgb, var(--active) 14%, transparent); max-width: 100%; }
+.af-airev svg { width: 11px; height: 11px; flex: none; }
+.af-airev .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-airev.clean { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.af-airev.pending { color: var(--ink-2); background: color-mix(in srgb, var(--ink-3) 16%, transparent); }
+.af-airev-row { margin: 6px 0 2px; }
+.af-airev-warn { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.45; color: var(--active-2); background: color-mix(in srgb, var(--active) 9%, var(--bg-deep)); border: 1px solid color-mix(in srgb, var(--active) 30%, var(--line-soft)); border-radius: 8px; padding: 8px 11px; margin-bottom: 9px; }
+.af-airev-warn svg { width: 14px; height: 14px; flex: none; margin-top: 1px; color: var(--active-2); }
+.af-airev-warn strong { font-weight: 600; }
+
+/* AI-review findings checklist (drawer) — the human curates which ride back on Request changes */
+.af-airev-list { border: 1px solid var(--line-soft); border-radius: 9px; background: var(--bg-deep); padding: 8px 10px; margin-bottom: 9px; }
+.af-airev-list .hd { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.af-airev-list .hd svg { width: 13px; height: 13px; }
+.af-airev-list .it { display: flex; align-items: flex-start; gap: 8px; padding: 5px 4px; border-top: 1px solid var(--line-soft); cursor: pointer; }
+.af-airev-list .it:first-of-type { border-top: none; }
+.af-airev-list .it input { margin-top: 2px; flex: none; accent-color: var(--accent); }
+.af-airev-list .bd { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.af-airev-list .ti { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-1); }
+.af-airev-list .sev { width: 7px; height: 7px; border-radius: 99px; flex: none; background: var(--ink-3); }
+.af-airev-list .sev.info { background: var(--active); }
+.af-airev-list .sev.warning { background: #d8a23a; }
+.af-airev-list .sev.error { background: var(--st-blocked); }
+.af-airev-list .loc { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; color: var(--ink-3); }
+.af-airev-list .dt { font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
+.af-compose-hint { font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }
+
 /* ============================== DRAWER ============================== */
 .af-scrim { position: fixed; inset: 0; background: rgba(8,12,22,0.5); z-index: 50; animation: af-rise .15s; }
 .af-drawer {
@@ -326,7 +354,7 @@
 .an-toolbar .sub { font-size: 12.5px; color: var(--ink-3); }
 .an-toolbar .grow { flex: 1; }
 
-.an-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 11px; }
+.an-kpis { display: grid; grid-template-columns: repeat(7, 1fr); gap: 11px; }
 .an-kpi { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-card); padding: 14px 15px; display: flex; flex-direction: column; min-height: 96px; }
 .an-kpi .v { font-family: "Space Grotesk", sans-serif; font-size: 26px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
 .an-kpi .v.na { color: var(--ink-3); font-size: 20px; }
