@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { featureBranch } from '@agentfactory/core';
 import { makeClient, textOf } from './harness.js';
 
 // Helper to create a task with non-empty required fields
@@ -63,6 +64,61 @@ describe('get_next_task', () => {
     const payload = JSON.parse(textOf(res));
     expect(payload.task).toBeNull();
     expect(payload.message).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// get_next_task — claim-time protocol payload
+// ---------------------------------------------------------------------------
+describe('claim protocol payload', () => {
+  it('first claim returns a protocol block with the server-named branch and create-form setup', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Barcode scanner intake form'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    const branch = featureBranch(t.key, 'Barcode scanner intake form');
+
+    // task detail still sits at the top level (back-compat) and now carries `branch`
+    expect(payload.key).toBe(t.key);
+    expect(payload.branch).toBe(branch);
+    // the create-vs-reuse signal must NOT leak into the serialized task payload
+    expect(payload.branchCreated).toBeUndefined();
+
+    expect(payload.protocol).toBeTruthy();
+    expect(payload.protocol.version).toBe(2);
+    expect(payload.protocol.branch).toBe(branch);
+    expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
+    // first claim → create with -b
+    expect(payload.protocol.setup.join('\n')).toMatch(new RegExp(`git worktree add .*-b ${branch.replace(/\//g, '\\/')}`));
+    expect(payload.protocol.finish.join('\n')).toMatch(new RegExp(`git push -u origin ${branch.replace(/\//g, '\\/')}`));
+    expect(payload.protocol.finish.join('\n')).toMatch(/git worktree remove/);
+  });
+
+  it('reclaim returns the SAME branch with the reuse-form setup (no -b)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Original title'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const first = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    const branch = first.protocol.branch;
+    expect(first.protocol.setup.join('\n')).toMatch(/-b /); // create form
+
+    // human round-trip back to queued
+    core.submitResult(t.key, { summary: 'done' });
+    core.reviewRequestChanges(t.key, { feedback: 'again' });
+
+    const second = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(second.protocol.branch).toBe(branch);              // stable
+    expect(second.protocol.setup.join('\n')).not.toMatch(/-b /); // reuse form
+    expect(second.protocol.setup.join('\n')).toContain(branch);
+  });
+
+  it('empty queue still returns task:null with no protocol', async () => {
+    const { client } = await makeClient();
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.task).toBeNull();
+    expect(payload.protocol).toBeUndefined();
   });
 });
 

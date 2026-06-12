@@ -1,7 +1,7 @@
 # AgentFactory — Claim-time protocol + submit-time guardrails (trust, but verify)
 
 **Date:** 2026-06-12
-**Status:** Proposed
+**Status:** Implemented (2026-06-12)
 **Grows from:** [2026-06-11 reopen + push-and-clean](2026-06-11-reopen-and-push-clean-design.md)
 (the finish protocol this design enforces) and [2026-06-11 feature-branch naming](2026-06-11-feature-branch-naming.md)
 (the rule the server now computes itself). Motivated by the 2026-06-12 incident: AF-8/9/10/12

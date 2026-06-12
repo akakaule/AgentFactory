@@ -26,7 +26,12 @@ export interface TaskMetricsView {
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
 }
 
-export interface TaskDetail extends Task { activity: Activity[]; links: Link[]; attachments: Attachment[]; repoPath: string; metrics: TaskMetricsView; }
+export interface TaskDetail extends Task {
+  activity: Activity[]; links: Link[]; attachments: Attachment[];
+  repoPath: string;
+  branch: string | null; // server-named feature branch, set on first claim; null before then
+  metrics: TaskMetricsView;
+}
 
 export interface CreateTaskInput { title: string; spec: string; acceptanceCriteria: string; workspace?: string | undefined; }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }

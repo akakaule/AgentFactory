@@ -21,9 +21,9 @@ const claimed = (db: ReturnType<typeof makeTestDb>) => {
 };
 
 describe('migration #4', () => {
-  it('fresh DB → user_version 5 with the task_metric table', () => {
+  it('fresh DB → user_version 6 with the task_metric table', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 5 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
     expect(() => db.prepare('SELECT COUNT(*) n FROM task_metric').get()).not.toThrow();
   });
 
@@ -38,9 +38,9 @@ describe('migration #4', () => {
     db.exec('COMMIT');
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 5 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 5 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
   });
 });
 

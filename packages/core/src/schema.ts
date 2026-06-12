@@ -88,3 +88,12 @@ CREATE TABLE IF NOT EXISTS attachment (
 );
 CREATE INDEX IF NOT EXISTS idx_attachment_task ON attachment(task_id);
 `;
+
+// Migration #6 — server-named feature branch. Computed at first claim
+// (feature/<key>-<kebab-title>) and persisted so reclaims reuse the same name even
+// after a title edit; it is also the exact ref submit_result's guardrails verify
+// against origin. Nullable: tasks claimed before this feature stay NULL and skip
+// the guardrails (never brick an in-flight task on deploy).
+export const MIGRATION_6_SQL = `
+ALTER TABLE task ADD COLUMN branch TEXT;
+`;

@@ -12,7 +12,7 @@ export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
   status: Status; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
-  claimed_by: string | null; claimed_at: string | null;
+  claimed_by: string | null; claimed_at: string | null; branch: string | null;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
@@ -33,6 +33,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
   return {
     ...toTask(r),
     repoPath: r.workspace_repo_path,
+    branch: r.branch,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
     attachments: attachmentsMeta(db, r.id),
