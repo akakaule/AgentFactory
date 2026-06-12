@@ -86,7 +86,8 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(2);
+    expect(payload.protocol.version).toBe(3);
+    expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
     // first claim → create with -b
@@ -119,6 +120,20 @@ describe('claim protocol payload', () => {
     const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
     expect(payload.task).toBeNull();
     expect(payload.protocol).toBeUndefined();
+  });
+
+  it('a description-stage claim gets a doc protocol: stage discriminator, no git setup, no branch', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ title: 'Pipeline task', spec: 'raw idea', stage: 'description' });
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.stage).toBe('description');
+    expect(payload.branch).toBeNull(); // named at the first implementation-stage claim
+    expect(payload.protocol.stage).toBe('description');
+    expect(payload.protocol.setup).toEqual([]);
+    expect(payload.protocol.branch).toBeUndefined();
+    expect(payload.protocol.finish.join('\n')).toContain('submit_result');
   });
 });
 
@@ -315,6 +330,46 @@ describe('submit_result', () => {
     });
     expect(res.isError).toBe(true);
     expect(textOf(res).toLowerCase()).toContain('invalid transition');
+  });
+
+  it('description stage accepts { spec, acceptanceCriteria } and persists them', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ title: 'T', spec: 'raw', stage: 'description' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'described', spec: 'polished spec', acceptanceCriteria: '- works' },
+    });
+    expect(res.isError).toBeFalsy();
+
+    const detail = core.getTask(t.key);
+    expect(detail.status).toBe('in_review');
+    expect(detail.spec).toBe('polished spec');
+    expect(detail.acceptanceCriteria).toBe('- works');
+  });
+
+  it('plan stage accepts { plan }; a wrong-shape payload fails with a stage-naming error', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ title: 'T', spec: 's', acceptanceCriteria: 'a', stage: 'plan' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const wrong = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'planned', spec: 'not allowed here' },
+    });
+    expect(wrong.isError).toBe(true);
+    expect(textOf(wrong)).toContain('plan stage');
+    expect(core.getTask(t.key).status).toBe('in_progress');
+
+    const ok = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'planned', plan: '1. change x\n2. test y' },
+    });
+    expect(ok.isError).toBeFalsy();
+    expect(core.getTask(t.key).plan).toBe('1. change x\n2. test y');
   });
 });
 

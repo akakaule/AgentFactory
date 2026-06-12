@@ -167,4 +167,20 @@ describe('submit_result tool — guardrail wiring (integration)', () => {
     expect(ok.isError).toBeFalsy();
     expect(core.getTask(t.key).status).toBe('in_review');
   });
+
+  it('doc-stage submits bypass the git guardrails entirely (nothing pushed, still accepted)', async () => {
+    const repo = mainOnlyRepoWithOrigin(); // origin exists, nothing pushed — would block an implementation submit
+    const { client, core } = await makeClient();
+    core.createWorkspace({ name: 'wt', repoPath: repo });
+    const t = core.createTask({ title: 'Doc task', spec: 'raw', stage: 'description', workspace: 'wt' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'described', spec: 'polished', acceptanceCriteria: '- ok' },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(core.getTask(t.key).status).toBe('in_review');
+  });
 });
