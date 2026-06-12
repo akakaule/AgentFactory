@@ -1,7 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskForm } from '../../client/src/components/TaskForm.js';
+
+vi.mock('../../client/src/image.js', () => ({
+  downscalePastedImage: vi.fn().mockResolvedValue({ mime: 'image/png', dataBase64: 'QUJD' }),
+}));
+
+const pasteImage = (target: Element, filename = 'shot.png') =>
+  fireEvent.paste(target, {
+    clipboardData: {
+      items: [{ type: 'image/png', getAsFile: () => new File([new Uint8Array([1, 2, 3])], filename, { type: 'image/png' }) }],
+    },
+  });
 
 describe('TaskForm (create mode)', () => {
   it('calls onSubmit with the filled fields', async () => {
@@ -19,7 +30,7 @@ describe('TaskForm (create mode)', () => {
       title: 'My new task',
       spec: 'Do something cool',
       acceptanceCriteria: 'It works',
-    });
+    }, [], []);
   });
 
   it('does not call onSubmit when fields are empty', async () => {
@@ -55,6 +66,60 @@ describe('TaskForm (create mode)', () => {
   });
 });
 
+describe('TaskForm image paste', () => {
+  it('pasting an image shows a removable thumbnail and submits it', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(<TaskForm mode="create" onSubmit={onSubmit} />);
+
+    pasteImage(screen.getByPlaceholderText('Describe the task…'));
+    expect(await screen.findByAltText('shot.png')).toHaveAttribute('src', 'data:image/png;base64,QUJD');
+
+    await user.type(screen.getByPlaceholderText('Task title'), 'T');
+    await user.type(screen.getByPlaceholderText('Describe the task…'), 'S');
+    await user.type(screen.getByPlaceholderText('Define done…'), 'A');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'T' }),
+      [{ filename: 'shot.png', mime: 'image/png', dataBase64: 'QUJD' }],
+      [],
+    );
+  });
+
+  it('the ✕ removes a pending image before submit', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(<TaskForm mode="create" onSubmit={onSubmit} />);
+
+    pasteImage(screen.getByPlaceholderText('Describe the task…'));
+    await screen.findByAltText('shot.png');
+    await user.click(screen.getByRole('button', { name: 'Remove shot.png' }));
+    expect(screen.queryByAltText('shot.png')).not.toBeInTheDocument();
+  });
+
+  it('edit mode lists existing attachments and collects removals', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TaskForm
+        mode="edit"
+        initial={{
+          title: 'T', spec: 'S', acceptanceCriteria: 'A',
+          attachments: [{ id: 7, taskId: 1, filename: 'old.png', mime: 'image/png', size: 10 }],
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(screen.getByAltText('old.png')).toHaveAttribute('src', '/api/attachments/7');
+    await user.click(screen.getByRole('button', { name: 'Remove old.png' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.anything(), [], [7]);
+  });
+});
+
 describe('TaskForm workspace picker', () => {
   it('renders a dropdown with multiple workspaces and submits the chosen one', async () => {
     const onSubmit = vi.fn();
@@ -69,7 +134,7 @@ describe('TaskForm workspace picker', () => {
     await user.type(screen.getByPlaceholderText('Define done…'), 'A');
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'repo-a' }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'repo-a' }), [], []);
   });
 
   it('hides the dropdown when only one workspace exists', () => {
@@ -100,6 +165,6 @@ describe('TaskForm (edit mode)', () => {
       title: 'New title',
       spec: 'Old spec',
       acceptanceCriteria: 'Old AC',
-    });
+    }, [], []);
   });
 });

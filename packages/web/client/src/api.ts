@@ -1,6 +1,8 @@
-import type { Task, TaskDetail, Activity, Status, Workspace } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Workspace, Attachment } from './types.js';
+import type { AnalyticsData } from './metrics.js';
 
-export interface TaskDiff { branch: string; baseRef: string; diff: string; }
+export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
+export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init?.body ? { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } } : init);
@@ -13,6 +15,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
 
+export const attachmentUrl = (id: number) => `/api/attachments/${id}`;
+
 export const api = {
   listTasks: (opts: { status?: Status; workspace?: string } = {}) => {
     const q = new URLSearchParams();
@@ -23,6 +27,11 @@ export const api = {
   },
   getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
+  getAnalytics: () => req<AnalyticsData>('/api/analytics'),
+  addAttachment: (key: string, b: { filename: string; mime: string; dataBase64: string }) =>
+    req<Attachment>(`/api/tasks/${key}/attachments`, body(b)),
+  deleteAttachment: (id: number) => req<void>(`/api/attachments/${id}`, { method: 'DELETE' }),
+  postMetrics: (key: string, b: MetricsReport) => req<TaskDetail>(`/api/tasks/${key}/metrics`, body(b)),
   createTask: (b: { title: string; spec: string; acceptanceCriteria: string; workspace?: string }) => req<Task>('/api/tasks', body(b)),
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
   createWorkspace: (b: { name: string; repoPath: string }) => req<Workspace>('/api/workspaces', body(b)),

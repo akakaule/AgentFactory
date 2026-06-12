@@ -22,6 +22,7 @@ vi.mock('../../client/src/api.js', () => ({
     addComment: vi.fn().mockResolvedValue({}),
     listWorkspaces: vi.fn(),
     createWorkspace: vi.fn().mockResolvedValue({}),
+    getAnalytics: vi.fn().mockResolvedValue({ tasks: [], stranded: [] }),
   },
 }));
 
@@ -43,11 +44,23 @@ beforeEach(() => {
 });
 
 describe('App', () => {
-  it('renders the header and list/board toggle by default', () => {
+  it('renders the header and the three-view toggle by default', () => {
     render(<App />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('AgentFactory');
-    expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Board' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Analytics' })).toBeInTheDocument();
+  });
+
+  it('switches to analytics and hides task chrome', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Analytics' }));
+
+    expect(await screen.findByText('No completed tasks in this range')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New task' })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Search tasks…')).not.toBeInTheDocument();
   });
 
   it('shows the create task form when "New task" is clicked', async () => {

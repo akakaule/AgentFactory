@@ -1,0 +1,120 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { existsSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+
+const execFileAsync = promisify(execFile);
+
+/** git couldn't run at all (binary missing) — distinct from a non-zero exit. */
+export class GitError extends Error { name = 'GitError'; }
+
+// The branch is server-generated here (never agent input), but the same injection
+// discipline the web package uses costs nothing: no leading '-', no '..', conservative
+// charset. A name that fails this is treated as un-checkable rather than passed to git.
+const SAFE_REF = /^(?!-)(?!.*\.\.)[\w./-]+$/;
+
+/** Run a git read. `ok:false` = git ran but exited non-zero; throws GitError only if git is absent. */
+async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string }> {
+  try {
+    const { stdout } = await execFileAsync('git', args, {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+    });
+    return { ok: true, stdout };
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    // existsSync(repoPath) ran before any spawn, so ENOENT can only mean the binary.
+    if (e.code === 'ENOENT') throw new GitError('git executable not found');
+    return { ok: false, stdout: '' };
+  }
+}
+
+export interface SubmitGuardResult { ok: boolean; message?: string; }
+
+/** A linked worktree under <repo>/.worktrees/<key> still exists (case/sep-insensitive). */
+function worktreeSurvives(porcelain: string, key: string): boolean {
+  const suffix = `/.worktrees/${key.toLowerCase()}`;
+  return porcelain
+    .split(/\r?\n/)
+    .filter((l) => l.startsWith('worktree '))
+    .map((l) => l.slice('worktree '.length).replace(/\\/g, '/').toLowerCase())
+    .some((p) => p.endsWith(suffix));
+}
+
+function skip(reason: string): SubmitGuardResult {
+  console.error(`[agentfactory-mcp] submit guardrail skipped: ${reason}`);
+  return { ok: true };
+}
+
+/**
+ * Verify the finish protocol actually ran before submit_result advances the task:
+ * (1) the branch exists on origin, (2) origin is not behind local, (3) the task's
+ * worktree was removed. All git *reads* — the server never mutates the repo.
+ *
+ * Degrades safely: a null branch (task claimed before this feature), a relative or
+ * missing repoPath, or git being absent skips every check; a repo with no `origin`
+ * keeps the worktree check but skips the push checks. The one place it fails *closed*
+ * is a configured-but-unreachable remote — failing open there would silently re-create
+ * the very incident this guards against.
+ */
+export async function checkSubmission(opts: { repoPath: string; branch: string | null; key: string }): Promise<SubmitGuardResult> {
+  const { repoPath, branch, key } = opts;
+
+  if (branch === null) return skip(`${key} has no branch (claimed before the protocol existed)`);
+  if (!repoPath || !isAbsolute(repoPath)) return skip(`repoPath is not absolute (${repoPath || '<empty>'})`);
+  if (!existsSync(repoPath)) return skip(`repoPath does not exist (${repoPath})`);
+  if (!SAFE_REF.test(branch)) return skip(`branch ref is not checkable (${branch})`);
+
+  let gitDir: { ok: boolean; stdout: string };
+  try {
+    gitDir = await runGit(repoPath, ['rev-parse', '--git-dir']);
+  } catch (err) {
+    if (err instanceof GitError) return skip('git executable not found');
+    throw err;
+  }
+  if (!gitDir.ok) return skip(`not a git repository (${repoPath})`);
+
+  const worktree = `${repoPath}/.worktrees/${key}`;
+  const failures: string[] = [];
+
+  // (3) worktree removed
+  const wt = await runGit(repoPath, ['worktree', 'list', '--porcelain']);
+  if (wt.ok && worktreeSurvives(wt.stdout, key)) {
+    failures.push(`the task worktree still exists — remove it:\n      git worktree remove ${worktree} && git worktree prune`);
+  }
+
+  // (1)+(2) push checks — only meaningful with an origin remote
+  const remotes = await runGit(repoPath, ['remote']);
+  const hasOrigin = remotes.ok && remotes.stdout.split(/\r?\n/).map((s) => s.trim()).includes('origin');
+  if (hasOrigin) {
+    const ls = await runGit(repoPath, ['ls-remote', '--heads', '--end-of-options', 'origin', branch]);
+    if (!ls.ok) {
+      // configured but unreachable — fail closed; the push needed this same network moments ago
+      failures.push(`origin is configured but unreachable, so the push could not be verified — retry submit once the remote responds.`);
+    } else if (ls.stdout.trim() === '') {
+      failures.push(`branch ${branch} is not on origin — push it:\n      git push -u origin ${branch}`);
+    } else {
+      const remoteSha = ls.stdout.trim().split(/\s+/)[0] ?? '';
+      const local = await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', branch]);
+      const localSha = local.stdout.trim();
+      if (local.ok && localSha && localSha !== remoteSha) {
+        failures.push(`origin/${branch} is behind your local branch — push the latest commits:\n      git push origin ${branch}`);
+      }
+    }
+  } else {
+    console.error(`[agentfactory-mcp] submit guardrail: no origin remote in ${repoPath} — push checks skipped`);
+  }
+
+  if (failures.length > 0) {
+    return {
+      ok: false,
+      message:
+        `Submission blocked — the finish protocol is not complete for ${branch}:\n\n` +
+        failures.map((f) => `  • ${f}`).join('\n\n') +
+        `\n\nFix the above, then call submit_result again.`,
+    };
+  }
+  return { ok: true };
+}

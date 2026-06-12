@@ -65,11 +65,19 @@ Every claim records who took it and when (workers identify via `AGENTFACTORY_WOR
 
 ### Reviewing changes (diff view)
 
-When a worker submits a result with a `branch` link (the convention: branch `task/<key>`), the task's detail panel shows a **Changes** section — files changed and +/− counts — and a **View diff** button that opens the full per-file, line-level diff right on the board. The diff is computed live from the workspace repo (merge-base against the default branch), so commits that landed on main after the branch point never pollute the review. Approve or request changes without leaving the board.
+When a worker submits a result with a `branch` link (the convention: `feature/<key>-<kebab-title>`), the task's detail panel shows a **Changes** section — files changed and +/− counts — and a **View diff** button that opens the full per-file, line-level diff right on the board. The diff is computed live from the workspace repo (merge-base against the default branch), so commits that landed on main after the branch point never pollute the review. Approve or request changes without leaving the board.
 
 ### The PR loop (push, clean up, reopen)
 
-Workers finish every task by pushing `task/<key>` to `origin` and removing their worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch. If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable GitHub's *delete branch on merge* so merged task branches clean themselves up.
+Workers finish every task by pushing its feature branch (`feature/<key>-<kebab-title>`) to `origin` and removing their worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch (GitHub, Azure DevOps — anything on the remote). If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable *delete branch on merge* so merged feature branches clean themselves up.
+
+### Images in specs
+
+Paste screenshots straight into the task form (Ctrl+V) while writing or editing a backlog task — they're downscaled client-side (max 1568px long edge, the model's effective resolution), stored in the shared SQLite, and shown as thumbnails on the task. When an agent claims the task, the images arrive in the MCP payload as **image content blocks**, so the agent sees the actual pixels alongside the spec. Attachments are frozen once a task is queued (the brief doesn't change mid-flight) and are deleted with the task.
+
+### Analytics
+
+The third view in the header toggle (**Board · List · Analytics**) answers "how is my agent loop performing?" — tasks done, median cycle/work time, first-pass approval rate, reopen rate, where time goes per stage (in practice: the human review queue, not the agents), daily throughput, review round-trip distribution, tokens by model, and a per-worker table with stranded-release counts. Everything timing/quality is derived from the activity log, so it works retroactively for every task ever; tokens and cost are **worker-reported** (optional `metrics` on `submit_result`, or `POST /api/tasks/<key>/metrics` from a loop wrapper with exact usage) and unreported tasks show *n/a* — never zero. Each task's drawer also gets a **Metrics** strip: stage timeline plus rounds/tokens/cost chips. Filter by workspace and 7d/30d/all.
 
 ### Deleting tasks
 

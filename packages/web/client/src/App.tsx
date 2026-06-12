@@ -4,15 +4,16 @@ import { STATUS_LABELS } from './status.js';
 import { useTasks } from './useTasks.js';
 import { useWorkspaces } from './useWorkspaces.js';
 import { api } from './api.js';
-import { GroupedList } from './views/GroupedList.js';
+import { ListView } from './views/ListView.js';
 import { BoardView } from './views/BoardView.js';
+import { AnalyticsView } from './views/AnalyticsView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { Mark, I } from './icons.js';
 
-type View = 'board' | 'list';
+type View = 'board' | 'list' | 'analytics';
 
 /** ticker line derived from real board changes between SSE refetches */
 function useChangeTicker(tasks: Task[]): string | null {
@@ -34,6 +35,7 @@ function useChangeTicker(tasks: Task[]): string | null {
 
 export function App() {
   const [view, setView] = useState<View>('board');
+  const [rangeDays, setRangeDays] = useState<number | null>(7);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
@@ -62,14 +64,21 @@ export function App() {
     api.setStatus(key, to).then(refetch).catch(() => {});
   };
 
+  const switchView = (v: View) => { setView(v); setSelectedKey(null); };
+
   return (
     <div id="app">
       <header className="af-header">
         <div className="af-brand">
           <Mark />
-          <h1 className="af-title">AgentFactory<span className="dim"> · board</span></h1>
+          <h1 className="af-title">AgentFactory<span className="dim"> · {view}</span></h1>
         </div>
         <span className="af-sep"></span>
+        <div className="af-views">
+          <button className={view === 'board' ? 'on' : ''} onClick={() => switchView('board')}>{I.board({})}Board</button>
+          <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}List</button>
+          <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}Analytics</button>
+        </div>
         <WorkspaceSwitcher
           workspaces={workspaces}
           value={wsFilter}
@@ -77,30 +86,29 @@ export function App() {
           onChange={setWsFilter}
           onNewWorkspace={() => setManagingWorkspaces(true)}
         />
-        <label className="af-search">
-          {I.search({})}
-          <input placeholder="Search tasks…" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
+        {view !== 'analytics' && (
+          <label className="af-search">
+            {I.search({})}
+            <input placeholder="Search tasks…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+        )}
 
         <span className="af-spacer"></span>
 
-        {ticker && (
+        {view === 'board' && ticker && (
           <div className="af-ticker">
             <span className="ic">›</span><span>{ticker}</span>
           </div>
         )}
 
-        <div className="af-view">
-          <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button>
-          <button className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}>Board</button>
-        </div>
-
-        <button className="af-btn-primary" onClick={() => setCreating(true)}>
-          {I.plus({ width: 15, height: 15 })}New task
-        </button>
+        {view !== 'analytics' && (
+          <button className="af-btn-primary" onClick={() => setCreating(true)}>
+            {I.plus({ width: 15, height: 15 })}New task
+          </button>
+        )}
       </header>
 
-      {view === 'board' ? (
+      {view === 'board' && (
         <BoardView
           tasks={visible}
           onSelect={setSelectedKey}
@@ -109,11 +117,9 @@ export function App() {
           onMove={moveTask}
           onAddTask={() => setCreating(true)}
         />
-      ) : (
-        <main className="af-main">
-          <GroupedList tasks={visible} onSelect={setSelectedKey} showWorkspaceBadges={showBadges} />
-        </main>
       )}
+      {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={setSelectedKey} />}
+      {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
 
       {selectedKey && (
         <DetailPanel
@@ -130,8 +136,9 @@ export function App() {
               mode="create"
               workspaces={workspaces.map((w) => w.name)}
               initialWorkspace={wsFilter !== 'all' ? wsFilter : lastWorkspace}
-              onSubmit={async (b) => {
-                await api.createTask(b);
+              onSubmit={async (b, images) => {
+                const task = await api.createTask(b);
+                for (const img of images) await api.addAttachment(task.key, img);
                 if (b.workspace) setLastWorkspace(b.workspace);
                 setCreating(false);
                 refetch();

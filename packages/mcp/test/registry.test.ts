@@ -17,29 +17,50 @@ describe('tool registry', () => {
     expect(tools.find((t) => t.name === 'create_task')).toBeUndefined();
   });
 
-  it('instructs the agent to work in a dedicated git worktree under the workspace repo', async () => {
+  it('get_next_task defers to the protocol payload as the source of truth', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
     const next = tools.find((t) => t.name === 'get_next_task');
-    expect(next?.description).toMatch(/git worktree add/);
-    expect(next?.description).toMatch(/<repoPath>\/\.worktrees\//);
+    // the description points at the payload rather than restating a (freezable) convention
+    expect(next?.description).toMatch(/`protocol`/);
+    expect(next?.description).toMatch(/source of truth/);
+    expect(next?.description).toMatch(/protocol\.setup/);
+    expect(next?.description).toMatch(/protocol\.finish/);
+    // it must NOT hard-code a branch name the server now owns
+    expect(next?.description).not.toMatch(/feature\/<task-key>-<kebab-title>/);
+    expect(next?.description).not.toMatch(/-b task\//);
+  });
+
+  it('get_next_task tells the agent the protocol encodes create-vs-reuse (do not improvise)', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const next = tools.find((t) => t.name === 'get_next_task');
+    expect(next?.description).toMatch(/reclaim/);
+    expect(next?.description).toMatch(/do not improvise/i);
+  });
+
+  it('submit_result advertises that it verifies the finish protocol (push + worktree removal)', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
     const submit = tools.find((t) => t.name === 'submit_result');
+    expect(submit?.description).toMatch(/protocol\.finish/);
+    expect(submit?.description).toMatch(/verif/i);   // "VERIFIES"
+    expect(submit?.description).toMatch(/origin/);
     expect(submit?.description).toMatch(/worktree/);
   });
 
-  it('instructs the agent to reuse an existing task branch on re-claim', async () => {
+  it('tells the agent spec images arrive as image content', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
     const next = tools.find((t) => t.name === 'get_next_task');
-    expect(next?.description).toMatch(/already exists/);
-    expect(next?.description).toMatch(/without `-b`/);
+    expect(next?.description).toMatch(/image content/);
   });
 
-  it('instructs the agent to push and remove the worktree before submitting', async () => {
+  it('invites best-effort usage metrics on submit', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
     const submit = tools.find((t) => t.name === 'submit_result');
-    expect(submit?.description).toMatch(/git push -u origin/);
-    expect(submit?.description).toMatch(/git worktree remove/);
+    expect(submit?.description).toMatch(/metrics/);
+    expect(submit?.description).toMatch(/best-effort/);
   });
 });

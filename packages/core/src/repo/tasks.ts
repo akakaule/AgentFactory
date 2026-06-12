@@ -1,14 +1,18 @@
 import type { DB } from '../db.js';
 import type { Task, TaskDetail, Status, UpdateTaskInput } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity } from './activity.js';
+import { recentActivity, activitySteps } from './activity.js';
 import { linksFor } from './links.js';
+import { attachmentsMeta } from './attachments.js';
+import { deriveTaskMetrics } from '../metrics.js';
+import { tokenAggregateFor } from './metrics.js';
+import { nowIso } from '../time.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
   status: Status; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
-  claimed_by: string | null; claimed_at: string | null;
+  claimed_by: string | null; claimed_at: string | null; branch: string | null;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
@@ -29,8 +33,14 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
   return {
     ...toTask(r),
     repoPath: r.workspace_repo_path,
+    branch: r.branch,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
+    attachments: attachmentsMeta(db, r.id),
+    metrics: {
+      ...deriveTaskMetrics(activitySteps(db, r.id), nowIso()),
+      ...tokenAggregateFor(db, r.id),
+    },
   };
 }
 

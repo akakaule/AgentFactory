@@ -35,10 +35,11 @@ describe('GET /api/tasks/:key/diff', () => {
 
     const res = await app.request(`/api/tasks/${task.key}/diff`);
     expect(res.status).toBe(200);
-    const body = await res.json() as { branch: string; baseRef: string; diff: string };
+    const body = await res.json() as { branch: string; baseRef: string; diff: string; commits: number };
     expect(body.branch).toBe('task/AF-1');
     expect(body.baseRef).toBe('main');
     expect(body.diff).toContain('+agent work');
+    expect(body.commits).toBe(1);
   });
 
   it('uses the last branch link when several were submitted', async () => {

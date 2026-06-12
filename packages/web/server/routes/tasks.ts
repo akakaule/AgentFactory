@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
-import { NotFoundError, type UpdateTaskInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery } from '../schemas.js';
+import { NotFoundError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 
 export function taskRoutes(core: Core) {
@@ -19,8 +19,8 @@ export function taskRoutes(core: Core) {
     const task = core.getTask(c.req.param('key'));
     const branchLink = task.links.filter((l) => l.kind === 'branch').at(-1);
     if (!branchLink) throw new NotFoundError(`no branch link recorded for ${task.key}`);
-    const { baseRef, diff } = await branchDiff(task.repoPath, branchLink.label);
-    return c.json({ branch: branchLink.label, baseRef, diff });
+    const { baseRef, diff, commits } = await branchDiff(task.repoPath, branchLink.label);
+    return c.json({ branch: branchLink.label, baseRef, diff, commits });
   });
 
   r.post('/', zValidator('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
@@ -44,6 +44,20 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/status', zValidator('json', statusBody), (c) =>
     c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human')));
+
+  r.post('/:key/metrics', zValidator('json', metricsBody), (c) => {
+    const b = c.req.valid('json');
+    const input: AddTaskMetricsInput = {};         // explicit build for exactOptionalPropertyTypes
+    if (b.model !== undefined) input.model = b.model;
+    if (b.tokensIn !== undefined) input.tokensIn = b.tokensIn;
+    if (b.tokensOut !== undefined) input.tokensOut = b.tokensOut;
+    if (b.costUsd !== undefined) input.costUsd = b.costUsd;
+    if (b.reportedBy !== undefined) input.reportedBy = b.reportedBy;
+    return c.json(core.addTaskMetrics(c.req.param('key'), input), 201);
+  });
+
+  r.post('/:key/attachments', zValidator('json', attachmentBody), (c) =>
+    c.json(core.addAttachment(c.req.param('key'), c.req.valid('json')), 201));
 
   r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'))));
 

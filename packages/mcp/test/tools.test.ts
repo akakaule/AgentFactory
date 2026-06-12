@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { featureBranch } from '@agentfactory/core';
 import { makeClient, textOf } from './harness.js';
 
 // Helper to create a task with non-empty required fields
@@ -67,6 +68,61 @@ describe('get_next_task', () => {
 });
 
 // ---------------------------------------------------------------------------
+// get_next_task — claim-time protocol payload
+// ---------------------------------------------------------------------------
+describe('claim protocol payload', () => {
+  it('first claim returns a protocol block with the server-named branch and create-form setup', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Barcode scanner intake form'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    const branch = featureBranch(t.key, 'Barcode scanner intake form');
+
+    // task detail still sits at the top level (back-compat) and now carries `branch`
+    expect(payload.key).toBe(t.key);
+    expect(payload.branch).toBe(branch);
+    // the create-vs-reuse signal must NOT leak into the serialized task payload
+    expect(payload.branchCreated).toBeUndefined();
+
+    expect(payload.protocol).toBeTruthy();
+    expect(payload.protocol.version).toBe(2);
+    expect(payload.protocol.branch).toBe(branch);
+    expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
+    // first claim → create with -b
+    expect(payload.protocol.setup.join('\n')).toMatch(new RegExp(`git worktree add .*-b ${branch.replace(/\//g, '\\/')}`));
+    expect(payload.protocol.finish.join('\n')).toMatch(new RegExp(`git push -u origin ${branch.replace(/\//g, '\\/')}`));
+    expect(payload.protocol.finish.join('\n')).toMatch(/git worktree remove/);
+  });
+
+  it('reclaim returns the SAME branch with the reuse-form setup (no -b)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Original title'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const first = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    const branch = first.protocol.branch;
+    expect(first.protocol.setup.join('\n')).toMatch(/-b /); // create form
+
+    // human round-trip back to queued
+    core.submitResult(t.key, { summary: 'done' });
+    core.reviewRequestChanges(t.key, { feedback: 'again' });
+
+    const second = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(second.protocol.branch).toBe(branch);              // stable
+    expect(second.protocol.setup.join('\n')).not.toMatch(/-b /); // reuse form
+    expect(second.protocol.setup.join('\n')).toContain(branch);
+  });
+
+  it('empty queue still returns task:null with no protocol', async () => {
+    const { client } = await makeClient();
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.task).toBeNull();
+    expect(payload.protocol).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // get_task
 // ---------------------------------------------------------------------------
 describe('get_task', () => {
@@ -113,6 +169,44 @@ describe('add_comment', () => {
 });
 
 // ---------------------------------------------------------------------------
+// spec image attachments — handed over as MCP image content blocks
+// ---------------------------------------------------------------------------
+describe('attachment hand-over', () => {
+  const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6]);
+  const PNG_B64 = Buffer.from(PNG_BYTES).toString('base64');
+
+  it('get_task carries one image block per attachment, bytes intact', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task with screenshot'));
+    core.addAttachment(t.key, { filename: 'shot.png', mime: 'image/png', dataBase64: PNG_B64 });
+
+    const res = await client.callTool({ name: 'get_task', arguments: { key: t.key } });
+    expect(res.isError).toBeFalsy();
+    const content = res.content as Array<{ type: string; data?: string; mimeType?: string }>;
+    expect(content[0]!.type).toBe('text');
+    expect(content[1]).toMatchObject({ type: 'image', mimeType: 'image/png', data: PNG_B64 });
+  });
+
+  it('get_next_task hands the claimed task its images', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Claim me'));
+    core.addAttachment(t.key, { filename: 'shot.png', mime: 'image/png', dataBase64: PNG_B64 });
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const res = await client.callTool({ name: 'get_next_task', arguments: {} });
+    const content = res.content as Array<{ type: string; mimeType?: string }>;
+    expect(content.some((c) => c.type === 'image' && c.mimeType === 'image/png')).toBe(true);
+  });
+
+  it('tasks without attachments are unchanged (single text block)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Plain task'));
+    const res = await client.callTool({ name: 'get_task', arguments: { key: t.key } });
+    expect((res.content as unknown[]).length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // submit_result
 // ---------------------------------------------------------------------------
 describe('submit_result', () => {
@@ -132,6 +226,40 @@ describe('submit_result', () => {
     const detail = core.getTask(t.key);
     expect(detail.status).toBe('in_review');
     expect(JSON.stringify(detail)).toContain(link.url);
+  });
+
+  it('records optional usage metrics alongside the result', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: {
+        key: t.key, summary: 'Done!', links: [],
+        metrics: { model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92 },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+
+    const detail = core.getTask(t.key);
+    expect(detail.status).toBe('in_review');
+    expect(detail.metrics).toMatchObject({ model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92 });
+  });
+
+  it('submitting without metrics leaves the task unreported (null, not zero)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'Done!', links: [] },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(core.getTask(t.key).metrics).toMatchObject({ tokensIn: null, tokensOut: null, costUsd: null, model: null });
   });
 
   it('returns isError when submitting result on a backlog task', async () => {

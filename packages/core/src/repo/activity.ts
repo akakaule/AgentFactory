@@ -1,5 +1,6 @@
 import type { DB } from '../db.js';
 import type { Activity, ActivityType, Actor, Status } from '../types.js';
+import type { ActivityStep } from '../metrics.js';
 
 export interface AppendActivity {
   taskId: number; type: ActivityType; actor: Actor;
@@ -11,6 +12,16 @@ export function appendActivity(db: DB, a: AppendActivity): void {
      VALUES (?,?,?,?,?,?,?)`
   ).run(a.taskId, a.type, a.actor, a.fromStatus ?? null, a.toStatus ?? null, a.body ?? '', a.createdAt);
 }
+/** Full status history projection for metrics derivation (no limit, id order). */
+export function activitySteps(db: DB, taskId: number): ActivityStep[] {
+  const rows = db.prepare(
+    'SELECT type, from_status, to_status, body, created_at FROM activity WHERE task_id = ? ORDER BY id ASC'
+  ).all(taskId) as Array<{
+    type: ActivityType; from_status: Status | null; to_status: Status | null; body: string; created_at: string;
+  }>;
+  return rows.map(r => ({ type: r.type, fromStatus: r.from_status, toStatus: r.to_status, body: r.body, createdAt: r.created_at }));
+}
+
 export function recentActivity(db: DB, taskId: number, limit: number): Activity[] {
   const rows = db.prepare(
     'SELECT * FROM activity WHERE task_id = ? ORDER BY id DESC LIMIT ?'

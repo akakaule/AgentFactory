@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 /** Environment/repo problems the human must fix (mapped to 422), as opposed to bad input. */
 export class GitError extends Error { name = 'GitError'; }
 
-export interface BranchDiff { baseRef: string; diff: string; }
+export interface BranchDiff { baseRef: string; diff: string; commits: number; }
 
 // Branch refs arrive as agent-submitted link labels — untrusted. No leading '-'
 // (option injection), no '..' (revision ranges), conservative charset.
@@ -60,5 +60,7 @@ export async function branchDiff(repoPath: string, branch: string): Promise<Bran
     '--end-of-options', `${baseRef}...${branch}`, '--',
   ]);
   if (!diff.ok) throw new GitError(`git diff failed for ${baseRef}...${branch}`);
-  return { baseRef, diff: diff.stdout };
+  const count = await runGit(repoPath, ['rev-list', '--count', '--end-of-options', `${baseRef}..${branch}`, '--']);
+  if (!count.ok) throw new GitError(`git rev-list failed for ${baseRef}..${branch}`);
+  return { baseRef, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0 };
 }

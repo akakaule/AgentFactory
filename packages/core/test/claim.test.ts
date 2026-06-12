@@ -10,6 +10,7 @@ import { submitResult } from '../src/ops/submitResult.js';
 import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { getTask } from '../src/ops/getTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
+import { featureBranch } from '../src/branch.js';
 import { InvalidTransitionError } from '../src/errors.js';
 
 function seedQueued(db: DB): string {
@@ -23,9 +24,9 @@ const claimRow = (db: DB, key: string) =>
     { claimed_by: string | null; claimed_at: string | null };
 
 describe('migration #3: claim columns', () => {
-  it('fresh DB → user_version 3, claim columns present and NULL', () => {
+  it('fresh DB → user_version 6, claim columns present and NULL', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
     const key = seedQueued(db);
     expect(claimRow(db, key)).toEqual({ claimed_by: null, claimed_at: null });
   });
@@ -45,7 +46,7 @@ describe('migration #3: claim columns', () => {
     ).run();
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
     expect(claimRow(db, 'AF-1')).toEqual({ claimed_by: null, claimed_at: null });
   });
 });
@@ -76,6 +77,52 @@ describe('claim metadata', () => {
     const db = makeTestDb();
     createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     expect(listTasks(db)[0]).toMatchObject({ claimedBy: null, claimedAt: null });
+  });
+});
+
+describe('branch assignment', () => {
+  it('first claim computes feature/<key>-<kebab>, persists it, and reports branchCreated', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'Barcode scanner intake form', spec: 'S', acceptanceCriteria: 'A' });
+    updateStatus(db, t.key, 'queued', 'human');
+
+    const claimed = claimNextTask(db, { claimedBy: 'worker-1' });
+    const expected = featureBranch(t.key, 'Barcode scanner intake form');
+    expect(claimed!.branch).toBe(expected);
+    expect(claimed!.branchCreated).toBe(true);
+    // persisted
+    expect(db.prepare('SELECT branch FROM task WHERE key = ?').get(t.key)).toMatchObject({ branch: expected });
+    expect(getTask(db, t.key).branch).toBe(expected);
+  });
+
+  it('reclaim reuses the persisted branch and reports branchCreated=false, even after a title edit', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'Original title', spec: 'S', acceptanceCriteria: 'A' });
+    updateStatus(db, t.key, 'queued', 'human');
+    const first = claimNextTask(db, { claimedBy: 'worker-1' });
+    const original = first!.branch;
+    expect(original).toBe(featureBranch(t.key, 'Original title'));
+
+    // submit → request-changes re-queues; the title changes before the reclaim
+    submitResult(db, t.key, { summary: 'done' });
+    reviewRequestChanges(db, t.key, { feedback: 'again' });
+    db.prepare('UPDATE task SET title = ? WHERE key = ?').run('A completely different title now', t.key);
+
+    const reclaimed = claimNextTask(db, { claimedBy: 'worker-2' });
+    expect(reclaimed!.branch).toBe(original); // stable under the title edit
+    expect(reclaimed!.branchCreated).toBe(false);
+  });
+
+  it('a legacy task (branch left NULL) gets a fresh branch and branchCreated=true on its next claim', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'Legacy task', spec: 'S', acceptanceCriteria: 'A' });
+    // simulate a pre-feature claim: queued with no branch persisted
+    updateStatus(db, t.key, 'queued', 'human');
+    expect(db.prepare('SELECT branch FROM task WHERE key = ?').get(t.key)).toMatchObject({ branch: null });
+
+    const claimed = claimNextTask(db, { claimedBy: 'worker-1' });
+    expect(claimed!.branch).toBe(featureBranch(t.key, 'Legacy task'));
+    expect(claimed!.branchCreated).toBe(true);
   });
 });
 

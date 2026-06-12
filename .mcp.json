@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "agentfactory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tsx", "packages/mcp/src/index.ts"],
+      "env": {
+        "AGENTFACTORY_DB": "C:\\Git\\AgentFactory\\agentfactory.db",
+        "AGENTFACTORY_WORKSPACE": "agentfactory"
+      }
+    }
+  }
+}

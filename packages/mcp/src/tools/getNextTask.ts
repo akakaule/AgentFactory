@@ -3,6 +3,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Core } from '../types.js';
 import type { ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
+import { detailContent } from '../content.js';
+import { buildProtocol } from '../protocol.js';
 
 export function registerGetNextTask(server: McpServer, core: Core, opts: ServerOptions = {}): void {
   server.registerTool(
@@ -10,16 +12,16 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
     {
       title: 'Get next task',
       description:
-        'Claim the next queued task and move it to In Progress. Returns the full task detail — including its workspace and the repoPath of the repository the task targets — or { task: null } if the queue is empty. ' +
+        'Claim the next queued task and move it to In Progress. Returns the full task detail — its workspace, the repoPath of the repository the task targets, and a `protocol` block — or { task: null } if the queue is empty. Spec images attached to the task arrive as image content blocks after the JSON; treat them as part of the brief. ' +
         'Pass `workspace` to claim only from that workspace; when omitted, the server\'s pinned workspace (AGENTFACTORY_WORKSPACE) applies if configured, otherwise the claim is global. Call this when you are ready to start work. ' +
-        'Before changing any code for the claimed task, create a dedicated git worktree under the task\'s workspace repository (`git worktree add <repoPath>/.worktrees/<task-key> -b task/<task-key>`; a repoPath of "." resolves against your current working directory) and do all work inside it. ' +
-        'If the branch `task/<task-key>` already exists (the task came back to you via review feedback or a reopen), add the worktree from it without `-b`: `git worktree add <repoPath>/.worktrees/<task-key> task/<task-key>` — continue on the existing branch so pushes update the same PR. The task\'s activity log carries the prior attempt and the feedback; read it before coding.',
+        'The `protocol` block is the source of truth for how to work this task — computed fresh by the server on every claim, so it never goes stale the way this text can. Follow it verbatim: `protocol.branch` is the server-named feature branch, `protocol.worktree` is where to work, `protocol.setup` is the exact `git worktree add` command to run before touching any code (it already encodes create-with-`-b` for a first claim vs. reuse-the-existing-branch for a reclaim, so do not improvise the branch name), and `protocol.finish` lists the steps to run before submit_result. ' +
+        'The task\'s activity log carries any prior attempt and review feedback; read it before coding.',
       inputSchema: { workspace: z.string().min(1).optional() },
     },
     async ({ workspace }) => {
       try {
-        const task = core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel });
-        if (task === null) {
+        const claimed = core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel });
+        if (claimed === null) {
           return {
             content: [
               {
@@ -29,7 +31,13 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
             ],
           };
         }
-        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
+        // branchCreated is the create-vs-reuse signal for the protocol; it must not
+        // ride along in the serialized task detail.
+        const { branchCreated, ...task } = claimed;
+        const protocol = task.branch
+          ? buildProtocol({ repoPath: task.repoPath, key: task.key, branch: task.branch, branchCreated })
+          : undefined;
+        return { content: detailContent(core, task, protocol ? { protocol } : undefined) };
       } catch (err) {
         return toToolError(err);
       }
