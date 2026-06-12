@@ -12,6 +12,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1',
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,
+    aiReviewFindings: null,
     ...over,
   };
 }
@@ -79,6 +80,33 @@ describe('computeAnalytics', () => {
     const byKey = Object.fromEntries(a.stages.map((s) => [s.key, s.val]));
     expect(byKey).toMatchObject({ queue: 15, work: 40, review: 120, blocked: 5 });
     expect(a.dominant.key).toBe('review');
+  });
+
+  it('computes the AI override rate, excluding tasks with no AI review present', () => {
+    const a = computeAnalytics(data([
+      doneRow({ aiReviewFindings: 2 }),    // approved past findings → override
+      doneRow({ aiReviewFindings: 0 }),    // clean approval
+      doneRow({ aiReviewFindings: 1 }),    // override
+      doneRow({ aiReviewFindings: null }), // no AI review → excluded from n AND d
+    ]), 'all', 7, NOW);
+    // d = 3 reviewed (the null is excluded), n = 2 overrides → 67%
+    expect(a.kpis.override).toMatchObject({ n: 2, d: 3, rate: 67 });
+  });
+
+  it('reports a zero override rate when every AI review was clean', () => {
+    const a = computeAnalytics(data([
+      doneRow({ aiReviewFindings: 0 }),
+      doneRow({ aiReviewFindings: 0 }),
+    ]), 'all', 7, NOW);
+    expect(a.kpis.override).toMatchObject({ n: 0, d: 2, rate: 0 });
+  });
+
+  it('leaves the override denominator at zero when no task had an AI review (n/a, never zero)', () => {
+    const a = computeAnalytics(data([
+      doneRow({ aiReviewFindings: null }),
+      doneRow({ aiReviewFindings: null }),
+    ]), 'all', 7, NOW);
+    expect(a.kpis.override).toMatchObject({ n: 0, d: 0, rate: 0 });
   });
 
   it('buckets review round-trips', () => {

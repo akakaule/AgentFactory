@@ -6,6 +6,7 @@ export interface AnalyticsTaskRow {
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
   rounds: number; reopened: boolean; claimCount: number; worker: string | null;
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
+  aiReviewFindings: number | null; // findings at approval; null = no AI review present
 }
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; }
@@ -23,6 +24,7 @@ export interface ComputedAnalytics {
     done: number; delta: number | null; cycle: number | null; work: number | null;
     firstPass: { n: number; d: number; rate: number };
     reopen: { n: number; d: number; rate: number };
+    override: { n: number; d: number; rate: number };
     cost: { per: number | null; reported: number; total: number };
   };
   stages: Stage[]; stageTotal: number; dominant: Stage;
@@ -87,6 +89,11 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
   const reopened = doneIn.filter((t) => t.reopened).length;
   const costRep = doneIn.filter((t) => t.costUsd != null);
   const costSum = costRep.reduce((s, t) => s + (t.costUsd ?? 0), 0);
+  // Override rate (Cloudflare's quality KPI): of done tasks that HAD an AI review,
+  // how many were approved past open findings. Tasks with no AI review are excluded
+  // from both n and d — never counted as a clean zero (n/m annotation discipline).
+  const aiReviewed = doneIn.filter((t) => t.aiReviewFindings != null);
+  const overrides = aiReviewed.filter((t) => (t.aiReviewFindings ?? 0) > 0);
 
   const kpis: ComputedAnalytics['kpis'] = {
     done: N,
@@ -95,6 +102,7 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     work: median(doneIn.map((t) => t.workMin)),
     firstPass: { n: firstPass, d: N, rate: pct(firstPass, N) },
     reopen: { n: reopened, d: N, rate: pct(reopened, N) },
+    override: { n: overrides.length, d: aiReviewed.length, rate: pct(overrides.length, aiReviewed.length) },
     cost: { per: costRep.length ? costSum / costRep.length : null, reported: costRep.length, total: N },
   };
 
