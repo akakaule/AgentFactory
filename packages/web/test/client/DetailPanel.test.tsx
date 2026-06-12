@@ -18,6 +18,8 @@ vi.mock('../../client/src/api.js', () => ({
     deleteTask: vi.fn().mockResolvedValue(undefined),
     deleteAttachment: vi.fn().mockResolvedValue(undefined),
     addAttachment: vi.fn().mockResolvedValue({}),
+    archive: vi.fn().mockResolvedValue({}),
+    unarchive: vi.fn().mockResolvedValue({}),
   },
   attachmentUrl: (id: number) => `/api/attachments/${id}`,
 }));
@@ -45,6 +47,7 @@ const backlogTask: TaskDetail = {
   title: 'My backlog task',
   status: 'backlog',
   stage: 'implementation',
+  branch: null,
   plan: null,
   spec: 'This is the spec',
   acceptanceCriteria: 'These are the acceptance criteria',
@@ -54,6 +57,7 @@ const backlogTask: TaskDetail = {
   repoPath: 'c:/git/repo-a',
   claimedBy: null,
   claimedAt: null,
+  archivedAt: null,
   aiReview: null,
   metrics: noMetrics,
   attachments: [],
@@ -112,6 +116,8 @@ async function getApiMock() {
   return mod.api as unknown as {
     getTask: ReturnType<typeof vi.fn>;
     setStatus: ReturnType<typeof vi.fn>;
+    archive: ReturnType<typeof vi.fn>;
+    unarchive: ReturnType<typeof vi.fn>;
     approve: ReturnType<typeof vi.fn>;
     requestChanges: ReturnType<typeof vi.fn>;
     addComment: ReturnType<typeof vi.fn>;
@@ -314,6 +320,47 @@ describe('DetailPanel', () => {
 
     await screen.findByText('Implementation complete');
     expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
+  });
+
+  it('shows an Archive button on a done task and archives on click', async () => {
+    const mocked = await getApiMock();
+    mocked.archive.mockClear();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, key: 'AF-14', status: 'done' });
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-14" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const archive = await screen.findByRole('button', { name: 'Archive' });
+    await user.click(archive);
+    expect(mocked.archive).toHaveBeenCalledWith('AF-14');
+  });
+
+  it('shows no Archive button outside done', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(inReviewTask);
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByText('Implementation complete');
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+  });
+
+  it('marks an archived task and offers Unarchive instead of Reopen or Archive', async () => {
+    const mocked = await getApiMock();
+    mocked.unarchive.mockClear();
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask, key: 'AF-14', status: 'done', archivedAt: '2026-06-01T00:00:00Z',
+    });
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-14" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('Archived')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Unarchive' }));
+    expect(mocked.unarchive).toHaveBeenCalledWith('AF-14');
   });
 
   it('renders a Changes section for a task with a branch link', async () => {

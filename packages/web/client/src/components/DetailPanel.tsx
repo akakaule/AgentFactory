@@ -94,6 +94,15 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               >
                 <span className="d" style={{ background: STAGE_COLORS[task.stage] }}></span>{STAGE_LABELS[task.stage]}
               </span>
+              {task.archivedAt && (
+                <span
+                  className="af-pill"
+                  style={{ marginLeft: 6, color: 'var(--ink-2)', background: 'color-mix(in srgb, var(--ink-2) 16%, transparent)' }}
+                  title="Archived — hidden from the active board; unarchive to make it active again."
+                >
+                  <span className="d" style={{ background: 'var(--ink-2)' }}></span>Archived
+                </span>
+              )}
               <h2 className="af-d-title">{task.title}</h2>
 
               <div className="af-d-tags">
@@ -126,13 +135,29 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                     Release claim
                   </button>
                 </>)}
-                {task.status === 'done' && (
+                {task.status === 'done' && !task.archivedAt && (<>
                   <button
                     className="af-mini"
                     onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
                     title="PR build failed? Comment the failure first, then reopen — the next claimant gets the full history and pushes to the same branch/PR."
                   >
                     Reopen
+                  </button>
+                  <button
+                    className="af-mini"
+                    onClick={() => api.archive(task.key).then(afterMutation).catch(() => {})}
+                    title="Hide this task from the active board. Everything is kept; find it in the Archive view."
+                  >
+                    Archive
+                  </button>
+                </>)}
+                {task.archivedAt && (
+                  <button
+                    className="af-mini"
+                    onClick={() => api.unarchive(task.key).then(afterMutation).catch(() => {})}
+                    title="Restore this task to the active board."
+                  >
+                    Unarchive
                   </button>
                 )}
               </div>

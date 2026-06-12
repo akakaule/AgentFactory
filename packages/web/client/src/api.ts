@@ -18,10 +18,11 @@ const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
 export const attachmentUrl = (id: number) => `/api/attachments/${id}`;
 
 export const api = {
-  listTasks: (opts: { status?: Status; workspace?: string } = {}) => {
+  listTasks: (opts: { status?: Status; workspace?: string; archived?: boolean } = {}) => {
     const q = new URLSearchParams();
     if (opts.status) q.set('status', opts.status);
     if (opts.workspace) q.set('workspace', opts.workspace);
+    if (opts.archived) q.set('archived', 'true');
     const qs = q.toString();
     return req<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`);
   },
@@ -39,6 +40,9 @@ export const api = {
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
   setStatus: (key: string, status: Status) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status })),
+  archive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/archive`, body({})),
+  unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
+  archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
   approve: (key: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body({})),
   requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
 };

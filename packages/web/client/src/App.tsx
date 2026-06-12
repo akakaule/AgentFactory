@@ -6,6 +6,7 @@ import { useWorkspaces } from './useWorkspaces.js';
 import { api } from './api.js';
 import { ListView } from './views/ListView.js';
 import { BoardView } from './views/BoardView.js';
+import { ArchiveView } from './views/ArchiveView.js';
 import { AnalyticsView } from './views/AnalyticsView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
@@ -13,7 +14,7 @@ import { WorkspacesModal } from './components/WorkspacesModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { Mark, I } from './icons.js';
 
-type View = 'board' | 'list' | 'analytics';
+type View = 'board' | 'list' | 'archive' | 'analytics';
 
 /** ticker line derived from real board changes between SSE refetches */
 function useChangeTicker(tasks: Task[]): string | null {
@@ -77,6 +78,7 @@ export function App() {
         <div className="af-views">
           <button className={view === 'board' ? 'on' : ''} onClick={() => switchView('board')}>{I.board({})}Board</button>
           <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}List</button>
+          <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}Archive</button>
           <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}Analytics</button>
         </div>
         <WorkspaceSwitcher
@@ -116,9 +118,12 @@ export function App() {
           workspaces={workspaces}
           onMove={moveTask}
           onAddTask={() => setCreating(true)}
+          onArchiveAll={() =>
+            api.archiveDone(wsFilter !== 'all' ? { workspace: wsFilter } : {}).then(refetch).catch(() => {})}
         />
       )}
       {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={setSelectedKey} />}
+      {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={setSelectedKey} />}
       {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
 
       {selectedKey && (

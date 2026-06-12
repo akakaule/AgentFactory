@@ -18,6 +18,7 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     workspace: 'default',
     claimedBy: null,
     claimedAt: null,
+    archivedAt: null,
     aiReview: null,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -87,6 +88,22 @@ describe('BoardView', () => {
     expect(screen.getByText('Backlog task')).toBeInTheDocument();
     expect(screen.getByText('Queued task')).toBeInTheDocument();
     expect(screen.getByText('Done task')).toBeInTheDocument();
+  });
+
+  it('shows an Archive all button on a populated Done column and fires the callback', async () => {
+    const onArchiveAll = vi.fn();
+    const user = userEvent.setup();
+    render(<BoardView tasks={tasks} onSelect={vi.fn()} onArchiveAll={onArchiveAll} />);
+
+    await user.click(screen.getByRole('button', { name: /archive all/i }));
+    expect(onArchiveAll).toHaveBeenCalled();
+  });
+
+  it('hides the Archive all button when the Done column is empty', () => {
+    const noDone = tasks.filter((t) => t.status !== 'done');
+    render(<BoardView tasks={noDone} onSelect={vi.fn()} onArchiveAll={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: /archive all/i })).not.toBeInTheDocument();
   });
 
   it('calls onSelect with the task key on click', async () => {
