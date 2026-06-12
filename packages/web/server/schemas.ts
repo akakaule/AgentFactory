@@ -16,7 +16,8 @@ export const updateBody = z.object({ title: z.string().min(1).optional(), spec: 
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
-export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional() });
+export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
+export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
 export const attachmentBody = z.object({
   filename: z.string().min(1),
   mime: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),

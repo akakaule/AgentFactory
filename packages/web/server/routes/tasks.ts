@@ -2,16 +2,20 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
 import { NotFoundError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 
 export function taskRoutes(core: Core) {
   const r = new Hono();
 
   r.get('/', zValidator('query', listQuery), (c) => {
-    const { status, workspace } = c.req.valid('query');
-    return c.json(core.listTasks({ status, workspace }));
+    const { status, workspace, archived } = c.req.valid('query');
+    return c.json(core.listTasks({ status, workspace, archived: archived === 'true' ? true : undefined }));
   });
+
+  // registered before the /:key routes so the static segment is never read as a task key
+  r.post('/archive-done', zValidator('json', archiveAllBody), (c) =>
+    c.json(core.archiveDoneTasks({ workspace: c.req.valid('json').workspace })));
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
 
@@ -58,6 +62,10 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/attachments', zValidator('json', attachmentBody), (c) =>
     c.json(core.addAttachment(c.req.param('key'), c.req.valid('json')), 201));
+
+  r.post('/:key/archive', (c) => c.json(core.archiveTask(c.req.param('key'))));
+
+  r.post('/:key/unarchive', (c) => c.json(core.unarchiveTask(c.req.param('key'))));
 
   r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'))));
 
