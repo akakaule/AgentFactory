@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/mcp" },
-    { "path": "packages/web" }
+    { "path": "packages/web" },
+    { "path": "packages/dispatcher" }
   ]
 }

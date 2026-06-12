@@ -2,7 +2,7 @@
   "name": "agentfactory",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/core", "packages/mcp", "packages/web"],
+  "workspaces": ["packages/core", "packages/mcp", "packages/web", "packages/dispatcher"],
   "engines": { "node": ">=26" },
   "scripts": {
     "build": "tsc -b && npm -w packages/web run build:client",
@@ -12,7 +12,9 @@
     "mcp:dev": "tsx packages/mcp/src/index.ts",
     "web": "node packages/web/server/dist/index.js",
     "web:dev": "npm -w packages/web run dev",
-    "web:dev:server": "tsx packages/web/server/index.ts"
+    "web:dev:server": "tsx packages/web/server/index.ts",
+    "dispatcher": "node packages/dispatcher/dist/index.js",
+    "dispatcher:dev": "tsx packages/dispatcher/src/index.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
