@@ -31,6 +31,7 @@ export interface ComputedAnalytics {
   throughput: Array<{ label: string; count: number }>; tpMax: number; tpDays: number;
   rounds: { first: number; one: number; two: number };
   tokensByModel: Array<{ model: string; tokens: number }>; tokMax: number;
+  tokensByWorkspace: Array<{ workspace: string; tokens: number }>; tokWsMax: number;
   tokenCoverage: { reported: number; total: number };
   workers: WorkerStats[];
 }
@@ -139,6 +140,12 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
   });
   const tokensByModel = Object.entries(byModel).map(([model, tokens]) => ({ model, tokens })).sort((a, b) => b.tokens - a.tokens);
   const tokMax = Math.max(1, ...tokensByModel.map((x) => x.tokens));
+  const byWorkspace: Record<string, number> = {};
+  tokRep.forEach((t) => {
+    byWorkspace[t.workspace] = (byWorkspace[t.workspace] ?? 0) + (t.tokensIn ?? 0) + (t.tokensOut ?? 0);
+  });
+  const tokensByWorkspace = Object.entries(byWorkspace).map(([workspace, tokens]) => ({ workspace, tokens })).sort((a, b) => b.tokens - a.tokens);
+  const tokWsMax = Math.max(1, ...tokensByWorkspace.map((x) => x.tokens));
   const tokenCoverage = { reported: tokRep.length, total: N };
 
   const names = new Set<string>();
@@ -165,5 +172,5 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     };
   }).sort((a, b) => b.done - a.done || b.claims - a.claims);
 
-  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokenCoverage, workers };
+  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokenCoverage, workers };
 }
