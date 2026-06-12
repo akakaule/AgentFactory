@@ -106,6 +106,8 @@ export interface SpawnArgsOpts {
 /**
  * Assemble the `claude` argv: headless print mode, JSON result envelope (parsed for
  * metrics), the configured permission mode, the MCP config file, then any extra args.
+ * The agentfactory MCP server is pre-allowed: a headless session cannot answer a
+ * permission prompt, and the worker protocol requires its tools for every step.
  */
 export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeArgs }: SpawnArgsOpts): string[] {
   return [
@@ -117,6 +119,8 @@ export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeAr
     permissionMode,
     '--mcp-config',
     mcpConfigPath,
+    '--allowedTools',
+    'mcp__agentfactory',
     ...claudeArgs,
   ];
 }

@@ -2,7 +2,7 @@ import type { AddTaskMetricsInput } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
-import { parseCliMetrics, hasMetrics, type ParsedMetrics } from './metrics.js';
+import { parseCliMetrics, hasMetrics, parsePermissionDenials, type ParsedMetrics } from './metrics.js';
 
 /** Live state for one spawned worker session. */
 interface Session {
@@ -232,8 +232,13 @@ export class Dispatcher {
     const metrics = parseCliMetrics(session.stdout);
 
     if (!claimed) {
-      // The session never claimed: empty queue, a lost race, or a crash before claim.
-      if (code !== 0) {
+      // The session never claimed: empty queue, a lost race, a permission denial,
+      // or a crash before claim. A denial is a misconfiguration — respawning would
+      // burn a session per poll forever, so it consumes an attempt like a crash.
+      const denials = parsePermissionDenials(session.stdout);
+      if (denials.length > 0) {
+        this.recordDenial(session, denials);
+      } else if (code !== 0) {
         this.console.warn(`[dispatcher] ${session.label} exited (code ${code ?? 'null'}) without claiming a task`);
       } else {
         this.console.log(`[dispatcher] ${session.label} claimed nothing (queue empty or lost race); exiting clean`);
@@ -268,6 +273,34 @@ export class Dispatcher {
       this.deps.core.addTaskMetrics(key, input);
     } catch (err) {
       this.console.warn(`[dispatcher] failed to record metrics for ${key}: ${(err as Error).message}`);
+    }
+  }
+
+  /** An unclaimed session was permission-denied: warn, surface it on the task, burn an attempt. */
+  private recordDenial(session: Session, denials: string[]): void {
+    const key = session.predictedKey;
+    const attempt = session.attempt;
+    this.attempts.set(key, attempt);
+    this.console.warn(
+      `[dispatcher] ${session.label} exited without claiming — permission denied for ${denials.join(', ')}; ` +
+        `check --allowedTools / permission settings`,
+    );
+    try {
+      this.deps.core.addComment(key, {
+        actor: 'agent',
+        body:
+          `Dispatcher: session \`${session.label}\` was permission denied for ${denials.map((d) => `\`${d}\``).join(', ')} ` +
+          `and exited without claiming (attempt ${attempt}/${this.config.maxAttempts}). ` +
+          `The worker's tool allowlist or permission mode is misconfigured.`,
+      });
+    } catch {
+      /* the console warning is the contract; the board comment is a bonus */
+    }
+    if (attempt >= this.config.maxAttempts) {
+      this.skipList(key);
+      this.console.warn(
+        `[dispatcher] ${key} reached maxAttempts (${this.config.maxAttempts}); skip-listing — left queued for a human`,
+      );
     }
   }
 

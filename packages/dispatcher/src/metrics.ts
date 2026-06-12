@@ -95,6 +95,21 @@ export function parseCliMetrics(stdout: string): ParsedMetrics {
   return out;
 }
 
+/**
+ * Tool names the permission system denied during the session, from the result
+ * envelope's `permission_denials`. A session that exits clean without claiming
+ * because of a denial is a misconfiguration, not an empty queue — callers use
+ * this to tell the two apart.
+ */
+export function parsePermissionDenials(stdout: string): string[] {
+  const obj = extractJson(stdout);
+  const denials = obj?.['permission_denials'];
+  if (!Array.isArray(denials)) return [];
+  return denials
+    .map((d) => (d && typeof d === 'object' ? (d as Record<string, unknown>)['tool_name'] : undefined))
+    .filter((n): n is string => typeof n === 'string' && n.length > 0);
+}
+
 /** True when the metrics carry at least one value worth recording. */
 export function hasMetrics(m: ParsedMetrics): boolean {
   return m.model !== undefined || m.tokensIn !== undefined || m.tokensOut !== undefined || m.costUsd !== undefined;

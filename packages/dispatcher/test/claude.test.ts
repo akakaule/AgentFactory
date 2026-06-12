@@ -98,6 +98,16 @@ describe('buildSpawnArgs', () => {
     expect(args[args.length - 1]).toBe('--extra');
   });
 
+  it('pre-allows the agentfactory MCP server (headless sessions cannot answer permission prompts)', () => {
+    const args = buildSpawnArgs({
+      prompt: 'PROMPT',
+      permissionMode: 'acceptEdits',
+      mcpConfigPath: '/logs/AF-1-attempt-1.mcp.json',
+      claudeArgs: [],
+    });
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe('mcp__agentfactory');
+  });
+
   it('keeps the prompt a single quote-free line (survives the Windows cmd.exe spawn path)', () => {
     const p = buildWorkerPrompt();
     expect(p).not.toContain('\n');

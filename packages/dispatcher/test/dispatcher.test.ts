@@ -180,6 +180,67 @@ describe('crash path', () => {
 });
 
 // ---------------------------------------------------------------------------
+// permission-denied path → warn, count the attempt, skip-list
+// ---------------------------------------------------------------------------
+describe('permission-denied path', () => {
+  const denialEnvelope = JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    permission_denials: [{ tool_name: 'mcp__agentfactory__get_next_task', tool_use_id: 'toolu_01x', tool_input: {} }],
+  });
+
+  it('treats a clean unclaimed exit with denials as a failed attempt and skip-lists at maxAttempts', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Denied');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, spawn, { console: log }));
+
+    // attempt 1 — the session never claims: its MCP tool call is permission-denied
+    await d.tick();
+    calls[0]!.child.emitStdout(denialEnvelope);
+    calls[0]!.child.exit(0);
+
+    expect(log.warnings.some((w) => w.includes('permission denied') && w.includes('mcp__agentfactory__get_next_task'))).toBe(true);
+    expect(d.isSkipListed(key)).toBe(false);
+    let t = core.getTask(key);
+    expect(t.status).toBe('queued'); // never claimed, nothing to release
+    expect(t.activity.some((a) => a.type === 'comment' && a.body.includes('permission denied'))).toBe(true);
+
+    // attempt 2 — same denial burns the last attempt
+    await d.tick();
+    expect(calls.length).toBe(2);
+    calls[1]!.child.emitStdout(denialEnvelope);
+    calls[1]!.child.exit(0);
+
+    expect(d.isSkipListed(key)).toBe(true);
+    expect(log.warnings.some((w) => w.includes('maxAttempts'))).toBe(true);
+
+    // no further spawns — the misconfiguration no longer burns sessions forever
+    await d.tick();
+    expect(calls.length).toBe(2);
+  });
+
+  it('keeps the plain clean-exit message when an unclaimed session reports no denials', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Raced');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: log }));
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' }); // lost race
+    calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', subtype: 'success', permission_denials: [] }));
+    calls[0]!.child.exit(0);
+
+    expect(log.logs.some((l) => l.includes('claimed nothing'))).toBe(true);
+    expect(log.warnings).toEqual([]);
+    expect(d.isSkipListed(key)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // session timeout
 // ---------------------------------------------------------------------------
 describe('session timeout', () => {
