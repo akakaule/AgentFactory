@@ -1,0 +1,10 @@
+{
+  "db": "./agentfactory.db",
+  "workspaces": ["agentfactory"],
+  "maxConcurrent": 1,
+  "pollSeconds": 15,
+  "permissionMode": "acceptEdits",
+  "claudeArgs": [],
+  "maxSessionMinutes": 60,
+  "maxAttempts": 2
+}

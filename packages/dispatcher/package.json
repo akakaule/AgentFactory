@@ -1,0 +1,12 @@
+{
+  "name": "@agentfactory/dispatcher",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "agentfactory-dispatcher": "./dist/index.js" },
+  "scripts": { "build": "tsc -b", "test": "vitest run" },
+  "dependencies": {
+    "@agentfactory/core": "*",
+    "@agentfactory/mcp": "*",
+    "zod": "^3.23.0"
+  }
+}

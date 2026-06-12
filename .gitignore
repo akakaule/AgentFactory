@@ -14,3 +14,7 @@ dist/
 
 # local scratch scripts (machine-specific paths)
 .af-*.mjs
+
+# dispatcher runtime: machine-specific config + per-session logs/mcp-config files
+dispatcher.config.json
+logs/
