@@ -289,6 +289,21 @@
 .af-diff-line.hunkhead { background: var(--panel); }
 .af-diff-line.hunkhead .code { color: var(--accent-2); }
 
+/* inline review comments — drafts only, folded into request-changes feedback */
+.af-diff-line.commentable { position: relative; cursor: pointer; }
+.af-diff-line.commentable:hover { background: color-mix(in srgb, var(--accent-2) 14%, transparent); }
+.af-diff-line.has-comment .ln:first-child { box-shadow: inset 3px 0 0 var(--accent-2); }
+.af-diff-line .cmark { position: absolute; right: 7px; top: 0; bottom: 0; display: grid; place-items: center; pointer-events: none; }
+.af-diff-line .cmark svg { width: 12px; height: 12px; color: var(--accent-2); }
+.af-diff-comment { display: flex; align-items: flex-start; gap: 8px; padding: 7px 12px 8px 90px; background: color-mix(in srgb, var(--accent-2) 9%, transparent); border-top: 1px solid var(--line-soft); }
+.af-diff-comment .txt { flex: 1; color: var(--ink); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+.af-diff-comment .af-mini { height: 24px; flex: none; }
+.af-diff-cbox { display: flex; flex-direction: column; gap: 8px; padding: 9px 12px 10px 90px; background: var(--bg-deep); border-top: 1px solid var(--line-soft); }
+.af-diff-cbox textarea { width: 100%; resize: vertical; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-family: inherit; font-size: 12.5px; outline: none; }
+.af-diff-cbox textarea:focus { border-color: var(--accent); }
+.af-diff-cbox .row { display: flex; gap: 8px; }
+.af-diff-cbox .af-mini { height: 26px; }
+
 /* ============================== LIST VIEW ============================== */
 .af-list { flex: 1; overflow-y: auto; }
 .af-list-inner { max-width: 1180px; margin: 0 auto; padding: 16px 24px 40px; }

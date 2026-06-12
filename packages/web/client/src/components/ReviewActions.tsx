@@ -1,19 +1,21 @@
 import { useState } from 'react';
+import { serializeFeedback, type DiffComment } from '../diffComments.js';
 import { I } from '../icons.js';
 
 interface Props {
   onApprove: () => void;
   onRequestChanges: (feedback: string) => void;
+  comments?: DiffComment[];
 }
 
-export function ReviewActions({ onApprove, onRequestChanges }: Props) {
+export function ReviewActions({ onApprove, onRequestChanges, comments = [] }: Props) {
   const [feedback, setFeedback] = useState('');
   const [showFeedback, setShowFeedback] = useState(false);
 
   const handleRequestChanges = () => {
-    const trimmed = feedback.trim();
-    if (!trimmed) return;
-    onRequestChanges(trimmed);
+    const body = serializeFeedback(comments, feedback);
+    if (!body) return; // nothing to send: no drafts and no free text
+    onRequestChanges(body);
     setFeedback('');
     setShowFeedback(false);
   };

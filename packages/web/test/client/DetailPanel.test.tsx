@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailPanel } from '../../client/src/components/DetailPanel.js';
 import type { TaskDetail } from '../../client/src/types.js';
+import { MODIFY_MULTI_HUNK } from './fixtures/diffs.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
@@ -289,6 +290,41 @@ describe('DetailPanel', () => {
 
     expect(await screen.findByText('Changes')).toBeInTheDocument();
     await waitFor(() => expect(mocked.getDiff).toHaveBeenCalledWith('AF-13'));
+  });
+
+  it('lets the reviewer attach inline diff comments on an in_review task', async () => {
+    const mocked = await getApiMock();
+    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-20', baseRef: 'main', diff: MODIFY_MULTI_HUNK, commits: 1 });
+    const reviewTask: TaskDetail = {
+      ...inReviewTask,
+      key: 'AF-20',
+      links: [{ id: 3, taskId: 2, kind: 'branch', label: 'task/AF-20', url: 'https://example.com/b' }],
+    };
+    mocked.getTask.mockResolvedValue(reviewTask);
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-20" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'View diff' }));
+    expect(screen.getByRole('button', { name: 'Comment on src/app.ts line 2' })).toBeInTheDocument();
+  });
+
+  it('offers no inline diff comments outside review (e.g. a done task)', async () => {
+    const mocked = await getApiMock();
+    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-21', baseRef: 'main', diff: MODIFY_MULTI_HUNK, commits: 1 });
+    const doneTask: TaskDetail = {
+      ...inReviewTask,
+      key: 'AF-21',
+      status: 'done',
+      links: [{ id: 4, taskId: 2, kind: 'branch', label: 'task/AF-21', url: 'https://example.com/b' }],
+    };
+    mocked.getTask.mockResolvedValue(doneTask);
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-21" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'View diff' }));
+    expect(screen.queryByRole('button', { name: /^Comment on/ })).not.toBeInTheDocument();
   });
 
   it('shows no Changes section without a branch link', async () => {

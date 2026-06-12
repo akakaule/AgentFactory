@@ -9,6 +9,7 @@ import { ReviewActions } from './ReviewActions.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
 import { TaskMetrics } from './TaskMetrics.js';
+import { useDiffComments } from '../diffComments.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -45,6 +46,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const diffComments = useDiffComments(); // line-anchored review drafts; live only while this panel is mounted
 
   const refetch = useCallback(() => {
     api.getTask(taskKey)
@@ -131,8 +133,9 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
 
               {task.status === 'in_review' && (
                 <ReviewActions
-                  onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
-                  onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
+                  onApprove={() => { diffComments.clear(); api.approve(task.key).then(afterMutation).catch(() => {}); }}
+                  onRequestChanges={(fb) => { diffComments.clear(); api.requestChanges(task.key, fb).then(afterMutation).catch(() => {}); }}
+                  comments={diffComments.comments}
                 />
               )}
 
@@ -174,7 +177,12 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               </>)}
 
               {branchLink && (
-                <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} />
+                <Changes
+                  taskKey={task.key}
+                  branchLabel={branchLink.label}
+                  updatedAt={task.updatedAt}
+                  commentStore={task.status === 'in_review' ? diffComments : undefined}
+                />
               )}
 
               <div className="af-sl">Metrics</div>

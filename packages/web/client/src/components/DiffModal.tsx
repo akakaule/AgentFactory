@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { ParsedDiff } from '../diff.js';
+import type { DiffCommentStore } from '../diffComments.js';
 import { DiffView } from './DiffView.js';
 import { I } from '../icons.js';
 
@@ -8,9 +9,10 @@ interface Props {
   baseRef: string;
   parsed: ParsedDiff;
   onClose: () => void;
+  commentStore?: DiffCommentStore | undefined;
 }
 
-export function DiffModal({ branch, baseRef, parsed, onClose }: Props) {
+export function DiffModal({ branch, baseRef, parsed, onClose, commentStore }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -33,7 +35,7 @@ export function DiffModal({ branch, baseRef, parsed, onClose }: Props) {
           <button className="af-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="af-diffmodal-body">
-          <DiffView parsed={parsed} />
+          <DiffView parsed={parsed} commentStore={commentStore} />
         </div>
       </div>
     </div>
