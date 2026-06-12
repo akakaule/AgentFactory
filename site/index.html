@@ -34,6 +34,14 @@
   h2.sl { font-family:"Space Grotesk",sans-serif; font-size:13px; font-weight:600; letter-spacing:.1em;
           text-transform:uppercase; color:var(--ink-2); margin:46px 0 16px; }
 
+  /* factory hero illustration */
+  .factory { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px;
+             padding:14px 18px 2px; margin-top:28px; }
+  .factory svg { width:100%; height:auto; display:block; }
+  .factory svg text { font-family:"IBM Plex Sans",sans-serif; }
+  .factory .cap { text-align:center; font-family:"IBM Plex Mono",monospace; font-size:11px;
+                  color:var(--ink-3); padding:8px 0 12px; }
+
   /* page directory cards */
   .pages { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
   @media (max-width:860px){ .pages { grid-template-columns:1fr; } }
@@ -99,6 +107,211 @@
     <span class="pill"><b>Contract</b> · protocol payload + submit guardrails</span>
   </div>
 </header>
+
+<div class="factory">
+<svg viewBox="0 0 1140 350" role="img" aria-label="A factory of robot agents assembling the AgentFactory board on a conveyor line">
+
+  <!-- ground -->
+  <line x1="24" y1="302" x2="1116" y2="302" stroke="#2C3A55" stroke-width="2"/>
+
+  <!-- ════════ the factory hall ════════ -->
+  <!-- sawtooth roof, four teeth -->
+  <path d="M40 150 V106 L125 84 V150 Z"  fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <path d="M125 150 V106 L210 84 V150 Z" fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <path d="M210 150 V106 L295 84 V150 Z" fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <path d="M295 150 V106 L380 84 V150 Z" fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <!-- skylights on the slopes -->
+  <line x1="58" y1="124" x2="100" y2="113" stroke="#60A5FA" stroke-width="2" opacity=".45"/>
+  <line x1="228" y1="124" x2="270" y2="113" stroke="#60A5FA" stroke-width="2" opacity=".45"/>
+  <!-- body -->
+  <rect x="40" y="150" width="340" height="152" fill="#131D31" stroke="#2C3A55" stroke-width="1.5"/>
+  <!-- sign -->
+  <rect x="84" y="176" width="212" height="34" rx="6" fill="#0B1222" stroke="#2C3A55"/>
+  <circle cx="100" cy="193" r="4" fill="#F59E0B">
+    <animate attributeName="opacity" values="1;.25;1" dur="1.6s" repeatCount="indefinite"/>
+  </circle>
+  <text x="196" y="198" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-size="16" font-weight="700" fill="#E8EDF6">AGENTFACTORY</text>
+  <text x="190" y="228" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9.5" fill="#64748B">runs on itself · est. 2026</text>
+  <!-- roller door the line exits through -->
+  <rect x="318" y="234" width="62" height="68" fill="#0B1222" stroke="#2C3A55"/>
+  <line x1="318" y1="248" x2="380" y2="248" stroke="#1E2940" stroke-width="2"/>
+  <line x1="318" y1="262" x2="380" y2="262" stroke="#1E2940" stroke-width="2"/>
+  <line x1="318" y1="276" x2="380" y2="276" stroke="#1E2940" stroke-width="2"/>
+  <!-- chimney puffing tokens -->
+  <rect x="318" y="56" width="22" height="50" fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <circle cx="329" cy="46" r="3" fill="#64748B">
+    <animate attributeName="cy" values="46;22" dur="4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values=".6;0" dur="4s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="334" cy="46" r="4" fill="#64748B">
+    <animate attributeName="cy" values="46;20" dur="4s" begin="1.3s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values=".5;0" dur="4s" begin="1.3s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="326" cy="46" r="2.5" fill="#64748B">
+    <animate attributeName="cy" values="46;24" dur="4s" begin="2.6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values=".55;0" dur="4s" begin="2.6s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- backlog hopper on the roof, fed by the producer bot -->
+  <text x="160" y="40" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9.5" fill="#64748B">backlog</text>
+  <path d="M130 50 L190 50 L176 84 L144 84 Z" fill="#0B1222" stroke="#2C3A55" stroke-width="1.5"/>
+  <rect x="152" y="56" width="16" height="10" rx="2" fill="#1E293B" stroke="#60A5FA" stroke-width="1" transform="rotate(-8 160 61)"/>
+  <!-- producer bot (blue) on a roof platform, dropping a card in -->
+  <rect x="196" y="86" width="44" height="4" fill="#2C3A55"/>
+  <g>
+    <rect x="206" y="78" width="24" height="8" rx="4" fill="#1E293B" stroke="#2C3A55"/>
+    <rect x="208" y="60" width="20" height="17" rx="3" fill="#1E293B" stroke="#60A5FA" stroke-width="1.5"/>
+    <rect x="211" y="48" width="14" height="10" rx="2" fill="#1E293B" stroke="#60A5FA" stroke-width="1.5"/>
+    <circle cx="215" cy="53" r="1.5" fill="#60A5FA"/><circle cx="221" cy="53" r="1.5" fill="#60A5FA"/>
+    <line x1="218" y1="48" x2="218" y2="42" stroke="#60A5FA" stroke-width="1.5"/>
+    <circle cx="218" cy="40" r="2" fill="#60A5FA">
+      <animate attributeName="opacity" values="1;.3;1" dur="2.1s" repeatCount="indefinite"/>
+    </circle>
+    <line x1="208" y1="66" x2="194" y2="58" stroke="#60A5FA" stroke-width="1.5"/>
+    <rect x="184" y="52" width="14" height="9" rx="2" fill="#1E293B" stroke="#60A5FA" stroke-width="1" transform="rotate(10 191 56)"/>
+  </g>
+
+  <!-- ════════ the line ════════ -->
+  <!-- supports, belt, rollers, motion -->
+  <rect x="448" y="282" width="6" height="20" fill="#2C3A55"/>
+  <rect x="600" y="282" width="6" height="20" fill="#2C3A55"/>
+  <rect x="752" y="282" width="6" height="20" fill="#2C3A55"/>
+  <rect x="904" y="282" width="6" height="20" fill="#2C3A55"/>
+  <rect x="1040" y="282" width="6" height="20" fill="#2C3A55"/>
+  <rect x="360" y="266" width="720" height="16" rx="8" fill="#0B1222" stroke="#2C3A55" stroke-width="1.5"/>
+  <line x1="372" y1="274" x2="1068" y2="274" stroke="#2C3A55" stroke-width="2" stroke-dasharray="8 12">
+    <animate attributeName="stroke-dashoffset" from="40" to="0" dur="1.6s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- stage labels: the board being built moves through its own lifecycle -->
+  <text x="445" y="297" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9.5" fill="#60A5FA">queued</text>
+  <text x="645" y="297" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9.5" fill="#FBBF24">in_progress</text>
+  <text x="845" y="297" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9.5" fill="#A78BFA">in_review</text>
+  <text x="1020" y="297" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9.5" fill="#4ADE80">done ✓</text>
+
+  <!-- ── stage 1: bare window shell ── -->
+  <g>
+    <rect x="390" y="190" width="110" height="76" rx="6" fill="#1E293B" stroke="#2C3A55" stroke-width="1.5"/>
+    <line x1="390" y1="206" x2="500" y2="206" stroke="#2C3A55"/>
+    <circle cx="401" cy="198" r="2" fill="#F87171"/><circle cx="409" cy="198" r="2" fill="#FBBF24"/><circle cx="417" cy="198" r="2" fill="#4ADE80"/>
+    <rect x="398" y="214" width="94" height="44" rx="3" fill="none" stroke="#475569" stroke-dasharray="4 4"/>
+  </g>
+
+  <!-- ── stage 2: first column in, crane lowering the next ── -->
+  <g>
+    <rect x="590" y="190" width="110" height="76" rx="6" fill="#1E293B" stroke="#2C3A55" stroke-width="1.5"/>
+    <line x1="590" y1="206" x2="700" y2="206" stroke="#2C3A55"/>
+    <circle cx="601" cy="198" r="2" fill="#F87171"/><circle cx="609" cy="198" r="2" fill="#FBBF24"/><circle cx="617" cy="198" r="2" fill="#4ADE80"/>
+    <rect x="598" y="214" width="26" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/>
+    <rect x="598" y="214" width="26" height="5" rx="2" fill="#60A5FA"/>
+    <rect x="632" y="214" width="26" height="44" rx="2" fill="none" stroke="#475569" stroke-dasharray="3 3"/>
+    <rect x="666" y="214" width="26" height="44" rx="2" fill="none" stroke="#475569" stroke-dasharray="3 3"/>
+  </g>
+
+  <!-- crane dropping a column into stage 2 -->
+  <rect x="735" y="60" width="11" height="242" fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <line x1="735" y1="100" x2="746" y2="120" stroke="#2C3A55"/><line x1="746" y1="100" x2="735" y2="120" stroke="#2C3A55"/>
+  <line x1="735" y1="160" x2="746" y2="180" stroke="#2C3A55"/><line x1="746" y1="160" x2="735" y2="180" stroke="#2C3A55"/>
+  <line x1="735" y1="220" x2="746" y2="240" stroke="#2C3A55"/><line x1="746" y1="220" x2="735" y2="240" stroke="#2C3A55"/>
+  <rect x="598" y="54" width="192" height="8" fill="#18233A" stroke="#2C3A55" stroke-width="1.5"/>
+  <rect x="768" y="62" width="20" height="14" fill="#131D31" stroke="#2C3A55"/>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="0 0; 0 7; 0 0" dur="4s" repeatCount="indefinite"/>
+    <rect x="640" y="58" width="12" height="6" fill="#2C3A55"/>
+    <line x1="646" y1="64" x2="646" y2="118" stroke="#64748B" stroke-width="1.5"/>
+    <path d="M646 118 q0 7 -6 7" fill="none" stroke="#64748B" stroke-width="2"/>
+    <rect x="633" y="128" width="26" height="40" rx="2" fill="#0B1222" stroke="#2C3A55"/>
+    <rect x="633" y="128" width="26" height="5" rx="2" fill="#FBBF24"/>
+  </g>
+
+  <!-- welder bot (amber) finishing stage 1's frame -->
+  <g>
+    <rect x="513" y="294" width="28" height="8" rx="4" fill="#1E293B" stroke="#2C3A55"/>
+    <rect x="516" y="274" width="22" height="19" rx="3" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5"/>
+    <rect x="519" y="261" width="16" height="11" rx="2" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5"/>
+    <circle cx="523" cy="266" r="1.5" fill="#FBBF24"/><circle cx="530" cy="266" r="1.5" fill="#FBBF24"/>
+    <line x1="527" y1="261" x2="527" y2="254" stroke="#F59E0B" stroke-width="1.5"/>
+    <circle cx="527" cy="252" r="2" fill="#FBBF24">
+      <animate attributeName="opacity" values="1;.3;1" dur="1.8s" repeatCount="indefinite"/>
+    </circle>
+    <line x1="516" y1="280" x2="503" y2="266" stroke="#F59E0B" stroke-width="1.5"/>
+    <text x="498" y="264" font-size="11" fill="#FBBF24">✦
+      <animate attributeName="opacity" values="0;1;0" dur=".8s" repeatCount="indefinite"/>
+    </text>
+    <text x="506" y="254" font-size="8" fill="#FBBF24">✦
+      <animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/>
+    </text>
+  </g>
+
+  <!-- ── stage 3: columns up, cards going in ── -->
+  <g>
+    <rect x="790" y="190" width="110" height="76" rx="6" fill="#1E293B" stroke="#2C3A55" stroke-width="1.5"/>
+    <line x1="790" y1="206" x2="900" y2="206" stroke="#2C3A55"/>
+    <circle cx="801" cy="198" r="2" fill="#F87171"/><circle cx="809" cy="198" r="2" fill="#FBBF24"/><circle cx="817" cy="198" r="2" fill="#4ADE80"/>
+    <rect x="797" y="214" width="22" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="797" y="214" width="22" height="5" rx="2" fill="#60A5FA"/>
+    <rect x="800" y="224" width="16" height="9" rx="1.5" fill="#243551"/>
+    <rect x="824" y="214" width="22" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="824" y="214" width="22" height="5" rx="2" fill="#F59E0B"/>
+    <rect x="827" y="224" width="16" height="9" rx="1.5" fill="#243551"/>
+    <rect x="851" y="214" width="22" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="851" y="214" width="22" height="5" rx="2" fill="#A78BFA"/>
+    <rect x="878" y="214" width="16" height="44" rx="2" fill="none" stroke="#475569" stroke-dasharray="3 3"/>
+  </g>
+
+  <!-- lift bot (amber) slotting a card into stage 3 -->
+  <g>
+    <rect x="916" y="294" width="34" height="8" rx="3" fill="#1E293B" stroke="#2C3A55"/>
+    <line x1="920" y1="293" x2="944" y2="248" stroke="#2C3A55" stroke-width="2"/>
+    <line x1="944" y1="293" x2="920" y2="248" stroke="#2C3A55" stroke-width="2"/>
+    <rect x="914" y="242" width="38" height="6" fill="#18233A" stroke="#2C3A55"/>
+    <rect x="922" y="234" width="24" height="8" rx="4" fill="#1E293B" stroke="#2C3A55"/>
+    <rect x="924" y="217" width="20" height="16" rx="3" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5"/>
+    <rect x="927" y="205" width="14" height="10" rx="2" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5"/>
+    <circle cx="931" cy="210" r="1.5" fill="#FBBF24"/><circle cx="937" cy="210" r="1.5" fill="#FBBF24"/>
+    <line x1="934" y1="205" x2="934" y2="199" stroke="#F59E0B" stroke-width="1.5"/>
+    <circle cx="934" cy="197" r="2" fill="#FBBF24">
+      <animate attributeName="opacity" values=".3;1;.3" dur="2.4s" repeatCount="indefinite"/>
+    </circle>
+    <line x1="924" y1="222" x2="906" y2="228" stroke="#F59E0B" stroke-width="1.5"/>
+    <rect x="894" y="224" width="13" height="8" rx="1.5" fill="#243551" stroke="#F59E0B" stroke-width="1"/>
+  </g>
+
+  <!-- ── stage 4: the finished board, reviewed ── -->
+  <g>
+    <rect x="965" y="190" width="110" height="76" rx="6" fill="#1E293B" stroke="#2C3A55" stroke-width="1.5"/>
+    <line x1="965" y1="206" x2="1075" y2="206" stroke="#2C3A55"/>
+    <circle cx="976" cy="198" r="2" fill="#F87171"/><circle cx="984" cy="198" r="2" fill="#FBBF24"/><circle cx="992" cy="198" r="2" fill="#4ADE80"/>
+    <rect x="972" y="214" width="22" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="972" y="214" width="22" height="5" rx="2" fill="#60A5FA"/>
+    <rect x="975" y="224" width="16" height="9" rx="1.5" fill="#243551"/><rect x="975" y="236" width="16" height="9" rx="1.5" fill="#243551"/>
+    <rect x="999" y="214" width="22" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="999" y="214" width="22" height="5" rx="2" fill="#F59E0B"/>
+    <rect x="1002" y="224" width="16" height="9" rx="1.5" fill="#243551"/>
+    <rect x="1026" y="214" width="22" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="1026" y="214" width="22" height="5" rx="2" fill="#A78BFA"/>
+    <rect x="1029" y="224" width="16" height="9" rx="1.5" fill="#243551"/>
+    <rect x="1053" y="214" width="16" height="44" rx="2" fill="#0B1222" stroke="#1E2940"/><rect x="1053" y="214" width="16" height="5" rx="2" fill="#4ADE80"/>
+    <rect x="1055" y="224" width="12" height="9" rx="1.5" fill="#243551"/>
+    <!-- review verdict pill -->
+    <rect x="978" y="168" width="118" height="16" rx="8" fill="#0B1222" stroke="#A78BFA" stroke-width="1"/>
+    <text x="1037" y="179" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="9" fill="#A78BFA">ai-review/v1 · clean</text>
+    <circle cx="1075" cy="192" r="8" fill="#103a2d" stroke="#4ADE80" stroke-width="1.5"/>
+    <text x="1075" y="196" text-anchor="middle" font-size="10" fill="#4ADE80">✓</text>
+  </g>
+
+  <!-- reviewer bot (purple) inspecting stage 4 -->
+  <g>
+    <rect x="1092" y="294" width="28" height="8" rx="4" fill="#1E293B" stroke="#2C3A55"/>
+    <rect x="1095" y="274" width="22" height="19" rx="3" fill="#1E293B" stroke="#A78BFA" stroke-width="1.5"/>
+    <rect x="1098" y="261" width="16" height="11" rx="2" fill="#1E293B" stroke="#A78BFA" stroke-width="1.5"/>
+    <circle cx="1102" cy="266" r="1.5" fill="#A78BFA"/><circle cx="1109" cy="266" r="1.5" fill="#A78BFA"/>
+    <line x1="1106" y1="261" x2="1106" y2="254" stroke="#A78BFA" stroke-width="1.5"/>
+    <circle cx="1106" cy="252" r="2" fill="#A78BFA">
+      <animate attributeName="opacity" values="1;.3;1" dur="2.7s" repeatCount="indefinite"/>
+    </circle>
+    <line x1="1095" y1="278" x2="1084" y2="266" stroke="#A78BFA" stroke-width="1.5"/>
+    <circle cx="1078" cy="259" r="7" fill="none" stroke="#A78BFA" stroke-width="1.5"/>
+    <line x1="1083" y1="264" x2="1088" y2="270" stroke="#A78BFA" stroke-width="2"/>
+  </g>
+
+</svg>
+<div class="cap">agents building the agent factory — the line ships its own features as tasks on the board it assembles</div>
+</div>
 
 <h2 class="sl">Explore</h2>
 <div class="pages">
