@@ -114,3 +114,67 @@ describe('submitResult', () => {
     ).toThrow(NotFoundError);
   });
 });
+
+describe('submitResult — stage deliverables', () => {
+  const seedInProgress = (db: ReturnType<typeof makeTestDb>, stage: 'description' | 'plan' | 'implementation') => {
+    const task = createTask(db, { title: 'T', spec: 'Raw idea', acceptanceCriteria: 'A', stage });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    return task;
+  };
+
+  it('description stage persists the rewritten spec + acceptanceCriteria and flips to in_review', () => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, 'description');
+
+    const detail = submitResult(db, task.key, {
+      summary: 'description written',
+      spec: 'Polished feature description',
+      acceptanceCriteria: '- it works',
+    }, fixedNow);
+
+    expect(detail.status).toBe('in_review');
+    expect(detail.stage).toBe('description'); // submit does not advance the stage — approval does
+    expect(detail.spec).toBe('Polished feature description');
+    expect(detail.acceptanceCriteria).toBe('- it works');
+    expect(detail.resultSummary).toBe('description written');
+  });
+
+  it('plan stage persists the plan and flips to in_review', () => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, 'plan');
+
+    const detail = submitResult(db, task.key, { summary: 'plan written', plan: '1. do x\n2. do y' }, fixedNow);
+
+    expect(detail.status).toBe('in_review');
+    expect(detail.stage).toBe('plan');
+    expect(detail.plan).toBe('1. do x\n2. do y');
+    expect(detail.spec).toBe('Raw idea'); // untouched
+  });
+
+  it.each([
+    ['description', { summary: 's' }],                                            // missing spec + AC
+    ['description', { summary: 's', spec: 'x' }],                                 // missing AC
+    ['description', { summary: 's', spec: 'x', acceptanceCriteria: 'a', plan: 'p' }], // plan not accepted
+    ['plan', { summary: 's' }],                                                   // missing plan
+    ['plan', { summary: 's', plan: 'p', spec: 'x' }],                             // spec not accepted
+    ['implementation', { summary: 's', spec: 'x' }],                              // doc fields not accepted
+    ['implementation', { summary: 's', plan: 'p' }],
+  ] as const)('%s stage rejects a wrong-shape payload %j and changes nothing', (stage, input) => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, stage);
+
+    expect(() => submitResult(db, task.key, { ...input }, fixedNow)).toThrow(ValidationError);
+
+    const row = findRowByKey(db, task.key)!;
+    expect(row.status).toBe('in_progress');
+    expect(row.result_summary).toBeNull();
+    expect(row.plan).toBeNull();
+  });
+
+  it('the rejection message names the stage and the expected fields', () => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, 'plan');
+
+    expect(() => submitResult(db, task.key, { summary: 's' }, fixedNow)).toThrow(/plan stage/);
+  });
+});

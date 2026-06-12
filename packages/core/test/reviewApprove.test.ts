@@ -62,4 +62,53 @@ describe('reviewApprove', () => {
 
     expect(() => reviewApprove(db, 'AF-9999', fixedNow)).toThrow(NotFoundError);
   });
+
+  // ── Doc-stage approvals advance the stage instead of closing ─────────────
+
+  it('approving an in-review description stage advances to plan and re-queues (NOT done)', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
+    db.prepare("UPDATE task SET status='in_review', claimed_by='w1', claimed_at=? WHERE key=?").run(FIXED_TS, task.key);
+
+    const detail = reviewApprove(db, task.key, fixedNow);
+
+    expect(detail.status).toBe('queued');
+    expect(detail.stage).toBe('plan');
+    expect(detail.claimedBy).toBeNull();
+
+    const act = detail.activity.find(a => a.type === 'status_change' && a.toStatus === 'queued');
+    expect(act).toBeDefined();
+    expect(act!.actor).toBe('human');
+    expect(act!.fromStatus).toBe('in_review');
+    expect(act!.body).toContain('description → plan');
+  });
+
+  it('approving an in-review plan stage advances to implementation', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'plan' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+
+    const detail = reviewApprove(db, task.key, fixedNow);
+
+    expect(detail.status).toBe('queued');
+    expect(detail.stage).toBe('implementation');
+  });
+
+  it('approving a doc stage over open findings logs the override comment and still advances', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+    const body = 'ai-review/v1 — 2 findings (claude)\n```json\n' + JSON.stringify({
+      reviewer: 'claude', verdict: 'findings',
+      findings: [{ title: 'a', severity: 'warning' }, { title: 'b', severity: 'error' }],
+    }) + '\n```';
+    db.prepare("INSERT INTO activity(task_id, type, actor, body, created_at) VALUES (?, 'comment', 'human', ?, ?)").run(task.id, body, FIXED_TS);
+
+    const detail = reviewApprove(db, task.key, fixedNow);
+
+    expect(detail.stage).toBe('plan');
+    const override = detail.activity.find(a => a.type === 'comment' && a.body.startsWith('override:'));
+    expect(override).toBeDefined();
+    expect(override!.body).toBe('override: approved over 2 open AI findings');
+  });
 });

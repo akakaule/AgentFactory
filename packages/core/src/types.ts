@@ -78,7 +78,14 @@ export interface CreateTaskInput {
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
-export interface SubmitResultInput { summary: string; links?: LinkInput[]; }
+export interface SubmitResultInput {
+  summary: string;
+  links?: LinkInput[];
+  // stage deliverables — required/forbidden per the task's stage (see ops/submitResult.ts):
+  spec?: string | undefined;               // description stage: the rewritten feature description
+  acceptanceCriteria?: string | undefined; // description stage: verifiable acceptance criteria
+  plan?: string | undefined;               // plan stage: the implementation plan
+}
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;
 }
