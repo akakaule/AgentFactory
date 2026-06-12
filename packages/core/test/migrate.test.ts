@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -37,6 +37,17 @@ describe('runMigrations', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','queued',1,1,'2026-01-01','2026-01-01')"
     ).run();
     expect(db.prepare('SELECT stage, plan FROM task WHERE key = ?').get('AF-1')).toMatchObject({ stage: 'implementation', plan: null });
+  });
+
+  it('migration #8 adds a nullable archived_at column (legacy rows backfill active)', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain('archived_at');
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','done',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    expect(db.prepare('SELECT archived_at FROM task WHERE key = ?').get('AF-1')).toMatchObject({ archived_at: null });
   });
 
   it('enforces the stage CHECK constraint', () => {

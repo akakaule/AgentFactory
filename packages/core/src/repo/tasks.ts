@@ -14,6 +14,7 @@ export interface TaskRow {
   status: Status; stage: Stage; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
+  archived_at: string | null;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
@@ -27,7 +28,7 @@ export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at, aiReview: null,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -120,8 +121,13 @@ export function applyEdit(db: DB, id: number, fields: UpdateTaskInput, ts: strin
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (db.prepare(`UPDATE task SET ${sets.join(', ')} WHERE id = ?`).run as (...a: any[]) => unknown)(...vals);
 }
-export function listRows(db: DB, opts: { status?: Status | undefined; workspaceId?: number | undefined } = {}): Task[] {
-  const where: string[] = [];
+export function setArchived(db: DB, id: number, archivedAt: string | null, ts: string): void {
+  // bumping updated_at moves getVersion(), so SSE-driven clients refetch on (un)archive
+  db.prepare('UPDATE task SET archived_at = ?, updated_at = ? WHERE id = ?').run(archivedAt, ts, id);
+}
+export function listRows(db: DB, opts: { status?: Status | undefined; workspaceId?: number | undefined; archived?: boolean | undefined } = {}): Task[] {
+  // archived rows are opt-in: every default listing (board, queue, MCP list_tasks) hides them
+  const where: string[] = [opts.archived ? 'task.archived_at IS NOT NULL' : 'task.archived_at IS NULL'];
   const vals: (string | number)[] = [];
   if (opts.status) { where.push('task.status = ?'); vals.push(opts.status); }
   if (opts.workspaceId !== undefined) { where.push('task.workspace_id = ?'); vals.push(opts.workspaceId); }
@@ -132,8 +138,10 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null }));
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
+  // archived rows are always done, but the guard makes "never claim an archived task"
+  // hold unconditionally rather than by inference
   return (workspaceId === undefined
-    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' ORDER BY task.seq ASC LIMIT 1`).get()
-    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
+    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.archived_at IS NULL ORDER BY task.seq ASC LIMIT 1`).get()
+    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.archived_at IS NULL AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
   ) as TaskRow | undefined;
 }

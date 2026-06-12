@@ -108,3 +108,12 @@ ALTER TABLE task ADD COLUMN stage TEXT NOT NULL DEFAULT 'implementation'
   CHECK (stage IN ('description','plan','implementation'));
 ALTER TABLE task ADD COLUMN plan TEXT;
 `;
+
+// Migration #8 — archive. A timestamp, not a status: the task keeps status 'done', so
+// transitions and metrics are untouched and nothing is moved or rewritten. NULL means
+// active; default read paths filter on it, the archive view flips the filter. Nullable:
+// pre-existing rows backfill to active.
+export const MIGRATION_8_SQL = `
+ALTER TABLE task ADD COLUMN archived_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_task_archived ON task(archived_at);
+`;
