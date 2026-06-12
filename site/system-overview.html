@@ -129,12 +129,12 @@
   <rect x="730" y="122" width="314" height="148" rx="10" fill="#1E293B" stroke="#1E2940"/>
   <rect x="730" y="122" width="314" height="3" rx="2" fill="#A78BFA"/>
   <text x="744" y="146" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">Web UI <tspan class="mono" font-size="10.5" fill="#64748B">:8787</tspan></text>
-  <text x="744" y="166" font-size="11.5" fill="#97A5BE">Board · List · Analytics · Diff view</text>
+  <text x="744" y="166" font-size="11.5" fill="#97A5BE">Board · List · Analytics · Diff view · AI review verdicts</text>
   <rect x="742" y="180" width="290" height="52" rx="7" fill="rgba(167,139,250,0.10)" stroke="rgba(167,139,250,0.35)"/>
   <circle cx="762" cy="206" r="10" fill="rgba(167,139,250,0.25)"/><text x="762" y="210" text-anchor="middle" class="mono" font-size="10.5" fill="#A78BFA">8</text>
   <text x="780" y="200" font-size="11.5" fill="#E8EDF6" font-weight="600">HUMAN CHECKPOINT</text>
-  <text x="780" y="216" font-size="11" fill="#97A5BE">review diff → Approve / Request changes</text>
-  <text x="744" y="254" font-size="11" fill="#64748B">paste images into specs · Reopen on CI fail · Release stranded claims</text>
+  <text x="780" y="216" font-size="11" fill="#97A5BE">AI verdict → diff → Approve / Request changes</text>
+  <text x="744" y="254" font-size="11" fill="#64748B">curated findings → feedback · images in specs · Reopen · Release claims</text>
 
   <!-- api -->
   <rect x="730" y="286" width="314" height="56" rx="10" fill="#1E293B" stroke="#1E2940"/>
@@ -154,8 +154,8 @@
   <rect x="730" y="554" width="314" height="140" rx="10" fill="#1E293B" stroke="#1E2940"/>
   <rect x="730" y="554" width="314" height="3" rx="2" fill="#F59E0B"/>
   <text x="744" y="578" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">MCP server <tspan class="mono" font-size="10.5" fill="#64748B">stdio · one per agent session</tspan></text>
-  <text x="744" y="598" class="mono" font-size="10.5" fill="#97A5BE">get_next_task · get_task · submit_result</text>
-  <text x="744" y="614" class="mono" font-size="10.5" fill="#97A5BE">add_comment · update_status</text>
+  <text x="744" y="598" class="mono" font-size="10.5" fill="#97A5BE">get_next_task · get_task · list_tasks</text>
+  <text x="744" y="614" class="mono" font-size="10.5" fill="#97A5BE">add_comment · update_status · submit_result</text>
   <text x="744" y="636" font-size="11" fill="#64748B">pinned: AGENTFACTORY_WORKSPACE</text>
   <text x="744" y="652" font-size="11" fill="#64748B">labeled: AGENTFACTORY_WORKER</text>
   <text x="744" y="674" font-size="11" fill="#64748B">claims carry the protocol · submits are verified</text>
@@ -165,8 +165,8 @@
   <rect x="1130" y="56" width="200" height="3" rx="2" fill="#F59E0B"/>
   <circle cx="1148" cy="84" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite"/></circle>
   <text x="1160" y="88" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">agent · demo-1</text>
-  <text x="1146" y="108" class="mono" font-size="10.5" fill="#64748B">Run-AgentFactoryLoop.ps1</text>
-  <text x="1146" y="124" class="mono" font-size="10.5" fill="#64748B">headless claude -p</text>
+  <text x="1146" y="108" class="mono" font-size="10.5" fill="#64748B">agentfactory-dispatcher</text>
+  <text x="1146" y="124" class="mono" font-size="10.5" fill="#64748B">fresh claude -p per task</text>
   <text x="1146" y="146" font-size="11.5" fill="#97A5BE">pinned → agent-demo</text>
   <text x="1146" y="164" font-size="11" fill="#97A5BE">claims FIFO · one task at a time</text>
   <text x="1146" y="186" class="mono" font-size="10.5" fill="#FBBF24">working AF-12 · pulsing on board</text>
@@ -177,7 +177,7 @@
   <rect x="1130" y="270" width="200" height="3" rx="2" fill="#F59E0B"/>
   <circle cx="1148" cy="298" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="2.1s" repeatCount="indefinite"/></circle>
   <text x="1160" y="302" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">agent · shopfloor-1</text>
-  <text x="1146" y="322" class="mono" font-size="10.5" fill="#64748B">second loop · own terminal</text>
+  <text x="1146" y="322" class="mono" font-size="10.5" fill="#64748B">Run-AgentFactoryLoop.ps1</text>
   <text x="1146" y="344" font-size="11.5" fill="#97A5BE">pinned → shopfloor</text>
   <text x="1146" y="362" font-size="11" fill="#97A5BE">never claims another</text>
   <text x="1146" y="378" font-size="11" fill="#97A5BE">workspace's tasks</text>

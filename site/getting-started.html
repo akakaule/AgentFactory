@@ -194,7 +194,7 @@ const STEPS = [
     cfg:"Work the AgentFactory queue: call get_next_task. If a task\ncomes back, follow its protocol block — create the worktree,\ndo the work against the spec and acceptance criteria, narrate\nprogress with add_comment, run the finish steps (push the\nbranch, remove the worktree), and deliver with submit_result\nincluding the branch link. Repeat until the queue is empty.",
     log:"get_next_task → AF-1 · worktree .worktrees/AF-1 · submit_result → in_review",
     comps:["g-agent","g-mcp","g-db","g-repo"],
-    note:"Make it a standing worker by running that prompt on an interval (e.g. /loop in Claude Code)." },
+    note:"Make it a standing worker by running that prompt on an interval (e.g. /loop in Claude Code) — or go fully unattended with the <b>dispatcher</b> (<code>npm run dispatcher</code>): it polls the queue and spawns one fresh headless session per task. See packages/dispatcher/README.md." },
 
   { actor:"h", who:"You · browser", title:"Review &amp; close the loop",
     desc:"The board updates live (SSE) — watch the card move. At <b>In Review</b>, open it: <b>Approve</b> → done ✓, or <b>Request changes</b> with feedback → the task re-queues and the agent sees your feedback in its activity on the next claim. That round-trip is the whole point.",

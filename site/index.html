@@ -129,7 +129,8 @@
   <a class="pcard draft" href="analytics-mockup.html">
     <span class="pt">Analytics <span class="mono">analytics-mockup.html</span></span>
     <p>Design mockup of the analytics view — KPI cards, stage-time bars, throughput, per-worker and per-workspace
-       splits. The real view ships in the web UI.</p>
+       splits. The real view has shipped in the web UI and has since grown an AI override-rate KPI and a
+       tokens by model/workspace toggle.</p>
     <span class="read">read for the metrics vocabulary →</span>
   </a>
 </div>
@@ -142,7 +143,7 @@
     <li><span class="n g">3</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide. Progress is narrated with <span class="mono">add_comment</span>, live on the board via SSE.</span></li>
     <li><span class="n g">4</span><span><b>Finish protocol</b> — commit → <span class="mono">git push -u origin</span> → remove the worktree. The pushed branch is the durable record.</span></li>
     <li><span class="n a">5</span><span><b>submit_result</b> — guardrails verify the branch is on origin, fully pushed, and the worktree is gone — <em>then</em> the task lands <b>In Review</b> with summary, branch link, and token metrics. Unpushed work is refused with the commands to fix it.</span></li>
-    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board. Approve → done; Request changes → re-queued with feedback, next claim continues on the <em>same</em> branch. PR opens from the branch; CI fails → comment + Reopen.</span></li>
+    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board, starting from the <b>AI first-pass verdict</b> when one is posted (<span class="mono">ai-review/v1</span> chip + findings checklist). Approve → done (past open findings = logged override); Request changes → re-queued with your curated feedback, next claim continues on the <em>same</em> branch. PR opens from the branch; CI fails → comment + Reopen.</span></li>
   </ol>
 </div>
 
@@ -154,15 +155,17 @@
     <div class="gx"><i>⚙</i><span><b>Transitions are enforced in core</b> — agents can never approve, reopen, or invent tasks; humans own every gate. Atomic claims: no double-claiming, ever.</span></div>
     <div class="gx"><i>⛓</i><span><b>Convention is contract</b> — the server names the branch at claim time and refuses submission until the work is pushed and the worktree cleaned. All checks are git <em>reads</em>: the board never writes to a repo.</span></div>
     <div class="gx"><i>↩</i><span><b>Every dead end has a rescue loop</b> — Request changes (<span class="mono">in_review → queued</span>), Reopen (<span class="mono">done → queued</span>), Release claim (<span class="mono">in_progress → queued</span>). History survives every round-trip.</span></div>
+    <div class="gx"><i>✂</i><span><b>Uncurated AI findings never reach the agent</b> — MCP payloads strip <span class="mono">ai-review/v1</span> comments; only the human-curated feedback rides the re-claim.</span></div>
     <div class="gx"><i>⇄</i><span><b>Scale by adding pairs</b> — each repo = one workspace + one pinned worker. Queues never leak across workspaces.</span></div>
   </div>
   <div class="box">
     <h3>Recently shipped</h3>
+    <div class="new"><span class="d">2026-06-12</span><span><b>Dispatcher</b> — one fresh headless <span class="mono">claude -p</span> session per queued task: staleness immunity, measured per-task cost, crash containment (AF-16).</span></div>
+    <div class="new"><span class="d">2026-06-12</span><span><b>AI first-pass review tier</b> — <span class="mono">ai-review/v1</span> verdict chip, findings checklist with curated feedback, override-rate KPI; tokens by model/workspace toggle (AF-13, AF-17).</span></div>
     <div class="new"><span class="d">2026-06-12</span><span><b>Claim-time protocol + submit guardrails</b> — the protocol rides the claim payload; <span class="mono">submit_result</span> verifies pushed &amp; clean before accepting (AF-15).</span></div>
     <div class="new"><span class="d">2026-06-11</span><span><b>Push-and-clean finish protocol + Reopen</b> — branches pushed at submit; <span class="mono">done → queued</span> closes the CI loop.</span></div>
-    <div class="new"><span class="d">2026-06-11</span><span><b>Images in specs</b> — paste screenshots into the task form; agents receive them as image content at claim.</span></div>
-    <div class="new"><span class="d">2026-06-11</span><span><b>Diff view, analytics, claim recovery</b> — review branches on the board; stage-time and token metrics; release stranded claims.</span></div>
-    <div class="new"><span class="d">next</span><span><b>Dispatcher</b> — one fresh headless session per task: structural staleness immunity, measured per-task cost, crash containment (AF-16, designed).</span></div>
+    <div class="new"><span class="d">2026-06-11</span><span><b>Images in specs · diff view · analytics · claim recovery</b> — paste screenshots into specs; review branches on the board; release stranded claims.</span></div>
+    <div class="new"><span class="d">next</span><span><b>Reviewer loop</b> — the external script that posts <span class="mono">ai-review/v1</span> verdicts (board surfaces are shipped; the loop lives beside the worker loops in ado-bridge).</span></div>
   </div>
 </div>
 

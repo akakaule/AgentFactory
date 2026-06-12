@@ -4,11 +4,12 @@ AgentFactory: a single-user local task board that is the persistent state store 
 
 ## Stack
 
-TypeScript monorepo (npm workspaces) with three packages:
+TypeScript monorepo (npm workspaces) with four packages:
 
 - **`core`** — node:sqlite + lifecycle rules (shared business logic and DB layer)
 - **`mcp`** — stdio MCP server (exposes task board operations to agent loops)
 - **`web`** — Hono API + SSE + React/Vite UI (browser-based task board interface)
+- **`dispatcher`** — headless worker supervisor (spawns one fresh `claude -p` session per queued task)
 
 **Requires Node >= 26.**
 
@@ -40,6 +41,16 @@ The server stores its data in `agentfactory.db` (override with the `AGENTFACTORY
 npm run mcp:dev
 ```
 
+### Run the dispatcher (unattended workers)
+
+For a standing worker with no human in the loop, the dispatcher polls the DB for queued tasks and spawns **one fresh headless `claude -p` session per task** — the session claims via `get_next_task`, works to `submit_result`, and exits, so every attempt starts with the current MCP build and protocol. Crashed or timed-out sessions are released back to the queue with the log tail attached; token/cost metrics are parsed from the CLI's own JSON result.
+
+```bash
+npm run dispatcher -- path/to/dispatcher.config.json
+```
+
+See `packages/dispatcher/README.md` for the config reference (workspaces, concurrency, permission mode, attempt limits).
+
 ### Workspaces (multi-repo)
 
 Tasks belong to **workspaces** — named git repositories where the work happens. A fresh DB has a single `default` workspace (`repoPath: "."` = the agent's working directory), so single-repo setups need zero configuration and the UI shows no workspace chrome.
@@ -67,6 +78,10 @@ Every claim records who took it and when (workers identify via `AGENTFACTORY_WOR
 
 When a worker submits a result with a `branch` link (the convention: `feature/<key>-<kebab-title>`), the task's detail panel shows a **Changes** section — files changed and +/− counts — and a **View diff** button that opens the full per-file, line-level diff right on the board. The diff is computed live from the workspace repo (merge-base against the default branch), so commits that landed on main after the branch point never pollute the review. Approve or request changes without leaving the board.
 
+### AI first-pass review (advisory)
+
+An external reviewer loop can examine each `in_review` task's diff and post its findings back as a comment using the **`ai-review/v1` marker convention** (marker line + summary + fenced JSON: `{ reviewer, verdict, findings }` — see `docs/superpowers/specs/2026-06-12-ai-review-tier.md`). The board surfaces the verdict as a chip on the card (**clean** / **N findings** / **pending** after a resubmission), renders the findings as a checklist in the drawer, and **Request changes** composes the checked findings plus your own note into one attributed feedback body. Uncurated findings never reach the implementing agent — MCP payloads strip ai-review comments; only your curated feedback rides the re-claim. Approving past open findings stays one confirm away and is logged as an override. The board never runs the reviewer; the loop lives outside this repo (the spec is its contract).
+
 ### The PR loop (push, clean up, reopen)
 
 Workers finish every task by pushing its feature branch (`feature/<key>-<kebab-title>`) to `origin` and removing their worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch (GitHub, Azure DevOps — anything on the remote). If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable *delete branch on merge* so merged feature branches clean themselves up.
@@ -77,7 +92,7 @@ Paste screenshots straight into the task form (Ctrl+V) while writing or editing 
 
 ### Analytics
 
-The third view in the header toggle (**Board · List · Analytics**) answers "how is my agent loop performing?" — tasks done, median cycle/work time, first-pass approval rate, reopen rate, where time goes per stage (in practice: the human review queue, not the agents), daily throughput, review round-trip distribution, tokens by model, and a per-worker table with stranded-release counts. Everything timing/quality is derived from the activity log, so it works retroactively for every task ever; tokens and cost are **worker-reported** (optional `metrics` on `submit_result`, or `POST /api/tasks/<key>/metrics` from a loop wrapper with exact usage) and unreported tasks show *n/a* — never zero. Each task's drawer also gets a **Metrics** strip: stage timeline plus rounds/tokens/cost chips. Filter by workspace and 7d/30d/all.
+The third view in the header toggle (**Board · List · Analytics**) answers "how is my agent loop performing?" — tasks done, median cycle/work time, first-pass approval rate, reopen rate, AI override rate (approvals past open review findings), where time goes per stage (in practice: the human review queue, not the agents), daily throughput, review round-trip distribution, tokens by model or by workspace (toggle), and a per-worker table with stranded-release counts. Everything timing/quality is derived from the activity log, so it works retroactively for every task ever; tokens and cost are **worker-reported** (optional `metrics` on `submit_result`, or `POST /api/tasks/<key>/metrics` from a loop wrapper with exact usage) and unreported tasks show *n/a* — never zero. Each task's drawer also gets a **Metrics** strip: stage timeline plus rounds/tokens/cost chips. Filter by workspace and 7d/30d/all.
 
 ### Deleting tasks
 
