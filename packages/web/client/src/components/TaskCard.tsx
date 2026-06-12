@@ -3,6 +3,7 @@ import type { Task } from '../types.js';
 import { STATUS_COLORS } from '../status.js';
 import { shortTime } from '../time.js';
 import { taskBranch } from '../branch.js';
+import { AiReviewChip } from './AiReviewChip.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -57,6 +58,7 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
         {/* branch exists by convention once a worker has claimed the task */}
         {task.claimedAt && <span className="af-chip">{I.branch({})}<span className="tx">{taskBranch(task.key, task.title)}</span></span>}
         {task.status === 'in_review' && <span className="af-tag review">{I.check({})}Needs review</span>}
+        {task.status === 'in_review' && <AiReviewChip review={task.aiReview} />}
         <span className="af-meta-i">{I.clock({})}{shortTime(task.updatedAt)}</span>
       </div>
     </div>

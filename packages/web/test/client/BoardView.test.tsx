@@ -17,6 +17,7 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     workspace: 'default',
     claimedBy: null,
     claimedAt: null,
+    aiReview: null,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
   };
@@ -36,6 +37,12 @@ describe('BoardView', () => {
     };
     render(<BoardView tasks={[claimed]} onSelect={vi.fn()} />);
     expect(screen.getByText('feature/AF-7-barcode-scanner-intake-form')).toBeInTheDocument();
+  });
+
+  it('shows the AI-review findings chip on an in_review card', () => {
+    const reviewed = { ...makeTask('AF-8', 'Reviewed task', 'in_review'), aiReview: { findings: 2 } };
+    render(<BoardView tasks={[reviewed]} onSelect={vi.fn()} />);
+    expect(screen.getByText('AI review: 2 findings')).toBeInTheDocument();
   });
 
   it('renders a column for every status in lifecycle order', () => {

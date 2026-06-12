@@ -7,7 +7,7 @@ import type { Task } from '../../client/src/types.js';
 function makeTask(key: string, title: string, status: Task['status'], workspace = 'default'): Task {
   return {
     id: Math.random(), key, title, status, spec: 'spec', acceptanceCriteria: 'ac',
-    resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null,
+    resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null, aiReview: null,
     createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
   };
 }

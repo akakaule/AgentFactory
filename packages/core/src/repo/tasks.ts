@@ -1,10 +1,11 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, UpdateTaskInput } from '../types.js';
+import type { Task, TaskDetail, Status, UpdateTaskInput, AiReviewSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps } from './activity.js';
+import { recentActivity, activitySteps, latestAiReviewBodies } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
 import { deriveTaskMetrics } from '../metrics.js';
+import { parseAiReview } from '../aiReview.js';
 import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
 
@@ -20,18 +21,31 @@ export interface TaskRow {
 const SELECT_TASK =
   'SELECT task.*, w.name AS workspace_name, w.repo_path AS workspace_repo_path FROM task JOIN workspace w ON w.id = task.workspace_id';
 
+// aiReview is derived (the latest ai-review comment) and layered on by the DB-aware
+// paths below; toTask itself is pure and defaults it to null.
 export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, aiReview: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
+}
+
+/** Parse the latest ai-review comment of each given task id into a verdict. */
+function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> {
+  const out = new Map<number, AiReviewSummary>();
+  for (const [id, body] of latestAiReviewBodies(db, ids)) {
+    const v = parseAiReview(body);
+    if (v) out.set(id, v);
+  }
+  return out;
 }
 
 export function toDetail(db: DB, r: TaskRow): TaskDetail {
   return {
     ...toTask(r),
+    aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
@@ -90,7 +104,8 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const sql = `${SELECT_TASK}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY task.seq ASC`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (db.prepare(sql).all as (...a: any[]) => unknown)(...vals) as TaskRow[];
-  return rows.map(toTask);
+  const reviews = aiReviewByTaskIds(db, rows.map((r) => r.id));
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null }));
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   return (workspaceId === undefined

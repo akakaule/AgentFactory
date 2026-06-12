@@ -31,6 +31,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1',
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,
+    aiReviewFindings: null,
     ...over,
   };
 }
@@ -52,6 +53,35 @@ describe('AnalyticsView', () => {
     expect(screen.getByText('worker-1')).toBeInTheDocument();
     // stage row + dominant caption both name the review stage
     expect(screen.getAllByText('Review wait').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders the AI override-rate KPI from reviewed rows', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [
+        doneRow({ aiReviewFindings: 2 }), // approved past findings → override
+        doneRow({ aiReviewFindings: 0 }), // clean
+        doneRow({ aiReviewFindings: null }), // no AI review → excluded
+      ],
+      stranded: [],
+    });
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    expect(await screen.findByText('AI override rate')).toBeInTheDocument();
+    // 1 override of 2 reviewed = 50%; the third (no review) is excluded
+    expect(screen.getByText('1 / 2 approved past findings')).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument();
+  });
+
+  it('shows the AI override rate as n/a when no task had an AI review', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({ tasks: [doneRow()], stranded: [] });
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    expect(await screen.findByText('AI override rate')).toBeInTheDocument();
+    expect(screen.getByText('no AI reviews')).toBeInTheDocument();
   });
 
   it('shows n/a cost when nothing is reported', async () => {

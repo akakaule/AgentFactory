@@ -14,6 +14,33 @@ describe('ReviewActions', () => {
     expect(onApprove).toHaveBeenCalledTimes(1);
   });
 
+  it('approves in one click when the AI review is clean (zero findings)', async () => {
+    const onApprove = vi.fn();
+    const user = userEvent.setup();
+    render(<ReviewActions aiFindings={0} onApprove={onApprove} onRequestChanges={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
+
+  it('break-glass: arms a confirm before approving past open AI findings', async () => {
+    const onApprove = vi.fn();
+    const user = userEvent.setup();
+    render(<ReviewActions aiFindings={2} onApprove={onApprove} onRequestChanges={vi.fn()} />);
+
+    // the override warning is shown up front
+    expect(screen.getByText(/recorded as an override/i)).toBeInTheDocument();
+
+    // first click arms — does NOT approve yet
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(onApprove).not.toHaveBeenCalled();
+
+    // a confirm affordance appears; clicking it approves
+    await user.click(screen.getByRole('button', { name: /approve anyway/i }));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
+
   it('shows feedback textarea after clicking "Request changes"', async () => {
     const user = userEvent.setup();
     render(<ReviewActions onApprove={vi.fn()} onRequestChanges={vi.fn()} />);

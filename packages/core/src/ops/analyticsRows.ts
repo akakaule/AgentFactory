@@ -1,6 +1,7 @@
 import type { DB } from '../db.js';
 import type { Status, TaskMetricsView } from '../types.js';
 import { deriveTaskMetrics } from '../metrics.js';
+import { findingsAtApproval } from '../aiReview.js';
 import { activitySteps } from '../repo/activity.js';
 import { tokenAggregateFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
@@ -10,6 +11,9 @@ export interface AnalyticsTaskRow extends TaskMetricsView {
   workspace: string;
   status: Status;
   worker: string | null; // claimed_by of the last/current claim; null = unlabeled
+  // AI-review findings standing at the final approval; null = no AI review present.
+  // Drives the override-rate KPI — approving with findings > 0 is an override.
+  aiReviewFindings: number | null;
 }
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; }
@@ -34,6 +38,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
       ...derived,
       ...tokenAggregateFor(db, r.id),
       key: r.key, workspace: r.workspace, status: r.status, worker: r.claimed_by,
+      aiReviewFindings: findingsAtApproval(steps),
     });
 
     // a human in_progress → queued transition is a stranded-claim release,

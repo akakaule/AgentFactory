@@ -52,6 +52,7 @@ const backlogTask: TaskDetail = {
   repoPath: 'c:/git/repo-a',
   claimedBy: null,
   claimedAt: null,
+  aiReview: null,
   metrics: noMetrics,
   attachments: [],
   createdAt: '2024-01-01T00:00:00Z',
@@ -144,6 +145,38 @@ describe('DetailPanel', () => {
     const release = screen.getByRole('button', { name: 'Release claim' });
     await user.click(release);
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-12', 'queued');
+  });
+
+  it('shows the AI-review chip and break-glass override on an in_review task with findings', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, aiReview: { findings: 2 } });
+    mocked.approve.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('AI review: 2 findings')).toBeInTheDocument();
+    expect(screen.getByText(/recorded as an override/i)).toBeInTheDocument();
+
+    // break-glass: first Approve click arms, does not approve; confirm click approves
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(mocked.approve).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /approve anyway/i }));
+    expect(mocked.approve).toHaveBeenCalledWith('AF-11');
+  });
+
+  it('approves a clean in_review task in one click (no override warning)', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, aiReview: { findings: 0 } });
+    mocked.approve.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('AI review: clean')).toBeInTheDocument();
+    expect(screen.queryByText(/recorded as an override/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(mocked.approve).toHaveBeenCalledWith('AF-11');
   });
 
   it('shows no Release claim button outside in_progress', async () => {

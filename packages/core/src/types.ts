@@ -5,11 +5,19 @@ export type LinkKind = 'branch' | 'pr' | 'worktree' | 'log' | 'url';
 
 export interface Workspace { id: number; name: string; repoPath: string; createdAt: string; }
 
+/**
+ * Verdict of the latest automated AI review, derived at read time from the activity log
+ * (the latest `ai-review:` comment). null = no AI review present; findings 0 = clean.
+ * Purely derived — there is no AI-review column. See src/aiReview.ts.
+ */
+export interface AiReviewSummary { findings: number; }
+
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
   status: Status; resultSummary: string | null; seq: number;
   workspace: string; // workspace slug
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
+  aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   createdAt: string; updatedAt: string;
 }
 export interface Activity {

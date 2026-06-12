@@ -10,6 +10,7 @@ export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
 export { featureBranch, kebabTitle } from './branch.js';
+export { parseAiReview, findingsAtApproval } from './aiReview.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';

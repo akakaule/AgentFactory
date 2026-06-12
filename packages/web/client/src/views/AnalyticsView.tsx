@@ -88,6 +88,15 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
               <div className="d">{k.reopen.n} / {k.reopen.d} post-done</div>
             </div>
             <div className="an-kpi">
+              {k.override.d === 0
+                ? <div className="v na">n/a</div>
+                : <div className="v">{k.override.rate}%</div>}
+              <div className="l">AI override rate</div>
+              <div className="d">{k.override.d === 0
+                ? <span className="flat">no AI reviews</span>
+                : <>{k.override.n} / {k.override.d} approved past findings</>}</div>
+            </div>
+            <div className="an-kpi">
               {k.cost.per == null
                 ? <div className="v na">n/a</div>
                 : <div className="v">${k.cost.per.toFixed(2)}</div>}
