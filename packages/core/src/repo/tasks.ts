@@ -1,11 +1,11 @@
 import type { DB } from '../db.js';
 import type { Task, TaskDetail, Status, UpdateTaskInput, AiReviewSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps, latestAiReviewBodies } from './activity.js';
+import { recentActivity, activitySteps, latestAiReviewComments, latestResultIds } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
 import { deriveTaskMetrics } from '../metrics.js';
-import { parseAiReview } from '../aiReview.js';
+import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
 import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
 
@@ -32,14 +32,31 @@ export function toTask(r: TaskRow): Task {
   };
 }
 
-/** Parse the latest ai-review comment of each given task id into a verdict. */
+/**
+ * Latest ai-review verdict per task id, derived from the latest `ai-review/v1` comment
+ * and whether a result supersedes it (pending). Malformed marker comments are skipped —
+ * they degrade to plain comments and carry no chip.
+ */
 function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> {
   const out = new Map<number, AiReviewSummary>();
-  for (const [id, body] of latestAiReviewBodies(db, ids)) {
-    const v = parseAiReview(body);
-    if (v) out.set(id, v);
+  if (ids.length === 0) return out;
+  const comments = latestAiReviewComments(db, ids);
+  if (comments.size === 0) return out;
+  const results = latestResultIds(db, [...comments.keys()]);
+  for (const [taskId, { id: reviewId, body }] of comments) {
+    const parsed = parseAiReviewComment(body);
+    if (!parsed) continue;
+    const resultId = results.get(taskId);
+    const superseded = resultId !== undefined && resultId > reviewId;
+    const summary = summarizeAiReview(parsed, superseded);
+    if (summary) out.set(taskId, summary);
   }
   return out;
+}
+
+/** Latest ai-review verdict for one task (or null). Used by the approve path. */
+export function aiReviewFor(db: DB, taskId: number): AiReviewSummary | null {
+  return aiReviewByTaskIds(db, [taskId]).get(taskId) ?? null;
 }
 
 export function toDetail(db: DB, r: TaskRow): TaskDetail {

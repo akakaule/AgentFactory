@@ -1,142 +1,153 @@
 # AgentFactory — Automated First-Pass Review Tier (AF-13)
 
 **Date:** 2026-06-12
-**Status:** Approved design, ready for implementation
+**Status:** Implemented (round 2 — curated feedback)
+**Authoritative design:** [2026-06-12-agent-review-tier-design.md](./2026-06-12-agent-review-tier-design.md)
 **Builds on:** [2026-06-09-agent-loop-task-board-design.md](./2026-06-09-agent-loop-task-board-design.md)
 
 ## Summary
 
-Today the only review of an agent's result is the human gate on `in_review`. This adds an
+The only review of an agent's result used to be the human gate on `in_review`. This adds an
 **automated first-pass review tier** that runs *before* the human looks: an external loop
-fetches the diff of an `in_review` task, runs an LLM review, and posts its findings back as a
-comment. The board then surfaces that verdict on the card + drawer, and treats *approving a task
-that still has open AI findings* as a recorded **override** — making the human gate a
-break-glass decision rather than the only line of defence.
+fetches the diff of an `in_review` task, runs an LLM review (Claude *or* Codex), and posts its
+findings back as a comment. The board then (1) surfaces that verdict on the card + drawer,
+(2) renders the findings as a **checklist the human curates**, (3) composes the *selected*
+findings plus the human's own notes into one attributed feedback body on **Request changes**,
+(4) strips the raw review out of the agent-facing payload, and (5) treats *approving past open
+findings* as a recorded **override**, surfaced as a quality KPI.
 
 Prior art: GitHub Copilot's agent self-review before opening a PR; Cloudflare's blocking AI
-review with a ~0.6% human override rate (blog.cloudflare.com/ai-code-review). Cloudflare's
-quality KPI is the **override rate** — how often a human approves past the bot — which we add
-alongside first-pass approval.
+review with a ~0.6% human override rate (blog.cloudflare.com/ai-code-review). The override rate
+is Cloudflare's quality KPI: how often a human approves past the bot.
 
 ## Hard constraint: the board never runs agents
 
 The board is a state store + UI. It does **not** spawn the reviewer. The reviewer is an
-**external loop** (sibling to `ado-bridge` / `Run-AgentFactoryLoop.ps1`), living in the
-`agentdemo` repo next to the other loops. It:
+**external loop** (sibling to `Run-AgentFactoryLoop.ps1` in the ado-bridge repo, `-Reviewer
+claude|codex` selecting the engine). It:
 
 1. Polls the board for `in_review` tasks (`GET /api/tasks?status=in_review`).
-2. Fetches each task's diff from `GET /api/tasks/:key/diff`.
-3. Runs `claude -p` (or any reviewer) over the diff.
+2. Fetches each task's brief (`GET /api/tasks/:key`) and diff (`GET /api/tasks/:key/diff`).
+3. Runs the reviewer over the diff.
 4. Posts findings back through the **existing comment API** — no new endpoint, no schema change.
 
-This repo only gains the **board-side surfaces** that read those comments. The board remains
-agent-free.
+This repo only gains the **board-side surfaces**. The board remains agent-free.
 
-## The marker convention (the contract with the external loop)
+## The `ai-review/v1` marker convention (the contract with the loop)
 
 An **AI-review comment** is any `comment`-type activity whose body, ignoring leading
-whitespace, **begins with the marker `ai-review:`** (case-insensitive). Detection is by marker
-only — it is **actor-independent**, so the reviewer may post via the HTTP comment route
-(`actor: human`) or the MCP `add_comment` tool (`actor: agent`); both are recognised.
+whitespace, **begins with the marker `ai-review/v1`** (case-insensitive, word-bounded so
+`ai-review/v10` does not match). Detection is by marker only — **actor-independent**, so the
+reviewer may post via the HTTP route (`actor: human`) or the MCP `add_comment` tool
+(`actor: agent`); both are recognised.
 
-The structured verdict is carried as a single JSON object embedded anywhere in the body (the
-substring from the first `{` to the last `}`):
+One comment per review round: a marker line + a short human-readable summary + a fenced JSON
+block (the parser also accepts a bare `{…}` object for resilience):
 
-```
-ai-review: 2 findings — changes requested
+````
+ai-review/v1 — 2 findings (codex)
+Two issues worth a look before this lands.
+```json
 {
-  "version": 1,
-  "verdict": "changes",
+  "reviewer": "codex",
+  "verdict": "findings",
   "findings": [
-    { "severity": "warning", "title": "Unbounded retry loop", "file": "src/x.ts", "line": 42 },
-    { "severity": "info",    "title": "Missing test for the empty case" }
+    { "severity": "warning", "file": "src/x.ts", "line": 42, "title": "Unbounded retry loop", "detail": "no max attempts" },
+    { "severity": "info", "title": "Missing test for the empty case" }
   ]
 }
 ```
+````
 
 Field shape (v1):
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `version` | number | marker version (1) |
-| `verdict` | `"approve"` \| `"changes"` | the reviewer's recommendation (advisory) |
+| `reviewer` | string | the engine label (`codex`, `claude`, …); used in feedback attribution |
+| `verdict` | `"clean"` \| `"findings"` | the reviewer's recommendation (advisory) |
 | `findings` | `Finding[]` | the open findings; **count = `findings.length`** |
 
-`Finding = { severity?: "info"|"warning"|"error", title: string, detail?: string, file?: string, line?: number }`
+`Finding = { title: string, severity?: "info"|"warning"|"error", file?: string, line?: number, detail?: string }`
 
-**Findings count** is the single number the board cares about:
-
-- `findings.length` when the JSON carries a `findings` array,
-- else the JSON's `findings` field if it is a plain number,
-- else a tolerant read of the first line: `/(\d+)\s+finding/i`,
-- else **0** (marker present but no parseable count ⇒ treated as a *clean* advisory).
-
-`0` findings = **clean**. The first line should stay human-readable (it renders verbatim in the
-activity thread); the JSON is for the machine.
-
-### Why a prefix + embedded JSON (and not pure JSON, or a pure prefix)
-
-A pure-JSON body is unreadable in the activity thread; a pure prefix (`ai-review: 2 findings`)
-can't carry structured findings for future drill-down. The prefix gives a human-readable
-timeline line *and* marker detection in one `LIKE 'ai-review:%'` scan; the embedded JSON gives a
-precise, forward-compatible count. The parser degrades gracefully if the JSON is malformed, so a
-minimal `ai-review: clean` comment is still valid.
+- A finding with no `title` is dropped (not renderable); unknown severities normalise to none.
+- **Malformed degrades to a plain comment for rendering**: a marker comment whose JSON is absent,
+  unparseable, or lacks a `findings` array carries **no chip and no checklist** — it just shows as
+  text in the activity feed. (It is still hidden from the agent — see *Agent-facing payload*.)
 
 ## Board-side surfaces
 
-### 1. Findings chip (card + drawer)
+### 1. Verdict chip (card + drawer)
 
-A derived, read-only field `aiReview: { findings: number } | null` rides on the task DTO
-(`Task` summary *and* `TaskDetail`), computed from the **latest** ai-review comment:
+A derived, read-only field `aiReview: AiReviewSummary | null` rides the task DTO (summary *and*
+detail), from the **latest** ai-review comment vs. the **latest result**:
 
-- `null` — no ai-review comment exists (no chip).
-- `{ findings: 0 }` — clean → green chip **"AI review: clean"**.
-- `{ findings: n }` — amber chip **"AI review: n findings"**.
+- `null` — no ai-review comment (no chip).
+- `verdict: 'clean'` (0 findings) — green **"AI review: clean"**.
+- `verdict: 'findings'` (N>0) — amber **"AI review: N findings"**.
+- `verdict: 'pending'` — grey **"AI review: pending"**: a `result` activity is newer than the
+  latest review (a resubmission is awaiting re-review).
 
-It is **purely derived** at read time from the `activity` table — no new column, no migration.
-The in_review **card** and the **drawer** both render the chip from this field.
+Purely derived at read time from the `activity` table — no column, no migration.
 
-### 2. Break-glass approve (recorded override)
+### 2. Findings checklist + curation composer (drawer)
 
-The board never *blocks* the human. When the latest ai-review has open findings (> 0), the
-drawer's **Approve** button arms a one-step confirm ("Approve despite N findings?") and a note
-explains the click is recorded as an override. A clean or absent review keeps Approve a single
-click. This is the break-glass UX, not a gate.
+For an `in_review` task whose review carries findings, the drawer renders them as a **checklist**
+(checked by default). **Request changes** opens a composer: the checked findings, each attributed
+`[reviewer-<name>] …`, plus a free-text field for the human's own note attributed `[human] …`,
+are composed into **one body** posted to the existing `POST /:key/request-changes`. Unchecked
+findings never enter the feedback. With no AI review present, the composer is a plain note box
+(the round-1 behaviour) and the note rides unattributed.
 
-### 3. Override-rate KPI
+### 3. Break-glass approve (recorded override)
 
-An approval of a task whose ai-review-at-approval had open findings **is an override**. This is
-**derivable from the activity log** with no schema change: walk the status history; the verdict
-"at approval" is the findings count of the latest ai-review comment seen *before* the task's
-final `→ done` transition.
+The board never *blocks* the human. When the **current** review has open findings
+(`verdict: 'findings'`), Approve arms a one-step confirm and the approval is logged as an
+`override: approved over N open AI findings` comment (actor human). Clean, pending, or absent
+reviews keep Approve a single click. Pending = no current verdict ⇒ no override.
+
+### 4. Agent-facing payload strip
+
+MCP `get_next_task` / `get_task` **strip every `ai-review/v1` comment** from the activity they
+return (keyed on marker presence, so a malformed review can't slip through). Uncurated findings
+must not leak into the implementing agent's brief — only the human-curated `feedback` activity
+rides the re-claim, unchanged. The board UI keeps the comments; the strip is MCP-only.
+
+### 5. Override-rate KPI
+
+An approval whose **current** AI review had open findings is an override — derivable from the
+activity log (`findingsAtApproval`): walk the status history; a `result` supersedes the prior
+review (pending), an ai-review comment sets the current count, and the value standing at the
+final `→ done` is snapshotted.
 
 Analytics gains an **AI override rate** KPI:
 
-- **denominator `d`** = done tasks that had an AI review present at approval,
+- **denominator `d`** = done tasks with a *current* AI review at approval,
 - **numerator `n`** = those approved with findings > 0,
 - **rate** = `n / d`.
 
-Per the n/m annotation discipline: a done task with **no AI review present is excluded** from
-both numerator and denominator (never counted as a clean zero). When `d == 0` the KPI shows
-**n/a** ("no AI reviews"), exactly as cost-per-task shows n/a under zero coverage.
+Per the n/m annotation discipline: a done task with **no current review present is excluded**
+from both n and d (no review ever, *or* pending at approval — never counted as a clean zero).
+When `d == 0` the KPI shows **n/a** ("no AI reviews").
 
 ## Data model
 
-**No schema change.** Everything is derived from the existing `activity` table:
+**No schema change.** Everything derives from the existing `activity` table:
 
-- `aiReview` (DTO field) — from the latest `ai-review:` comment.
-- `aiReviewFindings` (analytics row field) — the findings standing at the final `→ done`.
+- `aiReview` (DTO field) — latest `ai-review/v1` comment vs. latest `result`.
+- `aiReviewFindings` (analytics row) — findings standing at the final `→ done` (null when pending/absent).
+- the override audit note — an ordinary `comment` activity appended on approve.
 
 ## Testing
 
-- **core** — `parseAiReview` (marker detection, JSON count, numeric `findings`, tolerant
-  first-line fallback, clean, non-marker → null); `findingsAtApproval` (verdict snapshotted at
-  the final done, survives a reopen); `aiReview` present on `Task`/`TaskDetail`; analytics row
-  carries `aiReviewFindings`.
-- **web client** — override-rate KPI math (excluded when no review, n/a at zero coverage);
-  `AiReviewChip` rendering; the break-glass confirm in `ReviewActions`; AnalyticsView KPI card.
-- Full suite (`npm test`) green; `npm run build` green; **no new dependencies**.
+- **core** — `isAiReviewMarker` / `parseAiReviewComment` (v2 marker, fenced + bare JSON, reviewer,
+  finding normalisation, malformed → null); `summarizeAiReview` (clean/findings/pending);
+  `findingsAtApproval` (snapshot, reopen-then-clean, pending → null); derived `aiReview` on
+  `getTask`/`listTasks`; `reviewApprove` override logging; analytics `aiReviewFindings`.
+- **mcp** — `get_task`/`get_next_task` strip ai-review comments, keep plain comments + curated feedback.
+- **web client** — chip (clean/findings/pending); `ReviewActions` checklist + break-glass + composer;
+  `composeFeedback` attribution; override-rate KPI math (excluded when no review / pending, n/a at d=0).
+- Full suite green; `npm run build` green; **no new dependencies**, **no migration**.
 
 ## Out of scope (lives in the external repo)
 
-The reviewer loop script itself (poll → diff → `claude -p` → post). This spec is its contract.
+The reviewer loop script itself (poll → brief+diff → claude/codex → post). This spec is its contract.

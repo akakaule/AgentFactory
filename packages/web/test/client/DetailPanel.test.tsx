@@ -149,7 +149,13 @@ describe('DetailPanel', () => {
 
   it('shows the AI-review chip and break-glass override on an in_review task with findings', async () => {
     const mocked = await getApiMock();
-    mocked.getTask.mockResolvedValue({ ...inReviewTask, aiReview: { findings: 2 } });
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask,
+      aiReview: { verdict: 'findings', findings: 2, reviewer: 'codex', items: [
+        { severity: 'warning', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: null },
+        { severity: 'info', file: null, line: null, title: 'Missing test', detail: null },
+      ] },
+    });
     mocked.approve.mockResolvedValue({});
     const user = userEvent.setup();
 
@@ -167,7 +173,7 @@ describe('DetailPanel', () => {
 
   it('approves a clean in_review task in one click (no override warning)', async () => {
     const mocked = await getApiMock();
-    mocked.getTask.mockResolvedValue({ ...inReviewTask, aiReview: { findings: 0 } });
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, aiReview: { verdict: 'clean', findings: 0, reviewer: 'codex', items: [] } });
     mocked.approve.mockResolvedValue({});
     const user = userEvent.setup();
 

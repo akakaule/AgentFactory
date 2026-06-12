@@ -5,12 +5,31 @@ export type LinkKind = 'branch' | 'pr' | 'worktree' | 'log' | 'url';
 
 export interface Workspace { id: number; name: string; repoPath: string; createdAt: string; }
 
+export type AiReviewSeverity = 'info' | 'warning' | 'error';
+
+/** One parsed finding from an `ai-review/v1` comment (all locator fields optional). */
+export interface AiReviewFinding {
+  severity: AiReviewSeverity | null;
+  file: string | null;
+  line: number | null;
+  title: string;
+  detail: string | null;
+}
+
+/** clean = current review, no findings; findings = current review with N>0; pending = a result is newer than the latest review. */
+export type AiReviewVerdict = 'clean' | 'findings' | 'pending';
+
 /**
  * Verdict of the latest automated AI review, derived at read time from the activity log
- * (the latest `ai-review:` comment). null = no AI review present; findings 0 = clean.
+ * (the latest `ai-review/v1` comment vs. the latest result). null = no AI review present.
  * Purely derived — there is no AI-review column. See src/aiReview.ts.
  */
-export interface AiReviewSummary { findings: number; }
+export interface AiReviewSummary {
+  verdict: AiReviewVerdict;
+  findings: number; // count of items (0 when clean); for pending, the superseded review's count
+  reviewer: string | null;
+  items: AiReviewFinding[];
+}
 
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;

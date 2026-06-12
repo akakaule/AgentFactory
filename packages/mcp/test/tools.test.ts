@@ -146,6 +146,49 @@ describe('get_task', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ai-review/v1 strip — uncurated findings must not reach the implementing agent
+// ---------------------------------------------------------------------------
+describe('ai-review activity strip', () => {
+  const REVIEW = 'ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"title":"Unbounded loop"}]}\n```';
+
+  type Core = Awaited<ReturnType<typeof makeClient>>['core'];
+  function reviewedTask(core: Core) {
+    const t = core.createTask(makeTaskInput('Reviewed'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+    core.submitResult(t.key, { summary: 'done', links: [] });
+    core.addComment(t.key, { actor: 'agent', body: REVIEW });
+    core.addComment(t.key, { actor: 'human', body: 'a plain human note' });
+    return t;
+  }
+
+  it('get_task hides ai-review/v1 comments but keeps plain comments', async () => {
+    const { client, core } = await makeClient();
+    const t = reviewedTask(core);
+
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    const bodies = detail.activity.map((a: any) => a.body);
+    expect(bodies).toContain('a plain human note');
+    expect(detail.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('ai-review/v1'))).toBe(false);
+  });
+
+  it('get_next_task strips ai-review on reclaim but the curated feedback rides through', async () => {
+    const { client, core } = await makeClient();
+    const t = reviewedTask(core);
+    // human curates feedback and sends it back → task re-queues
+    core.reviewRequestChanges(t.key, { feedback: '[reviewer-codex] Unbounded loop\n\n[human] also add a test' });
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.key).toBe(t.key);
+    expect(payload.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('ai-review/v1'))).toBe(false);
+    const feedback = payload.activity.find((a: any) => a.type === 'feedback');
+    expect(feedback).toBeTruthy();
+    expect(feedback.body).toContain('[reviewer-codex]');
+    expect(feedback.body).toContain('[human]');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // add_comment
 // ---------------------------------------------------------------------------
 describe('add_comment', () => {

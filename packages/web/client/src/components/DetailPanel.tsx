@@ -136,7 +136,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
 
               {task.status === 'in_review' && (
                 <ReviewActions
-                  aiFindings={task.aiReview?.findings}
+                  aiReview={task.aiReview ?? undefined}
                   onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
                   onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
                 />

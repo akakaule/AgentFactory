@@ -40,9 +40,21 @@ describe('BoardView', () => {
   });
 
   it('shows the AI-review findings chip on an in_review card', () => {
-    const reviewed = { ...makeTask('AF-8', 'Reviewed task', 'in_review'), aiReview: { findings: 2 } };
+    const reviewed = {
+      ...makeTask('AF-8', 'Reviewed task', 'in_review'),
+      aiReview: { verdict: 'findings' as const, findings: 2, reviewer: 'codex', items: [] },
+    };
     render(<BoardView tasks={[reviewed]} onSelect={vi.fn()} />);
     expect(screen.getByText('AI review: 2 findings')).toBeInTheDocument();
+  });
+
+  it('shows a pending chip when a resubmission is awaiting re-review', () => {
+    const pending = {
+      ...makeTask('AF-9', 'Pending task', 'in_review'),
+      aiReview: { verdict: 'pending' as const, findings: 2, reviewer: 'codex', items: [] },
+    };
+    render(<BoardView tasks={[pending]} onSelect={vi.fn()} />);
+    expect(screen.getByText('AI review: pending')).toBeInTheDocument();
   });
 
   it('renders a column for every status in lifecycle order', () => {
