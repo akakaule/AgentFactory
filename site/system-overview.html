@@ -158,7 +158,7 @@
   <text x="744" y="614" class="mono" font-size="10.5" fill="#97A5BE">add_comment · update_status</text>
   <text x="744" y="636" font-size="11" fill="#64748B">pinned: AGENTFACTORY_WORKSPACE</text>
   <text x="744" y="652" font-size="11" fill="#64748B">labeled: AGENTFACTORY_WORKER</text>
-  <text x="744" y="674" font-size="11" fill="#64748B">specs travel with images + conventions</text>
+  <text x="744" y="674" font-size="11" fill="#64748B">claims carry the protocol · submits are verified</text>
 
   <!-- ════════════ AGENTS ════════════ -->
   <rect x="1130" y="56" width="200" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
@@ -276,10 +276,10 @@
       <li><span class="n b">1</span><span><b>Bridge claims a work item</b> — unassigned (or <span class="mono">#ai-agent</span>-tagged) items in backlog order; the assignment PATCH is rev-guarded, so a concurrent human assignment wins.</span></li>
       <li><span class="n a">2</span><span><b>Design generation</b> — <span class="mono">claude -p</span> turns the work item into a spec + acceptance criteria.</span></li>
       <li><span class="n b">3</span><span><b>Task created &amp; queued</b> — titled <span class="mono">AB#123: …</span> (the dedup key); the ADO item is tagged <span class="mono">agentfactory · AF:&lt;key&gt;</span>.</span></li>
-      <li><span class="n a">4</span><span><b>Agent claims over MCP</b> — <span class="mono">get_next_task</span>, FIFO within its pinned workspace; the payload carries spec, acceptance, prior feedback, pasted images, and <span class="mono">repoPath</span>.</span></li>
+      <li><span class="n a">4</span><span><b>Agent claims over MCP</b> — <span class="mono">get_next_task</span>, FIFO within its pinned workspace; the payload carries spec, acceptance, prior feedback, pasted images, <span class="mono">repoPath</span> — and the <b>protocol block</b>: server-named branch + finish steps, computed fresh per claim.</span></li>
       <li><span class="n g">5</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide.</span></li>
       <li><span class="n g">6</span><span><b>Finish protocol</b> — commit → <span class="mono">push -u origin</span> → remove worktree. The pushed branch is the durable record.</span></li>
-      <li><span class="n a">7</span><span><b>submit_result</b> — summary + branch link + token metrics → task lands <b>In Review</b>.</span></li>
+      <li><span class="n a">7</span><span><b>submit_result</b> — guardrails verify pushed &amp; clean (git <em>reads</em> only), then summary + branch link + token metrics → task lands <b>In Review</b>; unpushed work is refused.</span></li>
       <li><span class="n r">8</span><span><b>Human checkpoint</b> — diff view on the board; Approve → done, or Request changes (feedback rides the next claim, same branch).</span></li>
       <li><span class="n b">9</span><span><b>Bridge closes the circle</b> — posts the result summary to AB#123 and closes it. The human opens the PR from the pushed branch; CI fails → comment + <b>Reopen</b> ↩.</span></li>
     </ol>
@@ -301,6 +301,6 @@
   </div>
 </div>
 </main>
-<footer>AgentFactory · system overview · generated 2026-06-11</footer>
+<footer>AgentFactory · system overview · updated 2026-06-12</footer>
 </body>
 </html>

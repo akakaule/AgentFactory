@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentFactory — a local-first task board for human-supervised agent work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0F172A; --bg-deep:#0B1222; --panel:#18233A; --card:#1E293B; --line:#2C3A55; --line-soft:#1E2940;
+    --ink:#E8EDF6; --ink-2:#97A5BE; --ink-3:#64748B;
+    --accent:#3B82F6; --accent-2:#60A5FA; --active:#F59E0B; --active-2:#FBBF24; --green:#4ADE80;
+    --review:#A78BFA; --blocked:#F87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 "IBM Plex Sans",sans-serif; }
+  .grotesk { font-family:"Space Grotesk",sans-serif; }
+  .mono { font-family:"IBM Plex Mono",monospace; }
+  a { color:var(--accent-2); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .wrap { max-width:1180px; margin:0 auto; padding:48px 30px 40px; }
+
+  header.hero h1 { font-family:"Space Grotesk",sans-serif; font-size:34px; margin:0 0 4px; }
+  header.hero h1 span { color:var(--ink-3); font-weight:500; }
+  header.hero .tag { font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--accent-2); letter-spacing:.06em; margin-bottom:14px; }
+  header.hero p { color:var(--ink-2); max-width:880px; margin:14px 0 0; font-size:16px; }
+  header.hero p b { color:var(--ink); }
+  .pills { display:flex; flex-wrap:wrap; gap:8px; margin-top:22px; }
+  .pill { font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-2); background:var(--panel);
+          border:1px solid var(--line-soft); border-radius:999px; padding:5px 14px; }
+  .pill b { color:var(--ink); font-weight:500; }
+
+  h2.sl { font-family:"Space Grotesk",sans-serif; font-size:13px; font-weight:600; letter-spacing:.1em;
+          text-transform:uppercase; color:var(--ink-2); margin:46px 0 16px; }
+
+  /* page directory cards */
+  .pages { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+  @media (max-width:860px){ .pages { grid-template-columns:1fr; } }
+  .pcard { display:block; background:var(--card); border:1px solid var(--line-soft); border-radius:12px;
+           padding:18px 20px; transition:border-color .2s, transform .2s; }
+  .pcard:hover { border-color:var(--accent); transform:translateY(-2px); text-decoration:none; }
+  .pcard .pt { font-family:"Space Grotesk",sans-serif; font-size:16px; font-weight:600; color:var(--ink); }
+  .pcard .pt .mono { font-size:11px; color:var(--ink-3); font-weight:400; margin-left:8px; }
+  .pcard p { margin:8px 0 0; font-size:13.5px; color:var(--ink-2); }
+  .pcard .read { display:inline-block; margin-top:10px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--accent-2); }
+  .pcard.draft { border-style:dashed; }
+  .pcard.draft .pt::after { content:"draft mockup"; font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--active-2);
+           background:color-mix(in srgb,var(--active) 18%,transparent); border-radius:999px; padding:2px 8px; margin-left:10px; vertical-align:2px; }
+
+  /* loop strip */
+  .loop { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px; padding:20px 22px; }
+  .loop ol { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px; }
+  .loop li { display:flex; gap:12px; font-size:13.5px; color:var(--ink-2); }
+  .loop li b { color:var(--ink); font-weight:600; }
+  .loop li .mono { color:var(--accent-2); font-size:12px; }
+  .n { flex:none; width:22px; height:22px; border-radius:99px; display:grid; place-items:center;
+       font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600; margin-top:1px; }
+  .n.h { background:color-mix(in srgb,var(--review) 22%,transparent); color:var(--review); }
+  .n.a { background:color-mix(in srgb,var(--active) 22%,transparent); color:var(--active-2); }
+  .n.g { background:color-mix(in srgb,var(--green) 20%,transparent); color:var(--green); }
+
+  /* two-column: guarantees + recent */
+  .cols { display:grid; grid-template-columns:1.2fr 1fr; gap:14px; }
+  @media (max-width:860px){ .cols { grid-template-columns:1fr; } }
+  .box { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px; padding:18px 22px; }
+  .box h3 { font-family:"Space Grotesk",sans-serif; font-size:13px; margin:0 0 12px; letter-spacing:.04em;
+            text-transform:uppercase; color:var(--ink-2); }
+  .gx { display:flex; gap:11px; margin-bottom:11px; font-size:13.5px; color:var(--ink-2); }
+  .gx:last-child { margin-bottom:0; }
+  .gx i { flex:none; font-style:normal; margin-top:-1px; }
+  .gx b { color:var(--ink); }
+  .gx .mono { color:var(--accent-2); font-size:12px; }
+  .new { display:flex; gap:11px; margin-bottom:11px; font-size:13px; color:var(--ink-2); }
+  .new:last-child { margin-bottom:0; }
+  .new .d { flex:none; font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-3); width:74px; margin-top:2px; }
+  .new b { color:var(--ink); font-weight:600; }
+
+  footer { text-align:center; font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-3); padding:36px 0 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="tag">local-first · single SQLite file · MCP · worktree-per-task</div>
+  <h1>AgentFactory <span>· human-supervised agent work, on a board</span></h1>
+  <p>A local task board where <b>humans create and review</b> work in a web UI and <b>agents claim and deliver</b> it
+     over MCP — Claude Code or any MCP client. The two sides never talk directly: one SQLite file is the only shared
+     state. Every task is worked in an <b>isolated git worktree</b> on a <b>server-named feature branch</b>, pushed to
+     origin before submission, and lands back on the board as a reviewable diff. The board is the human checkpoint;
+     it never runs agents and never writes to a repo.</p>
+  <div class="pills">
+    <span class="pill"><b>Board</b> · React + Hono + SSE on :8787</span>
+    <span class="pill"><b>Agents</b> · MCP stdio, six tools</span>
+    <span class="pill"><b>State</b> · agentfactory.db</span>
+    <span class="pill"><b>Isolation</b> · .worktrees/&lt;key&gt; · feature/&lt;key&gt;-&lt;title&gt;</span>
+    <span class="pill"><b>Contract</b> · protocol payload + submit guardrails</span>
+  </div>
+</header>
+
+<h2 class="sl">Explore</h2>
+<div class="pages">
+  <a class="pcard" href="getting-started.html">
+    <span class="pt">Getting started <span class="mono">getting-started.html</span></span>
+    <p>Zero to a working agent loop in six click-through steps: start the board, create a workspace, queue a task,
+       pin an agent to the repo, run the loop, review.</p>
+    <span class="read">read first if you're setting up →</span>
+  </a>
+  <a class="pcard" href="agent-flow.html">
+    <span class="pt">How the agent loop works <span class="mono">agent-flow.html</span></span>
+    <p>Interactive walkthrough: the architecture strip, the task lifecycle state machine, a step-by-step simulation
+       of one task's full journey, and the six MCP tools.</p>
+    <span class="read">read to understand the mechanics →</span>
+  </a>
+  <a class="pcard" href="system-overview.html">
+    <span class="pt">System overview <span class="mono">system-overview.html</span></span>
+    <p>The full picture at scale: Azure DevOps backlogs feeding the board through per-workspace ado-bridge loops,
+       pinned agents per repo, and the PR/CI circle back to the board.</p>
+    <span class="read">read to see how it composes →</span>
+  </a>
+  <a class="pcard draft" href="analytics-mockup.html">
+    <span class="pt">Analytics <span class="mono">analytics-mockup.html</span></span>
+    <p>Design mockup of the analytics view — KPI cards, stage-time bars, throughput, per-worker and per-workspace
+       splits. The real view ships in the web UI.</p>
+    <span class="read">read for the metrics vocabulary →</span>
+  </a>
+</div>
+
+<h2 class="sl">The loop, in one pass</h2>
+<div class="loop">
+  <ol>
+    <li><span class="n h">1</span><span><b>Human creates &amp; queues a task</b> — title, spec, acceptance criteria, workspace (the repo it targets). Backlog is staging; only <span class="mono">queued</span> is claimable.</span></li>
+    <li><span class="n a">2</span><span><b>Agent claims over MCP</b> — <span class="mono">get_next_task</span>, FIFO within its pinned workspace. The payload carries the spec, prior feedback, pasted images, <span class="mono">repoPath</span> — and a <b>protocol block</b>: the server-named branch, the worktree path, and the exact finish steps. Claim-time data can't go stale.</span></li>
+    <li><span class="n g">3</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide. Progress is narrated with <span class="mono">add_comment</span>, live on the board via SSE.</span></li>
+    <li><span class="n g">4</span><span><b>Finish protocol</b> — commit → <span class="mono">git push -u origin</span> → remove the worktree. The pushed branch is the durable record.</span></li>
+    <li><span class="n a">5</span><span><b>submit_result</b> — guardrails verify the branch is on origin, fully pushed, and the worktree is gone — <em>then</em> the task lands <b>In Review</b> with summary, branch link, and token metrics. Unpushed work is refused with the commands to fix it.</span></li>
+    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board. Approve → done; Request changes → re-queued with feedback, next claim continues on the <em>same</em> branch. PR opens from the branch; CI fails → comment + Reopen.</span></li>
+  </ol>
+</div>
+
+<h2 class="sl">Guarantees &amp; recent changes</h2>
+<div class="cols">
+  <div class="box">
+    <h3>What the system guarantees</h3>
+    <div class="gx"><i>◎</i><span><b>One SQLite file is the only shared state</b> — UI (HTTP), agents (MCP), and bridges all converge on it; SSE fans changes out live.</span></div>
+    <div class="gx"><i>⚙</i><span><b>Transitions are enforced in core</b> — agents can never approve, reopen, or invent tasks; humans own every gate. Atomic claims: no double-claiming, ever.</span></div>
+    <div class="gx"><i>⛓</i><span><b>Convention is contract</b> — the server names the branch at claim time and refuses submission until the work is pushed and the worktree cleaned. All checks are git <em>reads</em>: the board never writes to a repo.</span></div>
+    <div class="gx"><i>↩</i><span><b>Every dead end has a rescue loop</b> — Request changes (<span class="mono">in_review → queued</span>), Reopen (<span class="mono">done → queued</span>), Release claim (<span class="mono">in_progress → queued</span>). History survives every round-trip.</span></div>
+    <div class="gx"><i>⇄</i><span><b>Scale by adding pairs</b> — each repo = one workspace + one pinned worker. Queues never leak across workspaces.</span></div>
+  </div>
+  <div class="box">
+    <h3>Recently shipped</h3>
+    <div class="new"><span class="d">2026-06-12</span><span><b>Claim-time protocol + submit guardrails</b> — the protocol rides the claim payload; <span class="mono">submit_result</span> verifies pushed &amp; clean before accepting (AF-15).</span></div>
+    <div class="new"><span class="d">2026-06-11</span><span><b>Push-and-clean finish protocol + Reopen</b> — branches pushed at submit; <span class="mono">done → queued</span> closes the CI loop.</span></div>
+    <div class="new"><span class="d">2026-06-11</span><span><b>Images in specs</b> — paste screenshots into the task form; agents receive them as image content at claim.</span></div>
+    <div class="new"><span class="d">2026-06-11</span><span><b>Diff view, analytics, claim recovery</b> — review branches on the board; stage-time and token metrics; release stranded claims.</span></div>
+    <div class="new"><span class="d">next</span><span><b>Dispatcher</b> — one fresh headless session per task: structural staleness immunity, measured per-task cost, crash containment (AF-16, designed).</span></div>
+  </div>
+</div>
+
+</div>
+<footer>AgentFactory · index · updated 2026-06-12</footer>
+</body>
+</html>
