@@ -22,10 +22,13 @@ export interface ProtocolInput {
 }
 
 export function buildProtocol({ repoPath, key, branch, branchCreated }: ProtocolInput): Protocol {
-  const worktree = `${repoPath}/.worktrees/${key}`;
+  // Forward slashes only: Windows backslash paths lose their backslashes when the
+  // agent pastes the command into a POSIX shell; git accepts / on every platform.
+  const worktree = `${repoPath.replace(/\\/g, '/').replace(/\/+$/, '')}/.worktrees/${key}`;
+  const wt = `"${worktree}"`; // quoted in commands so paths with spaces survive
   const setup = branchCreated
-    ? [`git worktree add ${worktree} -b ${branch}`]
-    : [`git worktree add ${worktree} ${branch}`]; // reuse the existing branch — updates the same PR
+    ? [`git worktree add ${wt} -b ${branch}`]
+    : [`git worktree add ${wt} ${branch}`]; // reuse the existing branch — updates the same PR
   return {
     version: PROTOCOL_VERSION,
     branch,
@@ -34,7 +37,7 @@ export function buildProtocol({ repoPath, key, branch, branchCreated }: Protocol
     finish: [
       'Commit all work inside the worktree.',
       `git push -u origin ${branch}`,
-      `git worktree remove ${worktree} && git worktree prune`,
+      `git worktree remove ${wt} && git worktree prune`,
       'Call submit_result with a branch link (label = the branch name) and best-effort metrics.',
     ],
   };
