@@ -8,9 +8,20 @@ const workspaceSlug = z
   .max(64, 'workspace name must be at most 64 characters')
   .regex(/^[a-z0-9][a-z0-9-]*$/, 'workspace name must be a lowercase slug (a-z, 0-9, dashes; starts alphanumeric)');
 
-export const createTaskSchema = z.object({
-  title: nonEmpty, spec: nonEmpty, acceptanceCriteria: nonEmpty, workspace: workspaceSlug.optional(),
-});
+const stageEnum = z.enum(['description', 'plan', 'implementation']);
+
+export const createTaskSchema = z
+  .object({
+    title: nonEmpty, spec: nonEmpty,
+    acceptanceCriteria: nonEmpty.optional(),
+    stage: stageEnum.optional(),
+    workspace: workspaceSlug.optional(),
+  })
+  .superRefine((o, ctx) => {
+    // the description stage writes the acceptance criteria; every other entry point must bring them
+    if (o.stage !== 'description' && o.acceptanceCriteria === undefined)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'acceptanceCriteria is required unless stage is description' });
+  });
 export const createWorkspaceSchema = z.object({ name: workspaceSlug, repoPath: nonEmpty });
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional() })

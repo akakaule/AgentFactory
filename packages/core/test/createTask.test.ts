@@ -63,6 +63,40 @@ describe('createTask', () => {
     expect(rows[0].created_at).toBe(task.createdAt);
   });
 
+  it('defaults stage to implementation (back-compat: clients opt into the pipeline explicitly)', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    expect(task.stage).toBe('implementation');
+    expect(findByKey(db, task.key)!.stage).toBe('implementation');
+  });
+
+  it('persists an explicit stage and lets acceptanceCriteria default at the description stage', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'Raw idea', stage: 'description' });
+    expect(task.stage).toBe('description');
+    expect(task.acceptanceCriteria).toBe('To be defined by the description stage.');
+  });
+
+  it('accepts explicit acceptanceCriteria at the description stage', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'description' });
+    expect(task.acceptanceCriteria).toBe('A');
+  });
+
+  it('rejects a missing acceptanceCriteria unless the stage is description', () => {
+    const db = makeTestDb();
+    expect(() => createTask(db, { title: 'T', spec: 'S' })).toThrow(ValidationError);
+    expect(() => createTask(db, { title: 'T', spec: 'S', stage: 'implementation' })).toThrow(ValidationError);
+    expect(() => createTask(db, { title: 'T', spec: 'S', stage: 'plan' })).toThrow(ValidationError);
+    const count = (db.prepare('SELECT count(*) as c FROM task').get() as { c: number }).c;
+    expect(count).toBe(0);
+  });
+
+  it('rejects an unknown stage with ValidationError', () => {
+    const db = makeTestDb();
+    expect(() => createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'review' as never })).toThrow(ValidationError);
+  });
+
   it('rejects empty title with ValidationError and writes nothing', () => {
     const db = makeTestDb();
     expect(() => createTask(db, { title: '', spec: 'S', acceptanceCriteria: 'A' })).toThrow(ValidationError);

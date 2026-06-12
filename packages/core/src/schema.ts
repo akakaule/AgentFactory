@@ -97,3 +97,14 @@ CREATE INDEX IF NOT EXISTS idx_attachment_task ON attachment(task_id);
 export const MIGRATION_6_SQL = `
 ALTER TABLE task ADD COLUMN branch TEXT;
 `;
+
+// Migration #7 — pipeline stages. A task walks description → plan → implementation,
+// cycling through the existing statuses once per stage; approving an in-review doc
+// stage advances the stage and re-queues. Legacy rows backfill to 'implementation'
+// (today's behavior). `plan` holds the plan stage's deliverable; the description
+// stage's deliverable updates spec/acceptance_criteria in place.
+export const MIGRATION_7_SQL = `
+ALTER TABLE task ADD COLUMN stage TEXT NOT NULL DEFAULT 'implementation'
+  CHECK (stage IN ('description','plan','implementation'));
+ALTER TABLE task ADD COLUMN plan TEXT;
+`;
