@@ -56,6 +56,15 @@ describe('buildWorkerPrompt', () => {
     expect(p).toContain('submit_result');
     expect(p.toLowerCase()).toContain('exit');
   });
+
+  it('carries per-stage instructions keyed off protocol.stage', () => {
+    const p = buildWorkerPrompt();
+    expect(p).toContain('protocol.stage');
+    expect(p).toContain('stage is description');
+    expect(p).toContain('stage is plan');
+    expect(p).toContain('stage is implementation');
+    expect(p).toContain('acceptanceCriteria');
+  });
 });
 
 describe('buildMcpConfig', () => {

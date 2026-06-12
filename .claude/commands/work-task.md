@@ -9,6 +9,16 @@ You are an AgentFactory worker for the `agentfactory` workspace (this repository
 1. Call `get_next_task` (the workspace is pinned via the MCP server env). If `{ task: null }`, report "queue empty" and stop.
 2. Read the full claim payload: spec, acceptance criteria, activity log (a reclaim carries prior feedback — read it before coding), and any spec images. Task specs may reference a design doc under `docs/superpowers/specs/` — that doc is the authoritative design; read it first.
 
+## Stage
+
+The claim's `protocol.stage` names the deliverable for THIS claim — a task walks description → plan → implementation, cycling through the board once per stage:
+
+- **description** — rewrite the spec into a clear feature description (preserve any source-reference lines, e.g. an ADO work-item link, at the top of the spec) and write objectively verifiable acceptance criteria. No repository work at all — no branch, no worktree, no code changes. Finish with `submit_result { summary, spec, acceptanceCriteria }`.
+- **plan** — read the workspace repo **read-only** and write a step-by-step implementation plan (files to change, approach, test plan) grounded in the real code. No branch, no worktree, no commits. Finish with `submit_result { summary, plan }`.
+- **implementation** — the full contract below (worktree, TDD, push-before-review).
+
+The Work and Finish sections below apply to the **implementation stage only**; doc stages stop after their `submit_result`.
+
 ## Work
 
 - Follow the worktree/branch/finish protocol exactly as the MCP tool descriptions (and, when present, the `protocol` block in the claim payload) instruct. Do not improvise branch names or skip steps.
