@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import type { AiReviewSummary } from '../types.js';
 import { composeFeedback } from '../composeFeedback.js';
+import { serializeFeedback, type DiffComment } from '../diffComments.js';
 import { I } from '../icons.js';
 
 interface Props {
   onApprove: () => void;
   onRequestChanges: (feedback: string) => void;
+  comments?: DiffComment[];
   aiReview?: AiReviewSummary | undefined; // latest AI-review verdict; drives the checklist + break-glass
 }
 
-export function ReviewActions({ onApprove, onRequestChanges, aiReview }: Props) {
+export function ReviewActions({ onApprove, onRequestChanges, aiReview, comments = [] }: Props) {
   const items = aiReview?.items ?? [];
   const reviewer = aiReview?.reviewer ?? null;
   const reviewPresent = items.length > 0;
@@ -39,9 +41,11 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview }: Props) 
 
   // Compose ONE attributed body from the checked findings + the human's note, and post it
   // through the existing request-changes endpoint. Unchecked findings never ride along.
+  // Any line-anchored draft diff notes are prepended so feedback carries file:line guidance.
   const handleSend = () => {
     const selected = items.filter((_, i) => !unchecked.has(i));
-    const body = composeFeedback(selected, reviewer, note, reviewPresent);
+    const composed = composeFeedback(selected, reviewer, note, reviewPresent);
+    const body = serializeFeedback(comments, composed);
     if (!body.trim()) return;
     onRequestChanges(body);
     setNote('');

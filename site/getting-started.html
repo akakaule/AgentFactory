@@ -153,8 +153,8 @@
       <li><span class="ok">✓</span><b>http://localhost:8787</b> shows the board, and the <b>Workspaces</b> button lists your workspace next to <code>default</code>.</li>
       <li><span class="ok">✓</span>The MCP server logs <code>connected over stdio (db: …, workspace: shopfloor)</code> when the agent session starts.</li>
       <li><span class="ok">✓</span>A queued task disappears from <b>Queued</b> and reappears under <b>In Progress</b> the moment the agent calls <code>get_next_task</code> — live, no refresh.</li>
-      <li><span class="ok">✓</span>The target repo gains <code>.worktrees/AF-1/</code> on branch <code>task/AF-1</code> while the agent works.</li>
-      <li><span class="ok">✓</span>The task reaches <b>In Review</b> with a result summary and worktree/branch links — your turn: <b>Approve</b> or <b>Request changes</b>.</li>
+      <li><span class="ok">✓</span>The target repo gains <code>.worktrees/AF-1/</code> on branch <code>feature/AF-1-…</code> (named by the server) while the agent works — and the worktree is gone again by the time the task reaches review.</li>
+      <li><span class="ok">✓</span>The task reaches <b>In Review</b> with a result summary and a branch link — pushed to origin and verified by submit guardrails. Your turn: <b>Approve</b> or <b>Request changes</b>.</li>
     </ul>
   </div>
 </div>
@@ -184,21 +184,21 @@ const STEPS = [
 
   { actor:"h", who:"You · target repo", title:"Connect the agent (pin it to the workspace)",
     desc:"In the <b>target repo</b> (c:\\Git\\Shopfloor) create <code>.mcp.json</code>. <code>AGENTFACTORY_WORKSPACE</code> is the pin: this agent's <code>get_next_task</code> defaults to the shopfloor queue and can never claim another repo's work. Also add <code>.worktrees/</code> to that repo's .gitignore.",
-    cfg:"{\n  \"mcpServers\": {\n    \"agentfactory\": {\n      \"command\": \"node\",\n      \"args\": [\"c:\\\\Git\\\\AgentFactory\\\\packages\\\\mcp\\\\dist\\\\index.js\"],\n      \"env\": {\n        \"AGENTFACTORY_DB\": \"c:\\\\Git\\\\AgentFactory\\\\agentfactory.db\",\n        \"AGENTFACTORY_WORKSPACE\": \"shopfloor\"\n      }\n    }\n  }\n}",
+    cfg:"{\n  \"mcpServers\": {\n    \"agentfactory\": {\n      \"command\": \"npx\",\n      \"args\": [\"tsx\", \"c:\\\\Git\\\\AgentFactory\\\\packages\\\\mcp\\\\src\\\\index.ts\"],\n      \"env\": {\n        \"AGENTFACTORY_DB\": \"c:\\\\Git\\\\AgentFactory\\\\agentfactory.db\",\n        \"AGENTFACTORY_WORKSPACE\": \"shopfloor\"\n      }\n    }\n  }\n}",
     log:"[agentfactory-mcp] connected over stdio (db: …, workspace: shopfloor)",
     comps:["g-repo","g-mcp","g-db"],
     note:null },
 
   { actor:"a", who:"Agent · Claude Code", title:"Run the loop",
-    desc:"Open Claude Code in c:\\Git\\Shopfloor (approve the MCP server when prompted) and hand it the queue. The worktree convention is embedded in the tool descriptions, so the agent claims, creates <code>.worktrees/AF-1</code> on branch <code>task/AF-1</code>, works, narrates with <code>add_comment</code>, and delivers with <code>submit_result</code>.",
-    cfg:"Work the AgentFactory queue: call get_next_task. If a task\ncomes back, follow its instructions — create the worktree, do\nthe work against the spec and acceptance criteria, narrate\nprogress with add_comment, and deliver with submit_result\nincluding worktree/branch links. Repeat until the queue is empty.",
+    desc:"Open Claude Code in c:\\Git\\Shopfloor (approve the MCP server when prompted) and hand it the queue. The claim payload carries a <b>protocol block</b> — the server names the branch and lists the finish steps — so the agent claims, creates <code>.worktrees/AF-1</code> on branch <code>feature/AF-1-fix-crash-on-null-input</code>, works, narrates with <code>add_comment</code>, pushes &amp; cleans up, and delivers with <code>submit_result</code>.",
+    cfg:"Work the AgentFactory queue: call get_next_task. If a task\ncomes back, follow its protocol block — create the worktree,\ndo the work against the spec and acceptance criteria, narrate\nprogress with add_comment, run the finish steps (push the\nbranch, remove the worktree), and deliver with submit_result\nincluding the branch link. Repeat until the queue is empty.",
     log:"get_next_task → AF-1 · worktree .worktrees/AF-1 · submit_result → in_review",
     comps:["g-agent","g-mcp","g-db","g-repo"],
     note:"Make it a standing worker by running that prompt on an interval (e.g. /loop in Claude Code)." },
 
   { actor:"h", who:"You · browser", title:"Review &amp; close the loop",
     desc:"The board updates live (SSE) — watch the card move. At <b>In Review</b>, open it: <b>Approve</b> → done ✓, or <b>Request changes</b> with feedback → the task re-queues and the agent sees your feedback in its activity on the next claim. That round-trip is the whole point.",
-    cfg:"AF-1 · In Review\n  result   patched the null check\n  links    worktree .worktrees/AF-1 · branch task/AF-1\n\n  [ Approve ]   [ Request changes… ]",
+    cfg:"AF-1 · In Review\n  result   patched the null check\n  links    branch feature/AF-1-fix-crash-on-null-input ⇡ origin\n\n  [ Approve ]   [ Request changes… ]",
     log:"AF-1: in_review → done ✓",
     comps:["g-you","g-board","g-db"],
     note:"Second repo later? Create another workspace and launch another pinned Claude Code session there — parallel workers are safe (atomic claims, isolated worktrees)." },

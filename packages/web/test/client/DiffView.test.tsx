@@ -3,7 +3,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DiffView, COLLAPSE_THRESHOLD } from '../../client/src/components/DiffView.js';
 import { parseUnifiedDiff, type ParsedDiff } from '../../client/src/diff.js';
+import { useDiffComments } from '../../client/src/diffComments.js';
 import { MULTI_FILE, BINARY_FILE, PURE_RENAME, MODIFY_MULTI_HUNK } from './fixtures/diffs.js';
+
+/** Wraps DiffView with a real comment store so anchoring/marker flow can be exercised. */
+function Reviewable({ parsed }: { parsed: ParsedDiff }) {
+  const store = useDiffComments();
+  return <DiffView parsed={parsed} commentStore={store} />;
+}
 
 describe('DiffView', () => {
   it('renders the total stat line', () => {
@@ -60,5 +67,69 @@ describe('DiffView', () => {
   it('shows old → new for renames', () => {
     render(<DiffView parsed={parseUnifiedDiff(PURE_RENAME)} />);
     expect(screen.getByText('README.md → RENAMED.md')).toBeInTheDocument();
+  });
+
+  it('makes no lines commentable without a comment store', () => {
+    render(<DiffView parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+    expect(screen.queryByRole('button', { name: /^Comment on/ })).not.toBeInTheDocument();
+  });
+
+  it('opens an inline editor when a commentable line is clicked', async () => {
+    const user = userEvent.setup();
+    render(<Reviewable parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+
+    await user.click(screen.getByRole('button', { name: 'Comment on src/app.ts line 2' }));
+    expect(screen.getByPlaceholderText('Leave a note for the agent…')).toBeInTheDocument();
+  });
+
+  it('does not offer a comment affordance on pure-deletion lines', () => {
+    render(<Reviewable parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+    // old line 2 is deleted (no new-line number) → not commentable
+    expect(screen.queryByRole('button', { name: 'Comment on src/app.ts line 2' })).toBeInTheDocument();
+    // there is exactly one button anchored at line 2 (the added line), never the deleted one
+    expect(screen.getAllByRole('button', { name: 'Comment on src/app.ts line 2' })).toHaveLength(1);
+  });
+
+  it('saves a draft as a visible, removable marker that survives a re-render', async () => {
+    const user = userEvent.setup();
+    render(<Reviewable parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+
+    await user.click(screen.getByRole('button', { name: 'Comment on src/app.ts line 2' }));
+    await user.type(screen.getByPlaceholderText('Leave a note for the agent…'), 'make this configurable');
+    await user.click(screen.getByRole('button', { name: 'Comment' }));
+
+    // editor closes; comment text is shown as a marker
+    expect(screen.queryByPlaceholderText('Leave a note for the agent…')).not.toBeInTheDocument();
+    expect(screen.getByText('make this configurable')).toBeInTheDocument();
+
+    // removable
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByText('make this configurable')).not.toBeInTheDocument();
+  });
+
+  it('does not save an empty comment', async () => {
+    const user = userEvent.setup();
+    render(<Reviewable parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+
+    await user.click(screen.getByRole('button', { name: 'Comment on src/app.ts line 2' }));
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeDisabled();
+  });
+
+  it('reopens an existing draft for editing and replaces it in place', async () => {
+    const user = userEvent.setup();
+    render(<Reviewable parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+
+    await user.click(screen.getByRole('button', { name: 'Comment on src/app.ts line 2' }));
+    await user.type(screen.getByPlaceholderText('Leave a note for the agent…'), 'first');
+    await user.click(screen.getByRole('button', { name: 'Comment' }));
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const box = screen.getByPlaceholderText('Leave a note for the agent…');
+    await user.clear(box);
+    await user.type(box, 'second');
+    await user.click(screen.getByRole('button', { name: 'Comment' }));
+
+    expect(screen.queryByText('first')).not.toBeInTheDocument();
+    expect(screen.getByText('second')).toBeInTheDocument();
   });
 });

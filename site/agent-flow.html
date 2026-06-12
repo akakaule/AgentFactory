@@ -106,7 +106,8 @@
 <body>
 <div class="wrap">
   <h1>AgentFactory <span style="color:#475569">·</span> <span style="font-weight:400">how the agent loop works</span></h1>
-  <p class="sub">A single-user local task board: humans create &amp; review work in the web UI, an external agent (Claude&nbsp;Code or any MCP client) consumes and progresses it. The two sides never talk directly — a shared SQLite file is the only channel.</p>
+  <p class="sub">A single-user local task board: humans create &amp; review work in the web UI, an external agent (Claude&nbsp;Code or any MCP client) consumes and progresses it. The two sides never talk directly — a shared SQLite file is the only channel.
+  Where tasks come from is the other half of the story: <a href="producer-flow.html" style="color:var(--human)">producers — from backlog to board and back</a>.</p>
 
   <h2>1 · Architecture</h2>
   <div class="panel">
@@ -189,12 +190,12 @@
   <div class="panel">
     <table>
       <tr><th>Tool</th><th>What it does</th><th>Loop role</th></tr>
-      <tr><td><code>get_next_task</code></td><td>Atomically claim the oldest <code>queued</code> task (optionally scoped to a workspace) → <code>in_progress</code>; agent then creates a git worktree under the task's repo</td><td>start of every iteration</td></tr>
+      <tr><td><code>get_next_task</code></td><td>Atomically claim the oldest <code>queued</code> task (optionally scoped to a workspace) → <code>in_progress</code>; the payload includes a <b>protocol block</b> — server-named feature branch, worktree path, finish steps — the agent follows</td><td>start of every iteration</td></tr>
       <tr><td><code>get_task</code></td><td>Fetch one task by key (spec, criteria, activity, links)</td><td>read the full brief</td></tr>
       <tr><td><code>list_tasks</code></td><td>List tasks, optionally filtered by status</td><td>situational awareness</td></tr>
       <tr><td><code>add_comment</code></td><td>Append a comment to the task's activity feed</td><td>narrate progress (human sees it live via SSE)</td></tr>
-      <tr><td><code>submit_result</code></td><td>Store a result summary + links (branch, PR, worktree, log)</td><td>deliver the work</td></tr>
-      <tr><td><code>update_status</code></td><td>Transition the task (only agent-legal moves allowed)</td><td>hand off to review / flag blocked</td></tr>
+      <tr><td><code>submit_result</code></td><td>Verify the finish protocol ran (branch pushed to origin, worktree removed), then store summary + links and move the task to <code>in_review</code></td><td>deliver the work</td></tr>
+      <tr><td><code>update_status</code></td><td>Transition the task (only agent-legal moves allowed)</td><td>flag blocked / resume work</td></tr>
     </table>
     <p style="color:var(--muted); font-size:13.5px; margin-bottom:0">Task <b>creation</b> is deliberately missing — only humans create work, via the web UI. The agent can never invent tasks for itself.</p>
   </div>
@@ -227,9 +228,9 @@ const STEPS = [
     comps:["c-human","c-web","c-api","c-db"], status:"queued", edge:"e-bq",
     log:"AF-7: backlog → queued (human)" },
   { actor:"agent", title:"Agent claims the task",
-    desc:"The agent loop calls <code>get_next_task</code>, scoped to its pinned workspace (a repo-A worker can never claim repo-B work). The oldest queued task is atomically claimed: <code>queued &rarr; in_progress</code>. No double-claiming possible. The payload carries the workspace&rsquo;s <code>repoPath</code>; before touching code the agent creates a dedicated git worktree there: <code>git worktree add &lt;repoPath&gt;/.worktrees/AF-7 -b task/AF-7</code> — one task, one isolated checkout.",
+    desc:"The agent loop calls <code>get_next_task</code>, scoped to its pinned workspace (a repo-A worker can never claim repo-B work). The oldest queued task is atomically claimed: <code>queued &rarr; in_progress</code>. No double-claiming possible. The payload carries the workspace&rsquo;s <code>repoPath</code> and a <b>protocol block</b> &mdash; the server-named branch, the worktree path, and the finish steps &mdash; so the agent creates its isolated checkout exactly as instructed: <code>git worktree add &lt;repoPath&gt;/.worktrees/AF-7 -b feature/AF-7-&lt;kebab-title&gt;</code> — one task, one worktree, one branch.",
     comps:["c-agent","c-mcp","c-db"], status:"in_progress", edge:"e-qi",
-    log:"get_next_task(workspace) → AF-7 claimed · worktree .worktrees/AF-7" },
+    log:"get_next_task(workspace) → AF-7 · protocol: feature/AF-7-… · worktree .worktrees/AF-7" },
   { actor:"agent", title:"Agent works &amp; narrates",
     desc:"While coding, the agent posts progress with <code>add_comment</code>. The web server pushes every activity over <b>SSE</b> &mdash; the human watches live in the browser.",
     comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_progress", edge:null,
@@ -242,14 +243,14 @@ const STEPS = [
     desc:"The human answers in a comment; the agent resumes: <code>blocked &rarr; in_progress</code>. (Alternatively the human re-queues it: <code>blocked &rarr; queued</code>.)",
     comps:["c-human","c-web","c-api","c-db","c-mcp","c-agent"], status:"in_progress", edge:"e-bi",
     log:"human comment → blocked → in_progress (agent)" },
-  { actor:"agent", title:"Agent submits the result",
-    desc:"<code>submit_result</code> stores a summary plus links &mdash; branch, PR, worktree, logs &mdash; on the task. Status doesn&rsquo;t change yet.",
-    comps:["c-agent","c-mcp","c-db"], status:"in_progress", edge:null,
-    log:"submit_result: summary + links (branch, PR)" },
-  { actor:"agent", title:"Hand-off to review",
-    desc:"<code>update_status</code>: <code>in_progress &rarr; in_review</code>. The agent&rsquo;s job ends here &mdash; only a human can move the task further.",
+  { actor:"agent", title:"Finish protocol: push &amp; clean",
+    desc:"Work done: the agent commits everything in the worktree, pushes the branch &mdash; <code>git push -u origin feature/AF-7-…</code> &mdash; and removes the worktree. The pushed branch is the durable record; the board&rsquo;s diff view reads it directly.",
+    comps:["c-agent"], status:"in_progress", edge:null,
+    log:"git push -u origin feature/AF-7-… · worktree removed" },
+  { actor:"agent", title:"Agent submits &rarr; review",
+    desc:"<code>submit_result</code> delivers the summary + links and moves the task <code>in_progress &rarr; in_review</code> &mdash; after <b>guardrails</b> verify the branch exists on origin, is fully pushed, and the worktree is gone. Unpushed work is refused with the exact commands to fix it. The agent&rsquo;s job ends here &mdash; only a human can move the task further.",
     comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_review", edge:"e-ir",
-    log:"update_status → in_review" },
+    log:"submit_result · guardrails: pushed ✓ clean ✓ → in_review" },
   { actor:"human", title:"Human reviews &rarr; done (or rework)",
     desc:"The human checks the result in the UI. Approve: <code>in_review &rarr; done</code> ✓. Request changes: <code>in_review &rarr; queued</code> with feedback &mdash; and the loop restarts at step 3.",
     comps:["c-human","c-web","c-api","c-db"], status:"done", edge:"e-id", altEdge:"e-rw",

@@ -96,6 +96,48 @@ describe('ReviewActions', () => {
     expect(onRequestChanges).toHaveBeenCalledWith('Fix the tests');
   });
 
+  it('prepends line-anchored drafts to the free-text feedback', async () => {
+    const onRequestChanges = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ReviewActions
+        onApprove={vi.fn()}
+        onRequestChanges={onRequestChanges}
+        comments={[
+          { file: 'src/app.ts', line: 42, text: 'this cap should be configurable' },
+          { file: 'README.md', line: 7, text: 'typo' },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Request changes' }));
+    await user.type(screen.getByPlaceholderText('Describe what needs to change…'), 'also rebase');
+    await user.click(screen.getByRole('button', { name: 'Send back' }));
+
+    expect(onRequestChanges).toHaveBeenCalledWith(
+      'src/app.ts:42 - "this cap should be configurable"\n' +
+        'README.md:7 - "typo"\n' +
+        'also rebase',
+    );
+  });
+
+  it('submits drafts alone even when the textarea is empty', async () => {
+    const onRequestChanges = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ReviewActions
+        onApprove={vi.fn()}
+        onRequestChanges={onRequestChanges}
+        comments={[{ file: 'a.ts', line: 1, text: 'fix' }]}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Request changes' }));
+    await user.click(screen.getByRole('button', { name: 'Send back' }));
+
+    expect(onRequestChanges).toHaveBeenCalledWith('a.ts:1 - "fix"');
+  });
+
   it('does not send when nothing is selected and the note is empty', async () => {
     const onRequestChanges = vi.fn();
     const user = userEvent.setup();

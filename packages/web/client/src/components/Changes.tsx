@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { parseUnifiedDiff, type ParsedDiff } from '../diff.js';
+import type { DiffCommentStore } from '../diffComments.js';
 import { DiffModal } from './DiffModal.js';
 
 interface Props {
   taskKey: string;
   branchLabel: string;
   updatedAt: string; // refetch key: SSE bumps it exactly when this task changes
+  commentStore?: DiffCommentStore | undefined; // present only while reviewing → enables inline comments
 }
 
 interface Loaded { branch: string; baseRef: string; parsed: ParsedDiff; commits: number; }
 
-export function Changes({ taskKey, branchLabel, updatedAt }: Props) {
+export function Changes({ taskKey, branchLabel, updatedAt, commentStore }: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -46,7 +48,13 @@ export function Changes({ taskKey, branchLabel, updatedAt }: Props) {
         </div>
       )}
       {open && loaded && (
-        <DiffModal branch={loaded.branch} baseRef={loaded.baseRef} parsed={loaded.parsed} onClose={() => setOpen(false)} />
+        <DiffModal
+          branch={loaded.branch}
+          baseRef={loaded.baseRef}
+          parsed={loaded.parsed}
+          onClose={() => setOpen(false)}
+          commentStore={commentStore}
+        />
       )}
     </>
   );
