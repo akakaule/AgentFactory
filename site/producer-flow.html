@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFactory — Producers: from backlog to board and back</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #283548;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --human: #60a5fa;
+    --agent: #fbbf24;
+    --bridge: #34d399;
+    --db: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 36px 0 12px; color: var(--text); }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .sub a, p a { color: var(--human); }
+  code { background: #0b1222; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: #93c5fd; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+
+  /* ── architecture strip ─────────────────────────── */
+  .arch { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 8px 0; }
+  .comp {
+    flex: 1 1 0; min-width: 124px; text-align: center;
+    background: var(--panel-2); border: 2px solid var(--border); border-radius: 10px;
+    padding: 14px 10px; transition: border-color .3s, box-shadow .3s, transform .3s;
+  }
+  .comp .ico { font-size: 26px; display: block; margin-bottom: 6px; }
+  .comp .nm { font-weight: 600; font-size: 14px; }
+  .comp .dt { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .comp.side-h { border-bottom: 3px solid color-mix(in srgb, var(--human) 45%, transparent); }
+  .comp.side-a { border-bottom: 3px solid color-mix(in srgb, var(--agent) 45%, transparent); }
+  .comp.side-b { border-bottom: 3px solid color-mix(in srgb, var(--bridge) 45%, transparent); }
+  .comp.active { border-color: var(--bridge); box-shadow: 0 0 18px rgba(52, 211, 153, .25); transform: translateY(-2px); }
+  .comp.active.h-act { border-color: var(--human); box-shadow: 0 0 18px rgba(96, 165, 250, .3); }
+  .comp.active.a-act { border-color: var(--agent); box-shadow: 0 0 18px rgba(251, 191, 36, .3); }
+  .link {
+    flex: 0 0 58px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 10.5px; gap: 2px;
+  }
+  .link .ar { font-size: 18px; letter-spacing: -2px; color: #475569; }
+  .dbnote { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+  .dbnote b { color: var(--bridge); }
+
+  /* ── stepper ────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: 1fr 1.55fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .controls button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 16px; font-size: 14px; cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--human); }
+  .controls button.primary { background: #1d4ed8; border-color: #1d4ed8; }
+  .controls .pos { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+  .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  .steps li {
+    padding: 9px 12px; border-left: 3px solid var(--border); margin-bottom: 4px;
+    cursor: pointer; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--muted);
+    transition: background .25s, border-color .25s;
+  }
+  .steps li::before { counter-increment: step; content: counter(step) " · "; color: #475569; font-weight: 700; }
+  .steps li:hover { background: var(--panel-2); }
+  .steps li.on { background: var(--panel-2); color: var(--text); }
+  .steps li.on.act-h { border-left-color: var(--human); }
+  .steps li.on.act-a { border-left-color: var(--agent); }
+  .steps li.on.act-b { border-left-color: var(--bridge); }
+  .steps li.done { color: #64748b; }
+  .steps li.done::after { content: " ✓"; color: var(--db); }
+
+  .who { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .who.h { color: var(--human); } .who.a { color: var(--agent); } .who.b { color: var(--bridge); }
+  .stepbody h3 { margin: 4px 0 10px; font-size: 17px; }
+  .stepbody p { margin: 0 0 12px; font-size: 14px; }
+  .note { font-size: 12.5px; color: var(--muted); border-left: 3px solid var(--border); padding: 6px 10px; margin: 12px 0 0; }
+  .logline { font-family: Consolas, monospace; font-size: 12.5px; color: var(--db); margin-top: 12px; }
+  .cfg {
+    background: #0b1222; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; font-family: Consolas, monospace; font-size: 13px;
+    color: #cbd5e1; overflow-x: auto; white-space: pre; margin: 6px 0;
+  }
+
+  /* invariants + sources */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  .inv { display: flex; gap: 11px; margin-bottom: 12px; font-size: 13.5px; color: var(--muted); }
+  .inv:last-child { margin-bottom: 0; }
+  .inv i { flex: none; font-style: normal; margin-top: -1px; }
+  .inv b { color: var(--text); }
+  .srcs { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+  .src { font-family: Consolas, monospace; font-size: 12px; border: 1px solid var(--border); border-radius: 999px;
+         padding: 4px 12px; color: var(--muted); }
+  .src.live { color: var(--bridge); border-color: color-mix(in srgb, var(--bridge) 50%, transparent);
+              background: color-mix(in srgb, var(--bridge) 10%, transparent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AgentFactory <span style="color:#475569">·</span> <span style="font-weight:400">producers: from backlog to board and back</span></h1>
+  <p class="sub">Tasks don't have to be hand-written on the board. A <b>producer</b> is an agent that watches a source of work —
+  here Azure DevOps, via <code>ado-bridge</code> — claims items, turns them into implementable specs with <code>claude&nbsp;-p</code>,
+  queues them as AgentFactory tasks, and reflects every status change back to the source.
+  The consumer half of the loop is covered in <a href="agent-flow.html">how the agent loop works</a>.</p>
+
+  <h2>1 · The round trip</h2>
+  <div class="panel">
+    <div class="arch">
+      <div class="comp side-h" id="p-ado"><span class="ico">📋</span><span class="nm">ADO backlog</span><div class="dt">User Stories<br>dev.azure.com</div></div>
+      <div class="link"><span class="ar">⇄</span><span>REST + PAT</span></div>
+      <div class="comp side-b" id="p-bridge"><span class="ico">🌉</span><span class="nm">ado-bridge</span><div class="dt">Run-AdoBridgeLoop<br>1 pass / minute</div></div>
+      <div class="link"><span class="ar">⇄</span><span>claude -p</span></div>
+      <div class="comp side-b" id="p-design"><span class="ico">✍️</span><span class="nm">Designer</span><div class="dt">work item →<br>spec + acceptance</div></div>
+      <div class="link"><span class="ar">⇄</span><span>HTTP</span></div>
+      <div class="comp side-h" id="p-board"><span class="ico">🖥️</span><span class="nm">Board</span><div class="dt">queued task<br>AB#123: …</div></div>
+      <div class="link"><span class="ar">⇄</span><span>MCP</span></div>
+      <div class="comp side-a" id="p-worker"><span class="ico">🤖</span><span class="nm">Worker</span><div class="dt">worktree · branch<br>push · submit</div></div>
+      <div class="link"><span class="ar">⇄</span><span>git</span></div>
+      <div class="comp side-a" id="p-repo"><span class="ico">📁</span><span class="nm">Repo + PR</span><div class="dt">feature/&lt;key&gt;-… on<br>origin · PR · CI</div></div>
+    </div>
+    <div class="dbnote">Two independent loops meet at the board: the <b>bridge</b> produces queued tasks from the backlog;
+    the worker consumes them. Each repo gets its own bridge, config, workspace and workspace-scoped PAT — parallel pairs never interfere.</div>
+  </div>
+
+  <h2>2 · One work item, end to end</h2>
+  <div class="grid">
+    <div class="panel">
+      <div class="controls">
+        <button id="prev">‹ Prev</button>
+        <button id="next">Next ›</button>
+        <span class="pos" id="pos"></span>
+      </div>
+      <ol class="steps" id="steps"></ol>
+    </div>
+    <div class="panel">
+      <div class="stepbody" id="stepbody"></div>
+    </div>
+  </div>
+
+  <h2>3 · Marker-driven &amp; self-healing</h2>
+  <div class="two">
+    <div class="panel">
+      <div class="inv"><i>🔑</i><span><b>The title is the dedup key.</b> Tasks are titled <code>AB#123: …</code>; before creating anything the bridge checks the board for that prefix. Re-running a pass can never duplicate work.</span></div>
+      <div class="inv"><i>🏷️</i><span><b>Tag last, recover first.</b> The ADO item gets <code>agentfactory · AF:&lt;key&gt;</code> as the <em>final</em> inbound step. An item claimed but not yet tagged (crash mid-pass) is re-selected by a recovery clause and resumed — no state file anywhere.</span></div>
+      <div class="inv"><i>🤝</i><span><b>Rev-safe claims.</b> The assignment PATCH carries a <code>test</code> op on the item's <code>rev</code> — if a human touched the item concurrently, the human wins and the bridge skips it.</span></div>
+      <div class="inv"><i>♻️</i><span><b>Idempotent outbound.</b> The bridge only moves items whose state it set itself, and skips items already in the target state. Manually moved items are left alone; closing twice is a no-op.</span></div>
+    </div>
+    <div class="panel">
+      <div class="inv"><i>⚙️</i><span><b>Per-repo onboarding in one command.</b> <code>Run-AdoBridgeLoop -Init</code> scaffolds the config, the worker wiring, the gitignore entries, and registers the workspace on the board.</span></div>
+      <div class="cfg">cd c:\git\your-repo
+Run-AdoBridgeLoop -Init        # scaffold + register workspace
+Run-AdoBridgeLoop -StorePat    # PAT → Credential Manager
+Run-AdoBridgeLoop -DryRun      # sanity check, mutates nothing
+
+# daily use — two terminals:
+Run-AdoBridgeLoop              # A: the producer
+Run-AgentFactoryLoop           # B: the consumer</div>
+      <div class="inv"><i>🎚️</i><span><b>Process templates are config.</b> Agile (<code>New → Active → Resolved → Closed</code>) out of the box; Scrum or custom flows are a few state names in <code>ado-bridge.config.json</code>. <code>requiredTag</code> makes import opt-in per item (e.g. <code>#ai-agent</code>).</span></div>
+    </div>
+  </div>
+
+  <h2>4 · Any source can be a producer</h2>
+  <div class="panel">
+    <p style="margin:0 0 6px; color:var(--muted); font-size:14px">
+      ADO is the first adapter, not the design. A producer is <b style="color:var(--text)">any agent</b> that can honour the contract:</p>
+    <div class="inv" style="margin-top:12px"><i>1.</i><span><b>Stable dedup key</b> in the task title (<code>AB#123:</code>, <code>GH#456:</code>, <code>JIRA-789:</code> …) so passes are idempotent.</span></div>
+    <div class="inv"><i>2.</i><span><b>A design pass</b> — raw items become implementable briefs (spec + acceptance criteria) before they're queued; the producer is an agent, so this is where it earns its keep.</span></div>
+    <div class="inv"><i>3.</i><span><b>Queued task via the HTTP API</b> — the board stays the single human checkpoint regardless of where work originates.</span></div>
+    <div class="inv"><i>4.</i><span><b>Status reflected back</b> — review and done flow to the source (comment + close in ADO today). The natural next outbound step: <b>opening the PR</b> from the pushed branch automatically — submit guardrails already guarantee the branch is on origin.</span></div>
+    <div class="srcs">
+      <span class="src live">Azure DevOps Boards · shipped</span>
+      <span class="src">GitHub Issues</span>
+      <span class="src">Jira</span>
+      <span class="src">ServiceNow</span>
+      <span class="src">support mailbox</span>
+      <span class="src">monitoring alerts</span>
+    </div>
+    <p style="margin:0; color:var(--muted); font-size:13px">Same board, same review gate, same worker loop — only the intake adapter changes.
+    See the <a href="system-overview.html">system overview</a> for how multiple bridges and workspaces compose.</p>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  { actor:"h", who:"Team · Azure DevOps", title:"Work waits in the backlog",
+    desc:"A User Story sits in <b>New</b>, unassigned — or carrying the opt-in tag (e.g. <code>#ai-agent</code>) if the repo's config gates imports. The backlog itself is the queue: nobody re-enters work anywhere else, and backlog priority order is preserved end-to-end.",
+    cfg:"AB#123 · User Story · New · unassigned\n  \"Export member participation as Excel\"\n  StackRank 12 — next in backlog order",
+    log:"WIQL: type=User Story · state IN (New) · unassigned OR tag",
+    comps:["p-ado"] },
+
+  { actor:"b", who:"Bridge · inbound pass", title:"Rev-safe claim",
+    desc:"The bridge selects the top item and assigns it to its <code>agentIdentity</code> — with a JSON-Patch <code>test</code> op on the item's <code>rev</code>. If a human edited the item concurrently, the test fails, the human wins, and the bridge simply skips. The item moves to the claim state (<b>Active</b>).",
+    cfg:"PATCH workitems/123\n  [ { op: test,    path: /rev,                value: 4 },\n    { op: add,     path: /fields/AssignedTo,  value: agent@org },\n    { op: add,     path: /fields/State,       value: Active } ]",
+    log:"AB#123 claimed (rev 4 → 5) · assigned to agent identity",
+    comps:["p-ado","p-bridge"] },
+
+  { actor:"b", who:"Bridge · claude -p", title:"An agent writes the brief",
+    desc:"The work item's title + description go through a headless <code>claude&nbsp;-p</code> design pass that produces a <b>spec</b> and <b>acceptance criteria</b> — an implementable brief, not a raw backlog note. This is the producer's real value: by the time a worker claims the task, the thinking about <em>what</em> and <em>when it's done</em> is already on the card.",
+    cfg:"claude -p \"Design a feature from this work item…\"\n  → ## Goal / ## Context / ## Steps / ## Edge cases\n  → acceptance criteria (testable, enumerated)",
+    log:"design generated (model: from config · timeout guarded)",
+    comps:["p-bridge","p-design"] },
+
+  { actor:"b", who:"Bridge · board API", title:"Task queued, item tagged",
+    desc:"The bridge creates the AgentFactory task — titled <code>AB#123: …</code> (the <b>dedup key</b>), spec first line linking back to ADO — directly into <b>queued</b> in this repo's workspace. Then, as the <em>last</em> inbound step, it tags the ADO item <code>agentfactory · AF:AF-12</code>. Tag-last means a crash anywhere mid-pass is resumed next minute; the dedup key means resumption can't duplicate.",
+    cfg:"POST /api/tasks  → AF-12 \"AB#123: Export member…\" (queued)\nPATCH workitems/123 → tags: agentfactory; AF:AF-12",
+    log:"AF-12 queued (workspace: pmd) · AB#123 marked",
+    comps:["p-bridge","p-board","p-ado"] },
+
+  { actor:"a", who:"Worker · separate loop", title:"The consumer half runs",
+    desc:"A pinned worker claims AF-12 over MCP, gets the <b>protocol block</b> (server-named branch, worktree path, finish steps), implements in <code>.worktrees/AF-12</code>, pushes <code>feature/AF-12-…</code>, removes the worktree, and submits — guardrails verify pushed &amp; clean. The whole consumer story: <a href=\"agent-flow.html\">agent-flow.html</a>.",
+    cfg:"get_next_task → AF-12 · protocol: feature/AF-12-…\n…work…\ngit push -u origin feature/AF-12-… · submit_result → in_review",
+    log:"AF-12: queued → in_progress → in_review",
+    comps:["p-board","p-worker","p-repo"] },
+
+  { actor:"b", who:"Bridge · outbound pass", title:"Review state reflected back",
+    desc:"The next bridge pass sees AF-12 in <b>in_review</b> and moves AB#123 to the configured review state (<b>Resolved</b>) — the backlog mirrors the board, so anyone living in ADO sees exactly where things stand without opening the board. (Configurable; set <code>reviewState: \"\"</code> to skip.)",
+    cfg:"AF-12 in_review → PATCH workitems/123 State: Resolved",
+    log:"AB#123 → Resolved (only because the bridge set Active itself)",
+    comps:["p-bridge","p-ado","p-board"] },
+
+  { actor:"h", who:"You · the board", title:"Human checkpoint",
+    desc:"You review the diff on the board — the branch is already on origin, so CI may already be running. <b>Approve</b> → done. <b>Request changes</b> → re-queued with feedback; the next claim continues on the same branch. You open the PR from the pushed branch (automating this is the next outbound step).",
+    cfg:"AF-12 · In Review\n  diff: feature/AF-12-… vs main · 19 files +724/−20\n  [ Approve ]   [ Request changes… ]",
+    log:"AF-12: in_review → done ✓",
+    comps:["p-board"] },
+
+  { actor:"b", who:"Bridge · outbound pass", title:"The circle closes",
+    desc:"Task done → the bridge posts the <b>result summary as a comment</b> on AB#123 and moves it to the close state (<b>Closed</b>). Outbound is idempotent: it only touches items whose state the bridge itself set, skips items already in the target state, and leaves manually-moved items alone. The work item now tells the whole story — who asked, what was built, where the branch is.",
+    cfg:"POST workitems/123/comments  ← result summary (from AF-12)\nPATCH workitems/123 State: Closed",
+    log:"AB#123 closed · result comment posted · loop complete",
+    comps:["p-bridge","p-ado"] },
+];
+
+const ALL_COMPS = ["p-ado","p-bridge","p-design","p-board","p-worker","p-repo"];
+const $ = (id) => document.getElementById(id);
+let cur = 0;
+
+const list = $("steps");
+STEPS.forEach((s, i) => {
+  const li = document.createElement("li");
+  li.innerHTML = s.title;
+  li.onclick = () => go(i);
+  list.appendChild(li);
+});
+
+function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+
+function render() {
+  const s = STEPS[cur];
+  list.querySelectorAll("li").forEach((li, i) => {
+    li.className = i === cur ? `on act-${s.actor}` : (i < cur ? "done" : "");
+  });
+  $("pos").textContent = `step ${cur + 1} of ${STEPS.length}`;
+
+  $("stepbody").innerHTML =
+    `<span class="who ${s.actor}">${s.who}</span>` +
+    `<h3>${s.title}</h3>` +
+    `<p>${s.desc}</p>` +
+    `<pre class="cfg">${esc(s.cfg)}</pre>` +
+    `<div class="logline">› ${esc(s.log)}</div>`;
+
+  ALL_COMPS.forEach((id) => {
+    const el = $(id);
+    el.classList.toggle("active", s.comps.includes(id));
+    el.classList.toggle("h-act", s.comps.includes(id) && s.actor === "h");
+    el.classList.toggle("a-act", s.comps.includes(id) && s.actor === "a");
+  });
+}
+
+function go(i) { cur = Math.max(0, Math.min(STEPS.length - 1, i)); render(); }
+$("prev").onclick = () => go(cur - 1);
+$("next").onclick = () => go(cur + 1);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") go(cur + 1);
+  if (e.key === "ArrowLeft") go(cur - 1);
+});
+
+render();
+</script>
+</body>
+</html>

@@ -88,8 +88,9 @@
   <p>A local task board where <b>humans create and review</b> work in a web UI and <b>agents claim and deliver</b> it
      over MCP — Claude Code or any MCP client. The two sides never talk directly: one SQLite file is the only shared
      state. Every task is worked in an <b>isolated git worktree</b> on a <b>server-named feature branch</b>, pushed to
-     origin before submission, and lands back on the board as a reviewable diff. The board is the human checkpoint;
-     it never runs agents and never writes to a repo.</p>
+     origin before submission, and lands back on the board as a reviewable diff. Tasks can also arrive through
+     <b>producer agents</b> that import real backlogs — Azure DevOps today via ado-bridge — and reflect every status
+     change back to the source. The board is the human checkpoint; it never runs agents and never writes to a repo.</p>
   <div class="pills">
     <span class="pill"><b>Board</b> · React + Hono + SSE on :8787</span>
     <span class="pill"><b>Agents</b> · MCP stdio, six tools</span>
@@ -113,6 +114,12 @@
        of one task's full journey, and the six MCP tools.</p>
     <span class="read">read to understand the mechanics →</span>
   </a>
+  <a class="pcard" href="producer-flow.html">
+    <span class="pt">Producers: backlog → board → back <span class="mono">producer-flow.html</span></span>
+    <p>The intake side: ado-bridge claims Azure DevOps work items, an agent writes the spec with claude&nbsp;-p,
+       tasks queue on the board, and results flow back — comment, close, and (next) the PR. Any source can be a producer.</p>
+    <span class="read">read to see where tasks come from →</span>
+  </a>
   <a class="pcard" href="system-overview.html">
     <span class="pt">System overview <span class="mono">system-overview.html</span></span>
     <p>The full picture at scale: Azure DevOps backlogs feeding the board through per-workspace ado-bridge loops,
@@ -130,7 +137,7 @@
 <h2 class="sl">The loop, in one pass</h2>
 <div class="loop">
   <ol>
-    <li><span class="n h">1</span><span><b>Human creates &amp; queues a task</b> — title, spec, acceptance criteria, workspace (the repo it targets). Backlog is staging; only <span class="mono">queued</span> is claimable.</span></li>
+    <li><span class="n h">1</span><span><b>A task is created &amp; queued</b> — by a human on the board, or by a <b>producer agent</b> importing a backlog item and writing the spec (<a href="producer-flow.html">producers</a>). Title, spec, acceptance criteria, workspace; only <span class="mono">queued</span> is claimable.</span></li>
     <li><span class="n a">2</span><span><b>Agent claims over MCP</b> — <span class="mono">get_next_task</span>, FIFO within its pinned workspace. The payload carries the spec, prior feedback, pasted images, <span class="mono">repoPath</span> — and a <b>protocol block</b>: the server-named branch, the worktree path, and the exact finish steps. Claim-time data can't go stale.</span></li>
     <li><span class="n g">3</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide. Progress is narrated with <span class="mono">add_comment</span>, live on the board via SSE.</span></li>
     <li><span class="n g">4</span><span><b>Finish protocol</b> — commit → <span class="mono">git push -u origin</span> → remove the worktree. The pushed branch is the durable record.</span></li>
