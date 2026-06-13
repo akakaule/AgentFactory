@@ -21,9 +21,10 @@ interface Props {
   workspaces?: Workspace[];
   onMove?: (key: string, to: Status) => void;
   onAddTask?: () => void;
+  onArchiveAll?: () => void;
 }
 
-export function BoardView({ tasks, onSelect, showWorkspaceBadges, workspaces, onMove, onAddTask }: Props) {
+export function BoardView({ tasks, onSelect, showWorkspaceBadges, workspaces, onMove, onAddTask, onArchiveAll }: Props) {
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<Status | null>(null);
 
@@ -65,6 +66,7 @@ export function BoardView({ tasks, onSelect, showWorkspaceBadges, workspaces, on
             handleDragEnd();
           }}
           onAddTask={status === 'backlog' ? onAddTask : undefined}
+          onArchiveAll={status === 'done' ? onArchiveAll : undefined}
         />
       ))}
     </div>

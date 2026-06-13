@@ -10,6 +10,10 @@ import { nowIso } from '../time.js';
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
+  // archived tasks are immutable for state — without this, done → queued would reopen
+  // a task the board no longer shows
+  if (row.archived_at !== null)
+    throw new InvalidTransitionError(`an archived task cannot change status — unarchive it first: ${key}`);
   // a doc-stage review closes via the approve action (which advances the stage and
   // re-queues) — a raw status move to done would skip the stage machine entirely
   if (row.status === 'in_review' && status === 'done' && row.stage !== 'implementation')

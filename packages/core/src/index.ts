@@ -6,6 +6,7 @@ export { getVersion } from './version.js';
 export { createTask } from './ops/createTask.js';
 export { updateTask } from './ops/updateTask.js';
 export { deleteTask } from './ops/deleteTask.js';
+export { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
 export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
@@ -31,6 +32,7 @@ import { getVersion } from './version.js';
 import { createTask } from './ops/createTask.js';
 import { updateTask } from './ops/updateTask.js';
 import { deleteTask } from './ops/deleteTask.js';
+import { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
 import { listTasks } from './ops/listTasks.js';
 import { getTask } from './ops/getTask.js';
 import { claimNextTask, type ClaimOptions } from './ops/claimNextTask.js';
@@ -54,7 +56,10 @@ export function createCore(db: DB) {
     createTask: (input: CreateTaskInput) => createTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
     deleteTask: (key: string) => deleteTask(db, key),
-    listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined } = {}) => listTasks(db, opts),
+    archiveTask: (key: string) => archiveTask(db, key),
+    unarchiveTask: (key: string) => unarchiveTask(db, key),
+    archiveDoneTasks: (opts: { workspace?: string | undefined } = {}) => archiveDoneTasks(db, opts),
+    listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined; archived?: boolean | undefined } = {}) => listTasks(db, opts),
     getTask: (key: string) => getTask(db, key),
     claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),

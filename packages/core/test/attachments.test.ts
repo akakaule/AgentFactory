@@ -18,9 +18,9 @@ const PNG_B64 = Buffer.from(PNG_BYTES).toString('base64');
 const report = { filename: 'shot.png', mime: 'image/png', dataBase64: PNG_B64 };
 
 describe('migration #5', () => {
-  it('fresh DB → user_version 7 with the attachment table', () => {
+  it('fresh DB → user_version 8 with the attachment table', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
     expect(() => db.prepare('SELECT COUNT(*) n FROM attachment').get()).not.toThrow();
   });
 
@@ -36,9 +36,9 @@ describe('migration #5', () => {
     db.exec('COMMIT');
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
   });
 });
 

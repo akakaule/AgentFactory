@@ -39,6 +39,18 @@ describe('listTasks', () => {
     expect(backlog.map(t => t.key)).toEqual(['AF-1', 'AF-3']);
   });
 
+  it('excludes archived tasks by default and lists them with archived: true', () => {
+    const db = makeTestDb();
+    createTask(db, { title: 'Active', spec: 'S', acceptanceCriteria: 'A' });
+    createTask(db, { title: 'Archived', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status = 'done', archived_at = '2026-01-01T00:00:00.000Z' WHERE key = 'AF-2'").run();
+
+    expect(listTasks(db).map(t => t.key)).toEqual(['AF-1']);
+    const archived = listTasks(db, { archived: true });
+    expect(archived.map(t => t.key)).toEqual(['AF-2']);
+    expect(archived[0].archivedAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
   it('is read-only: updatedAt and activity count unchanged after call', () => {
     const db = makeTestDb();
     createTask(db, { title: 'T1', spec: 'S', acceptanceCriteria: 'A' });

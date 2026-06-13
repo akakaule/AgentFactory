@@ -117,7 +117,7 @@ describe('App', () => {
     vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
     const mkTask = (key: string, title: string, workspace: string) => ({
       id: Math.random(), key, title, status: 'backlog' as const, stage: 'implementation' as const, spec: 's', acceptanceCriteria: 'a',
-      resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null, aiReview: null,
+      resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null, archivedAt: null, aiReview: null,
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
     });
     vi.mocked(api.listTasks).mockResolvedValue([mkTask('AF-1', 'Default task', 'default'), mkTask('AF-2', 'Repo-a task', 'repo-a')]);

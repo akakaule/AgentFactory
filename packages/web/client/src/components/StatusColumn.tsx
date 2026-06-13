@@ -18,11 +18,12 @@ interface Props {
   onDragOver?: ((e: DragEvent) => void) | undefined;
   onDrop?: ((e: DragEvent) => void) | undefined;
   onAddTask?: (() => void) | undefined;
+  onArchiveAll?: (() => void) | undefined;
 }
 
 export function StatusColumn({
   status, tasks, onSelect, showWorkspaceBadges, workspaces = [],
-  dragOver, draggingKey, onDragStart, onDragEnd, onDragOver, onDrop, onAddTask,
+  dragOver, draggingKey, onDragStart, onDragEnd, onDragOver, onDrop, onAddTask, onArchiveAll,
 }: Props) {
   const hue = STATUS_COLORS[status];
   return (
@@ -54,6 +55,11 @@ export function StatusColumn({
         ))}
         {status === 'backlog' && onAddTask && (
           <button className="af-add" onClick={onAddTask}>{I.plus({})}Add task</button>
+        )}
+        {status === 'done' && onArchiveAll && tasks.length > 0 && (
+          <button className="af-add" onClick={onArchiveAll} title="Archive every Done task in the current workspace selection.">
+            {I.folder({})}Archive all
+          </button>
         )}
       </div>
     </section>

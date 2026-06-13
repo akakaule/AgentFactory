@@ -44,6 +44,7 @@ export interface Task {
   status: Status; stage: Stage; resultSummary: string | null; seq: number;
   workspace: string; // workspace slug
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
+  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   createdAt: string; updatedAt: string;
 }
