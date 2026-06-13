@@ -25,6 +25,8 @@ export { getAttachment } from './ops/getAttachment.js';
 export { deriveTaskMetrics, type DerivedTaskMetrics, type ActivityStep } from './metrics.js';
 export { createWorkspace } from './ops/createWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
+export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
+export { generateToken, hashToken } from './token.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -48,6 +50,7 @@ import { deleteAttachment } from './ops/deleteAttachment.js';
 import { getAttachment } from './ops/getAttachment.js';
 import { createWorkspace } from './ops/createWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
+import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
@@ -65,6 +68,9 @@ export function createCore(db: DB) {
     claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     listWorkspaces: () => listWorkspaces(db),
+    createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
+    createApiToken: (input: { label: string; userId?: number | null; isService?: boolean }) => createApiToken(db, input),
+    authenticateToken: (rawToken: string) => authenticateToken(db, rawToken),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null) => updateStatus(db, key, status, actor, nowIso, actorUserId),

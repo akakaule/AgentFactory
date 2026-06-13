@@ -14,7 +14,8 @@
     "web:dev": "npm -w packages/web run dev",
     "web:dev:server": "tsx packages/web/server/index.ts",
     "dispatcher": "node packages/dispatcher/dist/index.js",
-    "dispatcher:dev": "tsx packages/dispatcher/src/index.ts"
+    "dispatcher:dev": "tsx packages/dispatcher/src/index.ts",
+    "token": "tsx packages/web/server/mintToken.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
