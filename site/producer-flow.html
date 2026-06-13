@@ -164,10 +164,11 @@ Run-AdoBridgeLoop -Init        # scaffold + register workspace
 Run-AdoBridgeLoop -StorePat    # PAT → Credential Manager
 Run-AdoBridgeLoop -DryRun      # sanity check, mutates nothing
 
-# daily use — two terminals:
-Run-AdoBridgeLoop              # A: the producer
-Run-AgentFactoryLoop           # B: the consumer
-# (or run AgentFactory's dispatcher as the consumer:
+# daily use — the three ado-bridge loops:
+Run-AdoBridgeLoop                  # A: producer
+Run-AgentFactoryLoop               # B: consumer
+Run-ReviewerLoop -Reviewer claude  # C: reviewer (or codex)
+# (or AgentFactory's dispatcher as the consumer:
 #  one fresh headless session per task)</div>
       <div class="inv"><i>🎚️</i><span><b>Process templates are config.</b> Agile (<code>New → Active → Resolved → Closed</code>) out of the box; Scrum or custom flows are a few state names in <code>ado-bridge.config.json</code>. <code>requiredTag</code> makes import opt-in per item (e.g. <code>#ai-agent</code>).</span></div>
     </div>
@@ -233,7 +234,7 @@ const STEPS = [
     comps:["p-bridge","p-ado","p-board"] },
 
   { actor:"h", who:"You · the board", title:"Human checkpoint",
-    desc:"You review the diff on the board — the branch is already on origin, so CI may already be running, and an <b>AI first-pass verdict</b> (<code>ai-review/v1</code>) may already sit on the card. <b>Approve</b> → done. <b>Request changes</b> → re-queued with your curated feedback; the next claim continues on the same branch. You open the PR from the pushed branch (automating this is the next outbound step).",
+    desc:"You review the diff on the board — the branch is already on origin, so CI may already be running, and an <b>AI first-pass verdict</b> (<code>ai-review/v1</code>) posted by <code>Run-ReviewerLoop</code> — the third ado-bridge loop — may already sit on the card. <b>Approve</b> → done. <b>Request changes</b> → re-queued with your curated feedback; the next claim continues on the same branch. You open the PR from the pushed branch (automating this is the next outbound step).",
     cfg:"AF-12 · In Review · AI review: 2 findings\n  diff: feature/AF-12-… vs main · 19 files +724/−20\n  [ Approve ]   [ Request changes… ]",
     log:"AF-12: in_review → done ✓",
     comps:["p-board"] },
