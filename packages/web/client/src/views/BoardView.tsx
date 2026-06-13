@@ -28,7 +28,10 @@ export function BoardView({ tasks, onSelect, showWorkspaceBadges, workspaces, on
   const [dragOverCol, setDragOverCol] = useState<Status | null>(null);
 
   const dragged = draggingKey ? tasks.find((t) => t.key === draggingKey) : undefined;
-  const canDrop = (to: Status) => !!dragged && HUMAN_MOVES[dragged.status].includes(to);
+  // doc stages close via Approve (which advances the stage) — dragging to Done would
+  // skip the stage machine; core rejects it too, this just avoids the dead drop zone
+  const canDrop = (to: Status) =>
+    !!dragged && HUMAN_MOVES[dragged.status].includes(to) && (to !== 'done' || dragged.stage === 'implementation');
 
   const handleDragStart = (e: DragEvent, key: string) => {
     setDraggingKey(key);

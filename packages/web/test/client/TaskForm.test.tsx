@@ -15,21 +15,43 @@ const pasteImage = (target: Element, filename = 'shot.png') =>
   });
 
 describe('TaskForm (create mode)', () => {
-  it('calls onSubmit with the filled fields', async () => {
+  it('defaults to the full pipeline: AC optional, stage description submitted', async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
     render(<TaskForm mode="create" onSubmit={onSubmit} />);
 
     await user.type(screen.getByPlaceholderText('Task title'), 'My new task');
     await user.type(screen.getByPlaceholderText('Describe the task…'), 'Do something cool');
-    await user.type(screen.getByPlaceholderText('Define done…'), 'It works');
 
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       title: 'My new task',
       spec: 'Do something cool',
+      stage: 'description',
+    }, [], []);
+  });
+
+  it('implementation-only requires acceptance criteria and submits stage implementation', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(<TaskForm mode="create" onSubmit={onSubmit} />);
+
+    await user.selectOptions(screen.getByLabelText('Workflow'), 'implementation');
+    await user.type(screen.getByPlaceholderText('Task title'), 'My new task');
+    await user.type(screen.getByPlaceholderText('Describe the task…'), 'Do something cool');
+
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(onSubmit).not.toHaveBeenCalled(); // AC required outside the pipeline
+
+    await user.type(screen.getByPlaceholderText('Define done…'), 'It works');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      title: 'My new task',
+      spec: 'Do something cool',
       acceptanceCriteria: 'It works',
+      stage: 'implementation',
     }, [], []);
   });
 
@@ -41,7 +63,7 @@ describe('TaskForm (create mode)', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText('All fields are required.')).toBeInTheDocument();
+    expect(screen.getByText('Title and spec are required.')).toBeInTheDocument();
   });
 
   it('does not call onSubmit when only some fields are filled', async () => {
@@ -77,7 +99,6 @@ describe('TaskForm image paste', () => {
 
     await user.type(screen.getByPlaceholderText('Task title'), 'T');
     await user.type(screen.getByPlaceholderText('Describe the task…'), 'S');
-    await user.type(screen.getByPlaceholderText('Define done…'), 'A');
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(onSubmit).toHaveBeenCalledWith(
@@ -131,7 +152,6 @@ describe('TaskForm workspace picker', () => {
     await user.selectOptions(screen.getByLabelText('Workspace'), 'repo-a');
     await user.type(screen.getByPlaceholderText('Task title'), 'T');
     await user.type(screen.getByPlaceholderText('Describe the task…'), 'S');
-    await user.type(screen.getByPlaceholderText('Define done…'), 'A');
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'repo-a' }), [], []);

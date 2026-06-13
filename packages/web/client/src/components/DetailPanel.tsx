@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, type ReactElement } from 'react';
 import type { TaskDetail, Activity, LinkKind } from '../types.js';
-import { STATUS_LABELS, STATUS_COLORS } from '../status.js';
+import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { api, attachmentUrl } from '../api.js';
 import { timeAgo, shortTime } from '../time.js';
 import { useEventStream } from '../useEventStream.js';
@@ -87,6 +87,13 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               <span className="af-pill" style={{ color: hue, background: `color-mix(in srgb, ${hue} 16%, transparent)` }}>
                 <span className="d" style={{ background: hue }}></span>{STATUS_LABELS[task.status]}
               </span>
+              <span
+                className="af-pill"
+                style={{ marginLeft: 6, color: STAGE_COLORS[task.stage], background: `color-mix(in srgb, ${STAGE_COLORS[task.stage]} 16%, transparent)` }}
+                title="Pipeline stage: description → plan → implementation"
+              >
+                <span className="d" style={{ background: STAGE_COLORS[task.stage] }}></span>{STAGE_LABELS[task.stage]}
+              </span>
               <h2 className="af-d-title">{task.title}</h2>
 
               <div className="af-d-tags">
@@ -137,6 +144,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               {task.status === 'in_review' && (
                 <ReviewActions
                   aiReview={task.aiReview ?? undefined}
+                  stage={task.stage}
                   onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
                   onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
                 />
@@ -173,6 +181,11 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
 
               <div className="af-sl">Acceptance criteria</div>
               <div className="af-d-body">{task.acceptanceCriteria}</div>
+
+              {task.plan && (<>
+                <div className="af-sl">Plan</div>
+                <div className="af-d-body">{task.plan}</div>
+              </>)}
 
               {task.resultSummary && (<>
                 <div className="af-sl">Result summary</div>

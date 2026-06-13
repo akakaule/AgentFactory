@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCliMetrics, hasMetrics } from '../src/metrics.js';
+import { parseCliMetrics, hasMetrics, parsePermissionDenials } from '../src/metrics.js';
 
 describe('parseCliMetrics', () => {
   it('reads cost, tokens, model, and duration from a result envelope', () => {
@@ -52,5 +52,26 @@ describe('parseCliMetrics', () => {
     expect(hasMetrics({ durationMs: 10 })).toBe(false); // duration alone is not a billable metric
     expect(hasMetrics({ costUsd: 0.1 })).toBe(true);
     expect(hasMetrics({ tokensOut: 5 })).toBe(true);
+  });
+});
+
+describe('parsePermissionDenials', () => {
+  it('reads denied tool names from the result envelope', () => {
+    const stdout = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      permission_denials: [
+        { tool_name: 'mcp__agentfactory__get_next_task', tool_use_id: 'toolu_01x', tool_input: {} },
+        { tool_name: 'Bash', tool_use_id: 'toolu_02x', tool_input: {} },
+      ],
+    });
+    expect(parsePermissionDenials(stdout)).toEqual(['mcp__agentfactory__get_next_task', 'Bash']);
+  });
+
+  it('returns [] when there are no denials, the field is missing, or output is unparseable', () => {
+    expect(parsePermissionDenials(JSON.stringify({ type: 'result', permission_denials: [] }))).toEqual([]);
+    expect(parsePermissionDenials(JSON.stringify({ type: 'result' }))).toEqual([]);
+    expect(parsePermissionDenials('not json')).toEqual([]);
+    expect(parsePermissionDenials('')).toEqual([]);
   });
 });

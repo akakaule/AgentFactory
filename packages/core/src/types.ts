@@ -1,5 +1,13 @@
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
+
+/**
+ * Pipeline stage. A task walks the stages in STAGE_ORDER, cycling through the
+ * statuses once per stage; approving an in-review doc stage (description/plan)
+ * advances the stage and re-queues, approving implementation closes the task.
+ */
+export type Stage = 'description' | 'plan' | 'implementation';
+export const STAGE_ORDER: readonly Stage[] = ['description', 'plan', 'implementation'];
 export type ActivityType = 'status_change' | 'comment' | 'result' | 'feedback';
 export type LinkKind = 'branch' | 'pr' | 'worktree' | 'log' | 'url';
 
@@ -33,7 +41,7 @@ export interface AiReviewSummary {
 
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
-  status: Status; resultSummary: string | null; seq: number;
+  status: Status; stage: Stage; resultSummary: string | null; seq: number;
   workspace: string; // workspace slug
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
@@ -56,15 +64,28 @@ export interface TaskMetricsView {
 export interface TaskDetail extends Task {
   activity: Activity[]; links: Link[]; attachments: Attachment[];
   repoPath: string;
-  branch: string | null; // server-named feature branch, set on first claim; null before then
+  branch: string | null; // server-named feature branch, set on the first implementation-stage claim; null before then
+  plan: string | null; // the plan stage's deliverable; null until that stage submits
   metrics: TaskMetricsView;
 }
 
-export interface CreateTaskInput { title: string; spec: string; acceptanceCriteria: string; workspace?: string | undefined; }
+export interface CreateTaskInput {
+  title: string; spec: string;
+  acceptanceCriteria?: string | undefined; // required unless stage is 'description' (that stage writes them)
+  stage?: Stage | undefined; // default 'implementation' — clients opt into the pipeline explicitly
+  workspace?: string | undefined;
+}
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
-export interface SubmitResultInput { summary: string; links?: LinkInput[]; }
+export interface SubmitResultInput {
+  summary: string;
+  links?: LinkInput[];
+  // stage deliverables — required/forbidden per the task's stage (see ops/submitResult.ts):
+  spec?: string | undefined;               // description stage: the rewritten feature description
+  acceptanceCriteria?: string | undefined; // description stage: verifiable acceptance criteria
+  plan?: string | undefined;               // plan stage: the implementation plan
+}
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;
 }

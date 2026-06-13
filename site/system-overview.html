@@ -52,7 +52,7 @@
 <body>
 <header class="page">
   <h1>AgentFactory <span>· system overview</span></h1>
-  <p>Azure DevOps backlogs feed the board through per-workspace <a href="producer-flow.html" style="color:var(--accent-2);text-decoration:none"><b>ado-bridge</b></a> loops; pinned agents claim over MCP, work in
+  <p>Azure DevOps backlogs feed the board through per-workspace <a href="producer-flow.html" style="color:var(--accent-2);text-decoration:none"><b>ado-bridge</b></a> loops — <span class="mono" style="color:var(--accent-2)">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono" style="color:var(--accent-2)">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono" style="color:var(--accent-2)">Run-ReviewerLoop.ps1</span> posts the AI first-pass verdict; pinned agents claim over MCP, work in
      isolated worktrees inside each workspace's git repo, and push <span class="mono" style="color:var(--accent-2)">feature/&lt;key&gt;-&lt;title&gt;</span> branches
      back to origin. The board is the human checkpoint — and the only shared state is one SQLite file.</p>
 </header>
@@ -192,6 +192,16 @@
   <text x="1146" y="548" font-size="11" fill="#97A5BE">same MCP tools — any</text>
   <text x="1146" y="564" font-size="11" fill="#97A5BE">runtime can be a worker</text>
 
+  <!-- reviewer loop (third ado-bridge runner) -->
+  <rect x="1130" y="608" width="200" height="124" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1130" y="608" width="200" height="3" rx="2" fill="#F59E0B"/>
+  <circle cx="1148" cy="636" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="1.9s" repeatCount="indefinite"/></circle>
+  <text x="1160" y="640" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">reviewer loop</text>
+  <text x="1146" y="660" class="mono" font-size="10.5" fill="#64748B">Run-ReviewerLoop.ps1</text>
+  <text x="1146" y="676" class="mono" font-size="10.5" fill="#64748B">-Reviewer claude | codex</text>
+  <text x="1146" y="700" font-size="11" fill="#97A5BE">reads in_review diffs, posts</text>
+  <text x="1146" y="716" class="mono" font-size="10.5" fill="#A78BFA">ai-review/v1 → chip + findings</text>
+
   <!-- ════════════ REPOS ════════════ -->
   <rect x="1370" y="56" width="166" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
   <rect x="1370" y="56" width="166" height="3" rx="2" fill="#4ADE80"/>
@@ -248,6 +258,8 @@
   <path d="M1128 356 C1094 364 1098 632 1044 638" stroke="#F59E0B" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ma)"/>
   <path d="M1044 654 C1098 654 1094 504 1128 500" stroke="#F59E0B" stroke-width="2" fill="none" marker-end="url(#ma)"/>
   <path d="M1128 530 C1096 536 1100 664 1044 670" stroke="#F59E0B" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ma)"/>
+  <!-- reviewer loop <-> board (reads in_review diff, posts ai-review/v1) -->
+  <path d="M1044 684 C1088 688 1100 686 1128 686" stroke="#A78BFA" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#mr)"/>
 
   <!-- 5: agents -> repos -->
   <path d="M1330 140 H1368" stroke="#4ADE80" stroke-width="2" fill="none" marker-end="url(#mg)"/>
@@ -285,7 +297,8 @@
     </ol>
   </div>
   <div class="loops">
-    <h2>Rescue loops &amp; invariants</h2>
+    <h2>Loops &amp; invariants</h2>
+    <div class="lp"><i>⟳</i><span><b>Three ado-bridge loops, one per role</b> — <span class="mono">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono">Run-ReviewerLoop.ps1 -Reviewer claude|codex</span> posts <span class="mono">ai-review/v1</span>. Stateless minute-cadence siblings; each repo runs its own set.</span></div>
     <div class="lp"><i>↩</i><span><b>Request changes</b> — <span class="mono">in_review → queued</span> with feedback; the next claim continues on the <em>same</em> branch, so pushes update the same PR.</span></div>
     <div class="lp"><i>↩</i><span><b>Reopen</b> — <span class="mono">done → queued</span> when the PR build fails; paste the CI log as a comment first. Same branch, same PR.</span></div>
     <div class="lp"><i>⚑</i><span><b>Release claim</b> — a dead worker's <span class="mono">in_progress</span> task is re-queued by the human; full history survives for the next claimant.</span></div>

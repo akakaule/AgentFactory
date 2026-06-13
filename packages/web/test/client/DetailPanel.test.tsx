@@ -44,6 +44,8 @@ const backlogTask: TaskDetail = {
   key: 'AF-10',
   title: 'My backlog task',
   status: 'backlog',
+  stage: 'implementation',
+  plan: null,
   spec: 'This is the spec',
   acceptanceCriteria: 'These are the acceptance criteria',
   resultSummary: null,

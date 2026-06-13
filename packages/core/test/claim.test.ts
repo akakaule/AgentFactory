@@ -24,9 +24,9 @@ const claimRow = (db: DB, key: string) =>
     { claimed_by: string | null; claimed_at: string | null };
 
 describe('migration #3: claim columns', () => {
-  it('fresh DB → user_version 6, claim columns present and NULL', () => {
+  it('fresh DB → user_version 7, claim columns present and NULL', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
     const key = seedQueued(db);
     expect(claimRow(db, key)).toEqual({ claimed_by: null, claimed_at: null });
   });
@@ -46,7 +46,7 @@ describe('migration #3: claim columns', () => {
     ).run();
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
     expect(claimRow(db, 'AF-1')).toEqual({ claimed_by: null, claimed_at: null });
   });
 });
@@ -111,6 +111,33 @@ describe('branch assignment', () => {
     const reclaimed = claimNextTask(db, { claimedBy: 'worker-2' });
     expect(reclaimed!.branch).toBe(original); // stable under the title edit
     expect(reclaimed!.branchCreated).toBe(false);
+  });
+
+  it('doc-stage claims never name a branch: branch stays NULL, branchCreated=false', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'Pipeline task', spec: 'Raw idea', stage: 'description' });
+    updateStatus(db, t.key, 'queued', 'human');
+
+    const claimed = claimNextTask(db, { claimedBy: 'worker-1' });
+    expect(claimed!.stage).toBe('description');
+    expect(claimed!.branch).toBeNull();
+    expect(claimed!.branchCreated).toBe(false);
+    expect(db.prepare('SELECT branch FROM task WHERE key = ?').get(t.key)).toMatchObject({ branch: null });
+  });
+
+  it('the branch is named at the first implementation-stage claim, from the post-description title', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'Raw working title', spec: 'S', stage: 'description' });
+    updateStatus(db, t.key, 'queued', 'human');
+    claimNextTask(db, { claimedBy: 'worker-1' });
+
+    // simulate the doc stages completing: title refined, stage advanced, re-queued
+    db.prepare("UPDATE task SET title = ?, stage = 'implementation', status = 'queued' WHERE key = ?")
+      .run('Refined feature title', t.key);
+
+    const claimed = claimNextTask(db, { claimedBy: 'worker-2' });
+    expect(claimed!.branch).toBe(featureBranch(t.key, 'Refined feature title'));
+    expect(claimed!.branchCreated).toBe(true);
   });
 
   it('a legacy task (branch left NULL) gets a fresh branch and branchCreated=true on its next claim', () => {

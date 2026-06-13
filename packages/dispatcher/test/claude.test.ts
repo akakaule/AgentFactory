@@ -56,6 +56,15 @@ describe('buildWorkerPrompt', () => {
     expect(p).toContain('submit_result');
     expect(p.toLowerCase()).toContain('exit');
   });
+
+  it('carries per-stage instructions keyed off protocol.stage', () => {
+    const p = buildWorkerPrompt();
+    expect(p).toContain('protocol.stage');
+    expect(p).toContain('stage is description');
+    expect(p).toContain('stage is plan');
+    expect(p).toContain('stage is implementation');
+    expect(p).toContain('acceptanceCriteria');
+  });
 });
 
 describe('buildMcpConfig', () => {
@@ -87,6 +96,16 @@ describe('buildSpawnArgs', () => {
     expect(args[args.indexOf('--mcp-config') + 1]).toBe('/logs/AF-1-attempt-1.mcp.json');
     // extra args land at the end
     expect(args[args.length - 1]).toBe('--extra');
+  });
+
+  it('pre-allows the agentfactory MCP server (headless sessions cannot answer permission prompts)', () => {
+    const args = buildSpawnArgs({
+      prompt: 'PROMPT',
+      permissionMode: 'acceptEdits',
+      mcpConfigPath: '/logs/AF-1-attempt-1.mcp.json',
+      claudeArgs: [],
+    });
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe('mcp__agentfactory');
   });
 
   it('keeps the prompt a single quote-free line (survives the Windows cmd.exe spawn path)', () => {

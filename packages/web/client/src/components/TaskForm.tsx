@@ -1,12 +1,13 @@
 import { useState, type ClipboardEvent } from 'react';
-import type { Task, Attachment } from '../types.js';
+import type { Task, Attachment, Stage } from '../types.js';
 import { attachmentUrl } from '../api.js';
 import { downscalePastedImage } from '../image.js';
 
 interface FormFields {
   title: string;
   spec: string;
-  acceptanceCriteria: string;
+  acceptanceCriteria?: string; // omitted when the description stage writes them
+  stage?: Stage;
   workspace?: string;
 }
 
@@ -26,11 +27,14 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
   const [spec, setSpec] = useState(initial?.spec ?? '');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState(initial?.acceptanceCriteria ?? '');
   const [workspace, setWorkspace] = useState(initialWorkspace ?? workspaces?.[0] ?? 'default');
+  // full pipeline by default: an agent writes the description + plan before any code
+  const [stage, setStage] = useState<Stage>('description');
   const [images, setImages] = useState<PendingImage[]>([]);
   const [removedIds, setRemovedIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const showWorkspacePicker = mode === 'create' && (workspaces?.length ?? 0) > 1;
+  const pipeline = mode === 'create' && stage === 'description'; // AC optional — that stage writes them
   const existing = (initial?.attachments ?? []).filter((a) => !removedIds.includes(a.id));
 
   const handlePaste = (e: ClipboardEvent) => {
@@ -54,24 +58,36 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
     const t = title.trim();
     const s = spec.trim();
     const ac = acceptanceCriteria.trim();
-    if (!t || !s || !ac) {
-      setError('All fields are required.');
+    if (!t || !s || (!ac && !pipeline)) {
+      setError(pipeline ? 'Title and spec are required.' : 'All fields are required.');
       return;
     }
     setError(null);
-    onSubmit(
-      showWorkspacePicker
-        ? { title: t, spec: s, acceptanceCriteria: ac, workspace }
-        : { title: t, spec: s, acceptanceCriteria: ac },
-      images,
-      removedIds,
-    );
+    const fields: FormFields = { title: t, spec: s };
+    if (ac) fields.acceptanceCriteria = ac;
+    if (mode === 'create') fields.stage = stage;
+    if (showWorkspacePicker) fields.workspace = workspace;
+    onSubmit(fields, images, removedIds);
   };
 
   return (
     <div style={{ padding: '16px' }} onPaste={handlePaste}>
       <h3 style={{ marginTop: 0 }}>{mode === 'create' ? 'New Task' : 'Edit Task'}</h3>
       {error && <div className="af-err" style={{ marginBottom: '8px' }}>{error}</div>}
+      {mode === 'create' && (
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Workflow</label>
+          <select
+            aria-label="Workflow"
+            value={stage}
+            onChange={(e) => setStage(e.target.value as Stage)}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px' }}
+          >
+            <option value="description">Full pipeline — describe → plan → implement</option>
+            <option value="implementation">Implementation only — skip the doc stages</option>
+          </select>
+        </div>
+      )}
       {showWorkspacePicker && (
         <div style={{ marginBottom: '12px' }}>
           <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Workspace</label>
@@ -125,13 +141,15 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
         <div className="af-paste-hint">Paste images to attach — they reach the agent with the spec.</div>
       </div>
       <div style={{ marginBottom: '12px' }}>
-        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Acceptance Criteria</label>
+        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+          Acceptance Criteria{pipeline ? ' (optional)' : ''}
+        </label>
         <textarea
           value={acceptanceCriteria}
           onChange={(e) => setAcceptanceCriteria(e.target.value)}
           rows={3}
           style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', resize: 'vertical' }}
-          placeholder="Define done…"
+          placeholder={pipeline ? 'Optional — the description stage writes these…' : 'Define done…'}
         />
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>

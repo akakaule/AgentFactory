@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { openCore, type Core } from '@agentfactory/core';
+import { openCore, type Core, type Stage } from '@agentfactory/core';
 import type { DispatcherConfig } from '../src/config.js';
 import type { DispatcherDeps, LogWriter, SpawnFn, SpawnRequest } from '../src/types.js';
 
@@ -89,6 +89,13 @@ export function makeCore(workspace = 'ws', repoPath = '/repo/ws'): Core {
 /** Create a task and move it to queued; returns its key. */
 export function seedQueued(core: Core, workspace: string, title: string): string {
   const t = core.createTask({ title, spec: 'spec', acceptanceCriteria: 'criteria', workspace });
+  core.updateStatus(t.key, 'queued', 'human');
+  return t.key;
+}
+
+/** Create a queued task pinned to a specific pipeline stage; returns its key. */
+export function seedQueuedStage(core: Core, workspace: string, title: string, stage: Stage): string {
+  const t = core.createTask({ title, spec: 'spec', acceptanceCriteria: 'criteria', workspace, stage });
   core.updateStatus(t.key, 'queued', 'human');
   return t.key;
 }

@@ -10,6 +10,7 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     key,
     title,
     status,
+    stage: 'implementation',
     spec: 'spec',
     acceptanceCriteria: 'ac',
     resultSummary: null,
@@ -37,6 +38,17 @@ describe('BoardView', () => {
     };
     render(<BoardView tasks={[claimed]} onSelect={vi.fn()} />);
     expect(screen.getByText('feature/AF-7-barcode-scanner-intake-form')).toBeInTheDocument();
+  });
+
+  it('doc-stage claimed cards show the stage chip but never a branch chip', () => {
+    const claimed = {
+      ...makeTask('AF-7', 'Barcode scanner intake form', 'in_progress'),
+      stage: 'description' as const,
+      claimedBy: 'worker-1', claimedAt: '2024-01-01T00:00:00Z',
+    };
+    render(<BoardView tasks={[claimed]} onSelect={vi.fn()} />);
+    expect(screen.getByText('Describe')).toBeInTheDocument();
+    expect(screen.queryByText('feature/AF-7-barcode-scanner-intake-form')).not.toBeInTheDocument();
   });
 
   it('shows the AI-review findings chip on an in_review card', () => {

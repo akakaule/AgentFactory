@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AiReviewSummary } from '../types.js';
+import type { AiReviewSummary, Stage } from '../types.js';
 import { composeFeedback } from '../composeFeedback.js';
 import { I } from '../icons.js';
 
@@ -7,9 +7,17 @@ interface Props {
   onApprove: () => void;
   onRequestChanges: (feedback: string) => void;
   aiReview?: AiReviewSummary | undefined; // latest AI-review verdict; drives the checklist + break-glass
+  stage?: Stage | undefined; // approving a doc stage advances + re-queues — the label says so
 }
 
-export function ReviewActions({ onApprove, onRequestChanges, aiReview }: Props) {
+// what the approve click actually does, per stage — doc stages advance, impl closes
+const APPROVE_LABELS: Record<Stage, string> = {
+  description: 'Approve → plan stage',
+  plan: 'Approve → implementation',
+  implementation: 'Approve',
+};
+
+export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage }: Props) {
   const items = aiReview?.items ?? [];
   const reviewer = aiReview?.reviewer ?? null;
   const reviewPresent = items.length > 0;
@@ -89,7 +97,7 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview }: Props) 
           style={{ height: 30 }}
           onClick={handleApprove}
         >
-          {I.check({ width: 14, height: 14 })}{armed ? `Override — approve anyway (${aiReview!.findings})` : 'Approve'}
+          {I.check({ width: 14, height: 14 })}{armed ? `Override — approve anyway (${aiReview!.findings})` : APPROVE_LABELS[stage ?? 'implementation']}
         </button>
         {!composing && (
           <button className="af-mini" onClick={() => setComposing(true)}>

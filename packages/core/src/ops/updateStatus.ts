@@ -4,12 +4,16 @@ import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
-import { NotFoundError } from '../errors.js';
+import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
+  // a doc-stage review closes via the approve action (which advances the stage and
+  // re-queues) — a raw status move to done would skip the stage machine entirely
+  if (row.status === 'in_review' && status === 'done' && row.stage !== 'implementation')
+    throw new InvalidTransitionError(`a ${row.stage}-stage review is approved via the approve action, not a status move`);
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
     const ts = now();

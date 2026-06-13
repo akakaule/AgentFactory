@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, UpdateTaskInput, AiReviewSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, UpdateTaskInput, AiReviewSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, latestAiReviewComments, latestResultIds } from './activity.js';
 import { linksFor } from './links.js';
@@ -11,9 +11,9 @@ import { nowIso } from '../time.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
-  status: Status; result_summary: string | null; seq: number; created_at: string; updated_at: string;
+  status: Status; stage: Stage; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
-  claimed_by: string | null; claimed_at: string | null; branch: string | null;
+  claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
@@ -26,7 +26,7 @@ const SELECT_TASK =
 export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
-    status: r.status, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
+    status: r.status, stage: r.stage, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
     claimedBy: r.claimed_by, claimedAt: r.claimed_at, aiReview: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
@@ -65,6 +65,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
     repoPath: r.workspace_repo_path,
     branch: r.branch,
+    plan: r.plan,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
     attachments: attachmentsMeta(db, r.id),
@@ -90,6 +91,12 @@ export function setStatus(db: DB, id: number, status: Status, ts: string): void 
   } else {
     db.prepare('UPDATE task SET status = ?, updated_at = ? WHERE id = ?').run(status, ts, id);
   }
+}
+export function setStage(db: DB, id: number, stage: Stage, ts: string): void {
+  db.prepare('UPDATE task SET stage = ?, updated_at = ? WHERE id = ?').run(stage, ts, id);
+}
+export function setPlan(db: DB, id: number, plan: string, ts: string): void {
+  db.prepare('UPDATE task SET plan = ?, updated_at = ? WHERE id = ?').run(plan, ts, id);
 }
 export function setResultSummary(db: DB, id: number, summary: string, ts: string): void {
   db.prepare('UPDATE task SET result_summary = ?, updated_at = ? WHERE id = ?').run(summary, ts, id);

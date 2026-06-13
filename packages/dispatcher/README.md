@@ -43,11 +43,43 @@ sessions are killed.
 | `maxConcurrent` | `1` | Max concurrent sessions **per workspace**. Same-repo parallelism is opt-in — shared local resources (test DBs, ports) make 1 the safe default. |
 | `pollSeconds` | `15` | Queue poll interval. |
 | `permissionMode` | `acceptEdits` | `claude --permission-mode` for unattended sessions. `bypassPermissions` is supported but for contained environments only. |
-| `claudeArgs` | `[]` | Extra args appended to every `claude` invocation. |
+| `claudeArgs` | `[]` | Extra args appended to **every** `claude` invocation, regardless of stage. |
+| `stageArgs` | — (optional) | Per-stage extra args — see [Per-stage model selection](#per-stage-model-selection). |
 | `maxSessionMinutes` | `60` | Hard wall-clock cap; the supervisor kills a session that exceeds it (counts as an attempt). |
 | `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left queued for a human. |
 
 See [`dispatcher.config.example.json`](./dispatcher.config.example.json).
+
+### Per-stage model selection
+
+A task walks three pipeline stages — `description` (write the spec + acceptance
+criteria), `plan` (write the implementation plan, read-only), and `implementation`
+(write the code). The first two are cheap prose; the third is the expensive, careful
+work. `stageArgs` lets you hand each stage a different `claude` invocation — most
+usefully a different `--model`:
+
+```json
+{
+  "db": "./agentfactory.db",
+  "workspaces": ["agentfactory"],
+  "claudeArgs": ["--model", "sonnet"],
+  "stageArgs": {
+    "description": ["--model", "haiku"],
+    "plan":        ["--model", "haiku"],
+    "implementation": ["--model", "opus"]
+  }
+}
+```
+
+Resolution per session is `[...claudeArgs, ...stageArgs[stage]]` — the global
+`claudeArgs` first, then the stage's args. Because they come **last**, a per-stage
+`--model` overrides the global one (the `claude` CLI takes the last value of a
+repeated flag). Any stage you leave out of `stageArgs` simply runs with `claudeArgs`.
+
+The example above runs the two write-up stages on Haiku, the build stage on Opus, and
+anything unspecified on Sonnet. `stageArgs` is wholly optional; omit it and every
+stage runs identically (the original behaviour). Only the three stage keys above are
+accepted — any other key is rejected at config load.
 
 ## Permissions
 

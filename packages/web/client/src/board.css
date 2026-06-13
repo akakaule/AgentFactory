@@ -96,9 +96,12 @@
 .af-mini.danger { color: var(--st-blocked); border-color: color-mix(in srgb, var(--st-blocked) 40%, var(--line)); }
 
 /* ============================== BOARD ============================== */
-.af-board { flex: 1; display: flex; gap: 14px; padding: 16px 18px 18px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
+.af-board {
+  flex: 1; display: grid; grid-template-columns: repeat(6, minmax(var(--col-min-w), var(--col-w)));
+  gap: 14px; padding: 16px 18px 18px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+}
 .af-col {
-  width: var(--col-w); flex: none; display: flex; flex-direction: column; min-height: 0;
+  width: 100%; min-width: var(--col-min-w); display: flex; flex-direction: column; min-height: 0;
   background: var(--panel); border: 1px solid var(--line-soft); border-radius: 14px;
   transition: border-color .15s, background .15s;
 }
@@ -108,7 +111,7 @@
 .af-col-dot { width: 9px; height: 9px; border-radius: 99px; flex: none; }
 .af-col-name { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13.5px; color: var(--ink); letter-spacing: .01em; white-space: nowrap; }
 .af-col-count { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); background: var(--bg-deep); padding: 1px 8px; border-radius: 99px; min-width: 22px; text-align: center; flex: none; margin-left: auto; }
-.af-col-body { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: var(--card-gap); padding: 2px 10px 10px; }
+.af-col-body { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: var(--card-gap); padding: 2px 10px 10px; }
 .af-col-empty { color: var(--ink-3); font-size: 12px; text-align: center; padding: 18px 8px; border: 1px dashed var(--line); border-radius: 10px; }
 .af-add {
   flex: none; display: flex; align-items: center; gap: 7px; width: 100%;

@@ -29,6 +29,7 @@
   --r-pill: 999px;
 
   --col-w: 312px;
+  --col-min-w: 280px;
   --card-pad: 14px;
   --card-gap: 10px;
 }

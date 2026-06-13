@@ -158,6 +158,28 @@ describe('updateStatus', () => {
     expect(row.status).toBe('in_review');
   });
 
+  // ── Doc stages cannot be closed by a status move ──────────────────────────
+
+  it('human in_review → done is blocked for doc stages (approval owns the stage machine)', () => {
+    for (const stage of ['description', 'plan'] as const) {
+      const db = makeTestDb();
+      const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage });
+      db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+
+      expect(() => updateStatus(db, task.key, 'done', 'human', fixedNow)).toThrow(InvalidTransitionError);
+      expect(findRowByKey(db, task.key)!.status).toBe('in_review');
+    }
+  });
+
+  it('human in_review → done stays allowed for the implementation stage', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+
+    const detail = updateStatus(db, task.key, 'done', 'human', fixedNow);
+    expect(detail.status).toBe('done');
+  });
+
   // ── Unknown key ───────────────────────────────────────────────────────────
 
   it('unknown key → NotFoundError', () => {

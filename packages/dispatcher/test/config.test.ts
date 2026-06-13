@@ -33,6 +33,36 @@ describe('config', () => {
     expect(cfg.maxAttempts).toBe(4);
   });
 
+  it('defaults stageArgs to undefined (no per-stage overrides)', () => {
+    const cfg = parseConfig({ db: 'x', workspaces: ['a'] });
+    expect(cfg.stageArgs).toBeUndefined();
+  });
+
+  it('accepts per-stage claude args keyed by pipeline stage', () => {
+    const cfg = parseConfig({
+      db: 'x',
+      workspaces: ['a'],
+      stageArgs: {
+        description: ['--model', 'haiku'],
+        plan: ['--model', 'sonnet'],
+        implementation: ['--model', 'opus'],
+      },
+    });
+    expect(cfg.stageArgs?.description).toEqual(['--model', 'haiku']);
+    expect(cfg.stageArgs?.plan).toEqual(['--model', 'sonnet']);
+    expect(cfg.stageArgs?.implementation).toEqual(['--model', 'opus']);
+  });
+
+  it('accepts a partial stageArgs map (only the stages you want to tier)', () => {
+    const cfg = parseConfig({ db: 'x', workspaces: ['a'], stageArgs: { implementation: ['--model', 'opus'] } });
+    expect(cfg.stageArgs?.implementation).toEqual(['--model', 'opus']);
+    expect(cfg.stageArgs?.description).toBeUndefined();
+  });
+
+  it('rejects an unknown stage key in stageArgs', () => {
+    expect(() => parseConfig({ db: 'x', workspaces: ['a'], stageArgs: { review: ['--model', 'opus'] } })).toThrow();
+  });
+
   it('requires at least one workspace', () => {
     expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow();
   });

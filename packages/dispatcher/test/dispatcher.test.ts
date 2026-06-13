@@ -3,11 +3,15 @@ import { Dispatcher } from '../src/dispatcher.js';
 import {
   makeCore,
   seedQueued,
+  seedQueuedStage,
   makeConfig,
   makeDeps,
   makeFakeSpawn,
   makeFakeConsole,
 } from './helpers.js';
+
+/** The merged claudeArgs tail of a spawn argv — everything after the --allowedTools value. */
+const argsTail = (args: string[]): string[] => args.slice(args.indexOf('mcp__agentfactory') + 1);
 
 const workerLabel = (env: NodeJS.ProcessEnv): string => {
   const l = env['AGENTFACTORY_WORKER'];
@@ -73,6 +77,57 @@ describe('spawn gating', () => {
     await d.tick();
     await d.tick(); // task still queued (session hasn't claimed yet), but already being served
     expect(calls.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// per-stage model / args selection
+// ---------------------------------------------------------------------------
+describe('per-stage claude args', () => {
+  const stageArgs = {
+    description: ['--model', 'haiku'],
+    plan: ['--model', 'sonnet'],
+    implementation: ['--model', 'opus'],
+  };
+
+  it('appends the matching stage args after the global claudeArgs', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Build it', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ claudeArgs: ['--global'], stageArgs }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    // global first, then the implementation-stage override (so --model opus wins)
+    expect(argsTail(calls[0]!.req.args)).toEqual(['--global', '--model', 'opus']);
+  });
+
+  it('picks the doc-stage args for a description-stage task', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Describe it', 'description');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ claudeArgs: ['--global'], stageArgs }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    expect(argsTail(calls[0]!.req.args)).toEqual(['--global', '--model', 'haiku']);
+  });
+
+  it('falls back to just the global args for a stage with no override', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Plan it', 'plan');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ claudeArgs: ['--global'], stageArgs: { implementation: ['--model', 'opus'] } }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    expect(argsTail(calls[0]!.req.args)).toEqual(['--global']);
   });
 });
 
@@ -176,6 +231,67 @@ describe('crash path', () => {
     expect(t.claimedBy).toBe('someone-else'); // the dispatcher did NOT release another claim
     expect(d.runningCount('ws')).toBe(0);
     expect(log.errors).toEqual([]); // clean exit, no error
+  });
+});
+
+// ---------------------------------------------------------------------------
+// permission-denied path → warn, count the attempt, skip-list
+// ---------------------------------------------------------------------------
+describe('permission-denied path', () => {
+  const denialEnvelope = JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    permission_denials: [{ tool_name: 'mcp__agentfactory__get_next_task', tool_use_id: 'toolu_01x', tool_input: {} }],
+  });
+
+  it('treats a clean unclaimed exit with denials as a failed attempt and skip-lists at maxAttempts', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Denied');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, spawn, { console: log }));
+
+    // attempt 1 — the session never claims: its MCP tool call is permission-denied
+    await d.tick();
+    calls[0]!.child.emitStdout(denialEnvelope);
+    calls[0]!.child.exit(0);
+
+    expect(log.warnings.some((w) => w.includes('permission denied') && w.includes('mcp__agentfactory__get_next_task'))).toBe(true);
+    expect(d.isSkipListed(key)).toBe(false);
+    let t = core.getTask(key);
+    expect(t.status).toBe('queued'); // never claimed, nothing to release
+    expect(t.activity.some((a) => a.type === 'comment' && a.body.includes('permission denied'))).toBe(true);
+
+    // attempt 2 — same denial burns the last attempt
+    await d.tick();
+    expect(calls.length).toBe(2);
+    calls[1]!.child.emitStdout(denialEnvelope);
+    calls[1]!.child.exit(0);
+
+    expect(d.isSkipListed(key)).toBe(true);
+    expect(log.warnings.some((w) => w.includes('maxAttempts'))).toBe(true);
+
+    // no further spawns — the misconfiguration no longer burns sessions forever
+    await d.tick();
+    expect(calls.length).toBe(2);
+  });
+
+  it('keeps the plain clean-exit message when an unclaimed session reports no denials', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Raced');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: log }));
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' }); // lost race
+    calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', subtype: 'success', permission_denials: [] }));
+    calls[0]!.child.exit(0);
+
+    expect(log.logs.some((l) => l.includes('claimed nothing'))).toBe(true);
+    expect(log.warnings).toEqual([]);
+    expect(d.isSkipListed(key)).toBe(false);
   });
 });
 

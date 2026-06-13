@@ -30,8 +30,11 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     // The branch is named once and persisted, so a reclaim reuses it even after a
     // title edit. A null branch (first claim, or a task claimed before this feature)
     // gets a fresh name now and is flagged for the create-with-`-b` setup form.
-    const branchCreated = row.branch === null;
-    const branch = row.branch ?? featureBranch(row.key, row.title);
+    // Doc stages (description/plan) never touch the repo: the branch stays NULL until
+    // the first implementation-stage claim, so the slug derives from the final title.
+    const isImplementation = row.stage === 'implementation';
+    const branchCreated = isImplementation && row.branch === null;
+    const branch = isImplementation ? row.branch ?? featureBranch(row.key, row.title) : row.branch;
     db.prepare(
       "UPDATE task SET status='in_progress', claimed_by=?, claimed_at=?, branch=?, updated_at=? WHERE id=? AND status='queued'"
     ).run(claimedBy, ts, branch, ts, row.id);

@@ -31,6 +31,54 @@ describe('tasks REST API', () => {
     expect(res.status).toBe(404);
   });
 
+  describe('pipeline stages over HTTP', () => {
+    it('POST / with stage=description and no acceptanceCriteria → 201, stage persisted', async () => {
+      const res = await post(app, '/api/tasks', { title: 'T', spec: 'raw idea', stage: 'description' });
+      expect(res.status).toBe(201);
+      const body = await res.json() as { stage: string; acceptanceCriteria: string };
+      expect(body.stage).toBe('description');
+      expect(body.acceptanceCriteria).toContain('description stage');
+    });
+
+    it('POST / without acceptanceCriteria and without the description stage → 400', async () => {
+      const res = await post(app, '/api/tasks', { title: 'T', spec: 'S' });
+      expect(res.status).toBe(400);
+    });
+
+    it('task payloads carry stage and plan', async () => {
+      const created = await (await post(app, '/api/tasks', { title: 'T', spec: 'S', acceptanceCriteria: 'A' })).json() as { key: string };
+      const detail = await (await app.request(`/api/tasks/${created.key}`)).json() as { stage: string; plan: string | null };
+      expect(detail.stage).toBe('implementation');
+      expect(detail.plan).toBeNull();
+
+      const list = await (await app.request('/api/tasks')).json() as Array<{ stage: string }>;
+      expect(list[0]!.stage).toBe('implementation');
+    });
+
+    it('POST /:key/approve on an in-review doc stage advances the stage and re-queues', async () => {
+      const created = await (await post(app, '/api/tasks', { title: 'T', spec: 'S', stage: 'description' })).json() as { key: string };
+      core.updateStatus(created.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(created.key, { summary: 'described', spec: 'polished', acceptanceCriteria: '- ok' });
+
+      const res = await post(app, `/api/tasks/${created.key}/approve`, {});
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; stage: string };
+      expect(body.status).toBe('queued');
+      expect(body.stage).toBe('plan');
+    });
+
+    it('POST /:key/status {done} on an in-review doc stage → 409 (no skipping the stage machine)', async () => {
+      const created = await (await post(app, '/api/tasks', { title: 'T', spec: 'S', stage: 'description' })).json() as { key: string };
+      core.updateStatus(created.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(created.key, { summary: 'described', spec: 'polished', acceptanceCriteria: '- ok' });
+
+      const res = await post(app, `/api/tasks/${created.key}/status`, { status: 'done' });
+      expect(res.status).toBe(409);
+    });
+  });
+
   describe('GET /api/tasks', () => {
     it('returns empty array when no tasks', async () => {
       const res = await app.request('/api/tasks');

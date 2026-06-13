@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 6 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -24,6 +24,27 @@ describe('runMigrations', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','queued',1,1,'2026-01-01','2026-01-01')"
     ).run();
     expect(db.prepare('SELECT branch FROM task WHERE key = ?').get('AF-1')).toMatchObject({ branch: null });
+  });
+
+  it('migration #7 adds stage (default implementation) and a nullable plan column', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain('stage');
+    expect(cols).toContain('plan');
+    // a legacy-style insert that names neither column behaves as an implementation-stage task
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','queued',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    expect(db.prepare('SELECT stage, plan FROM task WHERE key = ?').get('AF-1')).toMatchObject({ stage: 'implementation', plan: null });
+  });
+
+  it('enforces the stage CHECK constraint', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    expect(() => db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,stage,seq,workspace_id,created_at,updated_at) VALUES ('X','t','s','a','queued','nonsense',1,1,'2026-01-01','2026-01-01')"
+    ).run()).toThrow();
   });
 
   it('enforces the status CHECK constraint', () => {

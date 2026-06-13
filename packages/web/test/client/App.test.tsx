@@ -8,7 +8,7 @@ vi.mock('../../client/src/api.js', () => ({
   api: {
     listTasks: vi.fn().mockResolvedValue([]),
     getTask: vi.fn().mockResolvedValue({
-      id: 1, key: 'AF-1', title: 'Test task', status: 'backlog',
+      id: 1, key: 'AF-1', title: 'Test task', status: 'backlog', stage: 'implementation',
       spec: 'spec', acceptanceCriteria: 'ac', resultSummary: null,
       seq: 1, workspace: 'default', repoPath: '.',
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
@@ -116,7 +116,7 @@ describe('App', () => {
   it('filters the board to the selected workspace', async () => {
     vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
     const mkTask = (key: string, title: string, workspace: string) => ({
-      id: Math.random(), key, title, status: 'backlog' as const, spec: 's', acceptanceCriteria: 'a',
+      id: Math.random(), key, title, status: 'backlog' as const, stage: 'implementation' as const, spec: 's', acceptanceCriteria: 'a',
       resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null, aiReview: null,
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
     });
