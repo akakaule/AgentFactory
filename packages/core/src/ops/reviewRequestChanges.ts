@@ -7,16 +7,17 @@ import { appendActivity } from '../repo/activity.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 
-export function reviewRequestChanges(db: DB, key: string, input: { feedback: string }, now: () => string = nowIso): TaskDetail {
-  const { feedback } = parse(feedbackSchema, input);
+export function reviewRequestChanges(db: DB, key: string, input: { feedback: string; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
+  const { feedback } = parse(feedbackSchema, { feedback: input.feedback });
+  const actorUserId = input.actorUserId ?? null;
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   if (row.status !== 'in_review') throw new InvalidTransitionError(`request changes requires in_review (got ${row.status})`);
   return transaction(db, () => {
     const ts = now();
     setStatus(db, row.id, 'queued', ts);
-    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: feedback, createdAt: ts });
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'in_review', toStatus: 'queued', createdAt: ts });
+    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: feedback, createdAt: ts, actorUserId });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'in_review', toStatus: 'queued', createdAt: ts, actorUserId });
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

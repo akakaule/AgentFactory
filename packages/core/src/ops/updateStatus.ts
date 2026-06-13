@@ -7,7 +7,7 @@ import { appendActivity } from '../repo/activity.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 
-export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso): TaskDetail {
+export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   // archived tasks are immutable for state — without this, done → queued would reopen
@@ -22,7 +22,7 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   return transaction(db, () => {
     const ts = now();
     setStatus(db, row.id, status, ts);
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, createdAt: ts });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, createdAt: ts, actorUserId });
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

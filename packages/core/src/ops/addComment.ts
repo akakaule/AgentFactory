@@ -12,7 +12,7 @@ import { nowIso } from '../time.js';
 export function addComment(
   db: DB,
   key: string,
-  input: { actor: Actor; body: string },
+  input: { actor: Actor; body: string; actorUserId?: number | null },
   now: () => string = nowIso,
 ): Activity {
   const { body } = parse(commentSchema, { body: input.body });
@@ -20,7 +20,7 @@ export function addComment(
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   return transaction(db, () => {
     const ts = now();
-    appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts });
+    appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     touch(db, row.id, ts);
     const comment = recentActivity(db, row.id, 1)[0]!; // capture before the hook appends more rows
     // Auto-approve policy: a clean ai-review/v1 verdict on an in-review doc stage advances

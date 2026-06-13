@@ -48,6 +48,7 @@ import { deleteAttachment } from './ops/deleteAttachment.js';
 import { getAttachment } from './ops/getAttachment.js';
 import { createWorkspace } from './ops/createWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
+import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
@@ -64,11 +65,11 @@ export function createCore(db: DB) {
     claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     listWorkspaces: () => listWorkspaces(db),
-    addComment: (key: string, input: { actor: Actor; body: string }) => addComment(db, key, input),
+    addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
-    updateStatus: (key: string, status: Status, actor: Actor) => updateStatus(db, key, status, actor),
-    reviewApprove: (key: string) => reviewApprove(db, key),
-    reviewRequestChanges: (key: string, input: { feedback: string }) => reviewRequestChanges(db, key, input),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null) => updateStatus(db, key, status, actor, nowIso, actorUserId),
+    reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId),
+    reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
     addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, input),
     addAttachment: (key: string, input: AddAttachmentInput) => addAttachment(db, key, input),

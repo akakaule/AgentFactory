@@ -9,10 +9,10 @@ describe('runMigrations', () => {
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 9 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 9 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -48,6 +48,16 @@ describe('runMigrations', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','done',1,1,'2026-01-01','2026-01-01')"
     ).run();
     expect(db.prepare('SELECT archived_at FROM task WHERE key = ?').get('AF-1')).toMatchObject({ archived_at: null });
+  });
+
+  it('migration #9 adds app_user + api_token, the actor_user_id column, and seeds the system user', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    expect(tables(db)).toEqual(expect.arrayContaining(['app_user', 'api_token']));
+    const actCols = (db.prepare("PRAGMA table_info('activity')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(actCols).toContain('actor_user_id');
+    const sys = db.prepare('SELECT id, email, is_system FROM app_user WHERE id = 1').get() as { id: number; email: string; is_system: number };
+    expect(sys).toMatchObject({ id: 1, email: 'system@localhost', is_system: 1 });
   });
 
   it('enforces the stage CHECK constraint', () => {
