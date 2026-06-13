@@ -1,0 +1,14 @@
+{
+  "name": "AgentFactory",
+  "short_name": "AgentFactory",
+  "description": "Agent task board — follow status, review, and queue work.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F172A",
+  "theme_color": "#0F172A",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

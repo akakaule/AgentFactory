@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../client/src/App.js';
 
@@ -24,6 +24,8 @@ vi.mock('../../client/src/api.js', () => ({
     createWorkspace: vi.fn().mockResolvedValue({}),
     getAnalytics: vi.fn().mockResolvedValue({ tasks: [], stranded: [] }),
   },
+  eventsUrl: () => '/events',
+  setUnauthorizedHandler: () => {},
 }));
 
 import { api } from '../../client/src/api.js';
@@ -47,16 +49,18 @@ describe('App', () => {
   it('renders the header and the three-view toggle by default', () => {
     render(<App />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('AgentFactory');
-    expect(screen.getByRole('button', { name: 'Board' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Analytics' })).toBeInTheDocument();
+    // scope to the header — the mobile bottom tab bar mirrors these same view buttons
+    const header = within(screen.getByRole('banner'));
+    expect(header.getByRole('button', { name: 'Board' })).toBeInTheDocument();
+    expect(header.getByRole('button', { name: 'List' })).toBeInTheDocument();
+    expect(header.getByRole('button', { name: 'Analytics' })).toBeInTheDocument();
   });
 
   it('switches to analytics and hides task chrome', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Analytics' }));
+    await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Analytics' }));
 
     expect(await screen.findByText('No completed tasks in this range')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'New task' })).not.toBeInTheDocument();
@@ -88,7 +92,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Board' }));
+    await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Board' }));
 
     // BoardView renders StatusBadge columns for all 6 statuses
     expect(screen.getAllByText('Backlog').length).toBeGreaterThanOrEqual(1);
@@ -99,12 +103,13 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Board' }));
-    await user.click(screen.getByRole('button', { name: 'List' }));
+    const header = within(screen.getByRole('banner'));
+    await user.click(header.getByRole('button', { name: 'Board' }));
+    await user.click(header.getByRole('button', { name: 'List' }));
 
     // Back in list view — no board columns (h3 headers for groups only appear in list)
     expect(screen.queryByText('In Progress')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument();
+    expect(header.getByRole('button', { name: 'List' })).toBeInTheDocument();
   });
 
   it('always shows the workspace switcher, defaulting to All workspaces', async () => {

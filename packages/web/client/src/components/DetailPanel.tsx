@@ -23,7 +23,8 @@ const LINK_ICON: Record<LinkKind, (p: object) => ReactElement> = {
 };
 
 function ActivityItem({ entry }: { entry: Activity }) {
-  const who = entry.actor === 'agent' ? 'agent' : 'you';
+  // prefer the attributed human name (Phase 1 actor_user_id); fall back to the machine axis
+  const who = entry.actorName ?? (entry.actor === 'agent' ? 'agent' : 'you');
   return (
     <div className="af-tl-i">
       <span className={'af-tl-dot ' + entry.actor}>{entry.actor === 'agent' ? I.bot({}) : I.person({})}</span>

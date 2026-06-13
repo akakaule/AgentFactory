@@ -3,7 +3,7 @@ import type { Status, Task } from './types.js';
 import { STATUS_LABELS } from './status.js';
 import { useTasks } from './useTasks.js';
 import { useWorkspaces } from './useWorkspaces.js';
-import { api } from './api.js';
+import { api, setUnauthorizedHandler } from './api.js';
 import { ListView } from './views/ListView.js';
 import { BoardView } from './views/BoardView.js';
 import { ArchiveView } from './views/ArchiveView.js';
@@ -12,6 +12,7 @@ import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
+import { TokenGate } from './components/TokenGate.js';
 import { Mark, I } from './icons.js';
 
 type View = 'board' | 'list' | 'archive' | 'analytics';
@@ -46,6 +47,10 @@ export function App() {
   const { workspaces, refetch: refetchWorkspaces } = useWorkspaces();
   const { tasks, refetch } = useTasks(); // all tasks; filtering is client-side
   const ticker = useChangeTicker(tasks);
+
+  // token-mode (remote) deployments: a 401 surfaces the sign-in gate. Inert in none-mode.
+  const [authNeeded, setAuthNeeded] = useState(false);
+  useEffect(() => { setUnauthorizedHandler(() => setAuthNeeded(true)); }, []);
 
   const multiWs = workspaces.length >= 2;
   const showBadges = multiWs && wsFilter === 'all'; // badge only in the all-workspaces view
@@ -126,6 +131,14 @@ export function App() {
       {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={setSelectedKey} />}
       {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
 
+      {/* Bottom tab bar — shown only on phones (CSS); the header switcher hides there */}
+      <nav className="af-tabbar" aria-label="Views">
+        <button className={view === 'board' ? 'on' : ''} onClick={() => switchView('board')}>{I.board({})}<span>Board</span></button>
+        <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}<span>List</span></button>
+        <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}<span>Archive</span></button>
+        <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}<span>Analytics</span></button>
+      </nav>
+
       {selectedKey && (
         <DetailPanel
           taskKey={selectedKey}
@@ -161,6 +174,8 @@ export function App() {
           onClose={() => setManagingWorkspaces(false)}
         />
       )}
+
+      {authNeeded && <TokenGate />}
     </div>
   );
 }

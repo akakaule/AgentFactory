@@ -12,3 +12,11 @@ createRoot(rootEl).render(
     <App />
   </StrictMode>,
 );
+
+// Register the service worker only in production builds — a SW in dev caches modules and
+// causes the stale-build confusion this project has hit before. The SW itself is network-first.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
