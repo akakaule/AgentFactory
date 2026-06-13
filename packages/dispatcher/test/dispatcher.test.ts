@@ -3,11 +3,15 @@ import { Dispatcher } from '../src/dispatcher.js';
 import {
   makeCore,
   seedQueued,
+  seedQueuedStage,
   makeConfig,
   makeDeps,
   makeFakeSpawn,
   makeFakeConsole,
 } from './helpers.js';
+
+/** The merged claudeArgs tail of a spawn argv — everything after the --allowedTools value. */
+const argsTail = (args: string[]): string[] => args.slice(args.indexOf('mcp__agentfactory') + 1);
 
 const workerLabel = (env: NodeJS.ProcessEnv): string => {
   const l = env['AGENTFACTORY_WORKER'];
@@ -73,6 +77,57 @@ describe('spawn gating', () => {
     await d.tick();
     await d.tick(); // task still queued (session hasn't claimed yet), but already being served
     expect(calls.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// per-stage model / args selection
+// ---------------------------------------------------------------------------
+describe('per-stage claude args', () => {
+  const stageArgs = {
+    description: ['--model', 'haiku'],
+    plan: ['--model', 'sonnet'],
+    implementation: ['--model', 'opus'],
+  };
+
+  it('appends the matching stage args after the global claudeArgs', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Build it', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ claudeArgs: ['--global'], stageArgs }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    // global first, then the implementation-stage override (so --model opus wins)
+    expect(argsTail(calls[0]!.req.args)).toEqual(['--global', '--model', 'opus']);
+  });
+
+  it('picks the doc-stage args for a description-stage task', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Describe it', 'description');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ claudeArgs: ['--global'], stageArgs }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    expect(argsTail(calls[0]!.req.args)).toEqual(['--global', '--model', 'haiku']);
+  });
+
+  it('falls back to just the global args for a stage with no override', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Plan it', 'plan');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ claudeArgs: ['--global'], stageArgs: { implementation: ['--model', 'opus'] } }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    expect(argsTail(calls[0]!.req.args)).toEqual(['--global']);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { AddTaskMetricsInput } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -132,7 +132,7 @@ export class Dispatcher {
         this.skipList(task.key);
         continue;
       }
-      if (this.spawnSession(workspace, task.key, attempt)) spawned += 1;
+      if (this.spawnSession(workspace, task.key, task.stage, attempt)) spawned += 1;
     }
   }
 
@@ -150,8 +150,13 @@ export class Dispatcher {
     return this.claudeCommand;
   }
 
+  /** Global claudeArgs plus any per-stage args (stage args last, so a stage `--model` wins). */
+  private stageClaudeArgs(stage: Stage): string[] {
+    return [...this.config.claudeArgs, ...(this.config.stageArgs?.[stage] ?? [])];
+  }
+
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
-  private spawnSession(workspace: string, key: string, attempt: number): boolean {
+  private spawnSession(workspace: string, key: string, stage: Stage, attempt: number): boolean {
     const cwd = this.repoPath(workspace);
     if (!cwd) {
       this.console.warn(`[dispatcher] workspace '${workspace}' has no repoPath; cannot spawn for ${key}`);
@@ -174,7 +179,7 @@ export class Dispatcher {
       prompt: this.prompt,
       permissionMode: this.config.permissionMode,
       mcpConfigPath,
-      claudeArgs: this.config.claudeArgs,
+      claudeArgs: this.stageClaudeArgs(stage),
     });
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.baseEnv ?? {}),

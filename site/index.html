@@ -360,6 +360,28 @@
   </ol>
 </div>
 
+<h2 class="sl">One line, three stations — staff each with the right worker</h2>
+<div class="loop">
+  <p style="margin:0 0 14px; font-size:13.5px; color:var(--ink-2);">
+    A bigger task doesn't go straight to a builder. It rolls down a short line and stops at
+    three stations — first someone <b>writes down exactly what's wanted</b>, then someone
+    <b>plans how to do it</b>, then someone <b>builds it</b>. The first two stops are quick
+    paperwork; only the last one is the heavy, careful work. So you can put a <b>fast, low-cost
+    AI worker</b> on the paperwork and save your <b>most capable (and pricier) AI worker</b> for
+    the building — the same way a workshop wouldn't pay its master craftsman to fill out forms.
+  </p>
+  <ol>
+    <li><span class="n g">1</span><span><b>Describe</b> — turn a rough request into a clear, checkable description of what "done" means. No code touched. A <b>quick, inexpensive</b> worker is plenty.</span></li>
+    <li><span class="n a">2</span><span><b>Plan</b> — read the project and write the step-by-step approach. Still no code changes. A <b>quick</b> worker handles this too.</span></li>
+    <li><span class="n h">3</span><span><b>Build</b> — actually write, test, and submit the code. This is where quality matters most, so it gets your <b>strongest</b> worker.</span></li>
+  </ol>
+  <p style="margin:14px 0 0; font-size:13px; color:var(--ink-3);">
+    You choose who staffs each station in one settings file — and any station you don't set just
+    uses your default worker. Cheaper where it's easy, strongest where it counts, no slowdown on
+    the part that matters.
+  </p>
+</div>
+
 <h2 class="sl">Guarantees &amp; recent changes</h2>
 <div class="cols">
   <div class="box">
@@ -373,16 +395,17 @@
   </div>
   <div class="box">
     <h3>Recently shipped</h3>
+    <div class="new"><span class="d">2026-06-13</span><span><b>Per-stage models</b> — the dispatcher can staff each pipeline stage with a different model via <span class="mono">stageArgs</span>: a fast model for the description/plan write-ups, your strongest for implementation.</span></div>
     <div class="new"><span class="d">2026-06-12</span><span><b>Dispatcher</b> — one fresh headless <span class="mono">claude -p</span> session per queued task: staleness immunity, measured per-task cost, crash containment (AF-16).</span></div>
     <div class="new"><span class="d">2026-06-12</span><span><b>AI first-pass review tier</b> — <span class="mono">ai-review/v1</span> verdict chip, findings checklist with curated feedback, override-rate KPI; tokens by model/workspace toggle (AF-13, AF-17).</span></div>
     <div class="new"><span class="d">2026-06-12</span><span><b>Claim-time protocol + submit guardrails</b> — the protocol rides the claim payload; <span class="mono">submit_result</span> verifies pushed &amp; clean before accepting (AF-15).</span></div>
     <div class="new"><span class="d">2026-06-11</span><span><b>Push-and-clean finish protocol + Reopen</b> — branches pushed at submit; <span class="mono">done → queued</span> closes the CI loop.</span></div>
     <div class="new"><span class="d">2026-06-11</span><span><b>Images in specs · diff view · analytics · claim recovery</b> — paste screenshots into specs; review branches on the board; release stranded claims.</span></div>
-    <div class="new"><span class="d">next</span><span><b>Reviewer loop</b> — the external script that posts <span class="mono">ai-review/v1</span> verdicts (board surfaces are shipped; the loop lives beside the worker loops in ado-bridge).</span></div>
+    <div class="new"><span class="d">2026-06-12</span><span><b>Reviewer loop</b> — <span class="mono">Run-ReviewerLoop.ps1</span> (<span class="mono">-Reviewer claude|codex</span>) posts the <span class="mono">ai-review/v1</span> verdicts the board renders; it joins <span class="mono">Run-AdoBridgeLoop.ps1</span> and <span class="mono">Run-AgentFactoryLoop.ps1</span> as the third ado-bridge loop.</span></div>
   </div>
 </div>
 
 </div>
-<footer>AgentFactory · index · updated 2026-06-12</footer>
+<footer>AgentFactory · index · updated 2026-06-13</footer>
 </body>
 </html>

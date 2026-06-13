@@ -5,6 +5,11 @@
   "pollSeconds": 15,
   "permissionMode": "acceptEdits",
   "claudeArgs": [],
+  "stageArgs": {
+    "description": ["--model", "haiku"],
+    "plan": ["--model", "haiku"],
+    "implementation": ["--model", "opus"]
+  },
   "maxSessionMinutes": 60,
   "maxAttempts": 2
 }

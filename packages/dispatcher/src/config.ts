@@ -19,8 +19,23 @@ export const configSchema = z.object({
   pollSeconds: z.number().positive().default(15),
   /** `claude --permission-mode` for unattended sessions. */
   permissionMode: z.enum(PERMISSION_MODES).default('acceptEdits'),
-  /** Extra args appended to every `claude` invocation. */
+  /** Extra args appended to every `claude` invocation, for every stage. */
   claudeArgs: z.array(z.string()).default([]),
+  /**
+   * Optional per-stage args, appended AFTER `claudeArgs` for a session serving that
+   * stage. Lets you tier the model by pipeline stage (e.g. a fast model for the
+   * description/plan write-ups, a strong model for implementation). Because they
+   * come last, a per-stage `--model` overrides a global one. Any stage you omit
+   * just gets `claudeArgs`.
+   */
+  stageArgs: z
+    .object({
+      description: z.array(z.string()).optional(),
+      plan: z.array(z.string()).optional(),
+      implementation: z.array(z.string()).optional(),
+    })
+    .strict()
+    .optional(),
   /** Hard wall-clock cap per session before the supervisor kills it. */
   maxSessionMinutes: z.number().positive().default(60),
   /** Attempts a task gets before it is skip-listed. */
