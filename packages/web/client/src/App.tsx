@@ -8,6 +8,7 @@ import { ListView } from './views/ListView.js';
 import { BoardView } from './views/BoardView.js';
 import { ArchiveView } from './views/ArchiveView.js';
 import { AnalyticsView } from './views/AnalyticsView.js';
+import { LiveView } from './views/LiveView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
@@ -15,7 +16,7 @@ import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate } from './components/TokenGate.js';
 import { Mark, I } from './icons.js';
 
-type View = 'board' | 'list' | 'archive' | 'analytics';
+type View = 'board' | 'list' | 'archive' | 'analytics' | 'live';
 
 /** ticker line derived from real board changes between SSE refetches */
 function useChangeTicker(tasks: Task[]): string | null {
@@ -71,6 +72,9 @@ export function App() {
   };
 
   const switchView = (v: View) => { setView(v); setSelectedKey(null); };
+  const taskChrome = view === 'board' || view === 'list' || view === 'archive'; // search + New task
+
+
 
   return (
     <div id="app">
@@ -85,6 +89,7 @@ export function App() {
           <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}List</button>
           <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}Archive</button>
           <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}Analytics</button>
+          <button className={view === 'live' ? 'on' : ''} onClick={() => switchView('live')}>{I.bot({})}Live</button>
         </div>
         <WorkspaceSwitcher
           workspaces={workspaces}
@@ -93,7 +98,7 @@ export function App() {
           onChange={setWsFilter}
           onNewWorkspace={() => setManagingWorkspaces(true)}
         />
-        {view !== 'analytics' && (
+        {taskChrome && (
           <label className="af-search">
             {I.search({})}
             <input placeholder="Search tasks…" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -108,7 +113,7 @@ export function App() {
           </div>
         )}
 
-        {view !== 'analytics' && (
+        {taskChrome && (
           <button className="af-btn-primary" onClick={() => setCreating(true)}>
             {I.plus({ width: 15, height: 15 })}New task
           </button>
@@ -130,6 +135,7 @@ export function App() {
       {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={setSelectedKey} />}
       {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={setSelectedKey} />}
       {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
+      {view === 'live' && <LiveView onOpen={setSelectedKey} />}
 
       {/* Bottom tab bar — shown only on phones (CSS); the header switcher hides there */}
       <nav className="af-tabbar" aria-label="Views">
@@ -137,6 +143,7 @@ export function App() {
         <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}<span>List</span></button>
         <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}<span>Archive</span></button>
         <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}<span>Analytics</span></button>
+        <button className={view === 'live' ? 'on' : ''} onClick={() => switchView('live')}>{I.bot({})}<span>Live</span></button>
       </nav>
 
       {selectedKey && (

@@ -2,13 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { makeClient } from './harness.js';
 
 describe('tool registry', () => {
-  it('exposes exactly the six agent-facing tools', async () => {
+  it('exposes exactly the seven agent-facing tools', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ['add_comment', 'get_next_task', 'get_task', 'list_tasks', 'submit_result', 'update_status'].sort(),
+      ['add_comment', 'get_next_task', 'get_task', 'list_tasks', 'report_progress', 'submit_result', 'update_status'].sort(),
     );
+  });
+
+  it('report_progress advertises live, ephemeral milestones (distinct from add_comment)', async () => {
+    const { client } = await makeClient();
+    const { tools } = await client.listTools();
+    const rp = tools.find((t) => t.name === 'report_progress');
+    expect(rp?.description).toMatch(/live/i);
+    expect(rp?.description).toMatch(/milestone/i);
+    expect(rp?.description).toMatch(/add_comment/); // tells the agent it is NOT a durable note
   });
 
   it('does NOT expose create_task', async () => {

@@ -81,6 +81,7 @@ export class Dispatcher {
   /** One poll cycle: enforce session timeouts, then spawn for each workspace's free slots. */
   async tick(): Promise<void> {
     this.enforceTimeouts();
+    this.touchLiveSessions();
     for (const workspace of this.config.workspaces) this.pollWorkspace(workspace);
   }
 
@@ -112,6 +113,18 @@ export class Dispatcher {
         } catch {
           /* the exit handler still runs the crash path */
         }
+      }
+    }
+  }
+
+  /** Keep each running session's live row warm between agent milestones (best-effort liveness). */
+  private touchLiveSessions(): void {
+    for (const s of this.running.values()) {
+      if (s.settled) continue;
+      try {
+        this.deps.core.touchAgentSession(s.predictedKey);
+      } catch {
+        /* best-effort — a missing live row (not yet claimed / already ended) is fine */
       }
     }
   }
@@ -252,6 +265,14 @@ export class Dispatcher {
     }
 
     if (hasMetrics(metrics)) this.recordMetrics(claimed.key, session.label, metrics);
+
+    // the process exited: end its live session. submit_result already ended it on success;
+    // this also clears a crashed in_progress session the agent never got to end before dying.
+    try {
+      this.deps.core.endAgentSession(claimed.key);
+    } catch {
+      /* best-effort */
+    }
 
     if (claimed.status === 'in_progress') {
       this.releaseAndRetry(session, claimed.key, code);

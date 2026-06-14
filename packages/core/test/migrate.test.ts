@@ -9,10 +9,10 @@ describe('runMigrations', () => {
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 9 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 10 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 9 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 10 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -58,6 +58,21 @@ describe('runMigrations', () => {
     expect(actCols).toContain('actor_user_id');
     const sys = db.prepare('SELECT id, email, is_system FROM app_user WHERE id = 1').get() as { id: number; email: string; is_system: number };
     expect(sys).toMatchObject({ id: 1, email: 'system@localhost', is_system: 1 });
+  });
+
+  it('migration #10 adds agent_session with a partial-unique live index (one live row per task)', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    expect(tables(db)).toEqual(expect.arrayContaining(['agent_session']));
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','in_progress',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    const tid = (db.prepare("SELECT id FROM task WHERE key='AF-1'").get() as { id: number }).id;
+    const ins = "INSERT INTO agent_session(task_id, workspace, stage, started_at, heartbeat_at) VALUES (?, 'default', 'implementation', '2026-01-01', '2026-01-01')";
+    db.prepare(ins).run(tid);
+    expect(() => db.prepare(ins).run(tid)).toThrow(); // a second LIVE row for the task is rejected
+    db.prepare("UPDATE agent_session SET ended_at='2026-01-02' WHERE task_id=?").run(tid);
+    expect(() => db.prepare(ins).run(tid)).not.toThrow(); // ending the first frees the slot
   });
 
   it('enforces the stage CHECK constraint', () => {

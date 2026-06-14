@@ -64,6 +64,25 @@ export interface Activity {
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
 export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
 
+/** One agent-reported milestone in a live session's small rolling feed. */
+export interface AgentMilestone { msg: string; at: string; }
+
+/**
+ * A currently-running agent, as surfaced to the Live view / drawer. Derived from the
+ * `agent_session` live row joined to its task; only sessions with ended_at IS NULL appear.
+ * Ephemeral current-state (not history) — gone when the session ends.
+ */
+export interface AgentSessionView {
+  key: string; title: string; status: Status; workspace: string; stage: Stage;
+  label: string | null;            // the claimant/worker label (session identity)
+  phase: string | null;            // latest milestone message
+  phaseAt: string | null;          // when the latest milestone arrived
+  recent: AgentMilestone[];        // small rolling feed (latest last)
+  tokensIn: number | null; tokensOut: number | null; // agent-reported, so-far
+  startedAt: string;               // claim time
+  heartbeatAt: string;             // last-seen-alive (claim / progress / dispatcher tick)
+}
+
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;

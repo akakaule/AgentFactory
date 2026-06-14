@@ -171,6 +171,42 @@ describe('success path', () => {
 });
 
 // ---------------------------------------------------------------------------
+// live agent session (the Live view's data)
+// ---------------------------------------------------------------------------
+describe('live agent session', () => {
+  it('a claim starts a live session and a crash ends it (no lingering "running")', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Live then crash');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+    expect(core.listLiveAgents().map((a) => a.key)).toContain(key); // live while working
+
+    calls[0]!.child.exit(1); // crash without submitting → release + retry
+    expect(core.getTask(key).status).toBe('queued');
+    expect(core.listLiveAgents()).toHaveLength(0); // ended by the reap safety-net
+  });
+
+  it('a clean submit + exit leaves no live session', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Live then submit');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+    core.submitResult(key, { summary: 'done' }); // submit ends it
+    expect(core.listLiveAgents()).toHaveLength(0);
+    calls[0]!.child.exit(0);
+    expect(core.listLiveAgents()).toHaveLength(0); // reap end is idempotent
+  });
+});
+
+// ---------------------------------------------------------------------------
 // crash path → release, retry, skip-list
 // ---------------------------------------------------------------------------
 describe('crash path', () => {

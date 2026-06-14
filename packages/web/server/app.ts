@@ -5,6 +5,7 @@ import { taskRoutes } from './routes/tasks.js';
 import { workspaceRoutes } from './routes/workspaces.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
+import { agentRoutes } from './routes/agents.js';
 import { authRoutes } from './routes/auth.js';
 import { authMiddleware, type AuthConfig } from './auth.js';
 import { mapError } from './errors.js';
@@ -24,6 +25,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/api/workspaces', workspaceRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
   app.route('/api/attachments', attachmentRoutes(core));
+  app.route('/api/agents', agentRoutes(core));
   registerSse(app, core, opts.sseIntervalMs ?? 1000);
   app.onError((err, c) => {
     const httpErr = err instanceof HTTPException ? err : mapError(err);

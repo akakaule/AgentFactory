@@ -5,6 +5,7 @@ import { submitResultSchema, parse } from '../validate.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus, setResultSummary, setPlan, applyEdit } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
+import { endSession } from '../repo/agentSessions.js';
 import { insertLinks } from '../repo/links.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
@@ -51,6 +52,7 @@ export function submitResult(
     else if (row.stage === 'plan') setPlan(db, row.id, plan!, ts);
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);
+    endSession(db, row.id, ts); // the agent finished — drop it from the live view
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: 'in_progress', toStatus: 'in_review', createdAt: ts });

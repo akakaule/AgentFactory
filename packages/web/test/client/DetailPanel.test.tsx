@@ -20,6 +20,7 @@ vi.mock('../../client/src/api.js', () => ({
     addAttachment: vi.fn().mockResolvedValue({}),
     archive: vi.fn().mockResolvedValue({}),
     unarchive: vi.fn().mockResolvedValue({}),
+    listAgents: vi.fn().mockResolvedValue([]),
   },
   eventsUrl: () => '/events',
   attachmentUrl: (id: number) => `/api/attachments/${id}`,

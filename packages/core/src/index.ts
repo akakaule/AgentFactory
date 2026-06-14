@@ -27,6 +27,7 @@ export { createWorkspace } from './ops/createWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
+export { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -51,6 +52,7 @@ import { getAttachment } from './ops/getAttachment.js';
 import { createWorkspace } from './ops/createWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
+import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
@@ -71,6 +73,10 @@ export function createCore(db: DB) {
     createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
     createApiToken: (input: { label: string; userId?: number | null; isService?: boolean }) => createApiToken(db, input),
     authenticateToken: (rawToken: string) => authenticateToken(db, rawToken),
+    reportProgress: (key: string, input: { message: string; tokensIn?: number; tokensOut?: number }) => reportProgress(db, key, input),
+    touchAgentSession: (key: string) => touchAgentSession(db, key),
+    endAgentSession: (key: string) => endAgentSession(db, key),
+    listLiveAgents: () => listLiveAgents(db),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null) => updateStatus(db, key, status, actor, nowIso, actorUserId),

@@ -6,6 +6,7 @@ import { timeAgo, shortTime } from '../time.js';
 import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
+import { LiveSection } from './LiveSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
@@ -162,6 +163,8 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   </button>
                 )}
               </div>
+
+              {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
 
               {task.aiReview && (
                 <div className="af-airev-row"><AiReviewChip review={task.aiReview} /></div>

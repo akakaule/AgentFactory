@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView } from './types.js';
 import type { AnalyticsData } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -52,6 +52,7 @@ export const api = {
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
   getAnalytics: () => req<AnalyticsData>('/api/analytics'),
   whoami: () => req<WhoAmI>('/auth/whoami'),
+  listAgents: () => req<AgentSessionView[]>('/api/agents'),
   addAttachment: (key: string, b: { filename: string; mime: string; dataBase64: string }) =>
     req<Attachment>(`/api/tasks/${key}/attachments`, body(b)),
   deleteAttachment: (id: number) => req<void>(`/api/attachments/${id}`, { method: 'DELETE' }),

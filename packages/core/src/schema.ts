@@ -147,3 +147,28 @@ CREATE TABLE IF NOT EXISTS api_token (
 ALTER TABLE activity ADD COLUMN actor_user_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_activity_actor_user ON activity(actor_user_id);
 `;
+
+// Migration #10 — live agent sessions. Current-state (not history): one row per running
+// agent, started on claim, updated by heartbeats/milestones, ended on submit/exit. A partial
+// unique index keeps at most one *live* row per task. Deliberately NOT read by getVersion()
+// (see version.ts) so frequent heartbeats never bump the board version → no full-board refetch
+// thrash; the live surfaces poll /api/agents instead. `recent` is a small capped JSON feed.
+export const MIGRATION_10_SQL = `
+CREATE TABLE IF NOT EXISTS agent_session (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id      INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  label        TEXT,
+  workspace    TEXT NOT NULL,
+  stage        TEXT NOT NULL,
+  phase        TEXT,
+  phase_at     TEXT,
+  recent       TEXT,
+  tokens_in    INTEGER,
+  tokens_out   INTEGER,
+  started_at   TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  ended_at     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_session_live ON agent_session(task_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_session_ended ON agent_session(ended_at);
+`;
