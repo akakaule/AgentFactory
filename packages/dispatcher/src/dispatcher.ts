@@ -199,6 +199,16 @@ export class Dispatcher {
       AGENTFACTORY_WORKSPACE: workspace,
       AGENTFACTORY_WORKER: label,
     };
+    if (this.config.otel) {
+      // Export token usage over OTLP (captured even for streamed/interactive turns), tagged
+      // with the task key so the receiver attributes it to this task.
+      env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
+      env['OTEL_LOGS_EXPORTER'] = 'otlp';
+      env['OTEL_EXPORTER_OTLP_PROTOCOL'] = 'http/json';
+      env['OTEL_EXPORTER_OTLP_ENDPOINT'] = this.config.otel.endpoint;
+      if (this.config.otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${this.config.otel.token}`;
+      env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
+    }
 
     const child = this.deps.spawn({ command: this.resolveCommand(), args, cwd, env });
     const session: Session = {
@@ -264,7 +274,8 @@ export class Dispatcher {
       return;
     }
 
-    if (hasMetrics(metrics)) this.recordMetrics(claimed.key, session.label, metrics);
+    // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
+    if (!this.config.otel && hasMetrics(metrics)) this.recordMetrics(claimed.key, session.label, metrics);
 
     // the process exited: end its live session. submit_result already ended it on success;
     // this also clears a crashed in_progress session the agent never got to end before dying.

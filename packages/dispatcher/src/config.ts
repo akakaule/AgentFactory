@@ -40,6 +40,19 @@ export const configSchema = z.object({
   maxSessionMinutes: z.number().positive().default(60),
   /** Attempts a task gets before it is skip-listed. */
   maxAttempts: z.number().int().positive().default(2),
+  /**
+   * Optional OpenTelemetry export. When set, spawned sessions export token usage as OTLP
+   * logs to `endpoint` (e.g. the AgentFactory web server's `/v1/logs`), tagged with the task
+   * key — so usage is captured for interactive/streamed runs too. Its presence also disables
+   * the dispatcher's stdout metric parse (OTel then owns the tokens, avoiding double-counting).
+   */
+  otel: z
+    .object({
+      endpoint: z.string().min(1),
+      token: z.string().min(1).optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export type DispatcherConfig = z.infer<typeof configSchema>;

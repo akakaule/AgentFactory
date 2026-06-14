@@ -207,6 +207,41 @@ describe('live agent session', () => {
 });
 
 // ---------------------------------------------------------------------------
+// OTel token capture (when configured, OTel owns metrics)
+// ---------------------------------------------------------------------------
+describe('otel token capture', () => {
+  it('sets OTEL_* env (incl task.key + bearer) on the spawned session', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Otel');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ otel: { endpoint: 'http://localhost:8787', token: 'svc' } }), makeDeps(core, spawn));
+
+    await d.tick();
+    const env = calls[0]!.req.env;
+    expect(env['CLAUDE_CODE_ENABLE_TELEMETRY']).toBe('1');
+    expect(env['OTEL_EXPORTER_OTLP_ENDPOINT']).toBe('http://localhost:8787');
+    expect(env['OTEL_EXPORTER_OTLP_HEADERS']).toContain('Bearer svc');
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain('task.key=');
+  });
+
+  it('with otel configured, a session exit does NOT write task_metric (OTel owns it)', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Otel');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ otel: { endpoint: 'http://localhost:8787' } }), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+    core.submitResult(key, { summary: 'done' });
+    calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', total_cost_usd: 0.5, usage: { input_tokens: 1200, output_tokens: 300 } }));
+    calls[0]!.child.exit(0);
+
+    expect(core.getTask(key).metrics.tokensIn).toBeNull(); // dispatcher skipped the stdout parse
+  });
+});
+
+// ---------------------------------------------------------------------------
 // crash path → release, retry, skip-list
 // ---------------------------------------------------------------------------
 describe('crash path', () => {

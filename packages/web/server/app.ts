@@ -6,6 +6,7 @@ import { workspaceRoutes } from './routes/workspaces.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { agentRoutes } from './routes/agents.js';
+import { otelRoutes } from './routes/otel.js';
 import { authRoutes } from './routes/auth.js';
 import { authMiddleware, type AuthConfig } from './auth.js';
 import { mapError } from './errors.js';
@@ -20,12 +21,14 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   const guard = authMiddleware(core, auth);
   app.use('/api/*', guard);
   app.use('/events', guard);
+  app.use('/v1/*', guard); // OTLP ingest — token mode requires a (service) token in OTLP headers
   app.route('/auth', authRoutes(core, auth));
   app.route('/api/tasks', taskRoutes(core));
   app.route('/api/workspaces', workspaceRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
   app.route('/api/attachments', attachmentRoutes(core));
   app.route('/api/agents', agentRoutes(core));
+  app.route('/v1', otelRoutes(core)); // OTLP/HTTP logs receiver → task_metric (POST /v1/logs)
   registerSse(app, core, opts.sseIntervalMs ?? 1000);
   app.onError((err, c) => {
     const httpErr = err instanceof HTTPException ? err : mapError(err);
