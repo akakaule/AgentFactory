@@ -16,23 +16,24 @@ import { InvalidTransitionError } from '../errors.js';
  * `note` rides the status_change body, prefixing the stage-advance trail
  * (e.g. 'auto-approved: clean AI review; stage description → plan').
  */
-export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string): void {
+export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null): void {
   // Break-glass audit trail: approving while the *current* AI review has open findings
   // logs an override comment. Derived, no schema change; the override-rate KPI reads the
   // same condition from the activity log (findingsAtApproval). Pending/clean ⇒ no override.
-  // The auto path can never hit this — a clean verdict is its precondition.
+  // The auto path can never hit this — a clean verdict is its precondition (so actorUserId
+  // is the approving human here, never the agent).
   const review = aiReviewFor(db, row.id);
   if (review && review.verdict === 'findings') {
     appendActivity(db, {
       taskId: row.id, type: 'comment', actor: 'human',
       body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}`,
-      createdAt: ts,
+      createdAt: ts, actorUserId,
     });
   }
   if (row.stage === 'implementation') {
     if (actor !== 'human') throw new InvalidTransitionError('the implementation review is approved by a human, never auto-approved');
     setStatus(db, row.id, 'done', ts);
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: 'done', createdAt: ts });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: 'done', createdAt: ts, actorUserId });
     return;
   }
   const next = STAGE_ORDER[STAGE_ORDER.indexOf(row.stage) + 1]!;
@@ -40,6 +41,6 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
   setStatus(db, row.id, 'queued', ts); // clears the claimant — the next stage is anyone's claim
   appendActivity(db, {
     taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: 'queued', createdAt: ts,
-    body: `${note ?? 'approved'}; stage ${row.stage} → ${next}`,
+    body: `${note ?? 'approved'}; stage ${row.stage} → ${next}`, actorUserId,
   });
 }

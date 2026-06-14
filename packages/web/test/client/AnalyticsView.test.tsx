@@ -9,6 +9,7 @@ vi.mock('../../client/src/api.js', () => ({
     getAnalytics: vi.fn(),
     listWorkspaces: vi.fn().mockResolvedValue([]),
   },
+  eventsUrl: () => '/events',
 }));
 
 async function getApiMock() {

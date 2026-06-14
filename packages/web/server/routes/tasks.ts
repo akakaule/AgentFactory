@@ -4,6 +4,7 @@ import type { Core } from '../types.js';
 import { NotFoundError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
+import { actorUserIdOf } from '../auth.js';
 
 export function taskRoutes(core: Core) {
   const r = new Hono();
@@ -44,10 +45,10 @@ export function taskRoutes(core: Core) {
   });
 
   r.post('/:key/comment', zValidator('json', commentBody), (c) =>
-    c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body }), 201));
+    c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
   r.post('/:key/status', zValidator('json', statusBody), (c) =>
-    c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human')));
+    c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c))));
 
   r.post('/:key/metrics', zValidator('json', metricsBody), (c) => {
     const b = c.req.valid('json');
@@ -67,10 +68,10 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/unarchive', (c) => c.json(core.unarchiveTask(c.req.param('key'))));
 
-  r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'))));
+  r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));
 
   r.post('/:key/request-changes', zValidator('json', feedbackBody), (c) =>
-    c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback })));
+    c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
 
   return r;
 }

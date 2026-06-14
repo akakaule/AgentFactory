@@ -11,6 +11,9 @@ export interface DispatcherCore {
   updateStatus(key: string, status: Status, actor: Actor): TaskDetail;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): TaskDetail;
+  // live agent status: keep a running session warm, and end it when the process exits
+  touchAgentSession(key: string): void;
+  endAgentSession(key: string): void;
 }
 
 /** Minimal readable-stream surface (node's `Readable` satisfies it). */

@@ -117,3 +117,58 @@ export const MIGRATION_8_SQL = `
 ALTER TABLE task ADD COLUMN archived_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_task_archived ON task(archived_at);
 `;
+
+// Migration #9 — identity foundation. `app_user` (named to dodge the SQL-reserved `user`,
+// which would force quoting here and in the eventual Postgres port) holds real humans;
+// `api_token` holds hashed bearer credentials (raw token shown once, never stored). The
+// new `activity.actor_user_id` records WHICH human is behind a 'human' action — orthogonal
+// to the binary `actor` enum (which the transition machine + auto-approve still read), so
+// it is strictly additive and nullable: agent/system/legacy rows stay NULL. No REFERENCES
+// on the ALTER (SQLite forbids it with foreign_keys=ON); integrity is app-level, matching
+// the workspace_id convention. The seed system user (id=1) is added in migrate.ts.
+export const MIGRATION_9_SQL = `
+CREATE TABLE IF NOT EXISTS app_user (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  email        TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL DEFAULT '',
+  oidc_subject TEXT UNIQUE,
+  is_system    INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_token (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash   TEXT NOT NULL UNIQUE,
+  user_id      INTEGER REFERENCES app_user(id),
+  label        TEXT NOT NULL,
+  is_service   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT
+);
+ALTER TABLE activity ADD COLUMN actor_user_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_activity_actor_user ON activity(actor_user_id);
+`;
+
+// Migration #10 — live agent sessions. Current-state (not history): one row per running
+// agent, started on claim, updated by heartbeats/milestones, ended on submit/exit. A partial
+// unique index keeps at most one *live* row per task. Deliberately NOT read by getVersion()
+// (see version.ts) so frequent heartbeats never bump the board version → no full-board refetch
+// thrash; the live surfaces poll /api/agents instead. `recent` is a small capped JSON feed.
+export const MIGRATION_10_SQL = `
+CREATE TABLE IF NOT EXISTS agent_session (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id      INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  label        TEXT,
+  workspace    TEXT NOT NULL,
+  stage        TEXT NOT NULL,
+  phase        TEXT,
+  phase_at     TEXT,
+  recent       TEXT,
+  tokens_in    INTEGER,
+  tokens_out   INTEGER,
+  started_at   TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  ended_at     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_session_live ON agent_session(task_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_session_ended ON agent_session(ended_at);
+`;

@@ -6,6 +6,7 @@ import { registerGetTask } from './tools/getTask.js';
 import { registerAddComment } from './tools/addComment.js';
 import { registerSubmitResult } from './tools/submitResult.js';
 import { registerUpdateStatus } from './tools/updateStatus.js';
+import { registerReportProgress } from './tools/reportProgress.js';
 
 /** Deploy-time defaults; env is read at the entry point, not in tools. */
 export interface ServerOptions {
@@ -21,5 +22,6 @@ export function buildServer(core: Core, opts: ServerOptions = {}): McpServer {
   registerAddComment(server, core);
   registerSubmitResult(server, core);
   registerUpdateStatus(server, core);
+  registerReportProgress(server, core);
   return server;
 }

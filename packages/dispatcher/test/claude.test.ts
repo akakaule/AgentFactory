@@ -57,6 +57,11 @@ describe('buildWorkerPrompt', () => {
     expect(p.toLowerCase()).toContain('exit');
   });
 
+  it('tells the session to report live progress milestones', () => {
+    const p = buildWorkerPrompt();
+    expect(p).toContain('report_progress');
+  });
+
   it('carries per-stage instructions keyed off protocol.stage', () => {
     const p = buildWorkerPrompt();
     expect(p).toContain('protocol.stage');

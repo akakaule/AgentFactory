@@ -1,11 +1,33 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView } from './types.js';
 import type { AnalyticsData } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
 export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
+export interface WhoAmI { kind: 'user' | 'service' | 'anon'; userId?: number; email?: string; displayName?: string; label?: string; }
+
+// Bearer token for token-mode (remote/phone) deployments — persisted in localStorage and
+// sent on every request. Absent in local none-mode, so all of this stays inert there.
+const TOKEN_KEY = 'af_token';
+let token: string | null = (() => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } })();
+export function getToken(): string | null { return token; }
+export function setToken(t: string | null): void {
+  token = t && t.trim() ? t.trim() : null;
+  try { if (token) localStorage.setItem(TOKEN_KEY, token); else localStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ }
+}
+
+// The app registers a handler so a 401 (token required / expired) surfaces the sign-in gate.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void): void { onUnauthorized = fn; }
+
+// EventSource cannot set an Authorization header — carry the token on the query string.
+export function eventsUrl(): string { return token ? `/events?access_token=${encodeURIComponent(token)}` : '/events'; }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init?.body ? { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } } : init);
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string> | undefined) ?? {}) };
+  if (init?.body) headers['content-type'] = 'application/json';
+  if (token) headers['authorization'] = `Bearer ${token}`;
+  const res = await fetch(path, { ...init, headers });
+  if (res.status === 401) onUnauthorized?.();
   if (!res.ok) {
     let msg = `${res.status}`;
     try { const b = await res.json(); msg = (b as any).message ?? msg; } catch { /* ignore */ }
@@ -29,6 +51,8 @@ export const api = {
   getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
   getAnalytics: () => req<AnalyticsData>('/api/analytics'),
+  whoami: () => req<WhoAmI>('/auth/whoami'),
+  listAgents: () => req<AgentSessionView[]>('/api/agents'),
   addAttachment: (key: string, b: { filename: string; mime: string; dataBase64: string }) =>
     req<Attachment>(`/api/tasks/${key}/attachments`, body(b)),
   deleteAttachment: (id: number) => req<void>(`/api/attachments/${id}`, { method: 'DELETE' }),

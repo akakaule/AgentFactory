@@ -5,12 +5,13 @@ import type { ActivityStep } from '../metrics.js';
 export interface AppendActivity {
   taskId: number; type: ActivityType; actor: Actor;
   fromStatus?: Status | null; toStatus?: Status | null; body?: string; createdAt: string;
+  actorUserId?: number | null; // the human behind a 'human' action; omitted/null for agent/system
 }
 export function appendActivity(db: DB, a: AppendActivity): void {
   db.prepare(
-    `INSERT INTO activity(task_id,type,actor,from_status,to_status,body,created_at)
-     VALUES (?,?,?,?,?,?,?)`
-  ).run(a.taskId, a.type, a.actor, a.fromStatus ?? null, a.toStatus ?? null, a.body ?? '', a.createdAt);
+    `INSERT INTO activity(task_id,type,actor,from_status,to_status,body,created_at,actor_user_id)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).run(a.taskId, a.type, a.actor, a.fromStatus ?? null, a.toStatus ?? null, a.body ?? '', a.createdAt, a.actorUserId ?? null);
 }
 
 /**
@@ -63,13 +64,18 @@ export function activitySteps(db: DB, taskId: number): ActivityStep[] {
 
 export function recentActivity(db: DB, taskId: number, limit: number): Activity[] {
   const rows = db.prepare(
-    'SELECT * FROM activity WHERE task_id = ? ORDER BY id DESC LIMIT ?'
+    `SELECT a.id, a.task_id, a.type, a.actor, a.from_status, a.to_status, a.body, a.created_at,
+            a.actor_user_id, u.display_name AS actor_name
+     FROM activity a LEFT JOIN app_user u ON u.id = a.actor_user_id
+     WHERE a.task_id = ? ORDER BY a.id DESC LIMIT ?`
   ).all(taskId, limit) as Array<{
     id: number; task_id: number; type: ActivityType; actor: Actor;
     from_status: Status | null; to_status: Status | null; body: string; created_at: string;
+    actor_user_id: number | null; actor_name: string | null;
   }>;
   return rows.reverse().map(r => ({
     id: r.id, taskId: r.task_id, type: r.type, actor: r.actor,
     fromStatus: r.from_status, toStatus: r.to_status, body: r.body, createdAt: r.created_at,
+    actorUserId: r.actor_user_id, actorName: r.actor_name,
   }));
 }

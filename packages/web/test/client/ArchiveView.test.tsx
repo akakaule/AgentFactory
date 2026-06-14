@@ -8,6 +8,7 @@ vi.mock('../../client/src/api.js', () => ({
   api: {
     listTasks: vi.fn().mockResolvedValue([]),
   },
+  eventsUrl: () => '/events',
 }));
 
 beforeEach(() => {

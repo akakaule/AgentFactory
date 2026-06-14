@@ -40,6 +40,31 @@ describe('list_tasks', () => {
 });
 
 // ---------------------------------------------------------------------------
+// report_progress
+// ---------------------------------------------------------------------------
+describe('report_progress', () => {
+  it('claim starts a live session and report_progress records a milestone + tokens', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Live one'));
+    core.updateStatus(t.key, 'queued', 'human');
+
+    // claiming via MCP starts a live agent session
+    await client.callTool({ name: 'get_next_task', arguments: {} });
+    expect(core.listLiveAgents().map((a: any) => a.key)).toContain(t.key);
+
+    const res = await client.callTool({ name: 'report_progress', arguments: { key: t.key, message: 'running build', tokensIn: 1200 } });
+    expect(textOf(res)).toContain('ok');
+    const live = core.listLiveAgents().find((a: any) => a.key === t.key);
+    expect(live.phase).toBe('running build');
+    expect(live.tokensIn).toBe(1200);
+
+    // submit ends the session (core op — no git guardrail, that is the MCP submit tool's job)
+    core.submitResult(t.key, { summary: 'done' });
+    expect(core.listLiveAgents().find((a: any) => a.key === t.key)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // get_next_task
 // ---------------------------------------------------------------------------
 describe('get_next_task', () => {

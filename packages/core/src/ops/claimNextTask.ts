@@ -2,6 +2,7 @@ import type { DB } from '../db.js';
 import type { TaskDetail } from '../types.js';
 import { transaction } from '../transaction.js';
 import { appendActivity } from '../repo/activity.js';
+import { startSession } from '../repo/agentSessions.js';
 import { oldestQueuedRow, toDetail } from '../repo/tasks.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { featureBranch } from '../branch.js';
@@ -45,6 +46,9 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
       // claimed_by is cleared on re-queue (analytics: stranded releases per worker)
       body: claimedBy ?? '',
     });
+    // a claim starts a live agent session (any path: dispatcher-spawned or worker-loop);
+    // heartbeats/milestones update it, submit/exit ends it
+    startSession(db, { taskId: row.id, label: claimedBy, workspace: row.workspace_name, stage: row.stage, now: ts });
     const detail = toDetail(db, { ...row, status: 'in_progress', claimed_by: claimedBy, claimed_at: ts, branch, updated_at: ts });
     return { ...detail, branchCreated };
   });

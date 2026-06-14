@@ -20,7 +20,9 @@ vi.mock('../../client/src/api.js', () => ({
     addAttachment: vi.fn().mockResolvedValue({}),
     archive: vi.fn().mockResolvedValue({}),
     unarchive: vi.fn().mockResolvedValue({}),
+    listAgents: vi.fn().mockResolvedValue([]),
   },
+  eventsUrl: () => '/events',
   attachmentUrl: (id: number) => `/api/attachments/${id}`,
 }));
 
@@ -73,6 +75,8 @@ const backlogTask: TaskDetail = {
       toStatus: 'backlog',
       body: '',
       createdAt: '2024-01-01T00:00:00Z',
+      actorUserId: null,
+      actorName: null,
     },
     {
       id: 2,
@@ -83,6 +87,8 @@ const backlogTask: TaskDetail = {
       toStatus: null,
       body: 'A comment here',
       createdAt: '2024-01-01T00:00:00Z',
+      actorUserId: null,
+      actorName: null,
     },
   ],
   links: [
