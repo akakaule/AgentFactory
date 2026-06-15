@@ -4,6 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/mcp" },
     { "path": "packages/web" },
-    { "path": "packages/dispatcher" }
+    { "path": "packages/dispatcher" },
+    { "path": "packages/reviewer" }
   ]
 }

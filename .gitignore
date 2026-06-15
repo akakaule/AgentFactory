@@ -15,8 +15,9 @@ dist/
 # local scratch scripts (machine-specific paths)
 .af-*.mjs
 
-# dispatcher runtime: machine-specific config + per-session logs/mcp-config files
+# dispatcher + reviewer runtime: machine-specific config + per-session logs/mcp-config files
 dispatcher.config.json
+reviewer.config.json
 logs/
 
 # agent / codex CLI tooling (skills + config — tooling state, not project code)

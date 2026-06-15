@@ -2,7 +2,7 @@
   "name": "agentfactory",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/core", "packages/mcp", "packages/web", "packages/dispatcher"],
+  "workspaces": ["packages/core", "packages/mcp", "packages/web", "packages/dispatcher", "packages/reviewer"],
   "engines": { "node": ">=26" },
   "scripts": {
     "build": "tsc -b && npm -w packages/web run build:client",
@@ -15,6 +15,8 @@
     "web:dev:server": "tsx packages/web/server/index.ts",
     "dispatcher": "node packages/dispatcher/dist/index.js",
     "dispatcher:dev": "tsx packages/dispatcher/src/index.ts",
+    "reviewer": "node packages/reviewer/dist/index.js",
+    "reviewer:dev": "tsx packages/reviewer/src/index.ts",
     "token": "tsx packages/web/server/mintToken.ts"
   },
   "devDependencies": {

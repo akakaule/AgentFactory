@@ -1,0 +1,10 @@
+{
+  "db": "./agentfactory.db",
+  "workspaces": ["agentfactory"],
+  "engine": "codex",
+  "pollSeconds": 60,
+  "maxConcurrent": 1,
+  "reviewMinutes": 10,
+  "maxDiffChars": 120000,
+  "maxAttempts": 2
+}

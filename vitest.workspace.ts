@@ -8,4 +8,5 @@ export default defineWorkspace([
   'packages/mcp/vitest.config.ts',
   'packages/web/vitest.config.ts',
   'packages/dispatcher/vitest.config.ts',
+  'packages/reviewer/vitest.config.ts',
 ]);
