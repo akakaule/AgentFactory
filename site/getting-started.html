@@ -201,7 +201,7 @@ const STEPS = [
     cfg:"AF-1 · In Review\n  result   patched the null check\n  links    branch feature/AF-1-fix-crash-on-null-input ⇡ origin\n\n  [ Approve ]   [ Request changes… ]",
     log:"AF-1: in_review → done ✓",
     comps:["g-you","g-board","g-db"],
-    note:"Second repo later? Create another workspace and launch another pinned Claude Code session there — parallel workers are safe (atomic claims, isolated worktrees)." },
+    note:"Want a first-pass AI review before you read the diff? Run the <b>reviewer</b> (npm run reviewer) alongside the board — it posts an ai-review/v1 verdict (chip + findings) on each in_review task, and a clean description/plan verdict even auto-advances. See packages/reviewer/README.md. Second repo later? Create another workspace and launch another pinned Claude Code session there — parallel workers are safe (atomic claims, isolated worktrees)." },
 ];
 
 const ALL_COMPS = ["g-you","g-board","g-db","g-mcp","g-agent","g-repo"];

@@ -73,8 +73,9 @@ CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_LOGS_EXPORTER=otlp OTEL_EXPORTER_OTLP_PROTOC
 ## Limitations
 - **Ad-hoc interactive sessions not bound to a task** (no `task.key`/`X-Task-Key`) still export,
   but land **unattributed** and are dropped. Per-task attribution requires the session to carry a
-  task key (the dispatcher/reviewer/worktree env sets it; for a manual `claude` set
-  `OTEL_RESOURCE_ATTRIBUTES=task.key=…`).
+  task key (the dispatcher's `otel` block sets it automatically; for the `reviewer`, an
+  interactive worktree session, or a manual `claude`, set `OTEL_RESOURCE_ATTRIBUTES=task.key=…`
+  in the environment).
 - **Logs only, into `task_metric`** — no separate metrics pipeline/Grafana. A standalone OTel
   Collector can be added later by pointing the same env/config at it instead (or as well).
 - **OTLP/JSON only** (`http/json`) — protobuf isn't parsed; both CLIs support JSON.

@@ -252,7 +252,7 @@ const STEPS = [
     comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_review", edge:"e-ir",
     log:"submit_result · guardrails: pushed ✓ clean ✓ → in_review" },
   { actor:"human", title:"Human reviews &rarr; done (or rework)",
-    desc:"The human checks the result in the UI &mdash; an <b>AI first-pass review</b> may already have posted its verdict (<code>ai-review/v1</code> chip + findings checklist; uncurated findings never reach the agent). Approve: <code>in_review &rarr; done</code> ✓ (past open findings = logged override). Request changes: <code>in_review &rarr; queued</code> with curated feedback &mdash; and the loop restarts at step 3.",
+    desc:"The human checks the result in the UI &mdash; an <b>AI first-pass review</b> may already have posted its verdict (<code>ai-review/v1</code> chip + findings checklist), produced by the in-repo <b>reviewer</b> supervisor (<code>npm run reviewer</code>, default codex); uncurated findings never reach the agent. Approve: <code>in_review &rarr; done</code> ✓ (past open findings = logged override). Request changes: <code>in_review &rarr; queued</code> with curated feedback &mdash; and the loop restarts at step 3.",
     comps:["c-human","c-web","c-api","c-db"], status:"done", edge:"e-id", altEdge:"e-rw",
     log:"review approved → done ✓" },
 ];

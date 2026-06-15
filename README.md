@@ -4,12 +4,13 @@ AgentFactory: a single-user local task board that is the persistent state store 
 
 ## Stack
 
-TypeScript monorepo (npm workspaces) with four packages:
+TypeScript monorepo (npm workspaces) with five packages:
 
 - **`core`** — node:sqlite + lifecycle rules (shared business logic and DB layer)
 - **`mcp`** — stdio MCP server (exposes task board operations to agent loops)
 - **`web`** — Hono API + SSE + React/Vite UI (browser-based task board interface)
 - **`dispatcher`** — headless worker supervisor (spawns one fresh `claude -p` session per queued task)
+- **`reviewer`** — headless review supervisor (spawns a codex/claude session per `in_review` task to post an `ai-review/v1` verdict)
 
 **Requires Node >= 26.**
 
@@ -51,6 +52,20 @@ npm run dispatcher -- path/to/dispatcher.config.json
 
 See `packages/dispatcher/README.md` for the config reference (workspaces, concurrency, permission mode, attempt limits).
 
+### Run the reviewer (unattended AI review)
+
+Beside the dispatcher, the **reviewer** turns the `in_review` column into automated first-pass review with no human in the loop. It polls for tasks that still need a review and spawns **one fresh headless engine session per task** — **codex** by default (an independent second opinion on the dispatcher's Claude work) or claude — feeding the diff (implementation) or deliverable (description/plan) on STDIN and posting an `ai-review/v1` verdict back. It is advisory: a clean doc-stage verdict auto-advances the task; findings and the implementation stage stay for the human gate.
+
+```bash
+npm run reviewer -- path/to/reviewer.config.json
+```
+
+Run it alongside the dispatcher and web server, all on the same DB. See `packages/reviewer/README.md` for the config reference (engine, model, concurrency, diff cap, attempt limits).
+
+### Live agent status
+
+While agents work, the **Live** view (header toggle) and each in-progress task's drawer show what's running right now — current phase, a rolling milestone feed, and so-far token counts — fed by a `report_progress` MCP tool the worker calls as it hits each milestone. It's ephemeral current-state (gone when the session ends), distinct from the durable activity log.
+
 ### Workspaces (multi-repo)
 
 Tasks belong to **workspaces** — named git repositories where the work happens. A fresh DB has a single `default` workspace (`repoPath: "."` = the agent's working directory), so single-repo setups need zero configuration and the UI shows no workspace chrome.
@@ -80,7 +95,9 @@ When a worker submits a result with a `branch` link (the convention: `feature/<k
 
 ### AI first-pass review (advisory)
 
-An external reviewer loop can examine each `in_review` task's diff and post its findings back as a comment using the **`ai-review/v1` marker convention** (marker line + summary + fenced JSON: `{ reviewer, verdict, findings }` — see `docs/superpowers/specs/2026-06-12-ai-review-tier.md`). The board surfaces the verdict as a chip on the card (**clean** / **N findings** / **pending** after a resubmission), renders the findings as a checklist in the drawer, and **Request changes** composes the checked findings plus your own note into one attributed feedback body. Uncurated findings never reach the implementing agent — MCP payloads strip ai-review comments; only your curated feedback rides the re-claim. Approving past open findings stays one confirm away and is logged as an override. The board never runs the reviewer; the loop lives outside this repo as `Run-ReviewerLoop.ps1` (`-Reviewer claude|codex`) in the **ado-bridge** repo — the third of its loops beside the `Run-AdoBridgeLoop.ps1` producer and the `Run-AgentFactoryLoop.ps1` worker (the spec is its contract).
+A reviewer can examine each `in_review` task's diff (implementation) or deliverable (description/plan) and post its findings back as a comment using the **`ai-review/v1` marker convention** (marker line + summary + fenced JSON: `{ reviewer, verdict, findings }` — see `docs/superpowers/specs/2026-06-12-ai-review-tier.md`). The board surfaces the verdict as a chip on the card (**clean** / **N findings** / **pending** after a resubmission), renders the findings as a checklist in the drawer, and **Request changes** composes the checked findings plus your own note into one attributed feedback body. Uncurated findings never reach the implementing agent — MCP payloads strip ai-review comments; only your curated feedback rides the re-claim. Approving past open findings stays one confirm away and is logged as an override.
+
+The board itself never runs the engine — a supervisor posts the verdict, and two are interchangeable: the in-repo **`reviewer`** supervisor (`npm run reviewer`, default engine **codex** — see [Run the reviewer](#run-the-reviewer-unattended-ai-review) above), or, outside this repo, `Run-ReviewerLoop.ps1` (`-Reviewer claude|codex`) in the **ado-bridge** repo (the third of its loops beside the `Run-AdoBridgeLoop.ps1` producer and the `Run-AgentFactoryLoop.ps1` worker). A clean verdict on a **doc stage** auto-advances the task to its next stage; **findings** and the **implementation** stage escalate to the human gate.
 
 ### The PR loop (push, clean up, reopen)
 
@@ -93,6 +110,10 @@ Paste screenshots straight into the task form (Ctrl+V) while writing or editing 
 ### Analytics
 
 The third view in the header toggle (**Board · List · Analytics**) answers "how is my agent loop performing?" — tasks done, median cycle/work time, first-pass approval rate, reopen rate, AI override rate (approvals past open review findings), where time goes per stage (in practice: the human review queue, not the agents), daily throughput, review round-trip distribution, tokens by model or by workspace (toggle), and a per-worker table with stranded-release counts. Everything timing/quality is derived from the activity log, so it works retroactively for every task ever; tokens and cost are **worker-reported** (optional `metrics` on `submit_result`, or `POST /api/tasks/<key>/metrics` from a loop wrapper with exact usage) and unreported tasks show *n/a* — never zero. Each task's drawer also gets a **Metrics** strip: stage timeline plus rounds/tokens/cost chips. Filter by workspace and 7d/30d/all.
+
+### Token telemetry (OpenTelemetry)
+
+Token usage is captured per task even for **interactive/streamed** sessions and **Codex** — the modes the dispatcher's stdout parse can't see. The web server hosts an **OTLP/HTTP (JSON) logs receiver at `POST /v1/logs`**; point either CLI's native OpenTelemetry export at it with the task key set, and the receiver sums tokens into the same `task_metric` rows analytics reads. The dispatcher wires this automatically when its config has an `otel` block (and then skips its stdout parse to avoid double-counting). See [`docs/token-telemetry.md`](docs/token-telemetry.md) for the Claude env vars, the Codex `config.toml`, and the limitations.
 
 ### Deleting tasks
 
