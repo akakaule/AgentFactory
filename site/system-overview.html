@@ -164,8 +164,8 @@
   <rect x="1130" y="56" width="200" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
   <rect x="1130" y="56" width="200" height="3" rx="2" fill="#F59E0B"/>
   <circle cx="1148" cy="84" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite"/></circle>
-  <text x="1160" y="88" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">agent · demo-1</text>
-  <text x="1146" y="108" class="mono" font-size="10.5" fill="#64748B">agentfactory-dispatcher</text>
+  <text x="1160" y="88" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">dispatcher · demo-1</text>
+  <text x="1146" y="108" class="mono" font-size="10.5" fill="#64748B">in-repo · npm run dispatcher</text>
   <text x="1146" y="124" class="mono" font-size="10.5" fill="#64748B">fresh claude -p per task</text>
   <text x="1146" y="146" font-size="11.5" fill="#97A5BE">pinned → agent-demo</text>
   <text x="1146" y="164" font-size="11" fill="#97A5BE">claims FIFO · one task at a time</text>
@@ -193,7 +193,7 @@
   <text x="1146" y="564" font-size="11" fill="#97A5BE">runtime can be a worker</text>
 
   <!-- reviewer loop (third ado-bridge runner) -->
-  <rect x="1130" y="608" width="200" height="124" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1130" y="608" width="200" height="150" rx="12" fill="#1E293B" stroke="#2C3A55"/>
   <rect x="1130" y="608" width="200" height="3" rx="2" fill="#F59E0B"/>
   <circle cx="1148" cy="636" r="5" fill="#F59E0B"><animate attributeName="opacity" values="1;0.3;1" dur="1.9s" repeatCount="indefinite"/></circle>
   <text x="1160" y="640" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">reviewer loop</text>
@@ -201,6 +201,7 @@
   <text x="1146" y="676" class="mono" font-size="10.5" fill="#64748B">-Reviewer claude | codex</text>
   <text x="1146" y="700" font-size="11" fill="#97A5BE">reads in_review diffs, posts</text>
   <text x="1146" y="716" class="mono" font-size="10.5" fill="#A78BFA">ai-review/v1 → chip + findings</text>
+  <text x="1146" y="734" class="mono" font-size="10.5" fill="#97A5BE">in-repo: npm run reviewer</text>
 
   <!-- ════════════ REPOS ════════════ -->
   <rect x="1370" y="56" width="166" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
@@ -298,7 +299,7 @@
   </div>
   <div class="loops">
     <h2>Loops &amp; invariants</h2>
-    <div class="lp"><i>⟳</i><span><b>Three ado-bridge loops, one per role</b> — <span class="mono">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono">Run-ReviewerLoop.ps1 -Reviewer claude|codex</span> posts <span class="mono">ai-review/v1</span>. Stateless minute-cadence siblings; each repo runs its own set.</span></div>
+    <div class="lp"><i>⟳</i><span><b>Three ado-bridge loops, one per role</b> — <span class="mono">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono">Run-ReviewerLoop.ps1 -Reviewer claude|codex</span> posts <span class="mono">ai-review/v1</span>. Stateless minute-cadence siblings; each repo runs its own set. The consume + review roles also run <b>in-repo</b> as the <span class="mono">dispatcher</span> and <span class="mono">reviewer</span> packages (<span class="mono">npm run dispatcher</span> / <span class="mono">npm run reviewer</span>) — same DB, no ado-bridge needed for a local setup.</span></div>
     <div class="lp"><i>↩</i><span><b>Request changes</b> — <span class="mono">in_review → queued</span> with feedback; the next claim continues on the <em>same</em> branch, so pushes update the same PR.</span></div>
     <div class="lp"><i>↩</i><span><b>Reopen</b> — <span class="mono">done → queued</span> when the PR build fails; paste the CI log as a comment first. Same branch, same PR.</span></div>
     <div class="lp"><i>⚑</i><span><b>Release claim</b> — a dead worker's <span class="mono">in_progress</span> task is re-queued by the human; full history survives for the next claimant.</span></div>
@@ -314,6 +315,6 @@
   </div>
 </div>
 </main>
-<footer>AgentFactory · system overview · updated 2026-06-12</footer>
+<footer>AgentFactory · system overview · updated 2026-06-15</footer>
 </body>
 </html>
