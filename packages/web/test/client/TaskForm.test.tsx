@@ -188,3 +188,41 @@ describe('TaskForm (edit mode)', () => {
     }, [], []);
   });
 });
+
+describe('TaskForm submit failure feedback', () => {
+  it('surfaces a rejected submit instead of leaving a dead button', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockRejectedValue(new Error('422: workspace not found'));
+    render(<TaskForm mode="create" onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+    // mirror the reported case: implementation-only task with all fields filled
+    await user.selectOptions(screen.getByLabelText('Workflow'), 'implementation');
+    await user.type(screen.getByPlaceholderText('Task title'), 'Update to Aspire 13.4.4');
+    await user.type(screen.getByPlaceholderText('Describe the task…'), 'Update to Aspire 13.4.4');
+    await user.type(screen.getByPlaceholderText('Define done…'), 'Aspire updated');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    // previously this rejection vanished and the button just sat there; now it's shown
+    expect(await screen.findByText('422: workspace not found')).toBeInTheDocument();
+    // and the button is interactive again so the user can retry
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  });
+
+  it('disables the button while a submit is in flight (no double-submit)', async () => {
+    const user = userEvent.setup();
+    let resolve: () => void = () => {};
+    const onSubmit = vi.fn(() => new Promise<void>((r) => { resolve = r; }));
+    render(<TaskForm mode="create" onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText('Task title'), 'T');
+    await user.type(screen.getByPlaceholderText('Describe the task…'), 'S');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    const busy = screen.getByRole('button', { name: 'Creating…' });
+    expect(busy).toBeDisabled();
+    await user.click(busy); // ignored while in flight
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    resolve();
+  });
+});

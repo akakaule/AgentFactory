@@ -16,7 +16,7 @@ export interface PendingImage { filename: string; mime: string; dataBase64: stri
 interface Props {
   mode: 'create' | 'edit';
   initial?: Pick<Task, 'title' | 'spec' | 'acceptanceCriteria'> & { attachments?: Attachment[] };
-  onSubmit: (fields: FormFields, images: PendingImage[], removedIds: number[]) => void;
+  onSubmit: (fields: FormFields, images: PendingImage[], removedIds: number[]) => void | Promise<void>;
   onCancel?: () => void;
   workspaces?: string[];
   initialWorkspace?: string;
@@ -32,6 +32,7 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
   const [images, setImages] = useState<PendingImage[]>([]);
   const [removedIds, setRemovedIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const showWorkspacePicker = mode === 'create' && (workspaces?.length ?? 0) > 1;
   const pipeline = mode === 'create' && stage === 'description'; // AC optional — that stage writes them
@@ -54,7 +55,8 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (submitting) return;
     const t = title.trim();
     const s = spec.trim();
     const ac = acceptanceCriteria.trim();
@@ -67,7 +69,15 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
     if (ac) fields.acceptanceCriteria = ac;
     if (mode === 'create') fields.stage = stage;
     if (showWorkspacePicker) fields.workspace = workspace;
-    onSubmit(fields, images, removedIds);
+    try {
+      setSubmitting(true);
+      // A rejection here (network/validation/server error) used to vanish silently, leaving a
+      // dead button. Surface it instead — on success the parent closes (unmounts) this form.
+      await onSubmit(fields, images, removedIds);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : 'Could not save — the server rejected the request or is unreachable.');
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -153,8 +163,8 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
         />
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
-        <button className="af-btn-primary" onClick={handleSubmit}>
-          {mode === 'create' ? 'Create' : 'Save'}
+        <button className="af-btn-primary" onClick={handleSubmit} disabled={submitting}>
+          {submitting ? (mode === 'create' ? 'Creating…' : 'Saving…') : (mode === 'create' ? 'Create' : 'Save')}
         </button>
         {onCancel && (
           <button className="af-mini" style={{ height: 34 }} onClick={onCancel}>
