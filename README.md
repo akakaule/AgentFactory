@@ -101,7 +101,7 @@ The board itself never runs the engine — a supervisor posts the verdict, and t
 
 ### The PR loop (push, clean up, reopen)
 
-Workers finish every task by pushing its feature branch (`feature/<key>-<kebab-title>`) to `origin` and removing their worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch (GitHub, Azure DevOps — anything on the remote). If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable *delete branch on merge* so merged feature branches clean themselves up.
+Workers start every task by creating a worktree on its feature branch (`feature/<key>-<kebab-title>`) **based on the latest default branch** — the server resolves the base (`origin/main`, fetched first) so work always begins from current main, not whatever the repo happened to have checked out. They finish by pushing that branch to `origin` and removing the worktree before `submit_result` — the branch is the durable record, and nothing piles up on disk. You review on the board, approve, and open the PR manually from the already-pushed branch (GitHub, Azure DevOps — anything on the remote). If the PR build fails, paste the failure as a comment on the task and hit **Reopen** (done → queued): the next claimant gets the full thread, continues on the same branch, and its push updates the same PR. Tip: enable *delete branch on merge* so merged feature branches clean themselves up.
 
 ### Images in specs
 

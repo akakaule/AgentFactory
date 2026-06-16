@@ -52,11 +52,14 @@ The same rescue shape covers failed PR builds: a human comments the CI failure o
 
 ## Worktree convention
 
-When the agent claims a task it creates a dedicated git worktree **under the task's workspace repository** before touching any code, on a conventional **feature branch** (`feature/<key>-<kebab-title>` — PR-host friendly, e.g. Azure DevOps branch folders), and does all work inside it:
+When the agent claims a task it creates a dedicated git worktree **under the task's workspace repository** before touching any code, on a conventional **feature branch** (`feature/<key>-<kebab-title>` — PR-host friendly, e.g. Azure DevOps branch folders), **based on the latest default branch**, and does all work inside it:
 
 ```sh
-git worktree add <repoPath>/.worktrees/AF-12 -b feature/AF-12-barcode-scanner-intake-form
+git fetch origin
+git worktree add <repoPath>/.worktrees/AF-12 -b feature/AF-12-barcode-scanner-intake-form origin/main
 ```
+
+The base is resolved by the server per repo (`origin/<default>` via `origin/HEAD`, else local `main`/`master`) and the worker fetches first, so every task starts from **current main** rather than whatever the repo happened to have checked out — the same base the board's diff is measured against. With no `origin` it bases on the local default branch (no fetch); if no default branch can be determined at all it falls back to the current `HEAD` (legacy behavior), never blocking the claim.
 
 `<kebab-title>` = the task title lowercased, every run of non-alphanumerics replaced by `-`, edge dashes trimmed, truncated to 40 characters. The name is deterministic from the claimed payload, so a re-claim derives the same branch.
 

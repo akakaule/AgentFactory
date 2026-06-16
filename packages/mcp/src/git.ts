@@ -31,6 +31,40 @@ async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; 
   }
 }
 
+/**
+ * The ref a FRESH task branch should be created from: the latest pushed default branch.
+ * Returns null when it can't be determined (not a git repo, no resolvable default) so the
+ * caller falls back to plain `-b <branch>` (branch from current HEAD) rather than blocking a
+ * claim. Only ever returns a ref that actually exists — we hand the worker a real ref, never a
+ * guess. Preference: remote-tracking `origin/<default>` (with a fetch, so the worktree starts
+ * from the latest main), else local `<default>` (no origin to fetch from).
+ */
+export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: string; fetch: boolean } | null> {
+  if (!existsSync(repoPath)) return null;
+  if (!(await runGit(repoPath, ['rev-parse', '--git-dir'])).ok) return null;
+
+  // Default branch NAME: prefer origin/HEAD, else probe local main/master.
+  let name: string | null = null;
+  const head = await runGit(repoPath, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  if (head.ok && head.stdout.trim()) {
+    name = head.stdout.trim().replace(/^refs\/remotes\/origin\//, '');
+  } else {
+    for (const cand of ['main', 'master']) {
+      if ((await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', cand])).ok) { name = cand; break; }
+    }
+  }
+  if (!name || !SAFE_REF.test(name)) return null;
+
+  // Prefer the freshest EXISTING base: origin/<name> (refreshed by a fetch), else local <name>.
+  if ((await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `origin/${name}`])).ok) {
+    return { ref: `origin/${name}`, fetch: true };
+  }
+  if ((await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', name])).ok) {
+    return { ref: name, fetch: false };
+  }
+  return null;
+}
+
 export interface SubmitGuardResult { ok: boolean; message?: string; }
 
 /** A linked worktree under <repo>/.worktrees/<key> still exists (case/sep-insensitive). */

@@ -5,6 +5,7 @@ import type { ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
 import { detailContent } from '../content.js';
 import { buildProtocol } from '../protocol.js';
+import { resolveWorktreeBase } from '../git.js';
 
 export function registerGetNextTask(server: McpServer, core: Core, opts: ServerOptions = {}): void {
   server.registerTool(
@@ -38,12 +39,22 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
         const { branchCreated, ...task } = claimed;
         // Doc stages always get a protocol (no branch involved); the implementation
         // stage keeps the legacy guard for pre-branch-feature rows left NULL.
-        const protocol =
-          task.stage !== 'implementation'
-            ? buildProtocol({ stage: task.stage, repoPath: task.repoPath, key: task.key })
-            : task.branch
-              ? buildProtocol({ stage: task.stage, repoPath: task.repoPath, key: task.key, branch: task.branch, branchCreated })
-              : undefined;
+        let protocol;
+        if (task.stage !== 'implementation') {
+          protocol = buildProtocol({ stage: task.stage, repoPath: task.repoPath, key: task.key });
+        } else if (task.branch) {
+          // A first claim CREATES the branch — base it on the latest default branch; a reclaim
+          // reuses the existing pushed branch untouched, so only resolve a base when creating.
+          // Resolution problems must never block a claim → fall back to branching from HEAD.
+          let base: { ref: string; fetch: boolean } | undefined;
+          if (branchCreated) {
+            try { base = (await resolveWorktreeBase(task.repoPath)) ?? undefined; } catch { base = undefined; }
+          }
+          protocol = buildProtocol({
+            stage: task.stage, repoPath: task.repoPath, key: task.key, branch: task.branch, branchCreated,
+            ...(base ? { base } : {}),
+          });
+        }
         return { content: detailContent(core, task, protocol ? { protocol } : undefined) };
       } catch (err) {
         return toToolError(err);
