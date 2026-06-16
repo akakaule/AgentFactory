@@ -21,6 +21,21 @@ row via the normal path — so OTel usage aggregates exactly like dispatcher-rep
 - **Auth:** `/v1/*` is behind the normal guard. In `AUTH_MODE=token`, send a **service token** in
   the OTLP `Authorization` header; in `none` mode it's open.
 
+## Live telemetry feed
+Alongside the durable per-task rollup, the receiver pushes **every** parsed event into a small
+in-memory ring, surfaced by the **Telemetry** view (header toggle) and `GET /api/telemetry`. It's a
+live table of recent events — **time · task · workspace · worker · agent · model · tokens in/out ·
+cost** — plus rolling totals broken down by agent and model. Use it to watch usage flow in real time
+and to confirm a session is actually exporting.
+
+- **Worker/workspace** come from the `af.worker` / `af.workspace` resource attributes the dispatcher
+  stamps (see below); columns show `–` when a session doesn't set them.
+- **Unattributed events** (no task key) **do** show here (tagged *unattributed*) even though they're
+  dropped from the per-task rollup — so "telemetry is arriving but not bound to a task" is visible
+  instead of silent.
+- The feed is **ephemeral** (last ~500 events, in the web-server process) and **lost on restart** —
+  it's a live monitor, not history. The durable rollup (task **Metrics** + Analytics) is untouched.
+
 ## Claude Code
 Set these in the environment of the `claude` process (interactive or headless):
 ```sh
@@ -72,7 +87,8 @@ CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_LOGS_EXPORTER=otlp OTEL_EXPORTER_OTLP_PROTOC
 
 ## Limitations
 - **Ad-hoc interactive sessions not bound to a task** (no `task.key`/`X-Task-Key`) still export,
-  but land **unattributed** and are dropped. Per-task attribution requires the session to carry a
+  but land **unattributed**: they show in the live **Telemetry** feed (so you can see them arriving)
+  yet are **dropped from the per-task rollup**. Per-task attribution requires the session to carry a
   task key (the dispatcher's `otel` block sets it automatically; for the `reviewer`, an
   interactive worktree session, or a manual `claude`, set `OTEL_RESOURCE_ATTRIBUTES=task.key=…`
   in the environment).

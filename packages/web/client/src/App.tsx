@@ -9,6 +9,7 @@ import { BoardView } from './views/BoardView.js';
 import { ArchiveView } from './views/ArchiveView.js';
 import { AnalyticsView } from './views/AnalyticsView.js';
 import { LiveView } from './views/LiveView.js';
+import { TelemetryView } from './views/TelemetryView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
@@ -16,7 +17,7 @@ import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate } from './components/TokenGate.js';
 import { Mark, I } from './icons.js';
 
-type View = 'board' | 'list' | 'archive' | 'analytics' | 'live';
+type View = 'board' | 'list' | 'archive' | 'analytics' | 'live' | 'telemetry';
 
 /** ticker line derived from real board changes between SSE refetches */
 function useChangeTicker(tasks: Task[]): string | null {
@@ -90,6 +91,7 @@ export function App() {
           <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}Archive</button>
           <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}Analytics</button>
           <button className={view === 'live' ? 'on' : ''} onClick={() => switchView('live')}>{I.bot({})}Live</button>
+          <button className={view === 'telemetry' ? 'on' : ''} onClick={() => switchView('telemetry')}>{I.clock({})}Telemetry</button>
         </div>
         <WorkspaceSwitcher
           workspaces={workspaces}
@@ -136,6 +138,7 @@ export function App() {
       {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={setSelectedKey} />}
       {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
       {view === 'live' && <LiveView onOpen={setSelectedKey} />}
+      {view === 'telemetry' && <TelemetryView onOpen={setSelectedKey} />}
 
       {/* Bottom tab bar — shown only on phones (CSS); the header switcher hides there */}
       <nav className="af-tabbar" aria-label="Views">
@@ -144,6 +147,7 @@ export function App() {
         <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}<span>Archive</span></button>
         <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}<span>Analytics</span></button>
         <button className={view === 'live' ? 'on' : ''} onClick={() => switchView('live')}>{I.bot({})}<span>Live</span></button>
+        <button className={view === 'telemetry' ? 'on' : ''} onClick={() => switchView('telemetry')}>{I.clock({})}<span>Telemetry</span></button>
       </nav>
 
       {selectedKey && (

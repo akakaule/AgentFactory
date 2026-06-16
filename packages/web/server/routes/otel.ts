@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Core } from '../types.js';
+import type { TelemetryStore } from '../telemetry.js';
 
 /**
  * OTLP/HTTP **logs** receiver (JSON only) at POST /v1/logs. Both Claude Code and Codex
@@ -71,7 +72,7 @@ function extract(rec: LogRecord): TokenHit | null {
   return null;
 }
 
-export function otelRoutes(core: Core): Hono {
+export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
   const r = new Hono();
 
   r.post('/logs', async (c) => {
@@ -80,13 +81,31 @@ export function otelRoutes(core: Core): Hono {
     try { payload = (await c.req.json()) as OtlpLogs; } catch { return c.json({}, 200); }
 
     for (const rl of payload.resourceLogs ?? []) {
+      // Resource attributes the dispatcher stamps once per session (otel block in its config).
       const resourceKey = asStr(attrOf(rl.resource?.attributes, 'task.key'));
+      const workspace = asStr(attrOf(rl.resource?.attributes, 'af.workspace')) ?? null;
+      const worker = asStr(attrOf(rl.resource?.attributes, 'af.worker')) ?? null;
       for (const sl of rl.scopeLogs ?? []) {
         for (const rec of sl.logRecords ?? []) {
           const hit = extract(rec);
           if (!hit) continue;
           const key = headerKey ?? resourceKey ?? asStr(attrOf(rec.attributes, 'task.key'));
-          if (!key) continue; // unattributed — drop (per-task tracking needs a task binding)
+
+          // Live feed: keep EVERY event, including unattributed ones (no task key) — those are
+          // the "telemetry arriving but not bound to a task" signal the durable aggregate drops.
+          telemetry?.add({
+            at: new Date().toISOString(),
+            taskKey: key ?? null,
+            workspace,
+            worker,
+            agent: hit.source,
+            model: hit.model ?? null,
+            tokensIn: hit.tokensIn,
+            tokensOut: hit.tokensOut,
+            costUsd: hit.costUsd ?? null,
+          });
+
+          if (!key) continue; // unattributed — drop from the durable aggregate (needs a task binding)
           const input: { model?: string; tokensIn: number; tokensOut: number; costUsd?: number; reportedBy: string } = {
             tokensIn: hit.tokensIn, tokensOut: hit.tokensOut, reportedBy: `otel:${hit.source}`,
           };
