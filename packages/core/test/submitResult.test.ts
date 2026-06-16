@@ -139,6 +139,47 @@ describe('submitResult — stage deliverables', () => {
     expect(detail.resultSummary).toBe('description written');
   });
 
+  it('description stage snapshots the human original spec/AC before overwriting them', () => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, 'description'); // seed spec='Raw idea', AC='A'
+
+    const detail = submitResult(db, task.key, {
+      summary: 'description written',
+      spec: 'Polished feature description',
+      acceptanceCriteria: '- it works',
+    }, fixedNow);
+
+    // current fields hold the agent's rewrite, original* preserve the human wording
+    expect(detail.spec).toBe('Polished feature description');
+    expect(detail.acceptanceCriteria).toBe('- it works');
+    expect(detail.originalSpec).toBe('Raw idea');
+    expect(detail.originalAcceptanceCriteria).toBe('A');
+  });
+
+  it('a re-submitted description (after request-changes) keeps the first snapshot', () => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, 'description');
+
+    submitResult(db, task.key, { summary: 'v1', spec: 'Rewrite v1', acceptanceCriteria: 'AC v1' }, fixedNow);
+    // simulate a human bouncing it back to in_progress for another pass
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    const detail = submitResult(db, task.key, { summary: 'v2', spec: 'Rewrite v2', acceptanceCriteria: 'AC v2' }, fixedNow);
+
+    expect(detail.spec).toBe('Rewrite v2');
+    expect(detail.originalSpec).toBe('Raw idea'); // still the human's original, not 'Rewrite v1'
+    expect(detail.originalAcceptanceCriteria).toBe('A');
+  });
+
+  it('implementation stage leaves original* null (nothing was overwritten)', () => {
+    const db = makeTestDb();
+    const task = seedInProgress(db, 'implementation');
+
+    const detail = submitResult(db, task.key, { summary: 'done' }, fixedNow);
+
+    expect(detail.originalSpec).toBeNull();
+    expect(detail.originalAcceptanceCriteria).toBeNull();
+  });
+
   it('plan stage persists the plan and flips to in_review', () => {
     const db = makeTestDb();
     const task = seedInProgress(db, 'plan');

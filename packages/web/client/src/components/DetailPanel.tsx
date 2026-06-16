@@ -211,6 +211,13 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               <div className="af-sl">Acceptance criteria</div>
               <div className="af-d-body">{task.acceptanceCriteria}</div>
 
+              {task.originalSpec && (<>
+                <div className="af-sl">Original description</div>
+                <div className="af-d-body">{task.originalSpec}</div>
+                <div className="af-sl">Original acceptance criteria</div>
+                <div className="af-d-body">{task.originalAcceptanceCriteria}</div>
+              </>)}
+
               {task.plan && (<>
                 <div className="af-sl">Plan</div>
                 <div className="af-d-body">{task.plan}</div>

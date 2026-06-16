@@ -95,6 +95,10 @@ export interface TaskDetail extends Task {
   repoPath: string;
   branch: string | null; // server-named feature branch, set on the first implementation-stage claim; null before then
   plan: string | null; // the plan stage's deliverable; null until that stage submits
+  // human's original spec/acceptance criteria, snapshotted before the description stage rewrote them;
+  // null when no description-stage rewrite happened (implementation-only and legacy tasks)
+  originalSpec: string | null;
+  originalAcceptanceCriteria: string | null;
   metrics: TaskMetricsView;
 }
 

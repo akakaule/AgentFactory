@@ -15,6 +15,7 @@ export interface TaskRow {
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
   archived_at: string | null;
+  original_spec: string | null; original_acceptance_criteria: string | null;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
@@ -67,6 +68,8 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     plan: r.plan,
+    originalSpec: r.original_spec,
+    originalAcceptanceCriteria: r.original_acceptance_criteria,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
     attachments: attachmentsMeta(db, r.id),
@@ -120,6 +123,17 @@ export function applyEdit(db: DB, id: number, fields: UpdateTaskInput, ts: strin
   vals.push(id);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (db.prepare(`UPDATE task SET ${sets.join(', ')} WHERE id = ?`).run as (...a: any[]) => unknown)(...vals);
+}
+/**
+ * One-time snapshot of the human-written spec/acceptance criteria, taken just before the
+ * description stage rewrites them. The `original_spec IS NULL` guard makes it idempotent:
+ * the first description-stage submit captures the original; later re-submits never clobber it.
+ */
+export function snapshotOriginal(db: DB, id: number, spec: string, acceptanceCriteria: string, ts: string): void {
+  db.prepare(
+    `UPDATE task SET original_spec = ?, original_acceptance_criteria = ?, updated_at = ?
+     WHERE id = ? AND original_spec IS NULL`,
+  ).run(spec, acceptanceCriteria, ts, id);
 }
 export function setArchived(db: DB, id: number, archivedAt: string | null, ts: string): void {
   // bumping updated_at moves getVersion(), so SSE-driven clients refetch on (un)archive

@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 10 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 10 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -73,6 +73,19 @@ describe('runMigrations', () => {
     expect(() => db.prepare(ins).run(tid)).toThrow(); // a second LIVE row for the task is rejected
     db.prepare("UPDATE agent_session SET ended_at='2026-01-02' WHERE task_id=?").run(tid);
     expect(() => db.prepare(ins).run(tid)).not.toThrow(); // ending the first frees the slot
+  });
+
+  it('migration #11 adds nullable original_spec / original_acceptance_criteria columns', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain('original_spec');
+    expect(cols).toContain('original_acceptance_criteria');
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','queued',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    expect(db.prepare('SELECT original_spec, original_acceptance_criteria FROM task WHERE key = ?').get('AF-1'))
+      .toMatchObject({ original_spec: null, original_acceptance_criteria: null });
   });
 
   it('enforces the stage CHECK constraint', () => {
