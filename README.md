@@ -115,6 +115,10 @@ The third view in the header toggle (**Board · List · Analytics**) answers "ho
 
 Token usage is captured per task even for **interactive/streamed** sessions and **Codex** — the modes the dispatcher's stdout parse can't see. The web server hosts an **OTLP/HTTP (JSON) logs receiver at `POST /v1/logs`**; point either CLI's native OpenTelemetry export at it with the task key set, and the receiver sums tokens into the same `task_metric` rows analytics reads. The dispatcher wires this automatically when its config has an `otel` block (and then skips its stdout parse to avoid double-counting). See [`docs/token-telemetry.md`](docs/token-telemetry.md) for the Claude env vars, the Codex `config.toml`, and the limitations.
 
+### Live telemetry feed
+
+Beyond the durable per-task rollup, the OTLP receiver pushes **every** event into a small in-memory ring that the **Telemetry** view (header toggle) renders live — a table of recent events (**time · task · workspace · worker · agent · model · tokens in/out · cost**) with rolling totals by agent and model. It's the real-time companion to Analytics: watch usage flow as Claude/Codex export it, see which worker/model is spending, and catch **unattributed** events (telemetry arriving without a task key — shown here even though they're excluded from the per-task rollup). The feed is ephemeral (last ~500 events, gone on restart); the durable Metrics/Analytics numbers are untouched.
+
 ### Deleting tasks
 
 Open a task and use **Delete task** at the bottom of the drawer (it arms into a red *Confirm delete?* — second click deletes). The task and its whole activity/link history are gone for good; there is no archive. In-progress tasks are protected: release the claim first, then delete. Deletion is human-only — agents have no delete tool.

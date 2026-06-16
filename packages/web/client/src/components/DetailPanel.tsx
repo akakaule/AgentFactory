@@ -190,7 +190,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                         for (const img of images) await api.addAttachment(task.key, img);
                       })
                       .then(() => { setEditing(false); afterMutation(); })
-                      .catch(() => {})
+                    // let failures reject so the form surfaces them (no silent swallow)
                   }
                   onCancel={() => setEditing(false)}
                 />
