@@ -4,7 +4,7 @@ A stdio MCP server that exposes the AgentFactory task board to an agent runtime.
 
 ## What it is
 
-This package implements the [Model Context Protocol](https://modelcontextprotocol.io/) server for AgentFactory. It gives an AI agent (e.g. Claude Code, Claude Desktop) read/write access to the task board through 6 tools:
+This package implements the [Model Context Protocol](https://modelcontextprotocol.io/) server for AgentFactory. It gives an AI agent (e.g. Claude Code, Claude Desktop) read/write access to the task board through 7 tools:
 
 | Tool | Description |
 |---|---|
@@ -12,6 +12,7 @@ This package implements the [Model Context Protocol](https://modelcontextprotoco
 | `get_next_task` | Claim and return the next available task (status: `queued`), optionally scoped to a workspace |
 | `get_task` | Get a single task by key |
 | `add_comment` | Add a comment to a task |
+| `report_progress` | Post a short, live progress milestone (and optional so-far token counts) for the in-progress task; ephemeral, distinct from `add_comment` |
 | `submit_result` | Submit a result for a completed task |
 | `update_status` | Transition a task to a new status |
 
