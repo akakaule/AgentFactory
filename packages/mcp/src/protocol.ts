@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -23,11 +23,17 @@ export type ProtocolInput =
       branch: string;
       /** true ⇒ branch named this claim (first claim / legacy) ⇒ create with `-b`. */
       branchCreated: boolean;
+      /** What a FIRST claim branches from (latest default branch); ignored on a reclaim. */
+      base?: { ref: string; fetch: boolean };
     };
 
 // Forward slashes only: Windows backslash paths lose their backslashes when the
 // agent pastes them into a POSIX shell; git accepts / on every platform.
 const fwd = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+
+// Defense-in-depth: the base ref is server-resolved (already validated in git.ts), but the
+// same ref discipline costs nothing — no leading '-', no '..', conservative charset.
+const SAFE_REF = /^(?!-)(?!.*\.\.)[\w./-]+$/;
 
 export function buildProtocol(input: ProtocolInput): Protocol {
   if (input.stage === 'description') {
@@ -58,9 +64,16 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   const { stage, repoPath, key, branch, branchCreated } = input;
   const worktree = `${fwd(repoPath)}/.worktrees/${key}`;
   const wt = `"${worktree}"`; // quoted in commands so paths with spaces survive
-  const setup = branchCreated
-    ? [`git worktree add ${wt} -b ${branch}`]
-    : [`git worktree add ${wt} ${branch}`]; // reuse the existing branch — updates the same PR
+  const setup: string[] = [];
+  if (branchCreated) {
+    // First claim: branch from the latest default branch when one was resolved (fetch first so
+    // origin/<default> is current), else from current HEAD (legacy fallback — never block).
+    const base = input.base && SAFE_REF.test(input.base.ref) ? input.base : undefined;
+    if (base?.fetch) setup.push('git fetch origin');
+    setup.push(base ? `git worktree add ${wt} -b ${branch} ${base.ref}` : `git worktree add ${wt} -b ${branch}`);
+  } else {
+    setup.push(`git worktree add ${wt} ${branch}`); // reuse the existing branch — updates the same PR
+  }
   return {
     version: PROTOCOL_VERSION,
     stage,

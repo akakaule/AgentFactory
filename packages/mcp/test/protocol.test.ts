@@ -46,7 +46,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(3);
+    expect(p.version).toBe(4);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -59,7 +59,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(3);
+    expect(p.version).toBe(4);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -75,9 +75,44 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(3);
+    expect(p.version).toBe(4);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
+  });
+});
+
+// A fresh task branch is created from the latest default branch; reclaims reuse the
+// existing pushed branch untouched (re-basing would diverge from its open PR).
+describe('buildProtocol worktree base', () => {
+  const impl = (extra: Record<string, unknown>) =>
+    buildProtocol({ stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-5', branch: 'feature/AF-5-a', ...extra } as Parameters<typeof buildProtocol>[0]);
+
+  it('first claim with a fetchable base: git fetch, then create the branch from that ref', () => {
+    const p = impl({ branchCreated: true, base: { ref: 'origin/main', fetch: true } });
+    expect(p.setup).toEqual([
+      'git fetch origin',
+      'git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a origin/main',
+    ]);
+  });
+
+  it('first claim with a no-fetch base (local default, no origin): create from the ref, no fetch', () => {
+    const p = impl({ branchCreated: true, base: { ref: 'master', fetch: false } });
+    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a master']);
+  });
+
+  it('first claim without a resolvable base: falls back to branching from current HEAD', () => {
+    const p = impl({ branchCreated: true });
+    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a']);
+  });
+
+  it('reclaim ignores any base and reuses the existing branch (no -b, no fetch)', () => {
+    const p = impl({ branchCreated: false, base: { ref: 'origin/main', fetch: true } });
+    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" feature/AF-5-a']);
+  });
+
+  it('rejects an unsafe base ref (defense-in-depth) and falls back to current HEAD', () => {
+    const p = impl({ branchCreated: true, base: { ref: '--upload-pack=evil', fetch: false } });
+    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a']);
   });
 });
