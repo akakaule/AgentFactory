@@ -30,6 +30,21 @@ export const configSchema = z.object({
   maxDiffChars: z.number().int().nonnegative().default(120000),
   /** Attempts a task gets before it is skip-listed (left for a human). */
   maxAttempts: z.number().int().positive().default(2),
+  /**
+   * Optional OpenTelemetry export. When set, each spawned review binds its token usage to the
+   * task so usage lands attributed (not "unattributed") in the live Telemetry feed + per-task
+   * rollup. Wiring is per engine: the `claude` engine gets the OTLP env vars + a `task.key`
+   * resource attribute (like the dispatcher); the `codex` engine reads its OTLP config from
+   * `~/.codex/config.toml` and only needs `AF_TASK_KEY` (and `AF_OTEL_TOKEN`) in the env, which
+   * that file interpolates into its `X-Task-Key` (and `Authorization`) headers.
+   */
+  otel: z
+    .object({
+      endpoint: z.string().min(1),
+      token: z.string().min(1).optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export type ReviewerConfig = z.infer<typeof configSchema>;

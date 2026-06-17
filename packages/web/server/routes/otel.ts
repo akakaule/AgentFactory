@@ -40,7 +40,7 @@ const asNum = (v?: AnyValue): number | undefined => {
 const eventNameOf = (rec: LogRecord): string =>
   rec.eventName ?? asStr(rec.body) ?? asStr(attrOf(rec.attributes, 'event.name')) ?? '';
 
-interface TokenHit { tokensIn: number; tokensOut: number; costUsd?: number; model?: string; source: 'claude-code' | 'codex' }
+interface TokenHit { tokensIn: number; tokensCached: number; tokensOut: number; costUsd?: number; model?: string; source: 'claude-code' | 'codex' }
 
 /** Pull a token record from a single log event, or null if it carries no usage. */
 function extract(rec: LogRecord): TokenHit | null {
@@ -53,7 +53,7 @@ function extract(rec: LogRecord): TokenHit | null {
     const cacheRead = asNum(attrOf(a, 'cache_read_tokens')) ?? 0;
     const cacheCreate = asNum(attrOf(a, 'cache_creation_tokens')) ?? 0;
     if (input + output + cacheRead + cacheCreate === 0) return null;
-    const hit: TokenHit = { tokensIn: input + cacheRead + cacheCreate, tokensOut: output, source: 'claude-code' };
+    const hit: TokenHit = { tokensIn: input + cacheRead + cacheCreate, tokensCached: cacheRead + cacheCreate, tokensOut: output, source: 'claude-code' };
     const cost = asNum(attrOf(a, 'cost_usd')); if (cost !== undefined) hit.costUsd = cost;
     const model = asStr(attrOf(a, 'model')); if (model !== undefined) hit.model = model;
     return hit;
@@ -64,7 +64,7 @@ function extract(rec: LogRecord): TokenHit | null {
     const output = asNum(attrOf(a, 'output_tokens')) ?? asNum(attrOf(a, 'output')) ?? 0;
     const cached = asNum(attrOf(a, 'cached_input_tokens')) ?? asNum(attrOf(a, 'cached')) ?? 0;
     if (input + output + cached === 0) return null;
-    const hit: TokenHit = { tokensIn: input + cached, tokensOut: output, source: 'codex' };
+    const hit: TokenHit = { tokensIn: input + cached, tokensCached: cached, tokensOut: output, source: 'codex' };
     const model = asStr(attrOf(a, 'model')); if (model !== undefined) hit.model = model;
     return hit;
   }
@@ -90,22 +90,22 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
           const hit = extract(rec);
           if (!hit) continue;
           const key = headerKey ?? resourceKey ?? asStr(attrOf(rec.attributes, 'task.key'));
+          if (!key) continue; // unattributed — drop from both the live feed and the durable aggregate
 
-          // Live feed: keep EVERY event, including unattributed ones (no task key) — those are
-          // the "telemetry arriving but not bound to a task" signal the durable aggregate drops.
+          // Live feed: every task-attributed event, for "what's flowing right now" visibility.
           telemetry?.add({
             at: new Date().toISOString(),
-            taskKey: key ?? null,
+            taskKey: key,
             workspace,
             worker,
             agent: hit.source,
             model: hit.model ?? null,
             tokensIn: hit.tokensIn,
+            tokensCached: hit.tokensCached,
             tokensOut: hit.tokensOut,
             costUsd: hit.costUsd ?? null,
           });
 
-          if (!key) continue; // unattributed — drop from the durable aggregate (needs a task binding)
           const input: { model?: string; tokensIn: number; tokensOut: number; costUsd?: number; reportedBy: string } = {
             tokensIn: hit.tokensIn, tokensOut: hit.tokensOut, reportedBy: `otel:${hit.source}`,
           };

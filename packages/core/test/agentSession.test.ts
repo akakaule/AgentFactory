@@ -6,6 +6,7 @@ import { updateStatus } from '../src/ops/updateStatus.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { submitResult } from '../src/ops/submitResult.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from '../src/ops/agentSession.js';
+import { addTaskMetrics } from '../src/ops/addTaskMetrics.js';
 import { getVersion } from '../src/version.js';
 
 function queued(db: DB) {
@@ -39,6 +40,20 @@ describe('agent_session live tracking', () => {
     expect(live.recent.map((r) => r.msg)).toEqual(['writing tests', 'running build']);
     expect(live.tokensIn).toBe(1000); // retained via COALESCE when a later call omits tokens
     expect(live.tokensOut).toBe(200);
+  });
+
+  it('live tokens reflect the task_metric rollup (OTel/dispatcher) even with no self-report', () => {
+    const db = makeTestDb();
+    const t = queued(db);
+    claimNextTask(db, { claimedBy: 'worker-1' });
+
+    // OTel/dispatcher land usage in task_metric; the agent never calls report_progress with tokens.
+    addTaskMetrics(db, t.key, { tokensIn: 1200, tokensOut: 300, reportedBy: 'otel:claude-code' });
+    addTaskMetrics(db, t.key, { tokensIn: 800, tokensOut: 100, reportedBy: 'otel:claude-code' });
+
+    const live = listLiveAgents(db)[0]!;
+    expect(live.tokensIn).toBe(2000); // summed rollup, surfaced on the live row
+    expect(live.tokensOut).toBe(400);
   });
 
   it('submit ends the session (drops it from the live view)', () => {

@@ -54,7 +54,7 @@ function codexBody() {
 describe('createTelemetryStore — ring buffer', () => {
   it('keeps events bounded, newest-first, honoring limit', () => {
     const store = createTelemetryStore(3);
-    const base = { at: '2026-06-16T00:00:00.000Z', taskKey: null, workspace: null, worker: null, agent: 'codex' as const, model: null, tokensIn: 0, tokensOut: 0, costUsd: null };
+    const base = { at: '2026-06-16T00:00:00.000Z', taskKey: null, workspace: null, worker: null, agent: 'codex' as const, model: null, tokensIn: 0, tokensCached: 0, tokensOut: 0, costUsd: null };
     for (let i = 1; i <= 5; i++) store.add({ ...base, tokensIn: i });
 
     const recent = store.recent();
@@ -77,7 +77,7 @@ describe('GET /api/telemetry — live OTel feed', () => {
     expect(feed).toHaveLength(1);
     expect(feed[0]).toMatchObject({
       taskKey: t.key, workspace: 'shopfloor', worker: 'shopfloor#AF-1-a1',
-      agent: 'claude-code', model: 'claude-opus-4-8', tokensIn: 1050, tokensOut: 200, costUsd: 0.01,
+      agent: 'claude-code', model: 'claude-opus-4-8', tokensIn: 1050, tokensCached: 50, tokensOut: 200, costUsd: 0.01,
     });
   });
 
@@ -89,7 +89,7 @@ describe('GET /api/telemetry — live OTel feed', () => {
     await postLogs(app, codexBody(), { 'x-task-key': t.key });
 
     const feed = await getFeed(app);
-    expect(feed[0]).toMatchObject({ taskKey: t.key, agent: 'codex', model: 'gpt-5-codex', tokensIn: 300, tokensOut: 40, costUsd: null });
+    expect(feed[0]).toMatchObject({ taskKey: t.key, agent: 'codex', model: 'gpt-5-codex', tokensIn: 300, tokensCached: 0, tokensOut: 40, costUsd: null });
   });
 
   it('returns events newest-first', async () => {
@@ -104,16 +104,16 @@ describe('GET /api/telemetry — live OTel feed', () => {
     expect(feed.map((e) => e.agent)).toEqual(['codex', 'claude-code']);
   });
 
-  it('UNATTRIBUTED events appear in the live feed but never touch the durable aggregate', async () => {
+  it('UNATTRIBUTED events are dropped from both the live feed and the durable aggregate', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core);
     const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
 
     expect((await postLogs(app, claudeBody(null))).status).toBe(200);
 
+    // no task key → never enters the live feed (which now shows only task-attributed usage)
     const feed = await getFeed(app);
-    expect(feed).toHaveLength(1);
-    expect(feed[0]).toMatchObject({ taskKey: null, agent: 'claude-code', tokensIn: 1050 });
+    expect(feed).toHaveLength(0);
 
     // the receiver's task_metric path is untouched — the task aggregate stays null
     const detail = await (await app.request(`/api/tasks/${t.key}`)).json() as { metrics: { tokensIn: number | null } };

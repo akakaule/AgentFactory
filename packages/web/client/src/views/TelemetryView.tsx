@@ -27,18 +27,18 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
 
   // Rolling totals over the events currently in the window (newest ~200, not all-time).
   const sum = useMemo(() => {
-    let tin = 0, tout = 0, cost = 0, hasCost = false;
+    let tin = 0, tcached = 0, tout = 0, cost = 0, hasCost = false;
     const byAgent: Record<TelemetryEvent['agent'], number> = { 'claude-code': 0, codex: 0 };
     const byModel = new Map<string, number>();
     for (const e of events) {
-      tin += e.tokensIn; tout += e.tokensOut;
+      tin += e.tokensIn; tcached += e.tokensCached; tout += e.tokensOut;
       if (e.costUsd != null) { cost += e.costUsd; hasCost = true; }
       byAgent[e.agent]++;
       const m = e.model ?? 'unknown';
       byModel.set(m, (byModel.get(m) ?? 0) + 1);
     }
     const models = [...byModel.entries()].sort((a, b) => b[1] - a[1]);
-    return { tin, tout, cost, hasCost, byAgent, models };
+    return { tin, tcached, tout, cost, hasCost, byAgent, models };
   }, [events]);
 
   if (events.length === 0) {
@@ -64,6 +64,7 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
 
         <div className="af-tel-sum">
           <div className="af-tel-stat"><div className="v mono">{fmtTokens(sum.tin)}</div><div className="l">Tokens in</div></div>
+          <div className="af-tel-stat"><div className="v mono">{fmtTokens(sum.tcached)}</div><div className="l">Cached</div></div>
           <div className="af-tel-stat"><div className="v mono">{fmtTokens(sum.tout)}</div><div className="l">Tokens out</div></div>
           <div className="af-tel-stat"><div className="v mono">{sum.hasCost ? fmtCost(sum.cost) : '–'}</div><div className="l">Cost</div></div>
           <div className="af-tel-chips">
@@ -81,7 +82,7 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
             <thead>
               <tr>
                 <th>Time</th><th>Task</th><th>Workspace</th><th>Worker</th><th>Agent</th><th>Model</th>
-                <th className="r">In</th><th className="r">Out</th><th className="r">Cost</th>
+                <th className="r">In</th><th className="r">Cached</th><th className="r">Out</th><th className="r">Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -98,6 +99,7 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
                     <td><span className={'af-tel-agent ' + ag.cls}><span className="d"></span>{ag.label}</span></td>
                     <td className="mono dim">{e.model ?? '–'}</td>
                     <td className="r mono">{fmtTokens(e.tokensIn)}</td>
+                    <td className="r mono dim" title="cache-hit tokens, included in In">{fmtTokens(e.tokensCached)}</td>
                     <td className="r mono">{fmtTokens(e.tokensOut)}</td>
                     <td className="r mono">{fmtCost(e.costUsd)}</td>
                   </tr>

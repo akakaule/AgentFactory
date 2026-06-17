@@ -22,17 +22,18 @@ row via the normal path — so OTel usage aggregates exactly like dispatcher-rep
   the OTLP `Authorization` header; in `none` mode it's open.
 
 ## Live telemetry feed
-Alongside the durable per-task rollup, the receiver pushes **every** parsed event into a small
-in-memory ring, surfaced by the **Telemetry** view (header toggle) and `GET /api/telemetry`. It's a
-live table of recent events — **time · task · workspace · worker · agent · model · tokens in/out ·
-cost** — plus rolling totals broken down by agent and model. Use it to watch usage flow in real time
-and to confirm a session is actually exporting.
+Alongside the durable per-task rollup, the receiver pushes each **task-attributed** event into a
+small in-memory ring, surfaced by the **Telemetry** view (header toggle) and `GET /api/telemetry`.
+It's a live table of recent events — **time · task · workspace · worker · agent · model · tokens
+in · cached · out · cost** — plus rolling totals broken down by agent and model. Use it to watch
+usage flow in real time and to confirm a session is actually exporting.
 
+- **Cached** is the cache-hit portion (`cache_read + cache_creation` for Claude, `cached_input` for
+  Codex) and is **already counted inside In** — it's a breakdown, not an extra addend.
 - **Worker/workspace** come from the `af.worker` / `af.workspace` resource attributes the dispatcher
   stamps (see below); columns show `–` when a session doesn't set them.
-- **Unattributed events** (no task key) **do** show here (tagged *unattributed*) even though they're
-  dropped from the per-task rollup — so "telemetry is arriving but not bound to a task" is visible
-  instead of silent.
+- **Unattributed events** (no task key) are **dropped** — the feed shows only usage that maps to a
+  task, matching the per-task rollup.
 - The feed is **ephemeral** (last ~500 events, in the web-server process) and **lost on restart** —
   it's a live monitor, not history. The durable rollup (task **Metrics** + Analytics) is untouched.
 
@@ -57,21 +58,25 @@ so the session isn't double-counted:
 
 ## Codex
 Codex is configured by file, not env (env only interpolates into values like headers). In
-`~/.codex/config.toml`:
+`~/.codex/config.toml` — `exporter` is a single inline table (a string + a `[otel.exporter.otlp-http]`
+table would collide on the `exporter` key and fail to parse):
 ```toml
 [otel]
-exporter = "otlp-http"
-
-[otel.exporter.otlp-http]
-endpoint = "http://localhost:8787"
-protocol = "json"
-
-[otel.exporter.otlp-http.headers]
-Authorization = "Bearer ${AF_OTEL_TOKEN}"   # only in token mode
-X-Task-Key   = "${AF_TASK_KEY}"             # binds the run to a task
+exporter = { otlp-http = { endpoint = "http://localhost:8787", protocol = "json", headers = {
+  "X-Task-Key" = "${AF_TASK_KEY}",                 # binds the run to a task
+  "Authorization" = "Bearer ${AF_OTEL_TOKEN}",     # only in token mode; drop in none mode
+} } }
 ```
-Then export `AF_TASK_KEY=AF-123` (and `AF_OTEL_TOKEN`) before launching `codex` / `codex exec`
-(e.g. the ado-bridge reviewer loop sets these per task). Token counts ride `codex.sse_event` logs
+Then export `AF_TASK_KEY=AF-123` (and `AF_OTEL_TOKEN`) before launching `codex` / `codex exec`.
+The **reviewer does this automatically per review** when its config has an `otel` block — for the
+`codex` engine it stamps `AF_TASK_KEY` (+ `AF_OTEL_TOKEN`), and for the `claude` engine it stamps
+the full OTLP env + a `task.key` resource attribute (like the dispatcher):
+```jsonc
+// reviewer.config.json
+{ "otel": { "endpoint": "http://localhost:8787", "token": "<service-token>" } }
+```
+The `codex` path still requires the `[otel]` block above in `~/.codex/config.toml` (the reviewer
+only supplies the per-run header values it interpolates). Token counts ride `codex.sse_event` logs
 in both interactive and `codex exec` (note: `codex exec` emits logs but no OTel *metrics* — we read
 logs, so this is fine).
 
@@ -87,10 +92,10 @@ CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_LOGS_EXPORTER=otlp OTEL_EXPORTER_OTLP_PROTOC
 
 ## Limitations
 - **Ad-hoc interactive sessions not bound to a task** (no `task.key`/`X-Task-Key`) still export,
-  but land **unattributed**: they show in the live **Telemetry** feed (so you can see them arriving)
-  yet are **dropped from the per-task rollup**. Per-task attribution requires the session to carry a
-  task key (the dispatcher's `otel` block sets it automatically; for the `reviewer`, an
-  interactive worktree session, or a manual `claude`, set `OTEL_RESOURCE_ATTRIBUTES=task.key=…`
+  but are **dropped** — they appear neither in the per-task rollup nor in the live **Telemetry**
+  feed (both show only task-attributed usage). Per-task attribution requires the session to carry a
+  task key (the dispatcher's and reviewer's `otel` blocks set it automatically; for an
+  interactive worktree session or a manual `claude`, set `OTEL_RESOURCE_ATTRIBUTES=task.key=…`
   in the environment).
 - **Logs only, into `task_metric`** — no separate metrics pipeline/Grafana. A standalone OTel
   Collector can be added later by pointing the same env/config at it instead (or as well).
