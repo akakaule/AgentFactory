@@ -172,3 +172,14 @@ CREATE TABLE IF NOT EXISTS agent_session (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_session_live ON agent_session(task_id) WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_session_ended ON agent_session(ended_at);
 `;
+
+// Migration #11 — preserve the original description. The description stage rewrites
+// spec/acceptance_criteria in place (ops/submitResult.ts), losing the human's original
+// wording. These columns hold a one-time snapshot taken just before that first rewrite,
+// so a finished task can still show what the human asked for. Nullable: implementation-only
+// tasks (the common case) and legacy rows never get a description-stage rewrite, so they
+// stay NULL and the UI shows no "Original description" section.
+export const MIGRATION_11_SQL = `
+ALTER TABLE task ADD COLUMN original_spec TEXT;
+ALTER TABLE task ADD COLUMN original_acceptance_criteria TEXT;
+`;

@@ -120,7 +120,7 @@
       <div class="link"><span class="ar">⇄</span><span>core</span></div>
       <div class="comp side-d" id="c-db"><span class="ico">🗄️</span><span class="nm">agentfactory.db</span><div class="dt">SQLite · single<br>source of truth</div></div>
       <div class="link"><span class="ar">⇄</span><span>core</span></div>
-      <div class="comp side-a" id="c-mcp"><span class="ico">🛰️</span><span class="nm">MCP server</span><div class="dt">stdio · 6 tools<br>packages/mcp</div></div>
+      <div class="comp side-a" id="c-mcp"><span class="ico">🛰️</span><span class="nm">MCP server</span><div class="dt">stdio · 7 tools<br>packages/mcp</div></div>
       <div class="link"><span class="ar">⇄</span><span>MCP / stdio</span></div>
       <div class="comp side-a" id="c-agent"><span class="ico">🤖</span><span class="nm">Agent</span><div class="dt">Claude Code or any<br>MCP client</div></div>
     </div>
@@ -186,7 +186,7 @@
     </div>
   </div>
 
-  <h2>3 · The 6 MCP tools the agent gets</h2>
+  <h2>3 · The 7 MCP tools the agent gets</h2>
   <div class="panel">
     <table>
       <tr><th>Tool</th><th>What it does</th><th>Loop role</th></tr>
@@ -194,6 +194,7 @@
       <tr><td><code>get_task</code></td><td>Fetch one task by key (spec, criteria, activity, links)</td><td>read the full brief</td></tr>
       <tr><td><code>list_tasks</code></td><td>List tasks, optionally filtered by status</td><td>situational awareness</td></tr>
       <tr><td><code>add_comment</code></td><td>Append a comment to the task's activity feed</td><td>narrate progress (human sees it live via SSE)</td></tr>
+      <tr><td><code>report_progress</code></td><td>Post a short, live progress milestone (and optional so-far token counts) for the task you're working on</td><td>live status on the Live view (ephemeral; distinct from add_comment)</td></tr>
       <tr><td><code>submit_result</code></td><td>Verify the finish protocol ran (branch pushed to origin, worktree removed), then store summary + links and move the task to <code>in_review</code></td><td>deliver the work</td></tr>
       <tr><td><code>update_status</code></td><td>Transition the task (only agent-legal moves allowed)</td><td>flag blocked / resume work</td></tr>
     </table>

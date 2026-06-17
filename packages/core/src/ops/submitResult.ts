@@ -3,7 +3,7 @@ import type { TaskDetail, SubmitResultInput, Stage } from '../types.js';
 import { transaction } from '../transaction.js';
 import { submitResultSchema, parse } from '../validate.js';
 import { assertTransition } from '../transitions.js';
-import { findRowByKey, toDetail, setStatus, setResultSummary, setPlan, applyEdit } from '../repo/tasks.js';
+import { findRowByKey, toDetail, setStatus, setResultSummary, setPlan, applyEdit, snapshotOriginal } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { insertLinks } from '../repo/links.js';
@@ -48,7 +48,12 @@ export function submitResult(
     const ts = now();
     // applyEdit is the repo primitive shared with updateTask; the backlog-only rule for
     // human edits lives in that op, not here — a description-stage submit IS the edit.
-    if (row.stage === 'description') applyEdit(db, row.id, { spec: spec!, acceptanceCriteria: acceptanceCriteria! }, ts);
+    if (row.stage === 'description') {
+      // capture the human's original wording once, before the stage overwrites it (the guard
+      // in snapshotOriginal keeps re-submits from clobbering the first snapshot)
+      snapshotOriginal(db, row.id, row.spec, row.acceptance_criteria, ts);
+      applyEdit(db, row.id, { spec: spec!, acceptanceCriteria: acceptanceCriteria! }, ts);
+    }
     else if (row.stage === 'plan') setPlan(db, row.id, plan!, ts);
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);

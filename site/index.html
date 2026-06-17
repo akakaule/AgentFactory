@@ -108,7 +108,7 @@
      change back to the source. The board is the human checkpoint; it never runs agents and never writes to a repo.</p>
   <div class="pills">
     <span class="pill"><b>Board</b> · React + Hono + SSE on :8787</span>
-    <span class="pill"><b>Agents</b> · MCP stdio, six tools</span>
+    <span class="pill"><b>Agents</b> · MCP stdio, seven tools</span>
     <span class="pill"><b>State</b> · agentfactory.db</span>
     <span class="pill"><b>Isolation</b> · .worktrees/&lt;key&gt; · feature/&lt;key&gt;-&lt;title&gt;</span>
     <span class="pill"><b>Contract</b> · protocol payload + submit guardrails</span>
@@ -518,7 +518,7 @@
   <a class="pcard" href="agent-flow.html">
     <span class="pt">How the agent loop works <span class="mono">agent-flow.html</span></span>
     <p>Interactive walkthrough: the architecture strip, the task lifecycle state machine, a step-by-step simulation
-       of one task's full journey, and the six MCP tools.</p>
+       of one task's full journey, and the seven MCP tools.</p>
     <span class="read">read to understand the mechanics →</span>
   </a>
   <a class="pcard" href="producer-flow.html">
@@ -589,6 +589,11 @@
   </div>
   <div class="box">
     <h3>Recently shipped</h3>
+    <div class="new"><span class="d">2026-06-16</span><span><b>Live telemetry feed</b> — an AF-hosted OTLP <span class="mono">/v1/logs</span> receiver captures per-task token usage from Claude &amp; Codex; the <b>Telemetry</b> view streams a live rolling feed and analytics break cost down by model and workspace.</span></div>
+    <div class="new"><span class="d">2026-06-16</span><span><b>Worktree off latest <span class="mono">origin/main</span></b> — a task's first claim branches its worktree from freshly-fetched <span class="mono">origin/main</span>, so every agent starts from current trunk.</span></div>
+    <div class="new"><span class="d">2026-06-14</span><span><b>Live agent status</b> — the <b>Live</b> view and each in-progress task's drawer show the running agent's current phase, a rolling milestone feed, and so-far token counts, fed by a new <span class="mono">report_progress</span> MCP tool (the seventh).</span></div>
+    <div class="new"><span class="d">2026-06-14</span><span><b>Token telemetry (OpenTelemetry)</b> — per-task token + cost capture from Claude and Codex, wired through the dispatcher/reviewer and surfaced as tokens-by-model/workspace.</span></div>
+    <div class="new"><span class="d">2026-06-13</span><span><b>Archive + auth + mobile</b> — archive done tasks out of the default board; optional token auth with a token sign-in; a responsive mobile board / PWA for review on the go.</span></div>
     <div class="new"><span class="d">2026-06-15</span><span><b>In-repo reviewer</b> — <span class="mono">npm run reviewer</span>, a dispatcher-style supervisor (default <span class="mono">codex</span>, or claude) that reviews <span class="mono">in_review</span> tasks and posts <span class="mono">ai-review/v1</span> verdicts. Advisory: a clean doc-stage verdict auto-advances; findings &amp; implementation hold for the human.</span></div>
     <div class="new"><span class="d">2026-06-13</span><span><b>Per-stage models</b> — the dispatcher can staff each pipeline stage with a different model via <span class="mono">stageArgs</span>: a fast model for the description/plan write-ups, your strongest for implementation.</span></div>
     <div class="new"><span class="d">2026-06-12</span><span><b>Dispatcher</b> — one fresh headless <span class="mono">claude -p</span> session per queued task: staleness immunity, measured per-task cost, crash containment (AF-16).</span></div>
@@ -601,6 +606,6 @@
 </div>
 
 </div>
-<footer>AgentFactory · index · updated 2026-06-15</footer>
+<footer>AgentFactory · index · updated 2026-06-16</footer>
 </body>
 </html>
