@@ -5,6 +5,10 @@ export const workspaceSlug = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9-]*$/, 'workspace name must be a lowercase slug (a-z, 0-9, dashes; starts alphanumeric)');
 export const workspaceBody = z.object({ name: workspaceSlug, repoPath: z.string().min(1) });
+// PATCH: each field may be a string (set), null (clear), or absent (leave). ≥1 field enforced by core.
+export const workspaceUpdateBody = z
+  .object({ policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional() })
+  .refine((o) => o.policy !== undefined || o.verifyCommand !== undefined, 'at least one field required (policy, verifyCommand)');
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
 export const createBody = z.object({
   title: z.string().min(1), spec: z.string().min(1),

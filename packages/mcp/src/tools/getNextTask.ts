@@ -53,6 +53,7 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
           protocol = buildProtocol({
             stage: task.stage, repoPath: task.repoPath, key: task.key, branch: task.branch, branchCreated,
             ...(base ? { base } : {}),
+            ...(task.verifyCommand ? { verifyCommand: task.verifyCommand } : {}),
           });
         }
         return { content: detailContent(core, task, protocol ? { protocol } : undefined) };

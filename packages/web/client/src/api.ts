@@ -66,6 +66,8 @@ export const api = {
   createTask: (b: { title: string; spec: string; acceptanceCriteria?: string; stage?: Stage; workspace?: string }) => req<Task>('/api/tasks', body(b)),
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
   createWorkspace: (b: { name: string; repoPath: string }) => req<Workspace>('/api/workspaces', body(b)),
+  updateWorkspace: (name: string, b: { policy?: string | null; verifyCommand?: string | null }) =>
+    req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),

@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {

@@ -13,15 +13,16 @@ export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
   status: Status; stage: Stage; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
+  workspace_policy: string | null; workspace_verify_command: string | null;
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
   archived_at: string | null;
   original_spec: string | null; original_acceptance_criteria: string | null;
 }
 
-// every Task/TaskDetail payload carries the workspace slug (and repoPath on detail),
+// every Task/TaskDetail payload carries the workspace slug (and repoPath + discipline on detail),
 // so all task SELECTs go through this JOIN
 const SELECT_TASK =
-  'SELECT task.*, w.name AS workspace_name, w.repo_path AS workspace_repo_path FROM task JOIN workspace w ON w.id = task.workspace_id';
+  'SELECT task.*, w.name AS workspace_name, w.repo_path AS workspace_repo_path, w.policy AS workspace_policy, w.verify_command AS workspace_verify_command FROM task JOIN workspace w ON w.id = task.workspace_id';
 
 // aiReview is derived (the latest ai-review comment) and layered on by the DB-aware
 // paths below; toTask itself is pure and defaults it to null.
@@ -70,6 +71,8 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     plan: r.plan,
     originalSpec: r.original_spec,
     originalAcceptanceCriteria: r.original_acceptance_criteria,
+    policy: r.workspace_policy,
+    verifyCommand: r.workspace_verify_command,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
     attachments: attachmentsMeta(db, r.id),

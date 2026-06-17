@@ -183,3 +183,13 @@ export const MIGRATION_11_SQL = `
 ALTER TABLE task ADD COLUMN original_spec TEXT;
 ALTER TABLE task ADD COLUMN original_acceptance_criteria TEXT;
 `;
+
+// Migration #12 — per-workspace engineering discipline. `policy` is free-text engineering
+// standards injected into the worker claim payload and the reviewer prompt (a tunable,
+// project-local "constitution"); `verify_command` is the command the implementation stage must
+// run and pass before handoff (generalising the worker prompt's hardcoded npm test/build).
+// Both nullable: existing workspaces backfill to "no policy / no command" and behave as today.
+export const MIGRATION_12_SQL = `
+ALTER TABLE workspace ADD COLUMN policy TEXT;
+ALTER TABLE workspace ADD COLUMN verify_command TEXT;
+`;

@@ -73,6 +73,25 @@ describe('buildReviewPrompt', () => {
     expect(p).toContain('PLAN-BODY');
     expect(p).toContain('"reviewer": "claude"');
   });
+
+  it('includes the workspace policy when set, on both implementation and doc reviews', () => {
+    const impl = buildReviewPrompt({
+      task: detail({ policy: 'No new dependencies without a note.' }),
+      engine: 'codex', branch: 'feature/x', diff: { baseRef: 'main', diff: 'D', commits: 1 },
+    });
+    expect(impl).toContain('=== WORKSPACE POLICY');
+    expect(impl).toContain('No new dependencies without a note.');
+
+    const doc = buildReviewPrompt({ task: detail({ stage: 'plan', plan: 'P', policy: 'House rule X' }), engine: 'codex' });
+    expect(doc).toContain('House rule X');
+  });
+
+  it('omits the policy section when no policy is set', () => {
+    const p = buildReviewPrompt({
+      task: detail(), engine: 'codex', branch: 'feature/x', diff: { baseRef: 'main', diff: 'D', commits: 1 },
+    });
+    expect(p).not.toContain('WORKSPACE POLICY');
+  });
 });
 
 describe('truncateDiff', () => {

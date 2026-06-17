@@ -11,7 +11,12 @@ export const STAGE_ORDER: readonly Stage[] = ['description', 'plan', 'implementa
 export type ActivityType = 'status_change' | 'comment' | 'result' | 'feedback';
 export type LinkKind = 'branch' | 'pr' | 'worktree' | 'log' | 'url';
 
-export interface Workspace { id: number; name: string; repoPath: string; createdAt: string; }
+export interface Workspace {
+  id: number; name: string; repoPath: string; createdAt: string;
+  // per-workspace engineering discipline (migration #12); null = unset, behaves as before.
+  policy: string | null;        // free-text standards injected into the claim payload + reviewer prompt
+  verifyCommand: string | null; // command the implementation stage must run and pass before handoff
+}
 
 /** A real human (or the seeded system row). Distinct from the `Actor` machine axis. */
 export interface User {
@@ -99,6 +104,9 @@ export interface TaskDetail extends Task {
   // null when no description-stage rewrite happened (implementation-only and legacy tasks)
   originalSpec: string | null;
   originalAcceptanceCriteria: string | null;
+  // the claimed task's workspace discipline (migration #12), carried into the claim payload + reviewer
+  policy: string | null;        // free-text engineering standards the work must satisfy
+  verifyCommand: string | null; // command the implementation/harden stage must run and pass before handoff
   metrics: TaskMetricsView;
 }
 
@@ -109,6 +117,8 @@ export interface CreateTaskInput {
   workspace?: string | undefined;
 }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
+// null clears the field, undefined leaves it untouched (matches the PATCH semantics in the web layer)
+export interface UpdateWorkspaceInput { policy?: string | null | undefined; verifyCommand?: string | null | undefined; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
@@ -118,6 +128,7 @@ export interface SubmitResultInput {
   spec?: string | undefined;               // description stage: the rewritten feature description
   acceptanceCriteria?: string | undefined; // description stage: verifiable acceptance criteria
   plan?: string | undefined;               // plan stage: the implementation plan
+  verification?: string | undefined;       // implementation/harden: reported outcome of the workspace verify command
 }
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;

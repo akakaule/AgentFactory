@@ -25,6 +25,7 @@ export { deleteAttachment } from './ops/deleteAttachment.js';
 export { getAttachment } from './ops/getAttachment.js';
 export { deriveTaskMetrics, type DerivedTaskMetrics, type ActivityStep } from './metrics.js';
 export { createWorkspace } from './ops/createWorkspace.js';
+export { updateWorkspace } from './ops/updateWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
@@ -51,11 +52,12 @@ import { addAttachment } from './ops/addAttachment.js';
 import { deleteAttachment } from './ops/deleteAttachment.js';
 import { getAttachment } from './ops/getAttachment.js';
 import { createWorkspace } from './ops/createWorkspace.js';
+import { updateWorkspace } from './ops/updateWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB) {
@@ -70,6 +72,7 @@ export function createCore(db: DB) {
     getTask: (key: string) => getTask(db, key),
     claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
+    updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),
     listWorkspaces: () => listWorkspaces(db),
     createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
     createApiToken: (input: { label: string; userId?: number | null; isService?: boolean }) => createApiToken(db, input),
