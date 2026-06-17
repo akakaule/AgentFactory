@@ -342,11 +342,27 @@
 .af-live { flex: 1; overflow-y: auto; }
 .af-live-inner { max-width: 920px; margin: 0 auto; padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 10px; }
 .af-live-row {
-  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
+  display: flex; flex-direction: column; width: 100%;
   background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-card);
-  padding: 13px 15px; cursor: pointer; transition: border-color .14s, background .14s;
+  transition: border-color .14s, background .14s;
 }
-.af-live-row:hover { border-color: #3A4D70; background: var(--card-hi); }
+.af-live-row:hover { border-color: #3A4D70; }
+.af-live-open {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
+  background: none; border: 0; color: inherit; font: inherit;
+  padding: 13px 15px; border-radius: var(--r-card); cursor: pointer; transition: background .14s;
+}
+.af-live-open:hover { background: var(--card-hi); }
+.af-live-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 15px 12px; }
+.af-live-note { padding: 0 15px 13px; display: flex; flex-direction: column; gap: 8px; }
+.af-live-note textarea {
+  width: 100%; resize: vertical; box-sizing: border-box; font: inherit; font-size: 13px;
+  color: var(--ink); background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+}
+.af-live-note textarea:focus { outline: none; border-color: var(--accent); }
+.af-live-note-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.af-mini.armed { color: var(--st-blocked); border-color: color-mix(in srgb, var(--st-blocked) 50%, transparent); background: color-mix(in srgb, var(--st-blocked) 12%, transparent); }
+.af-mini:disabled { opacity: .5; cursor: default; }
 .af-live-dot { width: 9px; height: 9px; border-radius: 99px; flex: none; margin-top: 5px; background: var(--ink-3); }
 .af-live-dot.alive { background: var(--green); animation: af-pulse 1.4s infinite; }
 .af-live-main { flex: 1; min-width: 0; }
