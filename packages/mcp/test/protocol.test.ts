@@ -46,7 +46,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(4);
+    expect(p.version).toBe(5);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -59,7 +59,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(4);
+    expect(p.version).toBe(5);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -75,10 +75,33 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(4);
+    expect(p.version).toBe(5);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
+  });
+
+  it('implementation finish runs the workspace verify command before push and worktree removal', () => {
+    const p = buildProtocol({
+      stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-6',
+      branch: 'feature/AF-6-x', branchCreated: true, verifyCommand: 'npm test && npm run build',
+    });
+    if (p.stage !== 'implementation') throw new Error('expected implementation protocol');
+    const verifyIdx = p.finish.findIndex((s) => s.includes('npm test && npm run build'));
+    const pushIdx = p.finish.findIndex((s) => s.includes('git push'));
+    const removeIdx = p.finish.findIndex((s) => s.includes('git worktree remove'));
+    expect(verifyIdx).toBeGreaterThanOrEqual(0);
+    expect(verifyIdx).toBeLessThan(pushIdx);   // must pass before pushing
+    expect(verifyIdx).toBeLessThan(removeIdx); // runs while the worktree still exists
+    expect(p.finish.join('\n')).toContain('verification');
+  });
+
+  it('implementation finish falls back to repo tests + build when no verify command is configured', () => {
+    const p = buildProtocol({
+      stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-7',
+      branch: 'feature/AF-7-y', branchCreated: true,
+    });
+    expect(p.finish.join('\n')).toMatch(/tests and build/i);
   });
 });
 

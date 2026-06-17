@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -25,6 +25,8 @@ export type ProtocolInput =
       branchCreated: boolean;
       /** What a FIRST claim branches from (latest default branch); ignored on a reclaim. */
       base?: { ref: string; fetch: boolean };
+      /** Per-workspace verification command; when set it must pass before push (see git.ts/submitResult). */
+      verifyCommand?: string | null;
     };
 
 // Forward slashes only: Windows backslash paths lose their backslashes when the
@@ -74,6 +76,12 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   } else {
     setup.push(`git worktree add ${wt} ${branch}`); // reuse the existing branch — updates the same PR
   }
+  // Verify-before-handoff runs inside the worktree, so it must come BEFORE the worktree is removed.
+  // When the workspace sets no command, fall back to the repo's own tests + build (today's behaviour).
+  const verify = input.verifyCommand && input.verifyCommand.trim().length > 0 ? input.verifyCommand.trim() : null;
+  const verifyStep = verify
+    ? `Run \`${verify}\` from the worktree root; it MUST pass before you push. Report its outcome via submit_result \`verification\`.`
+    : 'Run the repo tests and build from the worktree root; both must pass before you push.';
   return {
     version: PROTOCOL_VERSION,
     stage,
@@ -82,9 +90,10 @@ export function buildProtocol(input: ProtocolInput): Protocol {
     setup,
     finish: [
       'Commit all work inside the worktree.',
+      verifyStep,
       `git push -u origin ${branch}`,
       `git worktree remove ${wt} && git worktree prune`,
-      'Call submit_result with a branch link (label = the branch name) and best-effort metrics.',
+      `Call submit_result with a branch link (label = the branch name)${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
     ],
   };
 }
