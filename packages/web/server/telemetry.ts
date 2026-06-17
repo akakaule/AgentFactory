@@ -5,8 +5,8 @@
  * aggregate (task_metric). That aggregate can't answer "what's flowing right now, from which
  * worker/agent/model?" — so the receiver ALSO pushes each parsed event here. This is the only
  * "storage" the live Telemetry view reads from: ephemeral, current-state, lost on restart
- * (the durable aggregate is untouched). Unlike the aggregate, it keeps UNATTRIBUTED events
- * (no task key) so the view can show telemetry arriving but not bound to a task.
+ * (the durable aggregate is untouched). Like the aggregate, the receiver only pushes
+ * task-attributed events here — unattributed usage (no task key) is dropped.
  */
 
 export interface TelemetryEvent {
@@ -24,6 +24,8 @@ export interface TelemetryEvent {
   agent: 'claude-code' | 'codex';
   model: string | null;
   tokensIn: number;
+  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive). */
+  tokensCached: number;
   tokensOut: number;
   costUsd: number | null;
 }

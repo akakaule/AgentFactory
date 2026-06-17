@@ -4,6 +4,7 @@ import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
+import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 
@@ -23,6 +24,10 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
     const ts = now();
     setStatus(db, row.id, status, ts);
     appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, createdAt: ts, actorUserId });
+    // Releasing a stranded claim (in_progress → queued by a human) abandons the worker — end its
+    // orphaned live session so it clears from the Live view immediately, even if the dispatcher
+    // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
+    if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

@@ -80,6 +80,53 @@ describe('poll + spawn', () => {
 });
 
 // ---------------------------------------------------------------------------
+// otel token capture (bind the review's usage to the task)
+// ---------------------------------------------------------------------------
+describe('otel token capture', () => {
+  it('codex review: sets AF_TASK_KEY (+ AF_OTEL_TOKEN) so config.toml binds the run', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Build it', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const cfg = makeConfig({ engine: 'codex', otel: { endpoint: 'http://localhost:8787', token: 'svc' } });
+    const r = new Reviewer(cfg, makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await r.tick();
+    const env = calls[0]!.req.env;
+    expect(env['AF_TASK_KEY']).toBe(key);
+    expect(env['AF_OTEL_TOKEN']).toBe('svc');
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toBeUndefined(); // codex reads config.toml, not env
+  });
+
+  it('claude review: sets the OTLP env + a task.key resource attribute', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Build it', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const cfg = makeConfig({ engine: 'claude', otel: { endpoint: 'http://localhost:8787', token: 'svc' } });
+    const r = new Reviewer(cfg, makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await r.tick();
+    const env = calls[0]!.req.env;
+    expect(env['OTEL_EXPORTER_OTLP_ENDPOINT']).toBe('http://localhost:8787');
+    expect(env['OTEL_EXPORTER_OTLP_HEADERS']).toContain('Bearer svc');
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain(`task.key=${key}`);
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain('af.worker=');
+    expect(env['AF_TASK_KEY']).toBeUndefined(); // claude reads the env, not config.toml
+  });
+
+  it('no otel block: spawns without any OTel env (unattributed, as before)', async () => {
+    const core = makeCore();
+    seedInReview(core, 'ws', 'Build it', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await r.tick();
+    const env = calls[0]!.req.env;
+    expect(env['AF_TASK_KEY']).toBeUndefined();
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // posting verdicts (codex: verdict from the output file)
 // ---------------------------------------------------------------------------
 describe('posting verdicts', () => {

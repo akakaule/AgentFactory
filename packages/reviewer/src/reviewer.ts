@@ -154,6 +154,28 @@ export class Reviewer {
     return cmd;
   }
 
+  /**
+   * Bind a spawned review's token usage to its task for OTLP export. Engine-specific:
+   * `claude` reads OTLP from the environment (so we set the full env, plus a `task.key`/
+   * `af.workspace`/`af.worker` resource attribute); `codex` reads OTLP from `~/.codex/config.toml`
+   * and only interpolates `AF_TASK_KEY`/`AF_OTEL_TOKEN` from the env into its header values.
+   */
+  private applyOtel(env: NodeJS.ProcessEnv, engine: ReviewEngine, key: string, workspace: string, label: string): void {
+    const otel = this.config.otel;
+    if (!otel) return;
+    if (engine === 'claude') {
+      env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
+      env['OTEL_LOGS_EXPORTER'] = 'otlp';
+      env['OTEL_EXPORTER_OTLP_PROTOCOL'] = 'http/json';
+      env['OTEL_EXPORTER_OTLP_ENDPOINT'] = otel.endpoint;
+      if (otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${otel.token}`;
+      env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
+    } else {
+      env['AF_TASK_KEY'] = key;
+      if (otel.token) env['AF_OTEL_TOKEN'] = otel.token;
+    }
+  }
+
   /** Branch to diff: the last branch-kind link (as the board's diff view uses), else the named branch. */
   private resolveBranch(detail: TaskDetail): string | null {
     const link = detail.links.filter((l) => l.kind === 'branch').at(-1);
@@ -194,6 +216,7 @@ export class Reviewer {
     const logWriter = this.deps.openLog(logPath);
     const args = buildEngineArgs({ engine, model: this.config.model, outputFile: outputFile ?? '' });
     const env: NodeJS.ProcessEnv = { ...(this.deps.baseEnv ?? {}) };
+    if (this.config.otel) this.applyOtel(env, engine, key, workspace, label);
 
     const child = this.deps.spawn({ command: this.resolveCommand(engine), args, cwd: this.deps.logDir, env, stdin: prompt });
     const session: ReviewSession = {

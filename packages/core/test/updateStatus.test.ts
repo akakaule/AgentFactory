@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
+import { claimNextTask } from '../src/ops/claimNextTask.js';
+import { listLiveAgents } from '../src/ops/agentSession.js';
 import { findRowByKey } from '../src/repo/tasks.js';
 import { recentActivity } from '../src/repo/activity.js';
 import { NotFoundError, InvalidTransitionError } from '../src/errors.js';
@@ -100,6 +102,19 @@ describe('updateStatus', () => {
     expect(act).toBeDefined();
     expect(act!.actor).toBe('human');
     expect(act!.toStatus).toBe('queued');
+  });
+
+  it('in_progress → queued (human): releasing a stranded claim ends its live session', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    updateStatus(db, task.key, 'queued', 'human', fixedNow);
+    claimNextTask(db, { claimedBy: 'worker-1' }); // queued → in_progress + live session started
+    expect(listLiveAgents(db).map((a) => a.key)).toContain(task.key);
+
+    const detail = updateStatus(db, task.key, 'queued', 'human', fixedNow);
+
+    expect(detail.status).toBe('queued');
+    expect(listLiveAgents(db)).toHaveLength(0); // orphaned session ended, clears from the Live view
   });
 
   // ── Invalid edges (wrong transition, nothing changed) ─────────────────────
