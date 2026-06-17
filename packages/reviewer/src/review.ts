@@ -10,6 +10,12 @@ function latestResult(task: TaskDetail): string {
   return last?.body || '(no result summary recorded)';
 }
 
+/** Workspace policy block (empty when unset) — the work must satisfy these standards too. */
+function policySection(task: TaskDetail): string[] {
+  if (!task.policy || task.policy.trim().length === 0) return [];
+  return ['', '=== WORKSPACE POLICY (the work must also satisfy these standards) ===', task.policy.trim()];
+}
+
 /** Truncate a diff to maxDiffChars (0 = no limit), flagging the cut in-band so the engine says so. */
 export function truncateDiff(diff: string, maxDiffChars: number): string {
   if (maxDiffChars > 0 && diff.length > maxDiffChars) {
@@ -63,6 +69,7 @@ function implementationPrompt(
     outputContract(engine),
     '',
     `=== TASK ${task.key}: ${task.title} ===`,
+    ...policySection(task),
     '',
     '=== SPEC ===',
     task.spec,
@@ -129,6 +136,7 @@ function docPrompt(task: TaskDetail, engine: ReviewEngine): string {
     outputContract(engine),
     '',
     `=== TASK ${task.key}: ${task.title} ===`,
+    ...policySection(task),
     '',
     ...deliverable,
     '',
