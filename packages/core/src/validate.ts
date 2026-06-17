@@ -23,6 +23,15 @@ export const createTaskSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'acceptanceCriteria is required unless stage is description' });
   });
 export const createWorkspaceSchema = z.object({ name: workspaceSlug, repoPath: nonEmpty });
+// policy / verifyCommand: a trimmed non-empty string sets it, null clears it, absence leaves it.
+// Empty/whitespace-only strings normalise to null so "save blank" clears rather than stores "".
+const clearable = z
+  .string()
+  .transform((s) => (s.trim().length === 0 ? null : s.trim()))
+  .nullable();
+export const updateWorkspaceSchema = z
+  .object({ policy: clearable.optional(), verifyCommand: clearable.optional() })
+  .refine((o) => o.policy !== undefined || o.verifyCommand !== undefined, 'at least one field required (policy, verifyCommand)');
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional() })
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');
@@ -33,6 +42,8 @@ export const submitResultSchema = z.object({
   spec: nonEmpty.optional(),
   acceptanceCriteria: nonEmpty.optional(),
   plan: nonEmpty.optional(),
+  verification: nonEmpty.optional(), // implementation stage: reported outcome of the workspace verify command
+
   links: z
     .array(z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty }))
     .default([]),

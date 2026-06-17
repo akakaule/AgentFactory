@@ -219,3 +219,57 @@ describe('submitResult — stage deliverables', () => {
     expect(() => submitResult(db, task.key, { summary: 's' }, fixedNow)).toThrow(/plan stage/);
   });
 });
+
+describe('submitResult — workspace verification gate', () => {
+  const setVerifyCommand = (db: ReturnType<typeof makeTestDb>, cmd: string | null) =>
+    db.prepare('UPDATE workspace SET verify_command=? WHERE id=1').run(cmd);
+  const seedImpl = (db: ReturnType<typeof makeTestDb>) => {
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    return task;
+  };
+
+  it('blocks an implementation submit with no verification when the workspace requires one', () => {
+    const db = makeTestDb();
+    setVerifyCommand(db, 'npm test && npm run build');
+    const task = seedImpl(db);
+
+    expect(() => submitResult(db, task.key, { summary: 'done' }, fixedNow)).toThrow(ValidationError);
+    expect(() => submitResult(db, task.key, { summary: 'done' }, fixedNow)).toThrow(/npm test && npm run build/);
+
+    const row = findRowByKey(db, task.key)!;
+    expect(row.status).toBe('in_progress'); // nothing advanced
+  });
+
+  it('accepts the submit when verification is reported, and records it as a comment', () => {
+    const db = makeTestDb();
+    setVerifyCommand(db, 'npm test');
+    const task = seedImpl(db);
+
+    const detail = submitResult(db, task.key, { summary: 'done', verification: 'all green' }, fixedNow);
+
+    expect(detail.status).toBe('in_review');
+    const verifyComment = detail.activity.find((a) => a.type === 'comment' && a.body === 'verify: all green');
+    expect(verifyComment).toBeDefined();
+    expect(verifyComment!.actor).toBe('agent');
+  });
+
+  it('does not require verification when the workspace configures no command (today’s behaviour)', () => {
+    const db = makeTestDb();
+    setVerifyCommand(db, null);
+    const task = seedImpl(db);
+
+    const detail = submitResult(db, task.key, { summary: 'done' }, fixedNow);
+    expect(detail.status).toBe('in_review');
+    expect(detail.activity.some((a) => a.type === 'comment' && a.body.startsWith('verify:'))).toBe(false);
+  });
+
+  it('rejects verification on a doc stage even when a command is configured', () => {
+    const db = makeTestDb();
+    setVerifyCommand(db, 'npm test');
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'plan' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+
+    expect(() => submitResult(db, task.key, { summary: 's', plan: 'p', verification: 'green' }, fixedNow)).toThrow(ValidationError);
+  });
+});

@@ -4,6 +4,7 @@ import { openDb } from '../src/db.js';
 import { runMigrations } from '../src/migrate.js';
 import { SCHEMA_SQL } from '../src/schema.js';
 import { createWorkspace } from '../src/ops/createWorkspace.js';
+import { updateWorkspace } from '../src/ops/updateWorkspace.js';
 import { listWorkspaces } from '../src/ops/listWorkspaces.js';
 import { createTask } from '../src/ops/createTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
@@ -18,7 +19,7 @@ const queue = (db: ReturnType<typeof makeTestDb>, key: string) => updateStatus(d
 describe('migration #2: workspace table + task.workspace_id', () => {
   it('fresh DB: user_version=2, seeded default workspace with id=1 and repo_path "."', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
     const rows = db.prepare('SELECT * FROM workspace').all() as Array<{ id: number; name: string; repo_path: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 1, name: 'default', repo_path: '.' });
@@ -32,14 +33,14 @@ describe('migration #2: workspace table + task.workspace_id', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,created_at,updated_at) VALUES ('AF-1','t','s','a','backlog',1,'2026-01-01','2026-01-01')"
     ).run();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
     expect(db.prepare('SELECT workspace_id FROM task WHERE key = ?').get('AF-1')).toMatchObject({ workspace_id: 1 });
   });
 
   it('re-running runMigrations is a no-op', () => {
     const db = makeTestDb();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
     expect(db.prepare('SELECT count(*) c FROM workspace').get()).toMatchObject({ c: 1 });
   });
 });
@@ -68,6 +69,44 @@ describe('createWorkspace / listWorkspaces', () => {
   it('rejects empty repoPath with ValidationError', () => {
     const db = makeTestDb();
     expect(() => createWorkspace(db, { name: 'ok', repoPath: '  ' })).toThrow(ValidationError);
+  });
+
+  it('a new workspace starts with no policy and no verify command', () => {
+    const db = makeTestDb();
+    const ws = createWorkspace(db, { name: 'fresh', repoPath: '/x' });
+    expect(ws.policy).toBeNull();
+    expect(ws.verifyCommand).toBeNull();
+  });
+});
+
+describe('updateWorkspace — engineering discipline', () => {
+  it('sets, then clears, the policy and verify command', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-a', repoPath: '/a' });
+
+    const set = updateWorkspace(db, 'repo-a', { policy: 'TDD always', verifyCommand: 'npm test' });
+    expect(set).toMatchObject({ policy: 'TDD always', verifyCommand: 'npm test' });
+
+    // whitespace-only clears the field; absent leaves the other untouched
+    const cleared = updateWorkspace(db, 'repo-a', { policy: '   ' });
+    expect(cleared.policy).toBeNull();
+    expect(cleared.verifyCommand).toBe('npm test');
+  });
+
+  it('rejects an empty patch and an unknown workspace', () => {
+    const db = makeTestDb();
+    expect(() => updateWorkspace(db, 'default', {})).toThrow(ValidationError);
+    expect(() => updateWorkspace(db, 'nope', { policy: 'x' })).toThrow(NotFoundError);
+  });
+
+  it('the claimed task detail carries the workspace policy + verify command', () => {
+    const db = makeTestDb();
+    updateWorkspace(db, 'default', { policy: 'Follow house style', verifyCommand: 'npm run ci' });
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+
+    const detail = getTask(db, task.key);
+    expect(detail.policy).toBe('Follow house style');
+    expect(detail.verifyCommand).toBe('npm run ci');
   });
 });
 
