@@ -74,7 +74,13 @@ export function buildProtocol(input: ProtocolInput): Protocol {
     if (base?.fetch) setup.push('git fetch origin');
     setup.push(base ? `git worktree add ${wt} -b ${branch} ${base.ref}` : `git worktree add ${wt} -b ${branch}`);
   } else {
-    setup.push(`git worktree add ${wt} ${branch}`); // reuse the existing branch — updates the same PR
+    // Reuse the branch a prior claim named — normally it already exists (its PR is open), so
+    // adding a worktree on it updates the same PR. But the branch name is persisted at claim
+    // time, BEFORE the agent runs `git worktree add -b`; if that first claim died in between,
+    // the ref was never created. Fall back to creating it so a reclaim recovers instead of
+    // stranding on `fatal: invalid reference`. The reuse attempt comes first so a real reclaim
+    // keeps its existing commits untouched (re-creating would discard the open PR's work).
+    setup.push(`git worktree add ${wt} ${branch} || git worktree add ${wt} -b ${branch}`);
   }
   // Verify-before-handoff runs inside the worktree, so it must come BEFORE the worktree is removed.
   // When the workspace sets no command, fall back to the repo's own tests + build (today's behaviour).
