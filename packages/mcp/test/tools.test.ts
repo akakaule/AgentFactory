@@ -121,7 +121,7 @@ describe('claim protocol payload', () => {
     expect(payload.protocol.finish.join('\n')).toMatch(/git worktree remove/);
   });
 
-  it('reclaim returns the SAME branch with the reuse-form setup (no -b)', async () => {
+  it('reclaim returns the SAME branch with the reuse-first setup (create-fallback recovers a stranded branch)', async () => {
     const { client, core } = await makeClient();
     const t = core.createTask(makeTaskInput('Original title'));
     core.updateStatus(t.key, 'queued', 'human');
@@ -135,9 +135,13 @@ describe('claim protocol payload', () => {
     core.reviewRequestChanges(t.key, { feedback: 'again' });
 
     const second = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    const setup = second.protocol.setup.join('\n');
     expect(second.protocol.branch).toBe(branch);              // stable
-    expect(second.protocol.setup.join('\n')).not.toMatch(/-b /); // reuse form
-    expect(second.protocol.setup.join('\n')).toContain(branch);
+    // idempotent reuse-first form: reuse the existing branch, with a create-fallback so a reclaim
+    // recovers (not strands) if the prior claim died before its `-b` ever created the branch.
+    expect(setup).toContain(' || git worktree add ');
+    expect(setup.indexOf(' -b ')).toBeGreaterThan(setup.indexOf('||')); // -b only in the fallback, after the reuse attempt
+    expect(setup).toContain(branch);
   });
 
   it('empty queue still returns task:null with no protocol', async () => {
