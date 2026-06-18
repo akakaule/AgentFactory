@@ -1,4 +1,4 @@
-export type { Task, TaskDetail, Activity, Link, Status, Stage, Actor, ActivityType, LinkKind, Workspace, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, FailureSummary, AgentSessionView, AgentMilestone } from '@agentfactory/core';
+export type { Task, TaskDetail, Activity, Link, Status, Stage, Actor, ActivityType, LinkKind, Workspace, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, FailureSummary, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind } from '@agentfactory/core';
 
 /** One OTel token event from the live telemetry feed (GET /api/telemetry). Mirror of the
  *  server's TelemetryEvent — ephemeral, newest-first. Only task-attributed events are fed. */

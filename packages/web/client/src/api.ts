@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, TelemetryEvent } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent } from './types.js';
 import type { AnalyticsData } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -53,6 +53,7 @@ export const api = {
   getAnalytics: () => req<AnalyticsData>('/api/analytics'),
   whoami: () => req<WhoAmI>('/auth/whoami'),
   listAgents: () => req<AgentSessionView[]>('/api/agents'),
+  listSupervisors: () => req<SupervisorView[]>('/api/supervisors'),
   listTelemetry: (opts: { limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (opts.limit) q.set('limit', String(opts.limit));

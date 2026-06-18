@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { LiveView } from '../../client/src/views/LiveView.js';
 
 vi.mock('../../client/src/api.js', () => ({
-  api: { listAgents: vi.fn(), addComment: vi.fn().mockResolvedValue({}), setStatus: vi.fn().mockResolvedValue({}) },
+  api: { listAgents: vi.fn(), listSupervisors: vi.fn().mockResolvedValue([]), addComment: vi.fn().mockResolvedValue({}), setStatus: vi.fn().mockResolvedValue({}) },
 }));
 
 async function getApiMock() {

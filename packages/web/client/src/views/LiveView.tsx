@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLiveAgents } from '../useLiveAgents.js';
+import { SupervisorStrip } from '../components/SupervisorStrip.js';
 import { api } from '../api.js';
 import { STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { timeAgo } from '../time.js';
@@ -34,18 +35,16 @@ export function LiveView({ onOpen }: { onOpen: (key: string) => void }) {
     setNoteText('');
   };
 
-  if (agents.length === 0) {
-    return (
-      <div className="af-live-empty">
-        <div className="ico">{I.bot({})}</div>
-        <h2>No agents running</h2>
-        <p>Queue a task and start the dispatcher — running agents show up here live, with their current step.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="af-live">
+      <SupervisorStrip />
+      {agents.length === 0 ? (
+        <div className="af-live-empty">
+          <div className="ico">{I.bot({})}</div>
+          <h2>No agents running</h2>
+          <p>Queue a task and start the dispatcher — running agents show up here live, with their current step.</p>
+        </div>
+      ) : (
       <div className="af-live-inner">
         {agents.map((a) => {
           const alive = now - new Date(a.heartbeatAt).getTime() < ALIVE_MS;
@@ -113,6 +112,7 @@ export function LiveView({ onOpen }: { onOpen: (key: string) => void }) {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

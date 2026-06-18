@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AddTaskMetricsInput } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AddTaskMetricsInput, UpsertSupervisor } from '@agentfactory/core';
 
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
@@ -14,6 +14,8 @@ export interface DispatcherCore {
   // live agent status: keep a running session warm, and end it when the process exits
   touchAgentSession(key: string): void;
   endAgentSession(key: string): void;
+  // supervisor health: report a heartbeat each poll so the board knows the loop is alive
+  recordSupervisorHeartbeat(input: UpsertSupervisor): void;
 }
 
 /** Minimal readable-stream surface (node's `Readable` satisfies it). */

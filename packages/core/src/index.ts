@@ -31,6 +31,8 @@ export { listWorkspaces } from './ops/listWorkspaces.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
 export { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
+export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
+export { type UpsertSupervisor } from './repo/supervisors.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -57,6 +59,8 @@ import { updateWorkspace } from './ops/updateWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
+import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
+import type { UpsertSupervisor } from './repo/supervisors.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
@@ -82,6 +86,8 @@ export function createCore(db: DB) {
     touchAgentSession: (key: string) => touchAgentSession(db, key),
     endAgentSession: (key: string) => endAgentSession(db, key),
     listLiveAgents: () => listLiveAgents(db),
+    recordSupervisorHeartbeat: (input: UpsertSupervisor) => recordSupervisorHeartbeat(db, input),
+    listSupervisors: () => listSupervisors(db),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null) => updateStatus(db, key, status, actor, nowIso, actorUserId),

@@ -360,6 +360,18 @@
 /* ============================== LIVE (agents) ============================== */
 .af-live { flex: 1; overflow-y: auto; }
 .af-live-inner { max-width: 920px; margin: 0 auto; padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Supervisor health strip — "is the loop alive?" at the top of the Live view */
+.af-sup-strip { max-width: 920px; margin: 0 auto; padding: 12px 24px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.af-sup-strip.empty { align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-3); padding: 14px 24px 0; }
+.af-sup-strip.empty svg { width: 14px; height: 14px; flex: none; }
+.af-sup { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); font-size: 12px; }
+.af-sup.down { border-color: color-mix(in srgb, var(--st-blocked) 45%, var(--line)); background: color-mix(in srgb, var(--st-blocked) 8%, var(--card)); }
+.af-sup-dot { width: 8px; height: 8px; border-radius: 99px; flex: none; background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); }
+.af-sup.down .af-sup-dot { background: var(--st-blocked); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-blocked) 22%, transparent); }
+.af-sup-name { font-weight: 600; color: var(--ink-1); }
+.af-sup-meta { color: var(--ink-3); }
+.af-sup-meta .down { color: var(--st-blocked); font-weight: 600; }
 .af-live-row {
   display: flex; flex-direction: column; width: 100%;
   background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-card);

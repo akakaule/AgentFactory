@@ -14,6 +14,8 @@ export type ReviewEngine = (typeof REVIEW_ENGINES)[number];
 export const configSchema = z.object({
   /** Path to the agentfactory sqlite DB (read for in_review tasks, written via add_comment). */
   db: z.string().min(1),
+  /** Stable supervisor identity for the health view (one heartbeat row per name). */
+  name: z.string().min(1).default('reviewer'),
   /** Workspace slugs to watch. */
   workspaces: z.array(z.string().min(1)).min(1),
   /** Which CLI runs the review. */

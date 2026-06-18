@@ -104,6 +104,28 @@ export interface AgentSessionView {
   heartbeatAt: string;             // last-seen-alive (claim / progress / dispatcher tick)
 }
 
+export type SupervisorKind = 'dispatcher' | 'reviewer';
+
+/**
+ * A headless supervisor (dispatcher/reviewer) as surfaced to the health view. Current-state,
+ * derived from the `supervisor_heartbeat` row each one upserts every poll; `healthy` is computed
+ * at read time from last-seen vs. the supervisor's own poll interval. Ephemeral — a supervisor
+ * that never starts simply has no row.
+ */
+export interface SupervisorView {
+  name: string; kind: SupervisorKind;
+  workspaces: string[];      // workspace slugs this supervisor serves
+  inFlight: number;          // live sessions right now
+  capacity: number;          // max concurrent it will run
+  pollSeconds: number | null; // its poll interval (drives the staleness threshold)
+  polls: number;             // cumulative poll cycles since it started
+  version: string | null;    // optional build/version string
+  startedAt: string;
+  lastSeenAt: string;
+  healthy: boolean;          // beat within HEALTHY_MISSED_POLLS × pollSeconds (else it's down)
+  staleSeconds: number;      // seconds since the last heartbeat
+}
+
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;

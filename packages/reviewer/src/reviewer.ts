@@ -85,7 +85,24 @@ export class Reviewer {
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
     this.enforceTimeouts();
+    this.recordHeartbeat();
     for (const workspace of this.config.workspaces) await this.pollWorkspace(workspace);
+  }
+
+  /** Report a heartbeat so the board's health view knows the reviewer is alive. Best-effort. */
+  private recordHeartbeat(): void {
+    try {
+      this.deps.core.recordSupervisorHeartbeat({
+        name: this.config.name,
+        kind: 'reviewer',
+        workspaces: this.config.workspaces,
+        inFlight: this.running.size,
+        capacity: this.config.maxConcurrent * this.config.workspaces.length,
+        pollSeconds: this.config.pollSeconds,
+      });
+    } catch {
+      /* health is advisory — never let a heartbeat write break the poll loop */
+    }
   }
 
   /** Number of live reviews currently serving a workspace. */

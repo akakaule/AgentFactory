@@ -193,3 +193,29 @@ export const MIGRATION_12_SQL = `
 ALTER TABLE workspace ADD COLUMN policy TEXT;
 ALTER TABLE workspace ADD COLUMN verify_command TEXT;
 `;
+
+// Migration #13 — supervisor health + a small key/value store. `supervisor_heartbeat` is
+// current-state (one row per supervisor, upserted by name each poll): it lets the board answer
+// "is the loop alive?" without reading a console. Like agent_session it is DELIBERATELY NOT read
+// by getVersion() (see version.ts) — a heartbeat every poll would bump the board version and
+// thrash a full-board refetch; the health surface polls /api/supervisors instead. `app_kv` is a
+// generic single-row-per-key store for small server state (the notifier's activity cursor),
+// also outside getVersion().
+export const MIGRATION_13_SQL = `
+CREATE TABLE IF NOT EXISTS supervisor_heartbeat (
+  name         TEXT PRIMARY KEY,
+  kind         TEXT NOT NULL CHECK (kind IN ('dispatcher','reviewer')),
+  workspaces   TEXT NOT NULL DEFAULT '',
+  in_flight    INTEGER NOT NULL DEFAULT 0,
+  capacity     INTEGER NOT NULL DEFAULT 0,
+  poll_seconds INTEGER,
+  polls        INTEGER NOT NULL DEFAULT 0,
+  version      TEXT,
+  started_at   TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_kv (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`;

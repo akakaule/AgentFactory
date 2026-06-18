@@ -11,6 +11,8 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const configSchema = z.object({
   /** Path to the agentfactory sqlite DB (read for the queue, written on release/metrics). */
   db: z.string().min(1),
+  /** Stable supervisor identity for the health view (one heartbeat row per name). */
+  name: z.string().min(1).default('dispatcher'),
   /** Workspace slugs to serve. */
   workspaces: z.array(z.string().min(1)).min(1),
   /** Max concurrent sessions per workspace. */
