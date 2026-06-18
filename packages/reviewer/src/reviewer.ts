@@ -1,3 +1,4 @@
+import { buildFailureComment } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
@@ -302,13 +303,33 @@ export class Reviewer {
 
   /**
    * A review failed (timeout, crash, empty output, or un-preparable): burn an attempt and
-   * skip-list at the cap. Advisory-only — no comment is posted; the task simply stays
-   * in_review with no AI verdict for a human to review normally.
+   * skip-list at the cap. The reviewer stays advisory (no verdict, no status change), but it
+   * posts a `failure/v1` note so the operator sees the auto-review didn't run and the task
+   * needs manual review — instead of it silently sitting in_review with no verdict. A later
+   * successful review (an ai-review/v1 comment) supersedes the note (see failureByTaskIds).
    */
   private burnAttempt(key: string, attempt: number, reason: string): void {
     this.attempts.set(key, attempt);
     this.console.warn(`[reviewer] review of ${key} failed (attempt ${attempt}/${this.config.maxAttempts}): ${reason}`);
-    if (attempt >= this.config.maxAttempts) {
+    const atCap = attempt >= this.config.maxAttempts;
+    try {
+      this.deps.core.addComment(key, {
+        actor: 'agent',
+        body: buildFailureComment({
+          reason: 'review_failed',
+          detail: reason,
+          source: 'reviewer',
+          attempt,
+          maxAttempts: this.config.maxAttempts,
+          body: atCap
+            ? 'The automated reviewer is skip-listing this task — review it manually.'
+            : 'The automated reviewer will retry on the next poll.',
+        }),
+      });
+    } catch (err) {
+      this.console.error(`[reviewer] failed to post failure note for ${key}: ${(err as Error).message}`);
+    }
+    if (atCap) {
       this.skipList(key);
       this.console.warn(
         `[reviewer] ${key} reached maxAttempts (${this.config.maxAttempts}); skip-listing — left for a human reviewer`,

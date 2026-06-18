@@ -13,6 +13,7 @@ export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimN
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
+export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';

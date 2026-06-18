@@ -209,10 +209,14 @@ describe('posting verdicts', () => {
 });
 
 // ---------------------------------------------------------------------------
-// failure paths — advisory-only: no comment, burn an attempt, skip-list
+// failure paths — advisory (no verdict, no status change) but posts a failure/v1
+// note so the operator sees the auto-review didn't run; burn an attempt, skip-list
 // ---------------------------------------------------------------------------
 describe('failure paths', () => {
-  it('an empty verdict posts nothing, burns an attempt, and skip-lists at maxAttempts', async () => {
+  const failureNote = (t: { activity: { type: string; body: string }[] }) =>
+    t.activity.some((a) => a.type === 'comment' && a.body.startsWith('failure/v1'));
+
+  it('an empty verdict posts a failure note, burns an attempt, and skip-lists at maxAttempts', async () => {
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Empties', 'implementation');
     const { spawn, calls } = makeFakeSpawn();
@@ -222,14 +226,20 @@ describe('failure paths', () => {
     await r.tick(); // attempt 1 — engine exits 0 but wrote nothing
     calls[0]!.child.exit(0);
     let t = core.getTask(key);
-    expect(t.activity.some((a) => a.type === 'comment')).toBe(false); // advisory — no comment
-    expect(t.status).toBe('in_review');
+    expect(failureNote(t)).toBe(true); // failure/v1 note posted
+    expect(t.failure?.reason).toBe('review_failed'); // surfaces as the task's current failure
+    expect(t.failure?.source).toBe('reviewer');
+    expect(t.failure?.skipListed).toBe(false);
+    expect(t.status).toBe('in_review'); // advisory — no status change
+    expect(t.aiReview).toBeNull(); // no verdict
     expect(r.isSkipListed(key)).toBe(false);
 
     await r.tick(); // attempt 2 — same, burns the last attempt
     expect(calls.length).toBe(2);
     expect(calls[1]!.req.args).toContain('exec'); // a fresh codex review
     calls[1]!.child.exit(0);
+    t = core.getTask(key);
+    expect(t.failure?.skipListed).toBe(true); // out of attempts ⇒ needs a human
     expect(r.isSkipListed(key)).toBe(true);
     expect(log.warnings.some((w) => w.includes('maxAttempts'))).toBe(true);
 
@@ -237,7 +247,7 @@ describe('failure paths', () => {
     expect(calls.length).toBe(2);
   });
 
-  it('a review past reviewMinutes is killed, posts nothing, and burns an attempt', async () => {
+  it('a review past reviewMinutes is killed, posts a failure note, and burns an attempt', async () => {
     let nowMs = 0;
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Hangs', 'implementation');
@@ -256,9 +266,28 @@ describe('failure paths', () => {
 
     expect(calls[0]!.child.killed).toBe(true);
     const t = core.getTask(key);
-    expect(t.activity.some((a) => a.type === 'comment')).toBe(false); // timeout posts nothing
+    expect(failureNote(t)).toBe(true); // timeout posts a failure/v1 note
+    expect(t.failure?.reason).toBe('review_failed');
     expect(t.status).toBe('in_review');
     expect(r.isSkipListed(key)).toBe(false); // only one attempt burned (maxAttempts 2)
     expect(log.warnings.some((w) => w.includes('timed out'))).toBe(true);
+  });
+
+  it('a later successful review supersedes the failure note (failure cleared)', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Recovers', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    let reviewN = 0; // codex reads its verdict from readOutput: empty first (fail), clean second
+    const r = new Reviewer(makeConfig({ maxAttempts: 3 }), makeDeps(core, spawn, { readOutput: () => (reviewN++ === 0 ? '' : aiReviewBody(0)) }));
+
+    await r.tick(); // attempt 1 — empty verdict → failure note
+    calls[0]!.child.exit(0);
+    expect(core.getTask(key).failure?.reason).toBe('review_failed');
+
+    await r.tick(); // attempt 2 — a clean verdict this time
+    calls[1]!.child.exit(0);
+    const t = core.getTask(key);
+    expect(t.aiReview?.verdict).toBe('clean');
+    expect(t.failure).toBeNull(); // the successful review cleared the prior failure note
   });
 });

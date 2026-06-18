@@ -1,11 +1,12 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, UpdateTaskInput, AiReviewSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps, latestAiReviewComments, latestResultIds } from './activity.js';
+import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
+import { parseFailureComment, summarizeFailure } from '../failure.js';
 import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
 
@@ -24,15 +25,41 @@ export interface TaskRow {
 const SELECT_TASK =
   'SELECT task.*, w.name AS workspace_name, w.repo_path AS workspace_repo_path, w.policy AS workspace_policy, w.verify_command AS workspace_verify_command FROM task JOIN workspace w ON w.id = task.workspace_id';
 
-// aiReview is derived (the latest ai-review comment) and layered on by the DB-aware
-// paths below; toTask itself is pure and defaults it to null.
+// aiReview + failure are derived (latest ai-review / failure comment) and layered on by the
+// DB-aware paths below; toTask itself is pure and defaults both to null.
 export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
+}
+
+/**
+ * Latest current failure per task id, derived from the latest `failure/v1` comment and whether
+ * a result supersedes it (a successful submission clears the failure). Malformed marker
+ * comments are skipped. Mirrors aiReviewByTaskIds.
+ */
+function failureByTaskIds(db: DB, ids: number[]): Map<number, FailureSummary> {
+  const out = new Map<number, FailureSummary>();
+  if (ids.length === 0) return out;
+  const comments = latestFailureComments(db, ids);
+  if (comments.size === 0) return out;
+  const keys = [...comments.keys()];
+  // A failure is cleared by later *progress*: a new result (a worker crash superseded by a
+  // successful submission) OR a new ai-review comment (a reviewer crash superseded by a
+  // successful re-review). Take the max id of either as the supersede marker.
+  const results = latestResultIds(db, keys);
+  const reviews = latestAiReviewComments(db, keys);
+  for (const [taskId, { id: failureId, body, createdAt }] of comments) {
+    const parsed = parseFailureComment(body);
+    if (!parsed) continue;
+    const progressId = Math.max(results.get(taskId) ?? 0, reviews.get(taskId)?.id ?? 0);
+    const summary = summarizeFailure(parsed, createdAt, progressId > failureId);
+    if (summary) out.set(taskId, summary);
+  }
+  return out;
 }
 
 /**
@@ -66,6 +93,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
   return {
     ...toTask(r),
     aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
+    failure: failureByTaskIds(db, [r.id]).get(r.id) ?? null,
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     plan: r.plan,
@@ -151,8 +179,10 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const sql = `${SELECT_TASK}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY task.seq ASC`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (db.prepare(sql).all as (...a: any[]) => unknown)(...vals) as TaskRow[];
-  const reviews = aiReviewByTaskIds(db, rows.map((r) => r.id));
-  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null }));
+  const ids = rows.map((r) => r.id);
+  const reviews = aiReviewByTaskIds(db, ids);
+  const failures = failureByTaskIds(db, ids);
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null }));
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"
