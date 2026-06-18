@@ -37,6 +37,7 @@ function makeArchived(key: string, title: string, opts: Partial<Task> = {}): Tas
     claimedAt: null,
     archivedAt: '2026-06-01T00:00:00Z',
     aiReview: null,
+    failure: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-06-01T00:00:00Z',
     ...opts,

@@ -186,6 +186,25 @@
 .af-airev-list .dt { font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
 .af-compose-hint { font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }
 
+/* Supervisor-failure chip (card) — tells the operator WHY a task is stuck at a glance */
+.af-fail { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; color: var(--st-blocked); background: color-mix(in srgb, var(--st-blocked) 14%, transparent); max-width: 100%; }
+.af-fail svg { width: 11px; height: 11px; flex: none; }
+.af-fail .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-fail.stuck { color: #fff; background: color-mix(in srgb, var(--st-blocked) 70%, transparent); }
+
+/* Supervisor-failure banner (drawer) — reason, detail, attempts, and a log-tail expander */
+.af-failbanner { border: 1px solid color-mix(in srgb, var(--st-blocked) 34%, var(--line-soft)); background: color-mix(in srgb, var(--st-blocked) 9%, var(--bg-deep)); border-radius: 8px; padding: 9px 11px; margin: 8px 0 4px; }
+.af-failbanner.stuck { border-color: color-mix(in srgb, var(--st-blocked) 60%, var(--line-soft)); background: color-mix(in srgb, var(--st-blocked) 14%, var(--bg-deep)); }
+.af-failbanner-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--st-blocked); }
+.af-failbanner-head svg { width: 14px; height: 14px; flex: none; }
+.af-failbanner-head strong { font-weight: 600; }
+.af-fail-stuck { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #fff; background: var(--st-blocked); padding: 1px 6px; border-radius: 99px; }
+.af-failbanner-meta { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.af-failbanner-detail { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; margin-top: 5px; }
+.af-fail-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 0; background: none; border: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.af-fail-toggle svg { width: 12px; height: 12px; }
+.af-fail-log { margin: 7px 0 0; padding: 8px 10px; max-height: 280px; overflow: auto; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 7px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; line-height: 1.45; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+
 /* ============================== DRAWER ============================== */
 .af-scrim { position: fixed; inset: 0; background: rgba(8,12,22,0.5); z-index: 50; animation: af-rise .15s; }
 .af-drawer {
@@ -341,6 +360,18 @@
 /* ============================== LIVE (agents) ============================== */
 .af-live { flex: 1; overflow-y: auto; }
 .af-live-inner { max-width: 920px; margin: 0 auto; padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Supervisor health strip — "is the loop alive?" at the top of the Live view */
+.af-sup-strip { max-width: 920px; margin: 0 auto; padding: 12px 24px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.af-sup-strip.empty { align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-3); padding: 14px 24px 0; }
+.af-sup-strip.empty svg { width: 14px; height: 14px; flex: none; }
+.af-sup { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); font-size: 12px; }
+.af-sup.down { border-color: color-mix(in srgb, var(--st-blocked) 45%, var(--line)); background: color-mix(in srgb, var(--st-blocked) 8%, var(--card)); }
+.af-sup-dot { width: 8px; height: 8px; border-radius: 99px; flex: none; background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); }
+.af-sup.down .af-sup-dot { background: var(--st-blocked); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-blocked) 22%, transparent); }
+.af-sup-name { font-weight: 600; color: var(--ink-1); }
+.af-sup-meta { color: var(--ink-3); }
+.af-sup-meta .down { color: var(--st-blocked); font-weight: 600; }
 .af-live-row {
   display: flex; flex-direction: column; width: 100%;
   background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--r-card);

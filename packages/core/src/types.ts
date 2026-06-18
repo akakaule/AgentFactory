@@ -51,6 +51,21 @@ export interface AiReviewSummary {
   items: AiReviewFinding[];
 }
 
+/**
+ * The latest *current* supervisor failure for a task, derived at read time from the latest
+ * `failure/v1` comment vs. the latest result (a successful result supersedes it ⇒ cleared).
+ * Purely derived — there is no failure column. See src/failure.ts. null = no current failure.
+ */
+export interface FailureSummary {
+  reason: string;            // known FAILURE_REASONS get a styled label; any other string renders generically
+  detail: string | null;     // one-line human reason, e.g. "timed out after 60m"
+  source: string | null;     // which supervisor emitted it: 'dispatcher' | 'reviewer'
+  attempt: number | null;
+  maxAttempts: number | null;
+  skipListed: boolean;       // out of attempts ⇒ no further auto-retry; a human must intervene
+  at: string;                // the failure comment's created_at
+}
+
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
   status: Status; stage: Stage; resultSummary: string | null; seq: number;
@@ -58,6 +73,7 @@ export interface Task {
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
+  failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   createdAt: string; updatedAt: string;
 }
 export interface Activity {
@@ -67,6 +83,12 @@ export interface Activity {
   actorName: string | null;   // joined app_user.display_name for actorUserId; null when unattributed
 }
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
+
+/** One activity row in the global (cross-task) feed the notifier consumes, joined to its task. */
+export interface ActivityFeedRow {
+  id: number; taskKey: string; taskTitle: string; workspace: string;
+  type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
+}
 export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
 
 /** One agent-reported milestone in a live session's small rolling feed. */
@@ -86,6 +108,28 @@ export interface AgentSessionView {
   tokensIn: number | null; tokensOut: number | null; // agent-reported, so-far
   startedAt: string;               // claim time
   heartbeatAt: string;             // last-seen-alive (claim / progress / dispatcher tick)
+}
+
+export type SupervisorKind = 'dispatcher' | 'reviewer';
+
+/**
+ * A headless supervisor (dispatcher/reviewer) as surfaced to the health view. Current-state,
+ * derived from the `supervisor_heartbeat` row each one upserts every poll; `healthy` is computed
+ * at read time from last-seen vs. the supervisor's own poll interval. Ephemeral — a supervisor
+ * that never starts simply has no row.
+ */
+export interface SupervisorView {
+  name: string; kind: SupervisorKind;
+  workspaces: string[];      // workspace slugs this supervisor serves
+  inFlight: number;          // live sessions right now
+  capacity: number;          // max concurrent it will run
+  pollSeconds: number | null; // its poll interval (drives the staleness threshold)
+  polls: number;             // cumulative poll cycles since it started
+  version: string | null;    // optional build/version string
+  startedAt: string;
+  lastSeenAt: string;
+  healthy: boolean;          // beat within HEALTHY_MISSED_POLLS × pollSeconds (else it's down)
+  staleSeconds: number;      // seconds since the last heartbeat
 }
 
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */

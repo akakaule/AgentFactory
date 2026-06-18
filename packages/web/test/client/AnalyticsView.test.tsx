@@ -43,6 +43,7 @@ describe('AnalyticsView', () => {
     const data: AnalyticsData = {
       tasks: [doneRow(), doneRow({ tokensIn: null, tokensOut: null, costUsd: null, model: null })],
       stranded: [],
+      failures: [],
     };
     mocked.getAnalytics.mockResolvedValue(data);
 

@@ -179,6 +179,17 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
             </div>
           </div>
 
+          {/* Why tasks fail — supervisor failure occurrences by reason */}
+          {a.failures.total > 0 && (
+            <div className="an-panel span">
+              <div className="an-ph"><h3>Why tasks fail</h3><small>· supervisor failures, {rangeLabel}</small><span className="right">{a.failures.total} total</span></div>
+              {a.failures.byReason.map((f) => (
+                <StageRow key={f.reason} label={f.label} hue="var(--st-blocked)" val={f.count} max={a.failures.max} />
+              ))}
+              <div className="an-caption">Every timeout, crash, permission denial, and skip-list the dispatcher and reviewer recorded. A spike by reason points at the fix — raise the stage timeout, widen the tool allowlist, or harden the verify command.</div>
+            </div>
+          )}
+
           {/* Workers */}
           <div className="an-panel span">
             <div className="an-ph"><h3>Workers</h3><small>· {rangeLabel}</small></div>

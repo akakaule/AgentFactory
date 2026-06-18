@@ -13,12 +13,13 @@ export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimN
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
+export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
-export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type AnalyticsData } from './ops/analyticsRows.js';
+export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { addAttachment } from './ops/addAttachment.js';
 export { deleteAttachment } from './ops/deleteAttachment.js';
@@ -30,6 +31,10 @@ export { listWorkspaces } from './ops/listWorkspaces.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
 export { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
+export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
+export { type UpsertSupervisor } from './repo/supervisors.js';
+export { activitySince, latestActivityId } from './repo/activity.js';
+export { getKv, setKv } from './repo/kv.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -56,6 +61,10 @@ import { updateWorkspace } from './ops/updateWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
+import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
+import type { UpsertSupervisor } from './repo/supervisors.js';
+import { activitySince, latestActivityId } from './repo/activity.js';
+import { getKv, setKv } from './repo/kv.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
 
@@ -81,6 +90,12 @@ export function createCore(db: DB) {
     touchAgentSession: (key: string) => touchAgentSession(db, key),
     endAgentSession: (key: string) => endAgentSession(db, key),
     listLiveAgents: () => listLiveAgents(db),
+    recordSupervisorHeartbeat: (input: UpsertSupervisor) => recordSupervisorHeartbeat(db, input),
+    listSupervisors: () => listSupervisors(db),
+    activitySince: (sinceId: number, limit?: number) => activitySince(db, sinceId, limit),
+    latestActivityId: () => latestActivityId(db),
+    getKv: (key: string) => getKv(db, key),
+    setKv: (key: string, value: string) => setKv(db, key, value),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null) => updateStatus(db, key, status, actor, nowIso, actorUserId),

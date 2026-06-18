@@ -9,10 +9,10 @@ describe('runMigrations', () => {
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 13 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 12 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 13 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -86,6 +86,22 @@ describe('runMigrations', () => {
     ).run();
     expect(db.prepare('SELECT original_spec, original_acceptance_criteria FROM task WHERE key = ?').get('AF-1'))
       .toMatchObject({ original_spec: null, original_acceptance_criteria: null });
+  });
+
+  it('migration #13 adds supervisor_heartbeat (name PK, kind CHECK) and app_kv', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    expect(tables(db)).toEqual(expect.arrayContaining(['supervisor_heartbeat', 'app_kv']));
+    db.prepare(
+      "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('d','dispatcher','default',0,1,'2026-01-01','2026-01-01')"
+    ).run();
+    // the kind CHECK rejects anything but dispatcher/reviewer
+    expect(() => db.prepare(
+      "INSERT INTO supervisor_heartbeat(name,kind,started_at,last_seen_at) VALUES ('x','nonsense','2026-01-01','2026-01-01')"
+    ).run()).toThrow();
+    // app_kv is a simple key/value store
+    db.prepare("INSERT INTO app_kv(key,value) VALUES ('notify_cursor','42')").run();
+    expect(db.prepare("SELECT value FROM app_kv WHERE key='notify_cursor'").get()).toMatchObject({ value: '42' });
   });
 
   it('enforces the stage CHECK constraint', () => {

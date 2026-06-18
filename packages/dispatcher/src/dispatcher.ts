@@ -1,3 +1,4 @@
+import { buildFailureComment } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
@@ -82,7 +83,24 @@ export class Dispatcher {
   async tick(): Promise<void> {
     this.enforceTimeouts();
     this.touchLiveSessions();
+    this.recordHeartbeat();
     for (const workspace of this.config.workspaces) this.pollWorkspace(workspace);
+  }
+
+  /** Report a heartbeat so the board's health view knows this supervisor is alive. Best-effort. */
+  private recordHeartbeat(): void {
+    try {
+      this.deps.core.recordSupervisorHeartbeat({
+        name: this.config.name,
+        kind: 'dispatcher',
+        workspaces: this.config.workspaces,
+        inFlight: this.running.size,
+        capacity: this.config.maxConcurrent * this.config.workspaces.length,
+        pollSeconds: this.config.pollSeconds,
+      });
+    } catch {
+      /* health is advisory — never let a heartbeat write break the poll loop */
+    }
   }
 
   /** Number of live sessions currently serving a workspace. */
@@ -325,10 +343,16 @@ export class Dispatcher {
     try {
       this.deps.core.addComment(key, {
         actor: 'agent',
-        body:
-          `Dispatcher: session \`${session.label}\` was permission denied for ${denials.map((d) => `\`${d}\``).join(', ')} ` +
-          `and exited without claiming (attempt ${attempt}/${this.config.maxAttempts}). ` +
-          `The worker's tool allowlist or permission mode is misconfigured.`,
+        body: buildFailureComment({
+          reason: 'permission_denied',
+          detail: `permission denied for ${denials.join(', ')}`,
+          source: 'dispatcher',
+          attempt,
+          maxAttempts: this.config.maxAttempts,
+          body:
+            `Session \`${session.label}\` was permission denied for ${denials.map((d) => `\`${d}\``).join(', ')} ` +
+            `and exited without claiming. The worker's tool allowlist or permission mode is misconfigured.`,
+        }),
       });
     } catch {
       /* the console warning is the contract; the board comment is a bonus */
@@ -345,14 +369,19 @@ export class Dispatcher {
     const attempt = session.attempt;
     this.attempts.set(key, attempt);
 
-    const reason = session.timedOut
-      ? `timed out after ${this.config.maxSessionMinutes}m`
-      : `exited with code ${code ?? 'null'}`;
+    const reasonCode = session.timedOut ? 'timeout' : 'crashed';
+    const detail = session.timedOut
+      ? `session \`${session.label}\` timed out after ${this.config.maxSessionMinutes}m`
+      : `session \`${session.label}\` exited with code ${code ?? 'null'}`;
     const tail = this.commentTail(session.logTail);
-    const body =
-      `Dispatcher: session \`${session.label}\` ${reason} with the task still in progress ` +
-      `(attempt ${attempt}/${this.config.maxAttempts}). Releasing the claim for retry.\n\n` +
-      `Log tail:\n\`\`\`\n${tail}\n\`\`\``;
+    const body = buildFailureComment({
+      reason: reasonCode,
+      detail: `${detail} with the task still in progress`,
+      source: 'dispatcher',
+      attempt,
+      maxAttempts: this.config.maxAttempts,
+      body: `Releasing the claim for retry.\n\nLog tail:\n\`\`\`\n${tail}\n\`\`\``,
+    });
 
     try {
       this.deps.core.addComment(key, { actor: 'agent', body });
@@ -370,7 +399,14 @@ export class Dispatcher {
       try {
         this.deps.core.addComment(key, {
           actor: 'agent',
-          body: `Dispatcher: ${key} reached maxAttempts (${this.config.maxAttempts}) and is skip-listed. No further sessions will be spawned until a human intervenes.`,
+          body: buildFailureComment({
+            reason: 'max_attempts',
+            detail: `reached maxAttempts (${this.config.maxAttempts}) and is skip-listed`,
+            source: 'dispatcher',
+            attempt,
+            maxAttempts: this.config.maxAttempts,
+            body: 'No further sessions will be spawned until a human intervenes.',
+          }),
         });
       } catch {
         /* the console warning is the contract; the board comment is a bonus */

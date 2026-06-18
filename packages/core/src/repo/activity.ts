@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Activity, ActivityType, Actor, Status } from '../types.js';
+import type { Activity, ActivityFeedRow, ActivityType, Actor, Status } from '../types.js';
 import type { ActivityStep } from '../metrics.js';
 
 export interface AppendActivity {
@@ -37,6 +37,28 @@ export function latestAiReviewComments(db: DB, taskIds: number[]): Map<number, {
 }
 
 /**
+ * Latest `failure/v1` comment (id + body + created_at) per task id (one query for the whole
+ * list). Mirrors latestAiReviewComments: the SQL pre-filters on the marker prefix, the JS
+ * parser is the authority on well-formedness. The id rides along so callers can compare it to
+ * the latest result (a newer result supersedes the failure ⇒ no longer current).
+ */
+export function latestFailureComments(db: DB, taskIds: number[]): Map<number, { id: number; body: string; createdAt: string }> {
+  const out = new Map<number, { id: number; body: string; createdAt: string }>();
+  if (taskIds.length === 0) return out;
+  const placeholders = taskIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT a.task_id AS taskId, a.id AS id, a.body AS body, a.created_at AS createdAt FROM activity a
+     JOIN (SELECT task_id, MAX(id) AS mid FROM activity
+           WHERE type = 'comment' AND lower(body) LIKE 'failure/v1%'
+           GROUP BY task_id) m ON a.id = m.mid
+     WHERE a.task_id IN (${placeholders})`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ).all(...taskIds) as Array<{ taskId: number; id: number; body: string; createdAt: string }>;
+  for (const r of rows) out.set(r.taskId, { id: r.id, body: r.body, createdAt: r.createdAt });
+  return out;
+}
+
+/**
  * Latest `result` activity id per task id (one query for the whole list). A result newer
  * than the latest ai-review comment means a resubmission is awaiting re-review ⇒ pending.
  */
@@ -60,6 +82,26 @@ export function activitySteps(db: DB, taskId: number): ActivityStep[] {
     type: ActivityType; from_status: Status | null; to_status: Status | null; body: string; created_at: string;
   }>;
   return rows.map(r => ({ type: r.type, fromStatus: r.from_status, toStatus: r.to_status, body: r.body, createdAt: r.created_at }));
+}
+
+/** The latest activity id (the high-water mark a feed consumer initializes its cursor to). 0 = empty. */
+export function latestActivityId(db: DB): number {
+  const r = db.prepare('SELECT MAX(id) AS m FROM activity').get() as { m: number | null };
+  return r.m ?? 0;
+}
+
+/**
+ * The global activity feed since `sinceId` (exclusive), oldest first, joined to each row's task +
+ * workspace. The notifier polls this to derive cross-task events (a task entered review, a failure
+ * note was posted) without per-task queries; the id is the durable cursor.
+ */
+export function activitySince(db: DB, sinceId: number, limit = 200): ActivityFeedRow[] {
+  return db.prepare(
+    `SELECT a.id AS id, t.key AS taskKey, t.title AS taskTitle, w.name AS workspace,
+            a.type AS type, a.actor AS actor, a.to_status AS toStatus, a.body AS body, a.created_at AS createdAt
+       FROM activity a JOIN task t ON t.id = a.task_id JOIN workspace w ON w.id = t.workspace_id
+      WHERE a.id > ? ORDER BY a.id ASC LIMIT ?`,
+  ).all(sinceId, limit) as unknown as ActivityFeedRow[];
 }
 
 export function recentActivity(db: DB, taskId: number, limit: number): Activity[] {

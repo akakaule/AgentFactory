@@ -8,6 +8,7 @@ import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { LiveSection } from './LiveSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
+import { FailureBanner } from './FailureBanner.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
 import { TaskMetrics } from './TaskMetrics.js';
@@ -163,6 +164,8 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   </button>
                 )}
               </div>
+
+              {task.failure && <FailureBanner failure={task.failure} activity={task.activity} />}
 
               {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
 

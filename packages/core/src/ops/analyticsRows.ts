@@ -2,6 +2,7 @@ import type { DB } from '../db.js';
 import type { Status, TaskMetricsView } from '../types.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { findingsAtApproval } from '../aiReview.js';
+import { parseFailureComment } from '../failure.js';
 import { activitySteps } from '../repo/activity.js';
 import { tokenAggregateFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
@@ -16,7 +17,9 @@ export interface AnalyticsTaskRow extends TaskMetricsView {
   aiReviewFindings: number | null;
 }
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; }
+/** One supervisor failure occurrence (every failure/v1 note), for the "why tasks fail" trend. */
+export interface FailureEvent { reason: string; workspace: string; at: string; }
+export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; }
 
 /**
  * All-time per-task metric rows + stranded-release events. The client filters
@@ -30,6 +33,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
   const ts = now();
   const tasks: AnalyticsTaskRow[] = [];
   const stranded: StrandedRelease[] = [];
+  const failures: FailureEvent[] = [];
 
   for (const r of rows) {
     const steps = activitySteps(db, r.id);
@@ -45,6 +49,12 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
     // attributed to the nearest preceding claim row's label (empty body → null)
     let lastClaim: string | null = null;
     for (const s of steps) {
+      // every failure/v1 note is one failure occurrence (a task can fail more than once)
+      if (s.type === 'comment' && s.body) {
+        const f = parseFailureComment(s.body);
+        if (f) failures.push({ reason: f.reason, workspace: r.workspace, at: s.createdAt });
+        continue;
+      }
       if (s.type !== 'status_change') continue;
       if (s.fromStatus === 'queued' && s.toStatus === 'in_progress') lastClaim = s.body || null;
       else if (s.fromStatus === 'in_progress' && s.toStatus === 'queued') {
@@ -52,5 +62,5 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
       }
     }
   }
-  return { tasks, stranded };
+  return { tasks, stranded, failures };
 }

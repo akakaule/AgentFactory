@@ -9,7 +9,14 @@ export interface AnalyticsTaskRow {
   aiReviewFindings: number | null; // findings at approval; null = no AI review present
 }
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; }
+export interface FailureEvent { reason: string; workspace: string; at: string; }
+export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; }
+
+/** Friendly labels for known supervisor failure reasons; unknown reasons render as-is. */
+export const FAILURE_LABELS: Record<string, string> = {
+  timeout: 'Timed out', crashed: 'Crashed', permission_denied: 'Permission denied',
+  max_attempts: 'Out of attempts', review_failed: 'Auto-review failed',
+};
 
 export type StageKey = 'queue' | 'work' | 'review' | 'blocked';
 export interface Stage { key: StageKey; label: string; hue: string; val: number; }
@@ -34,6 +41,7 @@ export interface ComputedAnalytics {
   tokensByWorkspace: Array<{ workspace: string; tokens: number }>; tokWsMax: number;
   tokenCoverage: { reported: number; total: number };
   workers: WorkerStats[];
+  failures: { byReason: Array<{ reason: string; label: string; count: number }>; total: number; max: number };
 }
 
 export const STAGES: Array<{ key: StageKey; field: keyof AnalyticsTaskRow; label: string; hue: string }> = [
@@ -172,5 +180,16 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     };
   }).sort((a, b) => b.done - a.done || b.claims - a.claims);
 
-  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokenCoverage, workers };
+  // "Why tasks fail": every supervisor failure occurrence in range/workspace, by reason.
+  // Tolerate a payload without `failures` (a stale server build that predates this field).
+  const failByReason: Record<string, number> = {};
+  (data.failures ?? [])
+    .filter((f) => matchWs(f.workspace) && Date.parse(f.at) >= cutoff)
+    .forEach((f) => { failByReason[f.reason] = (failByReason[f.reason] ?? 0) + 1; });
+  const byReason = Object.entries(failByReason)
+    .map(([reason, count]) => ({ reason, label: FAILURE_LABELS[reason] ?? reason, count }))
+    .sort((a, b) => b.count - a.count);
+  const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
+
+  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokenCoverage, workers, failures };
 }

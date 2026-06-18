@@ -25,7 +25,9 @@ describe('buildProtocol path hygiene', () => {
       branch: 'feature/AF-9-y',
       branchCreated: false,
     });
-    expect(p.setup[0]).toBe('git worktree add "c:/My Repos/App/.worktrees/AF-9" feature/AF-9-y');
+    expect(p.setup[0]).toBe(
+      'git worktree add "c:/My Repos/App/.worktrees/AF-9" feature/AF-9-y || git worktree add "c:/My Repos/App/.worktrees/AF-9" -b feature/AF-9-y',
+    );
     expect(p.finish).toContain('git worktree remove "c:/My Repos/App/.worktrees/AF-9" && git worktree prune');
   });
 
@@ -131,7 +133,21 @@ describe('buildProtocol worktree base', () => {
 
   it('reclaim ignores any base and reuses the existing branch (no -b, no fetch)', () => {
     const p = impl({ branchCreated: false, base: { ref: 'origin/main', fetch: true } });
-    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" feature/AF-5-a']);
+    // reuse-first so a real reclaim keeps its commits; create-fallback recovers a branch a
+    // prior claim named but died before creating (no base ref on a reclaim → from HEAD).
+    expect(p.setup).toEqual([
+      'git worktree add "c:/Git/App/.worktrees/AF-5" feature/AF-5-a || git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a',
+    ]);
+  });
+
+  it('reclaim recovers (does not strand) when the named branch was never created', () => {
+    // Stranding scenario: first claim persisted the branch name, then died before its
+    // `git worktree add -b` ran, so the ref does not exist. The reclaim setup must contain a
+    // create fallback so `git worktree add <wt> <branch>` failing does not brick the task.
+    const p = impl({ branchCreated: false });
+    expect(p.setup).toHaveLength(1);
+    expect(p.setup[0]).toContain(' || git worktree add ');
+    expect(p.setup[0]!.endsWith('-b feature/AF-5-a')).toBe(true);
   });
 
   it('rejects an unsafe base ref (defense-in-depth) and falls back to current HEAD', () => {

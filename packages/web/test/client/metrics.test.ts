@@ -16,7 +16,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
     ...over,
   };
 }
-const data = (tasks: AnalyticsTaskRow[], stranded: AnalyticsData['stranded'] = []): AnalyticsData => ({ tasks, stranded });
+const data = (tasks: AnalyticsTaskRow[], stranded: AnalyticsData['stranded'] = [], failures: AnalyticsData['failures'] = []): AnalyticsData => ({ tasks, stranded, failures });
 
 describe('helpers', () => {
   it('fmtDur formats minutes, hours, days, n/a', () => {
@@ -192,5 +192,27 @@ describe('computeAnalytics', () => {
   it('flags the empty state', () => {
     expect(computeAnalytics(data([]), 'all', 7, NOW).hasData).toBe(false);
     expect(computeAnalytics(data([doneRow({ doneAt: daysAgo(40) })]), 'all', 7, NOW).hasData).toBe(false);
+  });
+
+  it('aggregates failures by reason, labelled and within range/workspace', () => {
+    const a = computeAnalytics(
+      data([doneRow()], [], [
+        { reason: 'timeout', workspace: 'default', at: new Date(NOW - 3600000).toISOString() },
+        { reason: 'timeout', workspace: 'default', at: new Date(NOW - 7200000).toISOString() },
+        { reason: 'crashed', workspace: 'default', at: new Date(NOW - 7200000).toISOString() },
+        { reason: 'timeout', workspace: 'repo-a', at: new Date(NOW - 7200000).toISOString() }, // other workspace
+        { reason: 'crashed', workspace: 'default', at: daysAgo(40) }, // out of range
+      ]),
+      'default', 7, NOW,
+    );
+    expect(a.failures.total).toBe(3); // two timeouts + one crash in default within 7d
+    expect(a.failures.byReason[0]).toEqual({ reason: 'timeout', label: 'Timed out', count: 2 });
+    expect(a.failures.byReason[1]).toEqual({ reason: 'crashed', label: 'Crashed', count: 1 });
+    expect(a.failures.max).toBe(2);
+  });
+
+  it('tolerates a payload with no failures field (stale server)', () => {
+    const a = computeAnalytics({ tasks: [doneRow()], stranded: [] } as unknown as AnalyticsData, 'all', 7, NOW);
+    expect(a.failures.total).toBe(0);
   });
 });
