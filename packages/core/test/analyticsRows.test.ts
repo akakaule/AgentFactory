@@ -6,6 +6,8 @@ import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { submitResult } from '../src/ops/submitResult.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { analyticsRows } from '../src/ops/analyticsRows.js';
+import { addComment } from '../src/ops/addComment.js';
+import { buildFailureComment } from '../src/failure.js';
 import { getTask } from '../src/ops/getTask.js';
 
 const BASE = Date.parse('2026-06-01T00:00:00.000Z');
@@ -80,6 +82,23 @@ describe('analyticsRows', () => {
 
     expect(analyticsRows(db, at(999)).stranded).toHaveLength(0);
     expect(task.key).toBeDefined();
+  });
+
+  it('records each failure/v1 note as a failure event by reason (a task can fail more than once)', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, at(0));
+    updateStatus(db, task.key, 'queued', 'human', at(10));
+    claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
+    const note = (reason: string, attempt: number) =>
+      addComment(db, task.key, { actor: 'agent', body: buildFailureComment({ reason, detail: 'd', source: 'dispatcher', attempt, maxAttempts: 2 }) }, at(40 + attempt));
+    note('timeout', 1);
+    note('max_attempts', 2);
+    addComment(db, task.key, { actor: 'human', body: 'just a plain comment' }, at(45)); // ignored
+
+    const { failures } = analyticsRows(db, at(999));
+    expect(failures).toHaveLength(2);
+    expect(failures.map((f) => f.reason)).toEqual(['timeout', 'max_attempts']);
+    expect(failures[0]).toMatchObject({ reason: 'timeout', workspace: 'default' });
   });
 
   it('exposes derived metrics on the task detail payload', () => {

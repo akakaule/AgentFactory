@@ -19,7 +19,7 @@ export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
-export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type AnalyticsData } from './ops/analyticsRows.js';
+export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { addAttachment } from './ops/addAttachment.js';
 export { deleteAttachment } from './ops/deleteAttachment.js';
