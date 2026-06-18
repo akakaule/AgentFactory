@@ -83,6 +83,12 @@ export interface Activity {
   actorName: string | null;   // joined app_user.display_name for actorUserId; null when unattributed
 }
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
+
+/** One activity row in the global (cross-task) feed the notifier consumes, joined to its task. */
+export interface ActivityFeedRow {
+  id: number; taskKey: string; taskTitle: string; workspace: string;
+  type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
+}
 export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
 
 /** One agent-reported milestone in a live session's small rolling feed. */

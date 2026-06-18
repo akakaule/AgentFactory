@@ -66,6 +66,25 @@ Run it alongside the dispatcher and web server, all on the same DB. See `package
 
 While agents work, the **Live** view (header toggle) and each in-progress task's drawer show what's running right now — current phase, a rolling milestone feed, and so-far token counts — fed by a `report_progress` MCP tool the worker calls as it hits each milestone. It's ephemeral current-state (gone when the session ends), distinct from the durable activity log.
 
+The Live view also carries a **supervisor health strip**: a green/red dot per dispatcher/reviewer with its busy count and last-seen, so you can tell at a glance the loop is alive without reading a console. Each supervisor heartbeats every poll; one that stops beating flips red on its own. A `GET /health` endpoint (public, no auth) is the liveness probe for a watchdog.
+
+### Failure triage
+
+When a worker crashes, times out, is permission-denied, or exhausts its attempts — or the reviewer can't run — the supervisor posts a structured `failure/v1` note. The board surfaces it as a red **failure chip** on the card and a **failure banner** in the drawer (reason, attempt count, and a one-click log-tail expander), and the Analytics view breaks failures down by reason ("why tasks fail"). A successful retry clears it automatically.
+
+### Notifications (unattended alerts)
+
+For a loop you leave running, the web server can push webhook alerts so you find out in minutes, not hours. Set `AF_NOTIFY_WEBHOOKS` to one or more Slack-incoming-webhook-compatible URLs (comma-separated) and it POSTs `{ text }` on the "needs a human" events:
+
+```bash
+AF_NOTIFY_WEBHOOKS="https://hooks.slack.com/services/…" npm run web:dev:server
+```
+
+- `AF_NOTIFY_EVENTS` — which events to send (default `in_review,skip_listed,supervisor_down`; also `failed`, `queue_empty`).
+- `AF_NOTIFY_POLL_SEC` — poll interval (default 15).
+
+The notifier reads the activity log, so it catches agent-driven transitions from any process (MCP, dispatcher), and only alerts on *new* events after it starts.
+
 ### Workspaces (multi-repo)
 
 Tasks belong to **workspaces** — named git repositories where the work happens. A fresh DB has a single `default` workspace (`repoPath: "."` = the agent's working directory), so single-repo setups need zero configuration and the UI shows no workspace chrome.
