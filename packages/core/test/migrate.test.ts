@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 13 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 13 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -102,6 +102,22 @@ describe('runMigrations', () => {
     // app_kv is a simple key/value store
     db.prepare("INSERT INTO app_kv(key,value) VALUES ('notify_cursor','42')").run();
     expect(db.prepare("SELECT value FROM app_kv WHERE key='notify_cursor'").get()).toMatchObject({ value: '42' });
+  });
+
+  it('migration #14 re-adds original_spec columns on a DB that diverged past migration #11', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    // Simulate a DB that was migrated by a parallel branch whose #11 added a different column:
+    // the original_spec columns are absent, yet user_version already advanced past 11. Migration
+    // #14 must re-add them idempotently rather than skip (user_version is already >= 11).
+    db.exec('ALTER TABLE task DROP COLUMN original_spec');
+    db.exec('ALTER TABLE task DROP COLUMN original_acceptance_criteria');
+    db.exec('PRAGMA user_version = 13');
+    runMigrations(db);
+    const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain('original_spec');
+    expect(cols).toContain('original_acceptance_criteria');
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 });
   });
 
   it('enforces the stage CHECK constraint', () => {
