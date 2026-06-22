@@ -52,6 +52,18 @@ describe('updateStatus', () => {
     expect(act).toBeDefined();
     expect(act!.actor).toBe('agent');
     expect(act!.fromStatus).toBe('in_progress');
+    expect(act!.body).toBe(''); // no note ⇒ empty body (legacy behavior preserved)
+  });
+
+  it('in_progress → blocked (agent) with note: reason is stored in the status_change body', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+
+    const detail = updateStatus(db, task.key, 'blocked', 'agent', fixedNow, null, '  needs a DB password  ');
+
+    const act = detail.activity.find(a => a.type === 'status_change' && a.toStatus === 'blocked');
+    expect(act!.body).toBe('needs a DB password'); // trimmed, surfaced as the block reason
   });
 
   it('blocked → in_progress (agent): status set, status_change appended', () => {

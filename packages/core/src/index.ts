@@ -98,7 +98,7 @@ export function createCore(db: DB) {
     setKv: (key: string, value: string) => setKv(db, key, value),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
-    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null) => updateStatus(db, key, status, actor, nowIso, actorUserId),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
     reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId),
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),

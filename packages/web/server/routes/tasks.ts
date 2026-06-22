@@ -48,7 +48,7 @@ export function taskRoutes(core: Core) {
     c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
   r.post('/:key/status', zValidator('json', statusBody), (c) =>
-    c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c))));
+    c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c), c.req.valid('json').note)));
 
   r.post('/:key/metrics', zValidator('json', metricsBody), (c) => {
     const b = c.req.valid('json');

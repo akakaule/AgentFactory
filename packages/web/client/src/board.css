@@ -116,6 +116,9 @@
 .af-col-name { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13.5px; color: var(--ink); letter-spacing: .01em; white-space: nowrap; }
 .af-col-count { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); background: var(--bg-deep); padding: 1px 8px; border-radius: 99px; min-width: 22px; text-align: center; flex: none; margin-left: auto; }
 .af-col-body { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: var(--card-gap); padding: 2px 10px 10px; }
+/* keep cards at their natural height: without this they flex-shrink to fit (clipped by .af-card's
+   overflow:hidden) instead of overflowing — so a full column scrolls rather than squishing cards */
+.af-col-body > * { flex: none; }
 .af-col-empty { color: var(--ink-3); font-size: 12px; text-align: center; padding: 18px 8px; border: 1px dashed var(--line); border-radius: 10px; }
 .af-add {
   flex: none; display: flex; align-items: center; gap: 7px; width: 100%;
@@ -204,6 +207,23 @@
 .af-fail-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 0; background: none; border: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
 .af-fail-toggle svg { width: 12px; height: 12px; }
 .af-fail-log { margin: 7px 0 0; padding: 8px 10px; max-height: 280px; overflow: auto; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 7px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; line-height: 1.45; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+
+/* Blocked-reason banner (drawer) — the agent's reason for the current block, focused above the fold */
+.af-blockbanner { border: 1px solid color-mix(in srgb, var(--st-blocked) 34%, var(--line-soft)); background: color-mix(in srgb, var(--st-blocked) 9%, var(--bg-deep)); border-radius: 8px; padding: 9px 11px; margin: 8px 0 4px; }
+.af-blockbanner-head { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--st-blocked); }
+.af-blockbanner-head svg { width: 14px; height: 14px; flex: none; }
+.af-blockbanner-head strong { font-weight: 600; }
+.af-blockbanner-meta { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.af-blockbanner-detail { font-size: 12.5px; color: var(--ink); line-height: 1.45; margin-top: 5px; white-space: pre-wrap; }
+.af-blockbanner-detail.muted { color: var(--ink-3); font-style: italic; }
+.af-blockbanner .af-mini { margin-top: 9px; }
+
+/* Status journey trail (drawer) — the ordered path of statuses a task has moved through */
+.af-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 1px; }
+.af-trail-step { display: inline-flex; align-items: center; gap: 1px; }
+.af-trail-arrow { color: var(--ink-3); font-size: 11px; margin: 0 2px; }
+.af-trail-chip { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.af-trail-chip.current { outline: 1.5px solid currentColor; outline-offset: -1.5px; }
 
 /* ============================== DRAWER ============================== */
 .af-scrim { position: fixed; inset: 0; background: rgba(8,12,22,0.5); z-index: 50; animation: af-rise .15s; }
