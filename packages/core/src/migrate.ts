@@ -30,6 +30,22 @@ const MIGRATIONS: ((db: DB) => void)[] = [
   (db) => db.exec(MIGRATION_11_SQL),
   (db) => db.exec(MIGRATION_12_SQL),
   (db) => db.exec(MIGRATION_13_SQL),
+  // Migration #14 — reconcile DBs that diverged past migration #11. Migrations are gated purely
+  // on PRAGMA user_version, so a slot is identified by *position*, not content. Parallel feature
+  // branches each appended a "migration #11" (main's #11 adds original_spec; an unmerged
+  // feature/task-priority branch's #11 added a `priority` column). A DB migrated by that branch
+  // first reached user_version 11 via the priority migration, so main's #11 (original_spec) was
+  // silently skipped and never ran — leaving original_spec / original_acceptance_criteria absent
+  // while user_version still climbed to 13. snapshotOriginal() (repo/tasks.ts) writes those
+  // columns, so the description-stage submit_result then fails with "no such column: original_spec".
+  // This migration re-adds them only if missing: a no-op on a correctly-migrated/fresh DB (the
+  // columns already exist from #11), self-healing on a diverged one. SQLite has no
+  // ADD COLUMN IF NOT EXISTS, hence the table_info guard.
+  (db) => {
+    const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
+    if (!cols.includes('original_spec')) db.exec('ALTER TABLE task ADD COLUMN original_spec TEXT;');
+    if (!cols.includes('original_acceptance_criteria')) db.exec('ALTER TABLE task ADD COLUMN original_acceptance_criteria TEXT;');
+  },
 ];
 
 export function runMigrations(db: DB): void {
