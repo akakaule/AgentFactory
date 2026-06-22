@@ -8,7 +8,7 @@ import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 
-export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null): TaskDetail {
+export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   // archived tasks are immutable for state — without this, done → queued would reopen
@@ -23,7 +23,9 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   return transaction(db, () => {
     const ts = now();
     setStatus(db, row.id, status, ts);
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, createdAt: ts, actorUserId });
+    // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
+    // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, body: note?.trim() || '', createdAt: ts, actorUserId });
     // Releasing a stranded claim (in_progress → queued by a human) abandons the worker — end its
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).

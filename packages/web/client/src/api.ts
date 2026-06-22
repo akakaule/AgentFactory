@@ -72,7 +72,7 @@ export const api = {
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
-  setStatus: (key: string, status: Status) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status })),
+  setStatus: (key: string, status: Status, note?: string) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note })),
   archive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/archive`, body({})),
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),

@@ -420,6 +420,21 @@ describe('update_status', () => {
     expect(core.getTask(t.key).status).toBe('blocked');
   });
 
+  it('persists the agent note as the block reason on the status_change', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask(); // in_progress
+
+    await client.callTool({
+      name: 'update_status',
+      arguments: { key: t.key, status: 'blocked', note: 'needs a DB password' },
+    });
+
+    const blocked = core.getTask(t.key).activity.find((a) => a.type === 'status_change' && a.toStatus === 'blocked');
+    expect(blocked!.body).toBe('needs a DB password');
+  });
+
   it('returns isError when agent tries in_review -> done', async () => {
     const { client, core } = await makeClient();
     const t = core.createTask(makeTaskInput('Task'));

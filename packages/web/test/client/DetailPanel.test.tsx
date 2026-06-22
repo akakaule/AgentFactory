@@ -151,6 +151,34 @@ describe('DetailPanel', () => {
     expect(screen.getByText('A comment here')).toBeInTheDocument();
   });
 
+  it('focuses the block reason and offers Unblock on a blocked task', async () => {
+    const mocked = await getApiMock();
+    mocked.setStatus.mockClear();
+    mocked.setStatus.mockResolvedValue({});
+    const blockedTask: TaskDetail = {
+      ...backlogTask,
+      key: 'AF-17',
+      status: 'blocked',
+      activity: [
+        { id: 1, taskId: 1, type: 'status_change', actor: 'human', fromStatus: 'backlog', toStatus: 'queued', body: '', createdAt: '2024-01-01T00:00:00Z', actorUserId: null, actorName: null },
+        { id: 2, taskId: 1, type: 'status_change', actor: 'agent', fromStatus: 'queued', toStatus: 'in_progress', body: '', createdAt: '2024-01-01T00:01:00Z', actorUserId: null, actorName: null },
+        { id: 3, taskId: 1, type: 'status_change', actor: 'agent', fromStatus: 'in_progress', toStatus: 'blocked', body: 'needs a DB password', createdAt: '2024-01-01T00:02:00Z', actorUserId: null, actorName: null },
+      ],
+    };
+    mocked.getTask.mockResolvedValue(blockedTask);
+    const user = userEvent.setup();
+
+    const { container } = render(<DetailPanel taskKey="AF-17" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    // the reason is surfaced front-and-center in the banner (it also remains in the activity log)
+    await screen.findByText('Journey');
+    const banner = container.querySelector('.af-blockbanner');
+    expect(banner?.textContent).toContain('needs a DB password');
+
+    await user.click(screen.getByRole('button', { name: 'Unblock → Queued' }));
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-17', 'queued');
+  });
+
   it('shows the claimant and a Release claim button on an in_progress task', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(inProgressTask);

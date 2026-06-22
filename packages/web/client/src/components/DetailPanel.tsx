@@ -9,6 +9,8 @@ import { ReviewActions } from './ReviewActions.js';
 import { LiveSection } from './LiveSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { FailureBanner } from './FailureBanner.js';
+import { BlockedBanner } from './BlockedBanner.js';
+import { StatusTrail } from './StatusTrail.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
 import { TaskMetrics } from './TaskMetrics.js';
@@ -118,14 +120,6 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   </button>
                   {!editing && <button className="af-mini" onClick={() => setEditing(true)}>Edit</button>}
                 </>)}
-                {task.status === 'blocked' && (
-                  <button
-                    className="af-mini"
-                    onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
-                  >
-                    Unblock → Queued
-                  </button>
-                )}
                 {task.status === 'in_progress' && (<>
                   <span className="af-claimline">
                     Claimed{task.claimedBy && <> by <strong>{task.claimedBy}</strong></>}{task.claimedAt && <> · {timeAgo(task.claimedAt)}</>}
@@ -165,6 +159,13 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 )}
               </div>
 
+              {task.status === 'blocked' && (
+                <BlockedBanner
+                  activity={task.activity}
+                  onUnblock={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
+                />
+              )}
+
               {task.failure && <FailureBanner failure={task.failure} activity={task.activity} />}
 
               {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
@@ -198,6 +199,9 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   onCancel={() => setEditing(false)}
                 />
               )}
+
+              <div className="af-sl">Journey</div>
+              <StatusTrail activity={task.activity} current={task.status} />
 
               <div className="af-sl">Spec</div>
               <div className="af-d-body">{task.spec}</div>
