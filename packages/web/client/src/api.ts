@@ -22,11 +22,29 @@ export function setUnauthorizedHandler(fn: () => void): void { onUnauthorized = 
 // EventSource cannot set an Authorization header — carry the token on the query string.
 export function eventsUrl(): string { return token ? `/events?access_token=${encodeURIComponent(token)}` : '/events'; }
 
+// Cap every request so a stuck fetch can never hang the UI forever. Browsers cap HTTP/1.1
+// at 6 connections per host; the long-lived /events (SSE) stream permanently holds a slot,
+// so with several open tabs (or stale SSE sockets left after a server restart) the pool can
+// starve — a new fetch is then queued in the browser but never sent. Unbounded, that left
+// e.g. the "Creating…" button spinning indefinitely. On timeout we abort and surface an
+// actionable error so the form re-enables and the user knows to reload.
+export const REQUEST_TIMEOUT_MS = 20_000;
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...((init?.headers as Record<string, string> | undefined) ?? {}) };
   if (init?.body) headers['content-type'] = 'application/json';
   if (token) headers['authorization'] = `Bearer ${token}`;
-  const res = await fetch(path, { ...init, headers });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(path, { ...init, headers, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted) throw new Error('Request timed out — the server is unreachable or too many board tabs are open. Reload the page and try again.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) onUnauthorized?.();
   if (!res.ok) {
     let msg = `${res.status}`;

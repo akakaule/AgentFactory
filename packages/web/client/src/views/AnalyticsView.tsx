@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { useEventStream } from '../useEventStream.js';
 import { useWorkspaces } from '../useWorkspaces.js';
 import { wsColor } from '../wsColor.js';
-import { computeAnalytics, fmtDur, fmtNum, type AnalyticsData } from '../metrics.js';
+import { computeAnalytics, fmtDur, fmtNum, shortBranch, type AnalyticsData } from '../metrics.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -35,7 +35,7 @@ function AnalyticsEmpty({ ws, rangeDays }: { ws: string; rangeDays: number | nul
   );
 }
 
-type TokGroup = 'model' | 'workspace';
+type TokGroup = 'model' | 'workspace' | 'branch' | 'stage';
 
 export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -66,10 +66,13 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
         {a && !a.hasData && <AnalyticsEmpty ws={ws} rangeDays={rangeDays} />}
         {a && a.hasData && (() => {
           const k = a.kpis;
-          const tokRows = tokGroup === 'model'
-            ? a.tokensByModel.map((t) => ({ key: t.model, val: t.tokens }))
-            : a.tokensByWorkspace.map((t) => ({ key: t.workspace, val: t.tokens }));
-          const tokMax = tokGroup === 'model' ? a.tokMax : a.tokWsMax;
+          const tokViews: Record<TokGroup, { rows: Array<{ key: string; val: number }>; max: number }> = {
+            model: { rows: a.tokensByModel.map((t) => ({ key: t.model, val: t.tokens })), max: a.tokMax },
+            workspace: { rows: a.tokensByWorkspace.map((t) => ({ key: t.workspace, val: t.tokens })), max: a.tokWsMax },
+            branch: { rows: a.tokensByBranch.map((t) => ({ key: shortBranch(t.branch), val: t.tokens })), max: a.tokBranchMax },
+            stage: { rows: a.tokensByStage.map((t) => ({ key: t.stage, val: t.tokens })), max: a.tokStageMax },
+          };
+          const { rows: tokRows, max: tokMax } = tokViews[tokGroup];
           return (<>
           {/* KPIs */}
           <div className="an-kpis">
@@ -165,6 +168,8 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
                 <div className="an-tg">
                   <button className={tokGroup === 'model' ? 'on' : ''} onClick={() => setTokGroup('model')}>Model</button>
                   <button className={tokGroup === 'workspace' ? 'on' : ''} onClick={() => setTokGroup('workspace')}>Workspace</button>
+                  <button className={tokGroup === 'branch' ? 'on' : ''} onClick={() => setTokGroup('branch')}>Branch</button>
+                  <button className={tokGroup === 'stage' ? 'on' : ''} onClick={() => setTokGroup('stage')}>Stage</button>
                 </div>
               </div>
               {tokRows.length === 0
@@ -197,7 +202,7 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
               <thead>
                 <tr>
                   <th>Worker</th><th>Workspace</th><th className="r">Claims</th><th className="r">Done</th>
-                  <th>First-pass</th><th className="r">Med. work</th><th className="r">Releases</th><th className="r">Tokens</th><th className="r">Cost</th>
+                  <th>First-pass</th><th className="r">Med. work</th><th className="r">Releases</th><th>Branch</th><th className="r">Tokens</th><th className="r">Cost</th>
                 </tr>
               </thead>
               <tbody>
@@ -213,6 +218,9 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
                         <span className={'an-pill ' + (w.firstPass >= 75 ? 'good' : w.firstPass >= 50 ? 'warn' : 'bad')}><span className="dot" style={{ background: 'currentColor' }}></span>{w.firstPass}%</span>}</td>
                       <td className="r mono">{fmtDur(w.medWork)}</td>
                       <td className="r mono" style={w.releases > 0 ? { color: 'var(--active-2)' } : undefined}>{w.releases}</td>
+                      <td className="mono dim">{w.branch
+                        ? <span className="an-br" title={shortBranch(w.branch)}>{shortBranch(w.branch)}</span>
+                        : <span className="dim">—</span>}</td>
                       <td className="r mono">{w.tokens == null ? <span className="dim">n/a</span> : fmtNum(w.tokens)}</td>
                       <td className="r mono">{w.cost == null ? <span className="dim">n/a</span> : '$' + w.cost.toFixed(2)}</td>
                     </tr>

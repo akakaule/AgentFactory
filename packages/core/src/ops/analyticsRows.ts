@@ -4,7 +4,7 @@ import { deriveTaskMetrics } from '../metrics.js';
 import { findingsAtApproval } from '../aiReview.js';
 import { parseFailureComment } from '../failure.js';
 import { activitySteps } from '../repo/activity.js';
-import { tokenAggregateFor } from '../repo/metrics.js';
+import { tokenAggregateFor, stageTokensFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
 
 export interface AnalyticsTaskRow extends TaskMetricsView {
@@ -12,6 +12,9 @@ export interface AnalyticsTaskRow extends TaskMetricsView {
   workspace: string;
   status: Status;
   worker: string | null; // claimed_by of the last/current claim; null = unlabeled
+  branch: string | null; // server-named feature branch, set on first implementation claim; null before then / legacy
+  stageTokens: Record<string, number>; // tokens (in+out) attributed to the stage they were reported in
+
   // AI-review findings standing at the final approval; null = no AI review present.
   // Drives the override-rate KPI — approving with findings > 0 is an override.
   aiReviewFindings: number | null;
@@ -27,8 +30,8 @@ export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRe
  */
 export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData {
   const rows = db.prepare(
-    'SELECT task.id, task.key, task.status, task.claimed_by, w.name AS workspace FROM task JOIN workspace w ON w.id = task.workspace_id ORDER BY task.id'
-  ).all() as Array<{ id: number; key: string; status: Status; claimed_by: string | null; workspace: string }>;
+    'SELECT task.id, task.key, task.status, task.claimed_by, task.branch, w.name AS workspace FROM task JOIN workspace w ON w.id = task.workspace_id ORDER BY task.id'
+  ).all() as Array<{ id: number; key: string; status: Status; claimed_by: string | null; branch: string | null; workspace: string }>;
 
   const ts = now();
   const tasks: AnalyticsTaskRow[] = [];
@@ -41,7 +44,8 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
     tasks.push({
       ...derived,
       ...tokenAggregateFor(db, r.id),
-      key: r.key, workspace: r.workspace, status: r.status, worker: r.claimed_by,
+      key: r.key, workspace: r.workspace, status: r.status, worker: r.claimed_by, branch: r.branch,
+      stageTokens: stageTokensFor(db, r.id),
       aiReviewFindings: findingsAtApproval(steps),
     });
 

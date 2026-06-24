@@ -51,7 +51,14 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  // Reset visibility so a test that backgrounds the tab doesn't leak into the next.
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
 });
+
+const setVisibility = (state: 'visible' | 'hidden') => {
+  Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+};
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -118,5 +125,22 @@ describe('useEventStream', () => {
     unmount();
 
     expect(lastES.closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the SSE connection while the tab is hidden and reopens on return', () => {
+    const onBump = vi.fn();
+    renderHook(() => useEventStream(onBump));
+    const ESMock = globalThis.EventSource as unknown as ReturnType<typeof vi.fn>;
+    expect(ESMock).toHaveBeenCalledTimes(1); // foreground on mount → one connection
+
+    // Backgrounding the tab must free the connection slot.
+    const firstClose = lastES.closeSpy;
+    act(() => setVisibility('hidden'));
+    expect(firstClose).toHaveBeenCalledTimes(1);
+
+    // Returning to the foreground reopens a fresh stream and refetches to catch up.
+    act(() => setVisibility('visible'));
+    expect(ESMock).toHaveBeenCalledTimes(2);
+    expect(onBump).toHaveBeenCalled();
   });
 });

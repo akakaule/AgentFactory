@@ -7,6 +7,7 @@ import { createTask } from '../src/ops/createTask.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { addTaskMetrics } from '../src/ops/addTaskMetrics.js';
+import { stageTokensFor } from '../src/repo/metrics.js';
 import { deleteTask } from '../src/ops/deleteTask.js';
 import { getTask } from '../src/ops/getTask.js';
 import { analyticsRows } from '../src/ops/analyticsRows.js';
@@ -97,5 +98,33 @@ describe('addTaskMetrics', () => {
     updateStatus(db, task.key, 'queued', 'human'); // release so delete is allowed
     deleteTask(db, task.key);
     expect((db.prepare('SELECT COUNT(*) n FROM task_metric').get() as { n: number }).n).toBe(0);
+  });
+});
+
+describe('stageTokensFor', () => {
+  const iso = (n: number) => new Date(Date.parse('2026-06-01T00:00:00.000Z') + n * 60000).toISOString();
+  const idOf = (db: ReturnType<typeof makeTestDb>, key: string) =>
+    (db.prepare('SELECT id FROM task WHERE key = ?').get(key) as { id: number }).id;
+  const session = (db: ReturnType<typeof makeTestDb>, taskId: number, stage: string, start: number, end: number) =>
+    db.prepare('INSERT INTO agent_session(task_id, workspace, stage, started_at, heartbeat_at, ended_at) VALUES (?,?,?,?,?,?)')
+      .run(taskId, 'default', stage, iso(start), iso(end), iso(end));
+
+  it('attributes each report to the stage being worked at its created_at', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    const id = idOf(db, task.key);
+    session(db, id, 'description', 10, 20);
+    session(db, id, 'implementation', 30, 50);
+    addTaskMetrics(db, task.key, { tokensIn: 1000, tokensOut: 200 }, () => iso(15)); // mid-description session
+    addTaskMetrics(db, task.key, { tokensIn: 4000, tokensOut: 800 }, () => iso(52)); // just after impl ended → still implementation
+    addTaskMetrics(db, task.key, { tokensIn: 5, tokensOut: 0 }, () => iso(1));         // before any session → unknown
+
+    expect(stageTokensFor(db, id)).toEqual({ description: 1200, implementation: 4800, unknown: 5 });
+  });
+
+  it('returns an empty map when nothing is reported', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    expect(stageTokensFor(db, idOf(db, task.key))).toEqual({});
   });
 });
