@@ -63,6 +63,14 @@ describe('createTask', () => {
     expect(rows[0].created_at).toBe(task.createdAt);
   });
 
+  it('attributes the seed activity to the caller-supplied actor (agent), defaulting to human', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', actor: 'agent' });
+    const row = db.prepare('SELECT actor FROM activity WHERE task_id = ?').get(task.id) as { actor: string };
+    expect(row.actor).toBe('agent');
+    expect(task.status).toBe('backlog'); // agent-filed tasks still land in backlog, never queued
+  });
+
   it('defaults stage to implementation (back-compat: clients opt into the pipeline explicitly)', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });

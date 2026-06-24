@@ -579,3 +579,45 @@ describe('input-schema rejection', () => {
     expect(core.getTask(t.key).status).toBe('in_progress');
   });
 });
+
+// ---------------------------------------------------------------------------
+// create_task
+// ---------------------------------------------------------------------------
+describe('create_task', () => {
+  it('files a task into backlog, attributed to the agent', async () => {
+    const { client, core } = await makeClient();
+    const res = await client.callTool({
+      name: 'create_task',
+      arguments: { title: 'Follow-up: bound the retry loop', spec: 'add a max-attempts cap', acceptanceCriteria: 'loop is bounded' },
+    });
+    const task = JSON.parse(textOf(res));
+    expect(task.key).toBeTruthy();
+    expect(task.status).toBe('backlog'); // never queued — a human must triage it before it runs
+    // the seed status_change is attributed to the agent, not human
+    const seed = core.getTask(task.key).activity.find((a: any) => a.type === 'status_change' && a.toStatus === 'backlog');
+    expect(seed.actor).toBe('agent');
+  });
+
+  it('pins to the server workspace when none is passed', async () => {
+    const { client, core } = await makeClient({ defaultWorkspace: 'team-a' });
+    core.createWorkspace({ name: 'team-a', repoPath: '.' });
+    const res = await client.callTool({
+      name: 'create_task',
+      arguments: { title: 'Pinned', spec: 'spec', acceptanceCriteria: 'ac' },
+    });
+    expect(JSON.parse(textOf(res)).workspace).toBe('team-a');
+  });
+
+  it('requires acceptanceCriteria unless the stage is description', async () => {
+    const { client } = await makeClient();
+    // default (implementation) stage without AC → rejected with the field named
+    const bad = await client.callTool({ name: 'create_task', arguments: { title: 'No AC', spec: 'spec' } });
+    expect(bad.isError).toBe(true);
+    expect(textOf(bad).toLowerCase()).toContain('acceptancecriteria');
+    // description stage writes its own AC → accepted without it
+    const ok = await client.callTool({ name: 'create_task', arguments: { title: 'Desc', spec: 'spec', stage: 'description' } });
+    const task = JSON.parse(textOf(ok));
+    expect(task.status).toBe('backlog');
+    expect(task.stage).toBe('description');
+  });
+});
