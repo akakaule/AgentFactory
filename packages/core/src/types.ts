@@ -159,6 +159,7 @@ export interface CreateTaskInput {
   acceptanceCriteria?: string | undefined; // required unless stage is 'description' (that stage writes them)
   stage?: Stage | undefined; // default 'implementation' — clients opt into the pipeline explicitly
   workspace?: string | undefined;
+  actor?: Actor | undefined; // caller-set attribution for the seed activity; default 'human' (not part of createTaskSchema)
 }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
 // null clears the field, undefined leaves it untouched (matches the PATCH semantics in the web layer)

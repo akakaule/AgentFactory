@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { makeClient } from './harness.js';
 
 describe('tool registry', () => {
-  it('exposes exactly the seven agent-facing tools', async () => {
+  it('exposes exactly the eight agent-facing tools', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ['add_comment', 'get_next_task', 'get_task', 'list_tasks', 'report_progress', 'submit_result', 'update_status'].sort(),
+      ['add_comment', 'create_task', 'get_next_task', 'get_task', 'list_tasks', 'report_progress', 'submit_result', 'update_status'].sort(),
     );
   });
 
@@ -20,10 +20,14 @@ describe('tool registry', () => {
     expect(rp?.description).toMatch(/add_comment/); // tells the agent it is NOT a durable note
   });
 
-  it('does NOT expose create_task', async () => {
+  it('exposes create_task as a backlog-only proposal (it must not auto-queue work)', async () => {
     const { client } = await makeClient();
     const { tools } = await client.listTools();
-    expect(tools.find((t) => t.name === 'create_task')).toBeUndefined();
+    const ct = tools.find((t) => t.name === 'create_task');
+    expect(ct).toBeTruthy();
+    // the safety contract: an agent can propose follow-up work, but never inject auto-running tasks
+    expect(ct?.description).toMatch(/backlog/i);
+    expect(ct?.description).toMatch(/not.*queued|never auto-spawn|will NOT run/i);
   });
 
   it('get_next_task defers to the protocol payload as the source of truth', async () => {

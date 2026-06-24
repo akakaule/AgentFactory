@@ -21,7 +21,8 @@ export function createTask(db: DB, input: CreateTaskInput, now: () => string = n
     ).run(title, spec, acceptanceCriteria ?? 'To be defined by the description stage.', stage ?? 'implementation', ws.id, ts, ts);
     const id = Number(info.lastInsertRowid);
     const key = assignKeyAndSeq(db, id);
-    appendActivity(db, { taskId: id, type: 'status_change', actor: 'human', fromStatus: null, toStatus: 'backlog', createdAt: ts });
+    // actor rides outside createTaskSchema (parse strips it) — read it from the raw input; default human.
+    appendActivity(db, { taskId: id, type: 'status_change', actor: input.actor ?? 'human', fromStatus: null, toStatus: 'backlog', createdAt: ts });
     return findByKey(db, key)!;
   });
 }
