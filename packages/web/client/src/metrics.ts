@@ -5,6 +5,7 @@ export interface AnalyticsTaskRow {
   key: string; workspace: string; status: string; doneAt: string | null;
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
   rounds: number; reopened: boolean; claimCount: number; worker: string | null;
+  branch: string | null; // server-named feature branch; null before the first implementation claim / legacy
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
   aiReviewFindings: number | null; // findings at approval; null = no AI review present
 }
@@ -23,7 +24,7 @@ export interface Stage { key: StageKey; label: string; hue: string; val: number;
 export interface WorkerStats {
   name: string; ws: string; claims: number; done: number;
   firstPass: number | null; medWork: number | null; releases: number;
-  tokens: number | null; cost: number | null;
+  tokens: number | null; cost: number | null; branch: string | null;
 }
 export interface ComputedAnalytics {
   hasData: boolean;
@@ -39,6 +40,7 @@ export interface ComputedAnalytics {
   rounds: { first: number; one: number; two: number };
   tokensByModel: Array<{ model: string; tokens: number }>; tokMax: number;
   tokensByWorkspace: Array<{ workspace: string; tokens: number }>; tokWsMax: number;
+  tokensByBranch: Array<{ branch: string; tokens: number }>; tokBranchMax: number;
   tokenCoverage: { reported: number; total: number };
   workers: WorkerStats[];
   failures: { byReason: Array<{ reason: string; label: string; count: number }>; total: number; max: number };
@@ -78,6 +80,9 @@ export function fmtNum(n: number | null | undefined): string {
   if (n >= 1000) return +(n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k';
   return String(n);
 }
+
+/** Drop the constant `feature/` prefix for display; the task key already shows elsewhere. */
+export const shortBranch = (b: string): string => b.replace(/^feature\//, '');
 
 export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: number | null, now: number = Date.now()): ComputedAnalytics {
   const matchWs = (w: string) => ws === 'all' || w === ws;
@@ -154,6 +159,16 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
   });
   const tokensByWorkspace = Object.entries(byWorkspace).map(([workspace, tokens]) => ({ workspace, tokens })).sort((a, b) => b.tokens - a.tokens);
   const tokWsMax = Math.max(1, ...tokensByWorkspace.map((x) => x.tokens));
+  // Per-branch token totals: tokens are read per-task on a PR-branch (feature) basis.
+  // Reported tasks without a branch (doc stages / legacy) fall into UNLABELED, mirroring
+  // the model grouping so the bars still sum to the coverage banner's reported total.
+  const byBranch: Record<string, number> = {};
+  tokRep.forEach((t) => {
+    const branch = t.branch ?? UNLABELED;
+    byBranch[branch] = (byBranch[branch] ?? 0) + (t.tokensIn ?? 0) + (t.tokensOut ?? 0);
+  });
+  const tokensByBranch = Object.entries(byBranch).map(([branch, tokens]) => ({ branch, tokens })).sort((a, b) => b.tokens - a.tokens);
+  const tokBranchMax = Math.max(1, ...tokensByBranch.map((x) => x.tokens));
   const tokenCoverage = { reported: tokRep.length, total: N };
 
   const names = new Set<string>();
@@ -168,6 +183,9 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     const rep = done.filter((t) => t.costUsd != null);
     const ws0 = done[0]?.workspace ?? inProg.find((t) => t.worker === name)?.workspace
       ?? data.stranded.find((s) => (s.worker ?? UNLABELED) === name)?.workspace ?? '—';
+    // worker is 1:1 with a task, so its first branch-bearing task is its feature branch
+    const branch = done.find((t) => t.branch)?.branch
+      ?? inProg.find((t) => t.worker === name && t.branch)?.branch ?? null;
     return {
       name, ws: ws0,
       claims: done.length + claimsInProg + releases,
@@ -177,6 +195,7 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
       releases,
       tokens: rep.length ? rep.reduce((s, t) => s + (t.tokensIn ?? 0) + (t.tokensOut ?? 0), 0) : null,
       cost: rep.length ? rep.reduce((s, t) => s + (t.costUsd ?? 0), 0) : null,
+      branch,
     };
   }).sort((a, b) => b.done - a.done || b.claims - a.claims);
 
@@ -191,5 +210,5 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     .sort((a, b) => b.count - a.count);
   const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
 
-  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokenCoverage, workers, failures };
+  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokenCoverage, workers, failures };
 }

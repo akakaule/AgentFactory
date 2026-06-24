@@ -502,6 +502,7 @@
 .an-table td.dim { color: var(--ink-3); }
 .an-wk { display: inline-flex; align-items: center; gap: 8px; }
 .an-wk .dot { width: 8px; height: 8px; border-radius: 99px; flex: none; }
+.an-table td .an-br { display: inline-block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .an-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: var(--r-pill); }
 .an-pill .dot { width: 6px; height: 6px; border-radius: 99px; }
 .an-pill.good { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }

@@ -8,6 +8,7 @@ import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { analyticsRows } from '../src/ops/analyticsRows.js';
 import { addComment } from '../src/ops/addComment.js';
 import { buildFailureComment } from '../src/failure.js';
+import { featureBranch } from '../src/branch.js';
 import { getTask } from '../src/ops/getTask.js';
 
 const BASE = Date.parse('2026-06-01T00:00:00.000Z');
@@ -37,6 +38,12 @@ describe('analyticsRows', () => {
       model: null, tokensIn: null, tokensOut: null, costUsd: null,
     });
     expect(tasks[0]!.doneAt).toBe(at(150)());
+  });
+
+  it('exposes the persisted feature branch on the row', () => {
+    const db = makeTestDb();
+    const task = driveDone(db, 'worker-1'); // implementation-stage claim names the branch
+    expect(analyticsRows(db, at(999)).tasks[0]!.branch).toBe(featureBranch(task.key, 'T'));
   });
 
   it('leaves worker null for unlabeled claims', () => {

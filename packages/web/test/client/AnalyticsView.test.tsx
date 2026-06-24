@@ -30,7 +30,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
   return {
     key: `AF-${seq}`, workspace: 'default', status: 'done', doneAt: new Date(Date.now() - 3600000).toISOString(),
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
-    rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1',
+    rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,
     aiReviewFindings: null,
     ...over,
@@ -141,6 +141,29 @@ describe('AnalyticsView', () => {
     await user.click(screen.getByRole('button', { name: 'Model' }));
     expect(screen.getByText('Tokens by model')).toBeInTheDocument();
     expect(screen.getByText('claude-fable-5')).toBeInTheDocument();
+  });
+
+  it('shows the worker branch (feature/ stripped) and a per-branch tokens grouping', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [
+        doneRow({ worker: 'w-a', branch: 'feature/AF-100-add-search', tokensIn: 50000, tokensOut: 5000 }),
+        doneRow({ worker: 'w-b', branch: 'feature/AF-101-fix-scroll', tokensIn: 1000, tokensOut: 100 }),
+      ],
+      stranded: [],
+      failures: [],
+    });
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    // BRANCH column in the workers table shows the branch with feature/ stripped
+    expect(await screen.findByText('AF-100-add-search')).toBeInTheDocument();
+
+    // the tokens panel gains a Branch grouping that bars tokens per branch
+    await user.click(screen.getByRole('button', { name: 'Branch' }));
+    expect(screen.getByText('Tokens by branch')).toBeInTheDocument();
+    expect(screen.getAllByText('AF-101-fix-scroll').length).toBeGreaterThanOrEqual(1); // workers table + bar
   });
 
   it('shows the per-grouping empty state in both token modes', async () => {
