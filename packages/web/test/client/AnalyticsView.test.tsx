@@ -31,6 +31,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
     key: `AF-${seq}`, workspace: 'default', status: 'done', doneAt: new Date(Date.now() - 3600000).toISOString(),
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
+    stageTokens: { implementation: 12000 },
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,
     aiReviewFindings: null,
     ...over,
@@ -164,6 +165,26 @@ describe('AnalyticsView', () => {
     await user.click(screen.getByRole('button', { name: 'Branch' }));
     expect(screen.getByText('Tokens by branch')).toBeInTheDocument();
     expect(screen.getAllByText('AF-101-fix-scroll').length).toBeGreaterThanOrEqual(1); // workers table + bar
+  });
+
+  it('groups token usage by stage when the Stage toggle is selected', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [
+        doneRow({ tokensIn: 50000, tokensOut: 5000, stageTokens: { implementation: 50000, plan: 5000 } }),
+      ],
+      stranded: [],
+      failures: [],
+    });
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+    await screen.findByText('Tasks done');
+
+    await user.click(screen.getByRole('button', { name: 'Stage' }));
+    expect(screen.getByText('Tokens by stage')).toBeInTheDocument();
+    expect(screen.getByText('implementation')).toBeInTheDocument();
+    expect(screen.getByText('plan')).toBeInTheDocument();
   });
 
   it('shows the per-grouping empty state in both token modes', async () => {

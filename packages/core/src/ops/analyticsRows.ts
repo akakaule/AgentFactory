@@ -4,7 +4,7 @@ import { deriveTaskMetrics } from '../metrics.js';
 import { findingsAtApproval } from '../aiReview.js';
 import { parseFailureComment } from '../failure.js';
 import { activitySteps } from '../repo/activity.js';
-import { tokenAggregateFor } from '../repo/metrics.js';
+import { tokenAggregateFor, stageTokensFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
 
 export interface AnalyticsTaskRow extends TaskMetricsView {
@@ -13,6 +13,8 @@ export interface AnalyticsTaskRow extends TaskMetricsView {
   status: Status;
   worker: string | null; // claimed_by of the last/current claim; null = unlabeled
   branch: string | null; // server-named feature branch, set on first implementation claim; null before then / legacy
+  stageTokens: Record<string, number>; // tokens (in+out) attributed to the stage they were reported in
+
   // AI-review findings standing at the final approval; null = no AI review present.
   // Drives the override-rate KPI — approving with findings > 0 is an override.
   aiReviewFindings: number | null;
@@ -43,6 +45,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
       ...derived,
       ...tokenAggregateFor(db, r.id),
       key: r.key, workspace: r.workspace, status: r.status, worker: r.claimed_by, branch: r.branch,
+      stageTokens: stageTokensFor(db, r.id),
       aiReviewFindings: findingsAtApproval(steps),
     });
 

@@ -6,6 +6,7 @@ export interface AnalyticsTaskRow {
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
   rounds: number; reopened: boolean; claimCount: number; worker: string | null;
   branch: string | null; // server-named feature branch; null before the first implementation claim / legacy
+  stageTokens: Record<string, number>; // tokens (in+out) per stage they were reported in
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
   aiReviewFindings: number | null; // findings at approval; null = no AI review present
 }
@@ -41,6 +42,7 @@ export interface ComputedAnalytics {
   tokensByModel: Array<{ model: string; tokens: number }>; tokMax: number;
   tokensByWorkspace: Array<{ workspace: string; tokens: number }>; tokWsMax: number;
   tokensByBranch: Array<{ branch: string; tokens: number }>; tokBranchMax: number;
+  tokensByStage: Array<{ stage: string; tokens: number }>; tokStageMax: number;
   tokenCoverage: { reported: number; total: number };
   workers: WorkerStats[];
   failures: { byReason: Array<{ reason: string; label: string; count: number }>; total: number; max: number };
@@ -169,6 +171,17 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
   });
   const tokensByBranch = Object.entries(byBranch).map(([branch, tokens]) => ({ branch, tokens })).sort((a, b) => b.tokens - a.tokens);
   const tokBranchMax = Math.max(1, ...tokensByBranch.map((x) => x.tokens));
+  // Per-stage token totals: each reported task's tokens split across the pipeline stages
+  // (description → plan → implementation) they were spent in. `?? {}` tolerates a stale
+  // server build that predates stageTokens.
+  const byStage: Record<string, number> = {};
+  tokRep.forEach((t) => {
+    for (const [stage, tok] of Object.entries(t.stageTokens ?? {})) {
+      byStage[stage] = (byStage[stage] ?? 0) + tok;
+    }
+  });
+  const tokensByStage = Object.entries(byStage).map(([stage, tokens]) => ({ stage, tokens })).sort((a, b) => b.tokens - a.tokens);
+  const tokStageMax = Math.max(1, ...tokensByStage.map((x) => x.tokens));
   const tokenCoverage = { reported: tokRep.length, total: N };
 
   const names = new Set<string>();
@@ -210,5 +223,5 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     .sort((a, b) => b.count - a.count);
   const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
 
-  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokenCoverage, workers, failures };
+  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workers, failures };
 }

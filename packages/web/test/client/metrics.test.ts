@@ -11,6 +11,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
     key: `AF-${seq}`, workspace: 'demo', status: 'done', doneAt: daysAgo(1),
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
+    stageTokens: { implementation: 12000 },
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,
     aiReviewFindings: null,
     ...over,
@@ -162,6 +163,28 @@ describe('computeAnalytics', () => {
       { branch: 'feature/AF-2-b', tokens: 1100 },
     ]);
     expect(a.tokBranchMax).toBe(77000);
+  });
+
+  it('sums tokens by the stage they were reported in, sorted descending', () => {
+    const a = computeAnalytics(data([
+      doneRow({ tokensIn: 50000, tokensOut: 5000, stageTokens: { implementation: 50000, plan: 5000 } }),
+      doneRow({ tokensIn: 1000, tokensOut: 100, stageTokens: { description: 1100 } }),
+      doneRow({ tokensIn: null, tokensOut: null, model: null, stageTokens: {} }), // unreported → excluded
+    ]), 'all', 7, NOW);
+    expect(a.tokensByStage).toEqual([
+      { stage: 'implementation', tokens: 50000 },
+      { stage: 'plan', tokens: 5000 },
+      { stage: 'description', tokens: 1100 },
+    ]);
+    expect(a.tokStageMax).toBe(50000);
+  });
+
+  it('tolerates rows missing stageTokens (stale server build)', () => {
+    const a = computeAnalytics(data([
+      { ...doneRow({ tokensIn: 7000, tokensOut: 0 }), stageTokens: undefined } as unknown as AnalyticsTaskRow,
+    ]), 'all', 7, NOW);
+    expect(a.tokensByStage).toEqual([]);
+    expect(a.tokStageMax).toBe(1);
   });
 
   it('respects the workspace + range filters for tokensByWorkspace', () => {

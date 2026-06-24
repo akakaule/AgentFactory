@@ -35,7 +35,7 @@ function AnalyticsEmpty({ ws, rangeDays }: { ws: string; rangeDays: number | nul
   );
 }
 
-type TokGroup = 'model' | 'workspace' | 'branch';
+type TokGroup = 'model' | 'workspace' | 'branch' | 'stage';
 
 export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -66,12 +66,13 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
         {a && !a.hasData && <AnalyticsEmpty ws={ws} rangeDays={rangeDays} />}
         {a && a.hasData && (() => {
           const k = a.kpis;
-          const tokRows = tokGroup === 'model'
-            ? a.tokensByModel.map((t) => ({ key: t.model, val: t.tokens }))
-            : tokGroup === 'workspace'
-            ? a.tokensByWorkspace.map((t) => ({ key: t.workspace, val: t.tokens }))
-            : a.tokensByBranch.map((t) => ({ key: shortBranch(t.branch), val: t.tokens }));
-          const tokMax = tokGroup === 'model' ? a.tokMax : tokGroup === 'workspace' ? a.tokWsMax : a.tokBranchMax;
+          const tokViews: Record<TokGroup, { rows: Array<{ key: string; val: number }>; max: number }> = {
+            model: { rows: a.tokensByModel.map((t) => ({ key: t.model, val: t.tokens })), max: a.tokMax },
+            workspace: { rows: a.tokensByWorkspace.map((t) => ({ key: t.workspace, val: t.tokens })), max: a.tokWsMax },
+            branch: { rows: a.tokensByBranch.map((t) => ({ key: shortBranch(t.branch), val: t.tokens })), max: a.tokBranchMax },
+            stage: { rows: a.tokensByStage.map((t) => ({ key: t.stage, val: t.tokens })), max: a.tokStageMax },
+          };
+          const { rows: tokRows, max: tokMax } = tokViews[tokGroup];
           return (<>
           {/* KPIs */}
           <div className="an-kpis">
@@ -168,6 +169,7 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
                   <button className={tokGroup === 'model' ? 'on' : ''} onClick={() => setTokGroup('model')}>Model</button>
                   <button className={tokGroup === 'workspace' ? 'on' : ''} onClick={() => setTokGroup('workspace')}>Workspace</button>
                   <button className={tokGroup === 'branch' ? 'on' : ''} onClick={() => setTokGroup('branch')}>Branch</button>
+                  <button className={tokGroup === 'stage' ? 'on' : ''} onClick={() => setTokGroup('stage')}>Stage</button>
                 </div>
               </div>
               {tokRows.length === 0

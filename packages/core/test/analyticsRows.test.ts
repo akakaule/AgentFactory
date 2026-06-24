@@ -7,6 +7,7 @@ import { submitResult } from '../src/ops/submitResult.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { analyticsRows } from '../src/ops/analyticsRows.js';
 import { addComment } from '../src/ops/addComment.js';
+import { addTaskMetrics } from '../src/ops/addTaskMetrics.js';
 import { buildFailureComment } from '../src/failure.js';
 import { featureBranch } from '../src/branch.js';
 import { getTask } from '../src/ops/getTask.js';
@@ -44,6 +45,17 @@ describe('analyticsRows', () => {
     const db = makeTestDb();
     const task = driveDone(db, 'worker-1'); // implementation-stage claim names the branch
     expect(analyticsRows(db, at(999)).tasks[0]!.branch).toBe(featureBranch(task.key, 'T'));
+  });
+
+  it('breaks token usage down by the stage it was reported in', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, at(0));
+    updateStatus(db, task.key, 'queued', 'human', at(10));
+    claimNextTask(db, { claimedBy: 'worker-1' }, at(30)); // implementation-stage session starts here
+    addTaskMetrics(db, task.key, { tokensIn: 8000, tokensOut: 2000 }, at(60));
+    submitResult(db, task.key, { summary: 'done' }, at(90));
+    reviewApprove(db, task.key, at(150));
+    expect(analyticsRows(db, at(999)).tasks[0]!.stageTokens).toEqual({ implementation: 10000 });
   });
 
   it('leaves worker null for unlabeled claims', () => {
