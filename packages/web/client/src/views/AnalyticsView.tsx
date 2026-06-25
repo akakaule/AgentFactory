@@ -39,8 +39,16 @@ type TokGroup = 'model' | 'workspace' | 'branch' | 'stage';
 
 export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [tokGroup, setTokGroup] = useState<TokGroup>('model');
-  const refetch = useCallback(() => { api.getAnalytics().then(setData).catch(() => {}); }, []);
+  // Surface a failed/timed-out load instead of swallowing it — otherwise `data` stays null
+  // and the view sits on "Loading…" forever (indistinguishable from a real load). A stale
+  // refetch failure keeps the data already on screen; the error UI only shows when empty.
+  const refetch = useCallback(() => {
+    api.getAnalytics()
+      .then((d) => { setData(d); setError(null); })
+      .catch((e: unknown) => setError(e instanceof Error && e.message ? e.message : 'Could not load analytics.'));
+  }, []);
   useEffect(refetch, [refetch]);
   useEventStream(refetch);
   const { workspaces } = useWorkspaces();
@@ -62,7 +70,15 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
           </div>
         </div>
 
-        {!a && <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Loading…</div>}
+        {!a && !error && <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Loading…</div>}
+        {!a && error && (
+          <div className="an-empty">
+            <div className="ico">{I.chart({})}</div>
+            <h2>Couldn't load analytics</h2>
+            <p>{error}</p>
+            <button className="af-btn-primary" onClick={() => { setError(null); refetch(); }}>Retry</button>
+          </div>
+        )}
         {a && !a.hasData && <AnalyticsEmpty ws={ws} rangeDays={rangeDays} />}
         {a && a.hasData && (() => {
           const k = a.kpis;

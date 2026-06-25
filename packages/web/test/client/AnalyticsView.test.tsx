@@ -217,4 +217,24 @@ describe('AnalyticsView', () => {
     await user.click(screen.getByRole('button', { name: 'All' }));
     expect(onRange).toHaveBeenCalledWith(null);
   });
+
+  it('surfaces a failed load with a working Retry instead of an endless "Loading…"', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics
+      .mockRejectedValueOnce(new Error('Request timed out — reload the page and try again.'))
+      .mockResolvedValueOnce({ tasks: [doneRow()], stranded: [], failures: [] });
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    // the rejection is shown (with its message) rather than swallowed into a stuck spinner
+    expect(await screen.findByText("Couldn't load analytics")).toBeInTheDocument();
+    expect(screen.getByText(/timed out/i)).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+
+    // Retry re-fetches and renders the data
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Tasks done')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load analytics")).not.toBeInTheDocument();
+  });
 });
