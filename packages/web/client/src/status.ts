@@ -1,4 +1,13 @@
-import type { Status, Stage } from './types.js';
+import type { Status, Stage, Task } from './types.js';
+
+// Tasks arrive ordered by seq ASC (creation order), which is the right reading order for the
+// active columns. Done is the exception: it accumulates and the most recently completed task is
+// the interesting one, so show Done newest-first by updatedAt (the transition into done bumps it).
+export function tasksForColumn(status: Status, tasks: Task[]): Task[] {
+  const inColumn = tasks.filter((t) => t.status === status);
+  if (status !== 'done') return inColumn;
+  return [...inColumn].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
 
 export const LIFECYCLE_ORDER: Status[] = [
   'backlog',

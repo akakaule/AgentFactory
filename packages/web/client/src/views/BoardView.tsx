@@ -1,6 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import type { Task, Status, Workspace } from '../types.js';
-import { LIFECYCLE_ORDER } from '../status.js';
+import { LIFECYCLE_ORDER, tasksForColumn } from '../status.js';
 import { StatusColumn } from '../components/StatusColumn.js';
 
 // transitions a human may perform by dragging (mirrors core TRANSITIONS for actor 'human';
@@ -47,7 +47,7 @@ export function BoardView({ tasks, onSelect, showWorkspaceBadges, workspaces, on
         <StatusColumn
           key={status}
           status={status}
-          tasks={tasks.filter((t) => t.status === status)}
+          tasks={tasksForColumn(status, tasks)}
           onSelect={onSelect}
           showWorkspaceBadges={showWorkspaceBadges}
           workspaces={workspaces ?? []}
