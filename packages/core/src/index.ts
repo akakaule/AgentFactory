@@ -11,7 +11,7 @@ export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
 export { featureBranch, kebabTitle } from './branch.js';
-export { branchDiff, resolveBaseRef, GitError, type BranchDiff } from './git.js';
+export { branchDiff, resolveBaseRef, refFromLabel, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { addComment } from './ops/addComment.js';

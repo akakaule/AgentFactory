@@ -93,7 +93,13 @@ const AC = 'the acceptance criteria';
  * Create a task at `stage` and legally walk it to `in_review`, submitting that stage's
  * deliverable (a branch link for implementation, so the diff is resolvable). Returns its key.
  */
-export function seedInReview(core: Core, workspace: string, title: string, stage: Stage = 'implementation'): string {
+export function seedInReview(
+  core: Core,
+  workspace: string,
+  title: string,
+  stage: Stage = 'implementation',
+  branchLabel = 'feature/af-x',
+): string {
   const t =
     stage === 'description'
       ? core.createTask({ title, spec: SPEC, workspace, stage }) // description writes its own AC
@@ -107,7 +113,7 @@ export function seedInReview(core: Core, workspace: string, title: string, stage
   } else {
     core.submitResult(t.key, {
       summary: 'implemented the feature',
-      links: [{ kind: 'branch', label: 'feature/af-x', url: 'https://example.test/branch' }],
+      links: [{ kind: 'branch', label: branchLabel, url: 'https://example.test/branch' }],
     });
   }
   return t.key;
