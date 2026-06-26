@@ -37,6 +37,24 @@ describe('poll + spawn', () => {
     expect(req.stdin).toContain('ai-review/v1 - <N> findings (codex)'); // the output contract
   });
 
+  it('resolves a decorated branch-link label to a clean git ref before diffing', async () => {
+    const core = makeCore();
+    // The agent decorated the branch link's label with a trailing annotation — the whole
+    // string must NOT reach git as a ref (it would fail SAFE_REF and skip-list the review).
+    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)');
+    let seen: string | undefined;
+    const computeDiff = async (_repo: string, branch: string) => {
+      seen = branch;
+      return { baseRef: 'main', diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1 };
+    };
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { computeDiff, console: makeFakeConsole() }));
+
+    await r.tick();
+    expect(seen).toBe('feature/af-x'); // bare ref, annotation stripped
+    expect(calls.length).toBe(1); // review prepared, not burned/skip-listed
+  });
+
   it('does not re-review a task that already has a current verdict (dedup)', async () => {
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Reviewed', 'implementation');

@@ -1,4 +1,4 @@
-import { buildFailureComment } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
@@ -197,7 +197,11 @@ export class Reviewer {
   /** Branch to diff: the last branch-kind link (as the board's diff view uses), else the named branch. */
   private resolveBranch(detail: TaskDetail): string | null {
     const link = detail.links.filter((l) => l.kind === 'branch').at(-1);
-    return link?.label ?? detail.branch ?? null;
+    // The label may be decorated (e.g. "feature/x (PR 4703 source — …)"); recover the bare
+    // ref so the annotation never reaches git. Keep the raw label as the fallback so a truly
+    // unparseable label still fails loudly in branchDiff, exactly as before.
+    if (link) return refFromLabel(link.label) ?? link.label;
+    return detail.branch ?? null;
   }
 
   /** Build the prompt + spawn one review; returns false (no slot consumed) on a pre-spawn failure. */

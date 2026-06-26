@@ -58,6 +58,20 @@ describe('GET /api/tasks/:key/diff', () => {
     expect(body.diff).not.toContain('first.txt');
   });
 
+  it('decorated branch label (annotation suffix) resolves the diff against the bare ref', async () => {
+    const dir = track(initGitRepo());
+    addBranchWithChange(dir, 'task/AF-1', 'feature.txt', 'agent work\n');
+    core.createWorkspace({ name: 'fix', repoPath: dir });
+    const label = 'task/AF-1 (PR 4703 source — conflict fix pushed here)';
+    const task = submittedTask('fix', [{ kind: 'branch', label, url: 'http://example.com/b' }]);
+
+    const res = await app.request(`/api/tasks/${task.key}/diff`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { branch: string; diff: string };
+    expect(body.branch).toBe(label);            // the UI still shows the full decorated label
+    expect(body.diff).toContain('+agent work'); // …but the diff resolved against the clean ref
+  });
+
   it('unknown task → 404 JSON', async () => {
     const res = await app.request('/api/tasks/AF-9999/diff');
     expect(res.status).toBe(404);

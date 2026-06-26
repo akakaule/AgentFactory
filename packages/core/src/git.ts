@@ -14,6 +14,19 @@ export interface BranchDiff { baseRef: string; diff: string; commits: number; }
 // (option injection), no '..' (revision ranges), conservative charset.
 const SAFE_REF = /^(?!-)(?!.*\.\.)[\w./-]+$/;
 
+/**
+ * A branch-kind link's label is the display string an agent submits. By convention it
+ * starts with the bare branch ref, but agents sometimes decorate it with a trailing
+ * annotation, e.g. `feature/AF-18-... (PR 4703 source — conflict fix pushed here)`. The
+ * whole label must never reach git as a ref (it fails SAFE_REF and strands the diff /
+ * auto-review). Recover the leading whitespace-delimited token, returning it only if it
+ * is a safe ref; else null (callers decide whether to surface the bad label or skip).
+ */
+export function refFromLabel(label: string): string | null {
+  const head = label.trim().split(/\s+/)[0] ?? '';
+  return SAFE_REF.test(head) ? head : null;
+}
+
 const MAX_DIFF_BYTES = 32 * 1024 * 1024;
 
 async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string }> {

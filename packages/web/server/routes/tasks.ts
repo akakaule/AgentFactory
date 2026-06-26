@@ -4,6 +4,7 @@ import type { Core } from '../types.js';
 import { NotFoundError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
+import { refFromLabel } from '@agentfactory/core';
 import { actorUserIdOf } from '../auth.js';
 
 export function taskRoutes(core: Core) {
@@ -24,7 +25,10 @@ export function taskRoutes(core: Core) {
     const task = core.getTask(c.req.param('key'));
     const branchLink = task.links.filter((l) => l.kind === 'branch').at(-1);
     if (!branchLink) throw new NotFoundError(`no branch link recorded for ${task.key}`);
-    const { baseRef, diff, commits } = await branchDiff(task.repoPath, branchLink.label);
+    // Diff against the bare ref recovered from a possibly-decorated label; the raw label is
+    // the fallback so a hostile/unparseable one still trips branchDiff's SAFE_REF guard (400).
+    const ref = refFromLabel(branchLink.label) ?? branchLink.label;
+    const { baseRef, diff, commits } = await branchDiff(task.repoPath, ref);
     return c.json({ branch: branchLink.label, baseRef, diff, commits });
   });
 
