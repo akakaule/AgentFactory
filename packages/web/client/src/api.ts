@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse } from './types.js';
 import type { AnalyticsData } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -68,6 +68,7 @@ export const api = {
   },
   getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
+  getTranscript: (key: string) => req<TranscriptResponse>(`/api/tasks/${key}/transcript`),
   getAnalytics: () => req<AnalyticsData>('/api/analytics'),
   whoami: () => req<WhoAmI>('/auth/whoami'),
   listAgents: () => req<AgentSessionView[]>('/api/agents'),

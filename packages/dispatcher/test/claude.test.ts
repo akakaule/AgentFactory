@@ -93,6 +93,7 @@ describe('buildSpawnArgs', () => {
       permissionMode: 'acceptEdits',
       mcpConfigPath: '/logs/AF-1-attempt-1.mcp.json',
       claudeArgs: ['--extra'],
+      sessionId: 'sid-1',
     });
     expect(args).toContain('-p');
     expect(args).toContain('PROMPT');
@@ -103,12 +104,24 @@ describe('buildSpawnArgs', () => {
     expect(args[args.length - 1]).toBe('--extra');
   });
 
+  it('forces the session id so the transcript path is deterministic at spawn', () => {
+    const args = buildSpawnArgs({
+      prompt: 'PROMPT',
+      permissionMode: 'acceptEdits',
+      mcpConfigPath: '/logs/AF-1-attempt-1.mcp.json',
+      claudeArgs: [],
+      sessionId: 'sid-abc',
+    });
+    expect(args[args.indexOf('--session-id') + 1]).toBe('sid-abc');
+  });
+
   it('pre-allows the agentfactory MCP server (headless sessions cannot answer permission prompts)', () => {
     const args = buildSpawnArgs({
       prompt: 'PROMPT',
       permissionMode: 'acceptEdits',
       mcpConfigPath: '/logs/AF-1-attempt-1.mcp.json',
       claudeArgs: [],
+      sessionId: 'sid-1',
     });
     expect(args[args.indexOf('--allowedTools') + 1]).toBe('mcp__agentfactory');
   });

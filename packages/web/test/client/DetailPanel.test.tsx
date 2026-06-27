@@ -15,6 +15,7 @@ vi.mock('../../client/src/api.js', () => ({
     requestChanges: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue({}),
     getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '', commits: 0 }),
+    getTranscript: vi.fn().mockResolvedValue({ state: 'none', engine: null, attempt: null, bytes: null, blocks: [] }),
     deleteTask: vi.fn().mockResolvedValue(undefined),
     deleteAttachment: vi.fn().mockResolvedValue(undefined),
     addAttachment: vi.fn().mockResolvedValue({}),

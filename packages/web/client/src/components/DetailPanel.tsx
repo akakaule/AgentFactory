@@ -7,6 +7,7 @@ import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { LiveSection } from './LiveSection.js';
+import { TranscriptSection } from './TranscriptSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { FailureBanner } from './FailureBanner.js';
 import { BlockedBanner } from './BlockedBanner.js';
@@ -169,6 +170,8 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               {task.failure && <FailureBanner failure={task.failure} activity={task.activity} />}
 
               {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
+
+              <TranscriptSection taskKey={task.key} status={task.status} />
 
               {task.aiReview && (
                 <div className="af-airev-row"><AiReviewChip review={task.aiReview} /></div>

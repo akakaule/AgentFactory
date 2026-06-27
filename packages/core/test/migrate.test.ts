@@ -9,10 +9,10 @@ describe('runMigrations', () => {
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +117,23 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
+  });
+
+  it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    expect(tables(db)).toEqual(expect.arrayContaining(['task_transcript']));
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','in_progress',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    const tid = (db.prepare("SELECT id FROM task WHERE key='AF-1'").get() as { id: number }).id;
+    const ins = "INSERT INTO task_transcript(task_id, attempt, started_at, updated_at) VALUES (?, 1, '2026-01-01', '2026-01-01')";
+    db.prepare(ins).run(tid);
+    expect(() => db.prepare(ins).run(tid)).toThrow(); // a second row for the same (task, attempt) is rejected
+    expect(() => db.prepare(
+      "INSERT INTO task_transcript(task_id, attempt, state, started_at, updated_at) VALUES (?, 2, 'nonsense', '2026-01-01', '2026-01-01')"
+    ).run(tid)).toThrow(); // the state CHECK rejects anything but live/final
   });
 
   it('enforces the stage CHECK constraint', () => {

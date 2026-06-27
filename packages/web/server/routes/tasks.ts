@@ -32,6 +32,9 @@ export function taskRoutes(core: Core) {
     return c.json({ branch: branchLink.label, baseRef, diff, commits });
   });
 
+  // getTranscript never throws — an unknown task / no capture returns { state: 'none', … }.
+  r.get('/:key/transcript', (c) => c.json(core.getTranscript(c.req.param('key'))));
+
   r.post('/', zValidator('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
 
   r.patch('/:key', zValidator('json', updateBody), (c) => {

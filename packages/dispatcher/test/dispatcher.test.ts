@@ -395,3 +395,84 @@ describe('session timeout', () => {
     expect(workerLabel(calls[1]!.req.env)).toContain('-a2');
   });
 });
+
+// ---------------------------------------------------------------------------
+// transcript capture (live tail + persisted artifact)
+// ---------------------------------------------------------------------------
+describe('transcript capture', () => {
+  const userLine = (uuid: string, text: string) =>
+    JSON.stringify({ type: 'user', message: { role: 'user', content: text }, uuid, timestamp: '2026-06-27T00:00:00.000Z' });
+
+  /** A fake transcript file the test grows; tailFile hands back whole lines from `offset`. */
+  function fakeTranscriptFs() {
+    const PATH = '/proj/sess-1.jsonl';
+    const state = { content: '' };
+    return {
+      state,
+      deps: {
+        uuid: () => 'sess-1',
+        findTranscript: () => (state.content ? PATH : null),
+        tailFile: (p: string, offset: number) => {
+          if (p !== PATH) return null;
+          const lastNl = state.content.lastIndexOf('\n');
+          if (lastNl < offset) return { chunk: '', offset };
+          return { chunk: state.content.slice(offset, lastNl + 1), offset: lastNl + 1 };
+        },
+        readFile: (p: string) => (p === PATH ? state.content : null),
+      },
+    };
+  }
+
+  it('forces the session id, tails live, then persists the full transcript on a clean exit', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Talk');
+    const { spawn, calls } = makeFakeSpawn();
+    const { state, deps } = fakeTranscriptFs();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole(), ...deps }));
+
+    await d.tick(); // spawn
+    const args = calls[0]!.req.args;
+    expect(args[args.indexOf('--session-id') + 1]).toBe('sess-1');
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+
+    state.content = userLine('u1', 'hello') + '\n';
+    await d.tick(); // tailTranscripts → appendTranscript on the claimed key
+    let tr = core.getTranscript(key);
+    expect(tr.state).toBe('live');
+    expect(tr.blocks[0]).toMatchObject({ kind: 'text', text: 'hello' });
+
+    state.content += userLine('u2', 'world') + '\n';
+    core.submitResult(key, { summary: 'done' });
+    calls[0]!.child.exit(0); // reap → persistTranscript
+
+    tr = core.getTranscript(key);
+    expect(tr.state).toBe('final');
+    expect(tr.blocks.map((b) => (b.kind === 'text' ? b.text : ''))).toEqual(['hello', 'world']);
+  });
+
+  it('persists the transcript even for a timed-out, stranded session (post-mortem)', async () => {
+    let nowMs = 0;
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Slow talker');
+    const { spawn, calls } = makeFakeSpawn();
+    const { state, deps } = fakeTranscriptFs();
+    const d = new Dispatcher(
+      makeConfig({ maxSessionMinutes: 10 }),
+      makeDeps(core, spawn, { now: () => nowMs, console: makeFakeConsole(), ...deps }),
+    );
+
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+    state.content = userLine('u1', 'thinking hard') + '\n';
+
+    nowMs = 11 * 60_000; // exceed the cap → kill → reap → persist
+    await d.tick();
+
+    expect(core.getTask(key).status).toBe('queued'); // released for retry
+    const tr = core.getTranscript(key);
+    expect(tr.state).toBe('final'); // yet the transcript survived the strand
+    expect(tr.blocks[0]).toMatchObject({ kind: 'text', text: 'thinking hard' });
+  });
+});

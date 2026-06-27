@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync, statSync, existsSync, readdirSync, openSync, readSync, closeSync, type Dirent } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { openCore } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
+import { encodeProjectDir } from './transcript.js';
 import type { DispatcherDeps, LogWriter, McpServerSpec, SpawnFn } from './types.js';
 
 // All diagnostics go to stderr/stdout via console; this is a long-running supervisor.
@@ -64,6 +67,68 @@ const openLog = (path: string): LogWriter => {
 
 const writeMcp = (path: string, contents: string): void => writeFileSync(path, contents);
 
+// -- transcript capture ------------------------------------------------------
+// Claude writes each session's transcript to <config>/projects/<encoded-cwd>/<session-id>.jsonl.
+const claudeConfigDir = process.env['CLAUDE_CONFIG_DIR']?.trim() || join(homedir(), '.claude');
+const projectsDir = join(claudeConfigDir, 'projects');
+
+/** Find the file `name` under `dir` (bounded depth) — the unique-uuid fallback when the
+ *  encoded-cwd guess misses (drive-letter case, trailing dot, CLAUDE_CONFIG_DIR drift). */
+function findFileRec(dir: string, name: string, depth: number): string | null {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const e of entries) if (e.isFile() && e.name === name) return join(dir, e.name);
+  if (depth <= 0) return null;
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      const hit = findFileRec(join(dir, e.name), name, depth - 1);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/** Resolve a session's transcript path: the deterministic encoded-cwd guess, else a uuid glob. */
+function findTranscript(cwd: string, sessionId: string): string | null {
+  const guess = join(projectsDir, encodeProjectDir(resolve(cwd)), `${sessionId}.jsonl`);
+  if (existsSync(guess)) return guess;
+  return findFileRec(projectsDir, `${sessionId}.jsonl`, 5);
+}
+
+/** Read new transcript bytes from `offset` up to the last COMPLETE line (so a chunk never splits
+ *  a JSONL line or a multibyte char — the next tail picks up the partial tail line). */
+function tailFile(path: string, offset: number): { chunk: string; offset: number } | null {
+  try {
+    const size = statSync(path).size;
+    if (size <= offset) return { chunk: '', offset };
+    const fd = openSync(path, 'r');
+    try {
+      const buf = Buffer.allocUnsafe(size - offset);
+      readSync(fd, buf, 0, size - offset, offset);
+      const lastNl = buf.lastIndexOf(0x0a);
+      if (lastNl === -1) return { chunk: '', offset }; // no complete line yet
+      const slice = buf.subarray(0, lastNl + 1);
+      return { chunk: slice.toString('utf8'), offset: offset + slice.length };
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+function readTranscript(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 /** PATH lookup for the claude shim via `where` (Windows) / `which` (POSIX). */
 function lookupClaude(name: string): string | null {
   const finder = process.platform === 'win32' ? 'where' : 'which';
@@ -86,6 +151,10 @@ const deps: DispatcherDeps = {
   now: () => Date.now(),
   baseEnv: process.env,
   console,
+  uuid: () => randomUUID(),
+  findTranscript,
+  tailFile,
+  readFile: readTranscript,
 };
 
 const dispatcher = new Dispatcher(config, deps);

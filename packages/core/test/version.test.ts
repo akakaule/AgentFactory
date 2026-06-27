@@ -4,6 +4,7 @@ import { getVersion } from '../src/version.js';
 import { createTask } from '../src/ops/createTask.js';
 import { addComment } from '../src/ops/addComment.js';
 import { deleteTask } from '../src/ops/deleteTask.js';
+import { appendLiveBuf, saveFinal } from '../src/repo/transcripts.js';
 
 // version format: "<max timestamp>#<task count>" — the count makes deletions visible
 // (a DELETE can never raise the max, but it always changes the count).
@@ -45,6 +46,20 @@ describe('getVersion', () => {
     const expected = maxTask > maxActivity ? maxTask : maxActivity;
 
     expect(getVersion(db)).toBe(`${expected}#1`);
+  });
+
+  it('is unaffected by transcript writes (task_transcript is outside the change signal)', () => {
+    const db = makeTestDb();
+    const ts = '2026-01-01T00:00:00.000Z';
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts);
+    const id = (db.prepare('SELECT id FROM task WHERE key = ?').get(task.key) as { id: number }).id;
+    const before = getVersion(db);
+    // a live append and the final persist must both leave the board version untouched, the way
+    // agent_session / supervisor_heartbeat writes do — frequent tails must never refetch the board.
+    appendLiveBuf(db, { taskId: id, attempt: 1, sessionId: 's', engine: 'claude', chunk: '{"a":1}\n', now: '2027-01-01T00:00:00.000Z' });
+    expect(getVersion(db)).toBe(before);
+    saveFinal(db, { taskId: id, attempt: 1, sessionId: 's', engine: 'claude', raw: '{"a":1}\n', now: '2027-02-01T00:00:00.000Z' });
+    expect(getVersion(db)).toBe(before);
   });
 
   it('changes when a task that is NOT the newest row is deleted', () => {

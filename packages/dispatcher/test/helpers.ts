@@ -119,6 +119,10 @@ export interface DepsOverrides {
   console?: FakeConsole;
   spawn?: SpawnFn;
   writeMcp?: (path: string, contents: string) => void;
+  uuid?: () => string;
+  findTranscript?: (cwd: string, sessionId: string) => string | null;
+  tailFile?: (path: string, offset: number) => { chunk: string; offset: number } | null;
+  readFile?: (path: string) => string | null;
 }
 
 export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = {}): DispatcherDeps {
@@ -133,5 +137,10 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
     now: overrides.now ?? (() => 0),
     baseEnv: {},
     console: overrides.console,
+    // transcript capture: off by default (no file) so existing tests are unaffected
+    uuid: overrides.uuid ?? (() => 'sess-test'),
+    findTranscript: overrides.findTranscript ?? (() => null),
+    tailFile: overrides.tailFile ?? (() => null),
+    readFile: overrides.readFile ?? (() => null),
   };
 }

@@ -21,6 +21,16 @@ interface Session {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
+  /** Workspace repo path = the session's `claude` cwd, which fixes its transcript dir. */
+  cwd: string;
+  /** Forced session id (UUID) — the transcript filename, passed via `--session-id`. */
+  sessionId: string;
+  /** Resolved transcript JSONL path once the file appears; null until then. */
+  transcriptPath: string | null;
+  /** Bytes of the transcript already tailed into the board. */
+  transcriptOffset: number;
+  /** The task key the transcript attaches to (the resolved claim); null until claimed. */
+  transcriptKey: string | null;
 }
 
 const LOG_TAIL_CHARS = 4000;
@@ -83,6 +93,7 @@ export class Dispatcher {
   async tick(): Promise<void> {
     this.enforceTimeouts();
     this.touchLiveSessions();
+    this.tailTranscripts();
     this.recordHeartbeat();
     for (const workspace of this.config.workspaces) this.pollWorkspace(workspace);
   }
@@ -147,6 +158,48 @@ export class Dispatcher {
     }
   }
 
+  /**
+   * Tail each running session's transcript JSONL into the board so the drawer shows what the
+   * agent is actually doing, live. We attach to the *claimed* task (not the predicted one), so
+   * we wait until the session has claimed; the small pre-claim portion is caught up from offset 0
+   * once we resolve the file. Wholly best-effort — capture must never break the poll loop.
+   */
+  private tailTranscripts(): void {
+    for (const s of this.running.values()) {
+      if (s.settled) continue;
+      try {
+        if (s.transcriptKey === null) {
+          const claimed = this.findClaimed(s);
+          if (!claimed) continue; // not claimed yet — attach once we know the task
+          s.transcriptKey = claimed.key;
+        }
+        if (s.transcriptPath === null) {
+          s.transcriptPath = this.deps.findTranscript(s.cwd, s.sessionId);
+          if (s.transcriptPath === null) continue; // file not written yet
+        }
+        const slice = this.deps.tailFile(s.transcriptPath, s.transcriptOffset);
+        if (slice && slice.chunk) {
+          this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId });
+          s.transcriptOffset = slice.offset;
+        }
+      } catch {
+        /* best-effort — transcript capture is observability, never control flow */
+      }
+    }
+  }
+
+  /** Persist a session's full transcript at exit so it survives worktree prune + ~/.claude GC. */
+  private persistTranscript(session: Session, key: string): void {
+    try {
+      const path = session.transcriptPath ?? this.deps.findTranscript(session.cwd, session.sessionId);
+      if (!path) return;
+      const raw = this.deps.readFile(path);
+      if (raw && raw.trim()) this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId });
+    } catch {
+      /* best-effort */
+    }
+  }
+
   // -- spawning --------------------------------------------------------------
 
   private pollWorkspace(workspace: string): void {
@@ -206,11 +259,13 @@ export class Dispatcher {
     // The MCP config is written to a file rather than inlined: cmd.exe (the Windows .cmd
     // spawn path) strips the JSON's embedded quotes from argv.
     this.deps.writeMcp(mcpConfigPath, buildMcpConfig(this.deps.mcp, mcpEnv));
+    const sessionId = this.deps.uuid();
     const args = buildSpawnArgs({
       prompt: this.prompt,
       permissionMode: this.config.permissionMode,
       mcpConfigPath,
       claudeArgs: this.stageClaudeArgs(stage),
+      sessionId,
     });
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.baseEnv ?? {}),
@@ -241,6 +296,11 @@ export class Dispatcher {
       logTail: '',
       settled: false,
       timedOut: false,
+      cwd,
+      sessionId,
+      transcriptPath: null,
+      transcriptOffset: 0,
+      transcriptKey: null,
     };
     this.running.set(label, session);
 
@@ -276,6 +336,10 @@ export class Dispatcher {
 
     const claimed = this.findClaimed(session);
     const metrics = parseCliMetrics(session.stdout);
+
+    // Persist the whole transcript before anything else — covers success, crash, timeout, and the
+    // unclaimed-denial path equally, so a stranded/failed task stays reviewable post-mortem.
+    this.persistTranscript(session, claimed?.key ?? session.predictedKey);
 
     if (!claimed) {
       // The session never claimed: empty queue, a lost race, a permission denial,

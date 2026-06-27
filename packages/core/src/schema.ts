@@ -219,3 +219,31 @@ CREATE TABLE IF NOT EXISTS app_kv (
   value TEXT NOT NULL
 );
 `;
+
+// Migration #15 — per-task agent transcript. The dispatcher captures the running `claude -p`
+// session's raw JSONL (tailing it live, then persisting the whole thing at exit) so the drawer
+// can show what the agent actually *did*, not just its milestones — and so a finished/stranded/
+// failed task stays reviewable after its worktree is pruned. One row per (task, attempt): while
+// the session runs it holds a capped rolling `live_buf` (state 'live'); at exit `raw_gz` gets the
+// gzipped full transcript and `live_buf` is cleared (state 'final'). `bytes` is the uncompressed
+// size (UI badge + guardrail); `format` tags the codec for forward compatibility. Like
+// agent_session (#10) and supervisor_heartbeat (#13) it is DELIBERATELY NOT read by getVersion()
+// (see version.ts): live appends arrive faster than heartbeats and must never bump the board
+// version / trigger a full-board refetch — the open drawer polls /api/tasks/:key/transcript instead.
+export const MIGRATION_15_SQL = `
+CREATE TABLE IF NOT EXISTS task_transcript (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL DEFAULT 1,
+  session_id  TEXT,
+  engine      TEXT NOT NULL DEFAULT 'claude',
+  format      TEXT NOT NULL DEFAULT 'claude-jsonl-gz',
+  raw_gz      BLOB,
+  live_buf    TEXT,
+  bytes       INTEGER,
+  state       TEXT NOT NULL DEFAULT 'live' CHECK (state IN ('live','final')),
+  started_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_transcript_task_attempt ON task_transcript(task_id, attempt);
+`;

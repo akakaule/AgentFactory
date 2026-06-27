@@ -31,6 +31,8 @@ export { listWorkspaces } from './ops/listWorkspaces.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
 export { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
+export { parseTranscript } from './transcript.js';
+export { appendTranscript, saveTranscript, getTranscript, type AppendTranscriptInput, type SaveTranscriptInput } from './ops/transcript.js';
 export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 export { type UpsertSupervisor } from './repo/supervisors.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
@@ -61,6 +63,7 @@ import { updateWorkspace } from './ops/updateWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
+import { appendTranscript, saveTranscript, getTranscript, type AppendTranscriptInput, type SaveTranscriptInput } from './ops/transcript.js';
 import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
@@ -90,6 +93,9 @@ export function createCore(db: DB) {
     touchAgentSession: (key: string) => touchAgentSession(db, key),
     endAgentSession: (key: string) => endAgentSession(db, key),
     listLiveAgents: () => listLiveAgents(db),
+    appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, input),
+    saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, input),
+    getTranscript: (key: string) => getTranscript(db, key),
     recordSupervisorHeartbeat: (input: UpsertSupervisor) => recordSupervisorHeartbeat(db, input),
     listSupervisors: () => listSupervisors(db),
     activitySince: (sinceId: number, limit?: number) => activitySince(db, sinceId, limit),

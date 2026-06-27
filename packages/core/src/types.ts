@@ -110,6 +110,36 @@ export interface AgentSessionView {
   heartbeatAt: string;             // last-seen-alive (claim / progress / dispatcher tick)
 }
 
+/** Which agent CLI produced a transcript. Only `claude` is parsed today; `codex` is the next drop-in. */
+export type TranscriptEngine = 'claude' | 'codex';
+
+/**
+ * One normalized block of an agent session transcript, parsed from the engine's raw JSONL
+ * (see src/transcript.ts). A flat discriminated union on `kind` so it crosses the HTTP/JSON
+ * boundary cleanly and the client renders by switching on `kind`. `id` is `<line-uuid>:<index>`,
+ * stable across live polls so the client dedups; `sidechain` marks subagent (Task tool) work.
+ */
+export interface TranscriptBlockBase { id: string; role: 'user' | 'assistant'; at: string | null; sidechain: boolean; }
+export type TranscriptBlock =
+  | (TranscriptBlockBase & { kind: 'text' | 'thinking'; text: string })
+  | (TranscriptBlockBase & { kind: 'bash'; command: string; description: string | null; stdout: string | null; stderr: string | null; exitCode: number | null; isError: boolean; truncated: boolean })
+  | (TranscriptBlockBase & { kind: 'tool'; name: string; input: string; result: string | null; isError: boolean; truncated: boolean })
+  | (TranscriptBlockBase & { kind: 'image'; note: string });
+
+/**
+ * A task's agent transcript as surfaced to the drawer — live while the session runs, then the
+ * persisted artifact after it ends. `state`: 'live' = streaming from the running session's tail
+ * buffer; 'final' = the persisted full transcript; 'none' = nothing captured (legacy/doc-stage
+ * tasks), so the UI hides the section. Derived (parsed) at read time — there is no block table.
+ */
+export interface TranscriptResponse {
+  state: 'live' | 'final' | 'none';
+  engine: TranscriptEngine | null;
+  attempt: number | null;
+  bytes: number | null; // uncompressed transcript size, for the UI size badge
+  blocks: TranscriptBlock[];
+}
+
 export type SupervisorKind = 'dispatcher' | 'reviewer';
 
 /**

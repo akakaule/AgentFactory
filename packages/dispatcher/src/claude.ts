@@ -107,20 +107,27 @@ export interface SpawnArgsOpts {
   /** Path to the written MCP config file — not inline JSON, which `cmd.exe` would mangle. */
   mcpConfigPath: string;
   claudeArgs: string[];
+  /** A pre-generated session id (UUID). Forcing it makes the transcript path
+   *  (`<config>/projects/<encoded-cwd>/<session-id>.jsonl`) deterministic at spawn, so the
+   *  supervisor can tail + persist it, and disambiguates concurrent sessions sharing a cwd. */
+  sessionId: string;
 }
 
 /**
  * Assemble the `claude` argv: headless print mode, JSON result envelope (parsed for
- * metrics), the configured permission mode, the MCP config file, then any extra args.
- * The agentfactory MCP server is pre-allowed: a headless session cannot answer a
- * permission prompt, and the worker protocol requires its tools for every step.
+ * metrics), a forced session id (pins the transcript path), the configured permission mode,
+ * the MCP config file, then any extra args. The agentfactory MCP server is pre-allowed: a
+ * headless session cannot answer a permission prompt, and the worker protocol requires its
+ * tools for every step.
  */
-export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeArgs }: SpawnArgsOpts): string[] {
+export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeArgs, sessionId }: SpawnArgsOpts): string[] {
   return [
     '-p',
     prompt,
     '--output-format',
     'json',
+    '--session-id',
+    sessionId,
     '--permission-mode',
     permissionMode,
     '--mcp-config',

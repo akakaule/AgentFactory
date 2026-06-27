@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AddTaskMetricsInput, UpsertSupervisor } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput } from '@agentfactory/core';
 
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
@@ -16,6 +16,9 @@ export interface DispatcherCore {
   endAgentSession(key: string): void;
   // supervisor health: report a heartbeat each poll so the board knows the loop is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): void;
+  // agent transcript: tail the running session's raw JSONL live, then persist it whole at exit
+  appendTranscript(key: string, input: AppendTranscriptInput): void;
+  saveTranscript(key: string, input: SaveTranscriptInput): void;
 }
 
 /** Minimal readable-stream surface (node's `Readable` satisfies it). */
@@ -74,4 +77,12 @@ export interface DispatcherDeps {
   baseEnv?: NodeJS.ProcessEnv | undefined;
   /** Console sink (injectable so tests can assert skip-list warnings). */
   console?: Pick<Console, 'log' | 'warn' | 'error'> | undefined;
+  /** Fresh session id (UUID) per spawn — forced via `--session-id` to pin the transcript path. */
+  uuid: () => string;
+  /** Resolve a running session's transcript JSONL path (cwd + session id), or null if not yet present. */
+  findTranscript: (cwd: string, sessionId: string) => string | null;
+  /** Read new bytes of a transcript from `offset` to the last complete line; null if the file is absent. */
+  tailFile: (path: string, offset: number) => { chunk: string; offset: number } | null;
+  /** Read a transcript file in full; null if absent. */
+  readFile: (path: string) => string | null;
 }
