@@ -52,6 +52,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const refetch = useCallback(() => {
     api.getTask(taskKey)
@@ -68,6 +69,18 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
 
   useEventStream(refetch);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // a diff modal layered on top handles its own Escape — don't double-close
+      if (document.querySelector('.af-diffmodal')) return;
+      if (expanded) setExpanded(false);
+      else onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded, onClose]);
+
   const afterMutation = () => {
     refetch();
     onChanged();
@@ -76,15 +89,23 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   const hue = task ? STATUS_COLORS[task.status] : 'var(--ink-2)';
   const branchLink = task?.links.filter((l) => l.kind === 'branch').at(-1);
 
-  return (
-    <>
-      <div className="af-scrim" onClick={onClose}></div>
-      <aside className="af-drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="af-drawer-head">
-          <span className="af-key">{taskKey}</span>
-          {task && <span className="af-wsbadge">{task.workspace}</span>}
-          <button className="af-x" onClick={onClose}>✕</button>
-        </div>
+  const head = (
+    <div className="af-drawer-head">
+      <span className="af-key">{taskKey}</span>
+      {task && <span className="af-wsbadge">{task.workspace}</span>}
+      <button
+        className="af-x"
+        onClick={() => setExpanded((v) => !v)}
+        title={expanded ? 'Collapse to side panel' : 'Expand to full screen'}
+        aria-label={expanded ? 'Collapse to side panel' : 'Expand to full screen'}
+      >
+        {expanded ? I.collapse({}) : I.expand({})}
+      </button>
+      <button className="af-x" onClick={onClose} aria-label="Close">✕</button>
+    </div>
+  );
+
+  const body = (
         <div className="af-drawer-body">
           {error && <div style={{ color: 'var(--st-blocked)' }}>{error}</div>}
           {!task && !error && <div style={{ color: 'var(--ink-3)' }}>Loading…</div>}
@@ -206,6 +227,11 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               <div className="af-sl">Journey</div>
               <StatusTrail activity={task.activity} current={task.status} />
 
+              {task.resultSummary && (<>
+                <div className="af-sl">Result summary</div>
+                <div className="af-result">{task.resultSummary}</div>
+              </>)}
+
               <div className="af-sl">Spec</div>
               <div className="af-d-body">{task.spec}</div>
               {task.attachments.length > 0 && (
@@ -231,11 +257,6 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               {task.plan && (<>
                 <div className="af-sl">Plan</div>
                 <div className="af-d-body">{task.plan}</div>
-              </>)}
-
-              {task.resultSummary && (<>
-                <div className="af-sl">Result summary</div>
-                <div className="af-result">{task.resultSummary}</div>
               </>)}
 
               {branchLink && (
@@ -295,6 +316,21 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
             </>
           )}
         </div>
+  );
+
+  return expanded ? (
+    <div className="af-overlay" onClick={onClose}>
+      <div className="af-modal af-detail-modal" onClick={(e) => e.stopPropagation()}>
+        {head}
+        {body}
+      </div>
+    </div>
+  ) : (
+    <>
+      <div className="af-scrim" onClick={onClose}></div>
+      <aside className="af-drawer" onClick={(e) => e.stopPropagation()}>
+        {head}
+        {body}
       </aside>
     </>
   );
