@@ -224,6 +224,11 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               <div className="af-sl">Journey</div>
               <StatusTrail activity={task.activity} current={task.status} />
 
+              {task.resultSummary && (<>
+                <div className="af-sl">Result summary</div>
+                <div className="af-result">{task.resultSummary}</div>
+              </>)}
+
               <div className="af-sl">Spec</div>
               <div className="af-d-body">{task.spec}</div>
               {task.attachments.length > 0 && (
@@ -249,11 +254,6 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               {task.plan && (<>
                 <div className="af-sl">Plan</div>
                 <div className="af-d-body">{task.plan}</div>
-              </>)}
-
-              {task.resultSummary && (<>
-                <div className="af-sl">Result summary</div>
-                <div className="af-result">{task.resultSummary}</div>
               </>)}
 
               {branchLink && (
