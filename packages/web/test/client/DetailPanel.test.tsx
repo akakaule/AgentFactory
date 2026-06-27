@@ -473,7 +473,7 @@ describe('DetailPanel', () => {
     render(<DetailPanel taskKey="AF-10" onClose={onClose} onChanged={vi.fn()} />);
     await screen.findByText('This is the spec');
 
-    await user.click(screen.getByRole('button', { name: '✕' }));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
   });
 
