@@ -72,8 +72,8 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // a diff modal layered on top handles its own Escape — don't double-close
-      if (document.querySelector('.af-diffmodal')) return;
+      // a diff/transcript modal layered on top handles its own Escape — don't double-close
+      if (document.querySelector('.af-diffmodal, .af-txmodal')) return;
       if (expanded) setExpanded(false);
       else onClose();
     };
