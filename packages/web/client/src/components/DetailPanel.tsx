@@ -225,7 +225,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               )}
 
               <div className="af-sl">Journey</div>
-              <StatusTrail activity={task.activity} current={task.status} />
+              <StatusTrail activity={task.activity} current={task.status} currentStage={task.stage} />
 
               {task.resultSummary && (<>
                 <div className="af-sl">Result summary</div>

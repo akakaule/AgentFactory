@@ -218,8 +218,11 @@
 .af-blockbanner-detail.muted { color: var(--ink-3); font-style: italic; }
 .af-blockbanner .af-mini { margin-top: 9px; }
 
-/* Status journey trail (drawer) — the ordered path of statuses a task has moved through */
-.af-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 1px; }
+/* Status journey trail (drawer) — the path a task has moved through, grouped one row per stage */
+.af-trail { display: flex; flex-direction: column; gap: 6px; }
+.af-trail-row { display: flex; align-items: baseline; gap: 8px; }
+.af-trail-stage { flex: none; min-width: 64px; font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; text-align: center; }
+.af-trail-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 1px; }
 .af-trail-step { display: inline-flex; align-items: center; gap: 1px; }
 .af-trail-arrow { color: var(--ink-3); font-size: 11px; margin: 0 2px; }
 .af-trail-chip { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
