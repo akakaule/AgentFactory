@@ -33,6 +33,8 @@ export { generateToken, hashToken } from './token.js';
 export { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
 export { parseTranscript } from './transcript.js';
 export { appendTranscript, saveTranscript, getTranscript, type AppendTranscriptInput, type SaveTranscriptInput } from './ops/transcript.js';
+export { attachVisualization, getVisualization, getVisualizationHtml, type AttachVisualizationInput } from './ops/visualization.js';
+export { type VisualizationMeta } from './repo/visualizations.js';
 export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 export { type UpsertSupervisor } from './repo/supervisors.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
@@ -64,6 +66,7 @@ import { listWorkspaces } from './ops/listWorkspaces.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
 import { appendTranscript, saveTranscript, getTranscript, type AppendTranscriptInput, type SaveTranscriptInput } from './ops/transcript.js';
+import { attachVisualization, getVisualization, getVisualizationHtml, type AttachVisualizationInput } from './ops/visualization.js';
 import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
@@ -96,6 +99,9 @@ export function createCore(db: DB) {
     appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, input),
     saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, input),
     getTranscript: (key: string) => getTranscript(db, key),
+    attachVisualization: (key: string, input: AttachVisualizationInput) => attachVisualization(db, key, input),
+    getVisualization: (key: string) => getVisualization(db, key),
+    getVisualizationHtml: (key: string) => getVisualizationHtml(db, key),
     recordSupervisorHeartbeat: (input: UpsertSupervisor) => recordSupervisorHeartbeat(db, input),
     listSupervisors: () => listSupervisors(db),
     activitySince: (sinceId: number, limit?: number) => activitySince(db, sinceId, limit),

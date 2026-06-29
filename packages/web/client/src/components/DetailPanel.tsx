@@ -8,6 +8,7 @@ import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { LiveSection } from './LiveSection.js';
 import { TranscriptSection } from './TranscriptSection.js';
+import { VisualizationSection } from './VisualizationSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { FailureBanner } from './FailureBanner.js';
 import { BlockedBanner } from './BlockedBanner.js';
@@ -72,8 +73,8 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // a diff/transcript modal layered on top handles its own Escape — don't double-close
-      if (document.querySelector('.af-diffmodal, .af-txmodal')) return;
+      // a diff/transcript/visualization modal layered on top handles its own Escape — don't double-close
+      if (document.querySelector('.af-diffmodal, .af-txmodal, .af-vizmodal')) return;
       if (expanded) setExpanded(false);
       else onClose();
     };
@@ -193,6 +194,12 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
 
               <TranscriptSection taskKey={task.key} status={task.status} />
+
+              <VisualizationSection
+                taskKey={task.key}
+                present={task.hasVisualization}
+                generatedAt={task.visualizationGeneratedAt}
+              />
 
               {task.aiReview && (
                 <div className="af-airev-row"><AiReviewChip review={task.aiReview} /></div>

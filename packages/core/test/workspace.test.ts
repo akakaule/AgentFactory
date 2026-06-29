@@ -19,7 +19,7 @@ const queue = (db: ReturnType<typeof makeTestDb>, key: string) => updateStatus(d
 describe('migration #2: workspace table + task.workspace_id', () => {
   it('fresh DB: user_version=2, seeded default workspace with id=1 and repo_path "."', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
     const rows = db.prepare('SELECT * FROM workspace').all() as Array<{ id: number; name: string; repo_path: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 1, name: 'default', repo_path: '.' });
@@ -33,14 +33,14 @@ describe('migration #2: workspace table + task.workspace_id', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,created_at,updated_at) VALUES ('AF-1','t','s','a','backlog',1,'2026-01-01','2026-01-01')"
     ).run();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
     expect(db.prepare('SELECT workspace_id FROM task WHERE key = ?').get('AF-1')).toMatchObject({ workspace_id: 1 });
   });
 
   it('re-running runMigrations is a no-op', () => {
     const db = makeTestDb();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
     expect(db.prepare('SELECT count(*) c FROM workspace').get()).toMatchObject({ c: 1 });
   });
 });

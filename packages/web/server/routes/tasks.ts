@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
-import { NotFoundError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
+import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel } from '@agentfactory/core';
 import { actorUserIdOf } from '../auth.js';
+
+// Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
+// is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
+const MAX_VISUALIZATION_BYTES = 4 * 1024 * 1024;
 
 export function taskRoutes(core: Core) {
   const r = new Hono();
@@ -34,6 +38,27 @@ export function taskRoutes(core: Core) {
 
   // getTranscript never throws — an unknown task / no capture returns { state: 'none', … }.
   r.get('/:key/transcript', (c) => c.json(core.getTranscript(c.req.param('key'))));
+
+  // Change visualization — a rendered view of the diff, so HTTP-only like /diff (the MCP server
+  // has no visualization tool). GET serves the stored self-contained HTML; the client only calls
+  // it when TaskDetail.hasVisualization is set, so a 404 here is just defensive.
+  r.get('/:key/visualization', (c) => {
+    const html = core.getVisualizationHtml(c.req.param('key'));
+    if (html == null) throw new NotFoundError(`no visualization for ${c.req.param('key')}`);
+    return c.html(html);
+  });
+
+  // POST attaches/replaces it. The body is the raw HTML (text/html, not JSON) — the producer uploads
+  // with `curl --data-binary @file`. Cap the size so a runaway upload can't bloat the DB.
+  r.post('/:key/visualization', async (c) => {
+    const html = await c.req.text();
+    if (!html.trim()) throw new ValidationError('visualization HTML body is empty');
+    if (html.length > MAX_VISUALIZATION_BYTES) {
+      throw new ValidationError(`visualization HTML exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
+    }
+    const meta = core.attachVisualization(c.req.param('key'), { html });
+    return c.json({ ok: true, bytes: meta.bytes }, 201);
+  });
 
   r.post('/', zValidator('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
 
