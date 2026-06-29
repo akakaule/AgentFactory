@@ -4,6 +4,7 @@ import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
+import { visualizationMetaFor } from './visualizations.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
 import { parseFailureComment, summarizeFailure } from '../failure.js';
@@ -90,10 +91,13 @@ export function aiReviewFor(db: DB, taskId: number): AiReviewSummary | null {
 }
 
 export function toDetail(db: DB, r: TaskRow): TaskDetail {
+  const viz = visualizationMetaFor(db, r.id);
   return {
     ...toTask(r),
     aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
     failure: failureByTaskIds(db, [r.id]).get(r.id) ?? null,
+    hasVisualization: viz !== null,
+    visualizationGeneratedAt: viz?.generatedAt ?? null,
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     plan: r.plan,

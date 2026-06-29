@@ -30,7 +30,10 @@ export function eventsUrl(): string { return token ? `/events?access_token=${enc
 // actionable error so the form re-enables and the user knows to reload.
 export const REQUEST_TIMEOUT_MS = 20_000;
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+// Shared fetch: applies the auth header + timeout + 401 gate + error-message extraction, and
+// returns the ok Response. req() parses it as JSON; callers that want raw text (e.g. the stored
+// visualization HTML) read .text() off it.
+async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers: Record<string, string> = { ...((init?.headers as Record<string, string> | undefined) ?? {}) };
   if (init?.body) headers['content-type'] = 'application/json';
   if (token) headers['authorization'] = `Bearer ${token}`;
@@ -51,6 +54,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     try { const b = await res.json(); msg = (b as any).message ?? msg; } catch { /* ignore */ }
     throw new Error(msg);
   }
+  return res;
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await rawFetch(path, init);
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
@@ -69,6 +77,8 @@ export const api = {
   getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
   getTranscript: (key: string) => req<TranscriptResponse>(`/api/tasks/${key}/transcript`),
+  // raw HTML, not JSON — rendered into a sandboxed iframe (srcDoc) by VisualizationModal
+  getVisualizationHtml: (key: string) => rawFetch(`/api/tasks/${key}/visualization`).then((r) => r.text()),
   getAnalytics: () => req<AnalyticsData>('/api/analytics'),
   whoami: () => req<WhoAmI>('/auth/whoami'),
   listAgents: () => req<AgentSessionView[]>('/api/agents'),

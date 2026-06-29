@@ -247,3 +247,23 @@ CREATE TABLE IF NOT EXISTS task_transcript (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_task_transcript_task_attempt ON task_transcript(task_id, attempt);
 `;
+
+// Migration #16 — the change visualization: one self-contained HTML overview per task (Mermaid
+// flow + file map, the `/visualize-change` treatment), attached during review so a human gets a
+// visual read of the diff next to the description. Stored gzipped like task_transcript (#15); one
+// row per task (latest attach replaces). UNLIKE the transcript it IS folded into getVersion() (see
+// version.ts): an attach is a once-per-review event, not a high-frequency stream, so bumping the
+// board version is safe and makes the drawer's button appear live. `bytes` is the uncompressed
+// HTML size (UI badge); `format` tags the codec for forward compatibility.
+export const MIGRATION_16_SQL = `
+CREATE TABLE IF NOT EXISTS task_visualization (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id      INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  format       TEXT NOT NULL DEFAULT 'html-gz',
+  html_gz      BLOB NOT NULL,
+  bytes        INTEGER NOT NULL,
+  generated_at TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_visualization_task ON task_visualization(task_id);
+`;

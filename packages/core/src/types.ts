@@ -181,6 +181,11 @@ export interface TaskDetail extends Task {
   // the claimed task's workspace discipline (migration #12), carried into the claim payload + reviewer
   policy: string | null;        // free-text engineering standards the work must satisfy
   verifyCommand: string | null; // command the implementation/harden stage must run and pass before handoff
+  // change visualization (migration #16): a self-contained HTML overview attached during review.
+  // hasVisualization gates the drawer button; the HTML itself is fetched on demand from
+  // GET /api/tasks/:key/visualization (kept off TaskDetail — it's tens of KB).
+  hasVisualization: boolean;
+  visualizationGeneratedAt: string | null;
   metrics: TaskMetricsView;
 }
 
