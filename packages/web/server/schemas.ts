@@ -10,10 +10,13 @@ export const workspaceUpdateBody = z
   .object({ policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional() })
   .refine((o) => o.policy !== undefined || o.verifyCommand !== undefined, 'at least one field required (policy, verifyCommand)');
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
+const LinkKindEnum = z.enum(['branch', 'pr', 'worktree', 'log', 'url']);
 export const createBody = z.object({
   title: z.string().min(1), spec: z.string().min(1),
   acceptanceCriteria: z.string().min(1).optional(), // required unless stage 'description' — core's ValidationError → 400
   stage: StageEnum.optional(),
+  kind: z.enum(['code', 'pr-review']).optional(),    // default 'code'; 'pr-review' for an imported PR-review task
+  links: z.array(z.object({ kind: LinkKindEnum, label: z.string().min(1), url: z.string().min(1) })).optional(),
   workspace: z.string().min(1).optional(),
 });
 export const updateBody = z.object({ title: z.string().min(1).optional(), spec: z.string().min(1).optional(), acceptanceCriteria: z.string().min(1).optional() });

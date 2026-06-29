@@ -10,11 +10,15 @@ const workspaceSlug = z
 
 const stageEnum = z.enum(['description', 'plan', 'implementation']);
 
+const linkInput = z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty });
+
 export const createTaskSchema = z
   .object({
     title: nonEmpty, spec: nonEmpty,
     acceptanceCriteria: nonEmpty.optional(),
     stage: stageEnum.optional(),
+    kind: z.enum(['code', 'pr-review']).optional(), // default 'code'; 'pr-review' for an imported PR-review task
+    links: z.array(linkInput).optional(),           // attached at creation (a PR-review task carries its pr + branch links)
     workspace: workspaceSlug.optional(),
   })
   .superRefine((o, ctx) => {

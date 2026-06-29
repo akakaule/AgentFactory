@@ -61,6 +61,19 @@ export async function resolveBaseRef(repoPath: string): Promise<string> {
   throw new GitError('cannot determine default branch (no origin/HEAD, main, or master)');
 }
 
+/**
+ * Fetch one branch from origin into its remote-tracking ref (refs/remotes/origin/<ref>) so a ref
+ * that isn't in the local store — a teammate's PR head — becomes resolvable for branchDiff (which is
+ * then called with `origin/<ref>`). Force-updates the tracking ref (`+`) so a force-pushed PR head
+ * still lands. SAFE_REF-guarded: `ref` is an untrusted, branch-link-sourced value.
+ */
+export async function fetchRemoteRef(repoPath: string, ref: string): Promise<void> {
+  if (!SAFE_REF.test(ref)) throw new ValidationError(`invalid branch ref: ${ref}`);
+  if (!existsSync(repoPath)) throw new GitError(`repository path does not exist: ${repoPath}`);
+  const r = await runGit(repoPath, ['fetch', '--quiet', 'origin', `+${ref}:refs/remotes/origin/${ref}`]);
+  if (!r.ok) throw new GitError(`git fetch failed for origin ${ref}`);
+}
+
 /** Merge-base diff of a branch against the repo's default branch. */
 export async function branchDiff(repoPath: string, branch: string): Promise<BranchDiff> {
   if (!SAFE_REF.test(branch)) throw new ValidationError(`invalid branch ref: ${branch}`);

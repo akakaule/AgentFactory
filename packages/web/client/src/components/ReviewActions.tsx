@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AiReviewSummary, Stage } from '../types.js';
+import type { AiReviewSummary, Stage, TaskKind } from '../types.js';
 import { composeFeedback } from '../composeFeedback.js';
 import { I } from '../icons.js';
 
@@ -8,6 +8,7 @@ interface Props {
   onRequestChanges: (feedback: string) => void;
   aiReview?: AiReviewSummary | undefined; // latest AI-review verdict; drives the checklist + break-glass
   stage?: Stage | undefined; // approving a doc stage advances + re-queues — the label says so
+  kind?: TaskKind | undefined; // 'pr-review' → the button is "Mark reviewed" (done = review given) and there is no send-back
 }
 
 // what the approve click actually does, per stage — doc stages advance, impl closes
@@ -17,7 +18,10 @@ const APPROVE_LABELS: Record<Stage, string> = {
   implementation: 'Approve',
 };
 
-export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage }: Props) {
+export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, kind }: Props) {
+  const isPrReview = kind === 'pr-review';
+  // "Mark reviewed" for a PR review (done = review given); else the stage-aware approve label.
+  const approveLabel = isPrReview ? 'Mark reviewed' : APPROVE_LABELS[stage ?? 'implementation'];
   const items = aiReview?.items ?? [];
   const reviewer = aiReview?.reviewer ?? null;
   const reviewPresent = items.length > 0;
@@ -97,9 +101,10 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage }: 
           style={{ height: 30 }}
           onClick={handleApprove}
         >
-          {I.check({ width: 14, height: 14 })}{armed ? `Override — approve anyway (${aiReview!.findings})` : APPROVE_LABELS[stage ?? 'implementation']}
+          {I.check({ width: 14, height: 14 })}{armed ? `${isPrReview ? 'Mark reviewed' : 'Override — approve'} anyway (${aiReview!.findings})` : approveLabel}
         </button>
-        {!composing && (
+        {/* A PR review has no "send back" — the real request-changes lives on the GitHub PR; done = review given. */}
+        {!isPrReview && !composing && (
           <button className="af-mini" onClick={() => setComposing(true)}>
             Request changes
           </button>

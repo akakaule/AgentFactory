@@ -115,13 +115,23 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               <span className="af-pill" style={{ color: hue, background: `color-mix(in srgb, ${hue} 16%, transparent)` }}>
                 <span className="d" style={{ background: hue }}></span>{STATUS_LABELS[task.status]}
               </span>
-              <span
-                className="af-pill"
-                style={{ marginLeft: 6, color: STAGE_COLORS[task.stage], background: `color-mix(in srgb, ${STAGE_COLORS[task.stage]} 16%, transparent)` }}
-                title="Pipeline stage: description → plan → implementation"
-              >
-                <span className="d" style={{ background: STAGE_COLORS[task.stage] }}></span>{STAGE_LABELS[task.stage]}
-              </span>
+              {task.kind === 'pr-review' ? (
+                <span
+                  className="af-pill"
+                  style={{ marginLeft: 6, color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)' }}
+                  title="A PR-review task — review a teammate's GitHub PR. Done when you've given your review."
+                >
+                  <span className="d" style={{ background: 'var(--accent-2)' }}></span>PR review
+                </span>
+              ) : (
+                <span
+                  className="af-pill"
+                  style={{ marginLeft: 6, color: STAGE_COLORS[task.stage], background: `color-mix(in srgb, ${STAGE_COLORS[task.stage]} 16%, transparent)` }}
+                  title="Pipeline stage: description → plan → implementation"
+                >
+                  <span className="d" style={{ background: STAGE_COLORS[task.stage] }}></span>{STAGE_LABELS[task.stage]}
+                </span>
+              )}
               {task.archivedAt && (
                 <span
                   className="af-pill"
@@ -209,6 +219,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 <ReviewActions
                   aiReview={task.aiReview ?? undefined}
                   stage={task.stage}
+                  kind={task.kind}
                   onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
                   onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
                 />

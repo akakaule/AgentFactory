@@ -5,6 +5,9 @@ export interface TransitionRule { from: Status; to: Status; by: Actor; }
 
 export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'backlog',     to: 'queued',      by: 'human' },
+  // a 'pr-review' task is parked straight into review (kind-gated in ops/updateStatus.ts so a
+  // 'code' task can never use it to skip implementation)
+  { from: 'backlog',     to: 'in_review',   by: 'human' },
   { from: 'queued',      to: 'in_progress', by: 'agent' },
   { from: 'in_progress', to: 'in_review',   by: 'agent' },
   { from: 'in_progress', to: 'blocked',     by: 'agent' },

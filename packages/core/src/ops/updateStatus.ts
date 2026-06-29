@@ -5,7 +5,7 @@ import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
-import { NotFoundError, InvalidTransitionError } from '../errors.js';
+import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
@@ -19,6 +19,13 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   // re-queues) — a raw status move to done would skip the stage machine entirely
   if (row.status === 'in_review' && status === 'done' && row.stage !== 'implementation')
     throw new InvalidTransitionError(`a ${row.stage}-stage review is approved via the approve action, not a status move`);
+  // Kind gating (the TRANSITIONS table has no kind axis): a 'pr-review' task is born straight into
+  // review and is never implemented, so the backlog→in_review edge is pr-review-only, and a
+  // pr-review task can't be queued for an agent to "implement" a teammate's PR.
+  if (row.status === 'backlog' && status === 'in_review' && row.kind !== 'pr-review')
+    throw new ValidationError(`only a pr-review task can move straight to review (got kind '${row.kind}')`);
+  if (row.status === 'backlog' && status === 'queued' && row.kind === 'pr-review')
+    throw new ValidationError('a pr-review task is reviewed, not implemented — move it to in_review');
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
     const ts = now();

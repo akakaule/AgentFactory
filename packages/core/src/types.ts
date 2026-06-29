@@ -10,6 +10,9 @@ export type Stage = 'description' | 'plan' | 'implementation';
 export const STAGE_ORDER: readonly Stage[] = ['description', 'plan', 'implementation'];
 export type ActivityType = 'status_change' | 'comment' | 'result' | 'feedback';
 export type LinkKind = 'branch' | 'pr' | 'worktree' | 'log' | 'url';
+/** What a task IS: 'code' = an agent-implemented feature (the default, today's only shape);
+ *  'pr-review' = review a teammate's GitHub PR (born straight into in_review; never implemented). */
+export type TaskKind = 'code' | 'pr-review';
 
 export interface Workspace {
   id: number; name: string; repoPath: string; createdAt: string;
@@ -68,7 +71,7 @@ export interface FailureSummary {
 
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
-  status: Status; stage: Stage; resultSummary: string | null; seq: number;
+  status: Status; stage: Stage; kind: TaskKind; resultSummary: string | null; seq: number;
   workspace: string; // workspace slug
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
@@ -193,6 +196,8 @@ export interface CreateTaskInput {
   title: string; spec: string;
   acceptanceCriteria?: string | undefined; // required unless stage is 'description' (that stage writes them)
   stage?: Stage | undefined; // default 'implementation' — clients opt into the pipeline explicitly
+  kind?: TaskKind | undefined; // default 'code'; 'pr-review' for an imported PR-review task
+  links?: LinkInput[] | undefined; // links attached at creation (a PR-review task carries its pr + head-branch links)
   workspace?: string | undefined;
   actor?: Actor | undefined; // caller-set attribution for the seed activity; default 'human' (not part of createTaskSchema)
 }

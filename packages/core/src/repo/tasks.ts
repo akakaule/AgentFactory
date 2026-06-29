@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds } from './activity.js';
 import { linksFor } from './links.js';
@@ -13,7 +13,7 @@ import { nowIso } from '../time.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
-  status: Status; stage: Stage; result_summary: string | null; seq: number; created_at: string; updated_at: string;
+  status: Status; stage: Stage; kind: TaskKind; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
   workspace_policy: string | null; workspace_verify_command: string | null;
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
@@ -31,7 +31,7 @@ const SELECT_TASK =
 export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
-    status: r.status, stage: r.stage, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
+    status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
     claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };

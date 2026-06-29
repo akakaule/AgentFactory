@@ -4,7 +4,7 @@ import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
-import { refFromLabel } from '@agentfactory/core';
+import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
 import { actorUserIdOf } from '../auth.js';
 
 // Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
@@ -32,7 +32,15 @@ export function taskRoutes(core: Core) {
     // Diff against the bare ref recovered from a possibly-decorated label; the raw label is
     // the fallback so a hostile/unparseable one still trips branchDiff's SAFE_REF guard (400).
     const ref = refFromLabel(branchLink.label) ?? branchLink.label;
-    const { baseRef, diff, commits } = await branchDiff(task.repoPath, ref);
+    // A pr-review task's branch link is a teammate's PR head — not in the local store. Fetch it into
+    // origin/<head> and diff that; resolveBaseRef yields origin/<default>, so the diff is
+    // origin/<base>...origin/<head>. (Makes the Changes view + /visualize-task work for PR reviews.)
+    let diffRef = ref;
+    if (task.kind === 'pr-review') {
+      await fetchRemoteRef(task.repoPath, ref);
+      diffRef = `origin/${ref}`;
+    }
+    const { baseRef, diff, commits } = await branchDiff(task.repoPath, diffRef);
     return c.json({ branch: branchLink.label, baseRef, diff, commits });
   });
 
