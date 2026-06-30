@@ -71,11 +71,18 @@ export async function resolveBaseRef(repoPath: string): Promise<string> {
  * that isn't in the local store — a teammate's PR head — becomes resolvable for branchDiff (which is
  * then called with `origin/<ref>`). Force-updates the tracking ref (`+`) so a force-pushed PR head
  * still lands. SAFE_REF-guarded: `ref` is an untrusted, branch-link-sourced value.
+ *
+ * The fetch SOURCE is qualified to `refs/heads/<ref>` (a bare ref is a branch name). Without this a
+ * pseudo-ref like `@` or `HEAD` would make `git fetch origin <ref>` resolve the remote's default
+ * HEAD instead of the submitted PR head — the diff would then silently compare the default branch
+ * against itself and report a clean review. Qualifying makes such a ref a (non-existent) branch
+ * name, so the fetch fails loudly rather than reviewing the wrong thing.
  */
 export async function fetchRemoteRef(repoPath: string, ref: string): Promise<void> {
   if (!SAFE_REF.test(ref)) throw new ValidationError(`invalid branch ref: ${ref}`);
   if (!existsSync(repoPath)) throw new GitError(`repository path does not exist: ${repoPath}`);
-  const r = await runGit(repoPath, ['fetch', '--quiet', 'origin', `+${ref}:refs/remotes/origin/${ref}`]);
+  const src = ref.startsWith('refs/') ? ref : `refs/heads/${ref}`;
+  const r = await runGit(repoPath, ['fetch', '--quiet', 'origin', `+${src}:refs/remotes/origin/${ref}`]);
   if (!r.ok) throw new GitError(`git fetch failed for origin ${ref}`);
 }
 

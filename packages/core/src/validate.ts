@@ -30,6 +30,10 @@ export const createTaskSchema = z
     // `pr` link — a deep-link to the PR/MR page — stays optional context).
     if (o.kind === 'pr-review' && !(o.links ?? []).some((l) => l.kind === 'branch'))
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a pr-review task requires a branch link (the remote branch to review)' });
+    // a pr-review is diff-based and never implemented, so it must enter at the implementation stage
+    // (its only one): a doc stage would make "Mark reviewed" advance + re-queue it instead of closing.
+    if (o.kind === 'pr-review' && o.stage !== undefined && o.stage !== 'implementation')
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `a pr-review task cannot enter at the '${o.stage}' stage — it is reviewed, not implemented` });
   });
 export const createWorkspaceSchema = z.object({ name: workspaceSlug, repoPath: nonEmpty });
 // policy / verifyCommand: a trimmed non-empty string sets it, null clears it, absence leaves it.

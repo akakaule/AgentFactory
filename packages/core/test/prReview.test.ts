@@ -5,6 +5,7 @@ import { updateStatus } from '../src/ops/updateStatus.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from '../src/ops/reviewPrReviewed.js';
+import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { getTask } from '../src/ops/getTask.js';
 import { ValidationError } from '../src/errors.js';
 
@@ -88,6 +89,27 @@ describe('pr-review tasks', () => {
     // in_review → queued is the human "send back" edge; a pr-review task has no implementation
     // to re-queue, so it must never reach the worker queue (where the dispatcher would claim it).
     expect(() => updateStatus(db, t.key, 'queued', 'human')).toThrow(ValidationError);
+  });
+
+  it('rejects request-changes on a pr-review task (the path that bypasses updateStatus)', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    updateStatus(db, t.key, 'in_review', 'human');
+    // reviewRequestChanges calls setStatus('queued') directly — the kind guard must live here too.
+    expect(() => reviewRequestChanges(db, t.key, { feedback: 'do x' })).toThrow(ValidationError);
+    expect(getTask(db, t.key).status).toBe('in_review'); // not parked in queued
+  });
+
+  it('rejects creating a pr-review task at a doc stage (reviewed, never implemented)', () => {
+    const db = makeTestDb();
+    for (const stage of ['description', 'plan'] as const) {
+      expect(() =>
+        createTask(db, {
+          title: 'PR', spec: 'S', acceptanceCriteria: 'review given', kind: 'pr-review', stage,
+          links: [{ kind: 'branch', label: 'feature/x', url: 'u' }],
+        }),
+      ).toThrow(ValidationError);
+    }
   });
 
   it('rescues a pr-review task stranded in queued back to in_review', () => {

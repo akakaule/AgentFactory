@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NotFoundError, ValidationError } from '@agentfactory/core';
+import { NotFoundError, ValidationError, fetchRemoteRef } from '@agentfactory/core';
 import { resolveBaseRef, branchDiff, GitError } from '../../server/git.js';
 import { gitIn, initGitRepo, commitFile, addBranchWithChange, cleanupRepo } from './helpers/gitFixtures.js';
 
@@ -96,4 +97,20 @@ describe('branchDiff', () => {
       await expect(branchDiff(missing, label)).rejects.toBeInstanceOf(ValidationError);
     },
   );
+});
+
+describe('fetchRemoteRef', () => {
+  it('qualifies a bare ref as a branch, so a pseudo-ref fails loudly instead of reviewing the default', async () => {
+    const remote = repo(); // origin, has main
+    addBranchWithChange(remote, 'pr-head', 'f.txt', 'pr work\n');
+    const local = track(mkdtempSync(join(tmpdir(), 'af-clone-')));
+    execFileSync('git', ['clone', '--quiet', remote, local], { windowsHide: true });
+
+    // a real branch lands in origin/<ref>
+    await fetchRemoteRef(local, 'pr-head');
+    expect(gitIn(local, 'rev-parse', '--verify', '--quiet', 'origin/pr-head').trim()).toMatch(/^[0-9a-f]{40}$/);
+
+    // 'HEAD' is qualified to refs/heads/HEAD (no such branch) → GitError, NOT a silent default-HEAD fetch
+    await expect(fetchRemoteRef(local, 'HEAD')).rejects.toBeInstanceOf(GitError);
+  });
 });
