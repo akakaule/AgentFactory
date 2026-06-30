@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
+import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { getTask } from '../src/ops/getTask.js';
 import { ValidationError } from '../src/errors.js';
@@ -77,6 +78,52 @@ describe('pr-review tasks', () => {
     const db = makeTestDb();
     const t = prReview(db);
     expect(() => updateStatus(db, t.key, 'queued', 'human')).toThrow(ValidationError);
+  });
+
+  it('rejects sending a pr-review task back to the queue from in_review', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    updateStatus(db, t.key, 'in_review', 'human');
+    // in_review → queued is the human "send back" edge; a pr-review task has no implementation
+    // to re-queue, so it must never reach the worker queue (where the dispatcher would claim it).
+    expect(() => updateStatus(db, t.key, 'queued', 'human')).toThrow(ValidationError);
+  });
+
+  it('rescues a pr-review task stranded in queued back to in_review', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    // simulate a legacy task wrongly parked in queued (pre-guard): the human can recover it.
+    updateStatus(db, t.key, 'in_review', 'human');
+    db.prepare("UPDATE task SET status='queued' WHERE key=?").run(t.key);
+    const d = updateStatus(db, t.key, 'in_review', 'human');
+    expect(d.status).toBe('in_review');
+  });
+
+  it('reopens a closed pr-review to review (done → in_review), not the queue', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    updateStatus(db, t.key, 'in_review', 'human');
+    updateStatus(db, t.key, 'done', 'human');
+    expect(() => updateStatus(db, t.key, 'queued', 'human')).toThrow(ValidationError);
+    expect(updateStatus(db, t.key, 'in_review', 'human').status).toBe('in_review');
+  });
+
+  it('a queued pr-review task is never claimed by a worker', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    // force it into queued the way the pre-guard bug did, then prove the claim path skips it.
+    db.prepare("UPDATE task SET status='queued' WHERE key=?").run(t.key);
+    expect(claimNextTask(db, { workspace: 'default' })).toBeNull();
+  });
+
+  it('rejects reopening a code task straight to review (done → in_review is pr-review-only)', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    updateStatus(db, t.key, 'queued', 'human');
+    const claimed = claimNextTask(db, { workspace: 'default' })!;
+    updateStatus(db, claimed.key, 'in_review', 'agent');
+    updateStatus(db, claimed.key, 'done', 'human');
+    expect(() => updateStatus(db, claimed.key, 'in_review', 'human')).toThrow(ValidationError);
   });
 
   it('"Mark reviewed" closes it: reviewApprove on the in_review pr-review task → done', () => {

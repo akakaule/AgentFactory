@@ -190,9 +190,11 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"
-  // hold unconditionally rather than by inference
+  // hold unconditionally rather than by inference. The kind guard is defense in depth:
+  // a pr-review task is reviewed, never implemented (updateStatus blocks it from ever
+  // reaching 'queued'), so a worker must never claim one even if one is stranded there.
   return (workspaceId === undefined
-    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.archived_at IS NULL ORDER BY task.seq ASC LIMIT 1`).get()
-    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.archived_at IS NULL AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
+    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.kind != 'pr-review' AND task.archived_at IS NULL ORDER BY task.seq ASC LIMIT 1`).get()
+    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.kind != 'pr-review' AND task.archived_at IS NULL AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
   ) as TaskRow | undefined;
 }

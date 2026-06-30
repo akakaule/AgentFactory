@@ -18,6 +18,10 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'in_review',   to: 'done',        by: 'human' },
   { from: 'in_review',   to: 'queued',      by: 'human' },
   { from: 'done',        to: 'queued',      by: 'human' }, // reopen (e.g. CI failed on the PR)
+  // pr-review-only straight-to-review edges (kind-gated in ops/updateStatus.ts): rescue a
+  // pr-review task wrongly parked in the queue, and reopen a closed review to re-review.
+  { from: 'queued',      to: 'in_review',   by: 'human' },
+  { from: 'done',        to: 'in_review',   by: 'human' },
 ] as const;
 
 export function isValidTransition(from: Status, to: Status, by: Actor): boolean {

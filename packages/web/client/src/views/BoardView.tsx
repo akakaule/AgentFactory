@@ -30,9 +30,13 @@ export function BoardView({ tasks, onSelect, showWorkspaceBadges, workspaces, on
 
   const dragged = draggingKey ? tasks.find((t) => t.key === draggingKey) : undefined;
   // doc stages close via Approve (which advances the stage) — dragging to Done would
-  // skip the stage machine; core rejects it too, this just avoids the dead drop zone
+  // skip the stage machine; core rejects it too, this just avoids the dead drop zone.
+  // A pr-review task is reviewed, never implemented, so it can never be dropped into the
+  // queue (core rejects it too; this hides the dead zone — and the footgun).
   const canDrop = (to: Status) =>
-    !!dragged && HUMAN_MOVES[dragged.status].includes(to) && (to !== 'done' || dragged.stage === 'implementation');
+    !!dragged && HUMAN_MOVES[dragged.status].includes(to)
+    && (to !== 'done' || dragged.stage === 'implementation')
+    && (to !== 'queued' || dragged.kind !== 'pr-review');
 
   const handleDragStart = (e: DragEvent, key: string) => {
     setDraggingKey(key);

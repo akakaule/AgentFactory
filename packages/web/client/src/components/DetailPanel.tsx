@@ -165,11 +165,22 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                     Release claim
                   </button>
                 </>)}
+                {task.status === 'queued' && task.kind === 'pr-review' && (
+                  <button
+                    className="af-mini go"
+                    onClick={() => api.setStatus(task.key, 'in_review').then(afterMutation).catch(() => {})}
+                    title="A pr-review task belongs in review, not the worker queue — move it back to in_review."
+                  >
+                    Move to review
+                  </button>
+                )}
                 {task.status === 'done' && !task.archivedAt && (<>
                   <button
                     className="af-mini"
-                    onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
-                    title="PR build failed? Comment the failure first, then reopen — the next claimant gets the full history and pushes to the same branch/PR."
+                    onClick={() => api.setStatus(task.key, task.kind === 'pr-review' ? 'in_review' : 'queued').then(afterMutation).catch(() => {})}
+                    title={task.kind === 'pr-review'
+                      ? 'Reopen the review (e.g. the PR was updated) — moves it back to in_review to review again.'
+                      : 'PR build failed? Comment the failure first, then reopen — the next claimant gets the full history and pushes to the same branch/PR.'}
                   >
                     Reopen
                   </button>
