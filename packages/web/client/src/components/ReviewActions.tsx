@@ -36,9 +36,14 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
   const [unchecked, setUnchecked] = useState<Set<number>>(new Set());
 
   // Reset the selection (default: every finding checked) whenever the review's findings
-  // change — a fresh review round replaces the checklist.
+  // change — a fresh review round replaces the checklist. For a pr-review, also pre-fill the
+  // editable review body with the findings as markdown, so the textarea shows exactly what gets
+  // copied onto the PR (WYSIWYG) and the human can edit it before copying.
   const sig = items.map((f) => f.title).join('|');
-  useEffect(() => { setUnchecked(new Set()); }, [sig]);
+  useEffect(() => {
+    setUnchecked(new Set());
+    if (isPrReview) setNote(composePrReview(items, ''));
+  }, [sig]);
 
   const toggle = (i: number) => setUnchecked((prev) => {
     const next = new Set(prev);
@@ -64,9 +69,9 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
 
   const selectedCount = items.length - unchecked.size;
 
-  // The PR-ready review: the human's note + the still-checked findings, as clean markdown the
-  // human copies and pastes onto the PR itself (the real review lives there; done = review given).
-  const prReviewBody = isPrReview ? composePrReview(items.filter((_, i) => !unchecked.has(i)), note) : '';
+  // For a pr-review the editable textarea IS the review body (pre-filled from the findings above),
+  // so we copy it verbatim — what the human sees is what lands on the PR.
+  const prReviewBody = isPrReview && note.trim() ? note : '';
 
   return (
     <div className="af-d-tags" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
@@ -77,7 +82,8 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
           </div>
           {items.map((f, i) => (
             <label key={i} className="it">
-              <input type="checkbox" checked={!unchecked.has(i)} onChange={() => toggle(i)} />
+              {/* code tasks curate findings with checkboxes; a pr-review edits the markdown body below instead */}
+              {!isPrReview && <input type="checkbox" checked={!unchecked.has(i)} onChange={() => toggle(i)} />}
               <span className="bd">
                 <span className="ti">
                   {f.severity && <span className={'sev ' + f.severity} title={f.severity}></span>}
@@ -101,20 +107,20 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
         </div>
       )}
 
-      {/* PR review: compose a curated review (your note + the checked findings) and copy it to
-          paste onto the PR. "Mark reviewed" below still just closes the task — the two are independent. */}
+      {/* PR review: the textarea is the actual review body — pre-filled from the findings, editable,
+          and what "Copy review for the PR" copies verbatim. "Mark reviewed" below independently closes. */}
       {isPrReview && (
         <div className="af-cbox" style={{ marginTop: 0 }}>
-          {reviewPresent && (
-            <div className="af-compose-hint">
-              {selectedCount} of {items.length} finding{items.length === 1 ? '' : 's'} selected · add your summary, then copy for the PR
-            </div>
-          )}
+          <div className="af-compose-hint">
+            {reviewPresent
+              ? 'Pre-filled from the AI review — edit it, then copy and paste it onto the PR.'
+              : 'Write your review, then copy and paste it onto the PR.'}
+          </div>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Your review — paste this onto the PR (optional)…"
-            rows={3}
+            placeholder="Your review — paste this onto the PR…"
+            rows={Math.min(14, Math.max(4, note.split('\n').length + 1))}
           />
           <div className="row">
             <CopyButton body={prReviewBody} label="Copy review for the PR" />

@@ -23,17 +23,26 @@ describe('ReviewActions — pr-review kind', () => {
     expect(screen.getByRole('button', { name: 'Request changes' })).toBeInTheDocument();
   });
 
-  it('copies the curated review (note + checked findings) for the PR as clean markdown', () => {
+  it('pre-fills the review body with the AI findings as editable markdown and copies it verbatim', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 
     render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" aiReview={withFinding} />);
-    fireEvent.change(screen.getByPlaceholderText(/paste this onto the PR/i), { target: { value: 'Two things below.' } });
-    fireEvent.click(screen.getByRole('button', { name: /Copy review for the PR/i }));
+    const ta = screen.getByPlaceholderText(/paste this onto the PR/i) as HTMLTextAreaElement;
+    expect(ta.value).toBe('- **Unbounded loop** — no cap (`src/x.ts:42`) _warning_');
 
-    expect(writeText).toHaveBeenCalledWith(
-      'Two things below.\n\n- **Unbounded loop** — no cap (`src/x.ts:42`) _warning_',
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Copy review for the PR/i }));
+    expect(writeText).toHaveBeenCalledWith('- **Unbounded loop** — no cap (`src/x.ts:42`) _warning_');
+  });
+
+  it('copies the human-edited review verbatim', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" aiReview={withFinding} />);
+    fireEvent.change(screen.getByPlaceholderText(/paste this onto the PR/i), { target: { value: 'LGTM, one nit:\n\n- fix the guard' } });
+    fireEvent.click(screen.getByRole('button', { name: /Copy review for the PR/i }));
+    expect(writeText).toHaveBeenCalledWith('LGTM, one nit:\n\n- fix the guard');
   });
 
   it('disables the copy button when there is nothing to copy (no findings, no note)', () => {
