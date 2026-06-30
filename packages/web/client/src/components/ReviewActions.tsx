@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AiReviewSummary, Stage, TaskKind } from '../types.js';
 import { composeFeedback } from '../composeFeedback.js';
+import { composePrReview } from '../composePrReview.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -32,6 +33,7 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
   const [composing, setComposing] = useState(false);
   const [armed, setArmed] = useState(false);
   const [unchecked, setUnchecked] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState(false);
 
   // Reset the selection (default: every finding checked) whenever the review's findings
   // change — a fresh review round replaces the checklist.
@@ -61,6 +63,20 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
   };
 
   const selectedCount = items.length - unchecked.size;
+
+  // The PR-ready review: the human's note + the still-checked findings, as clean markdown the
+  // human copies and pastes onto the PR itself (the real review lives there; done = review given).
+  const prReviewBody = isPrReview ? composePrReview(items.filter((_, i) => !unchecked.has(i)), note) : '';
+  const handleCopyForPr = async () => {
+    if (!prReviewBody) return;
+    try {
+      await navigator.clipboard.writeText(prReviewBody);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable (e.g. insecure context) — leave the textarea for a manual copy */
+    }
+  };
 
   return (
     <div className="af-d-tags" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
@@ -92,6 +108,29 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
             Latest AI review has <strong>{aiReview!.findings} open finding{aiReview!.findings === 1 ? '' : 's'}</strong>.
             Approving is recorded as an override.
           </span>
+        </div>
+      )}
+
+      {/* PR review: compose a curated review (your note + the checked findings) and copy it to
+          paste onto the PR. "Mark reviewed" below still just closes the task — the two are independent. */}
+      {isPrReview && (
+        <div className="af-cbox" style={{ marginTop: 0 }}>
+          {reviewPresent && (
+            <div className="af-compose-hint">
+              {selectedCount} of {items.length} finding{items.length === 1 ? '' : 's'} selected · add your summary, then copy for the PR
+            </div>
+          )}
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Your review — paste this onto the PR (optional)…"
+            rows={3}
+          />
+          <div className="row">
+            <button className="af-mini" disabled={!prReviewBody} onClick={handleCopyForPr}>
+              {copied ? 'Copied ✓' : 'Copy review for the PR'}
+            </button>
+          </div>
         </div>
       )}
 
