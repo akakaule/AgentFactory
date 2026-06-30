@@ -22,7 +22,7 @@ export function createTask(db: DB, input: CreateTaskInput, now: () => string = n
     ).run(title, spec, acceptanceCriteria ?? 'To be defined by the description stage.', stage ?? 'implementation', kind ?? 'code', ws.id, ts, ts);
     const id = Number(info.lastInsertRowid);
     const key = assignKeyAndSeq(db, id);
-    // a PR-review task arrives with its pr + head-branch links (the reviewer/diff route read the branch link)
+    // a PR-review task arrives with its head-branch link (the reviewer/diff route read it) + an optional pr link
     if (links && links.length > 0) insertLinks(db, id, links);
     // actor rides outside createTaskSchema (parse strips it) — read it from the raw input; default human.
     appendActivity(db, { taskId: id, type: 'status_change', actor: input.actor ?? 'human', fromStatus: null, toStatus: 'backlog', createdAt: ts });

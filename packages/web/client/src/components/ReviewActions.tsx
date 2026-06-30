@@ -103,7 +103,7 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
         >
           {I.check({ width: 14, height: 14 })}{armed ? `${isPrReview ? 'Mark reviewed' : 'Override — approve'} anyway (${aiReview!.findings})` : approveLabel}
         </button>
-        {/* A PR review has no "send back" — the real request-changes lives on the GitHub PR; done = review given. */}
+        {/* A PR review has no "send back" — the real request-changes lives on the PR itself; done = review given. */}
         {!isPrReview && !composing && (
           <button className="af-mini" onClick={() => setComposing(true)}>
             Request changes

@@ -119,7 +119,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 <span
                   className="af-pill"
                   style={{ marginLeft: 6, color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)' }}
-                  title="A PR-review task — review a teammate's GitHub PR. Done when you've given your review."
+                  title="A PR-review task — review a teammate's pull request. Done when you've given your review."
                 >
                   <span className="d" style={{ background: 'var(--accent-2)' }}></span>PR review
                 </span>

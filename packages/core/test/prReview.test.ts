@@ -25,6 +25,32 @@ describe('pr-review tasks', () => {
     expect(t.kind).toBe('code');
   });
 
+  it('requires a branch link — the remote branch is the functional input', () => {
+    const db = makeTestDb();
+    expect(() =>
+      createTask(db, {
+        title: 'PR #42: fix the thing',
+        spec: 'Review teammate PR',
+        acceptanceCriteria: 'review given',
+        kind: 'pr-review',
+        links: [{ kind: 'pr', label: 'PR #42', url: 'https://dev.azure.com/o/p/_git/r/pullrequest/42' }],
+      }),
+    ).toThrow(ValidationError);
+  });
+
+  it('accepts a branch link with no pr link — the pr/MR url is optional context', () => {
+    const db = makeTestDb();
+    const t = createTask(db, {
+      title: 'ADO-PR #7: tidy up',
+      spec: 'Review teammate PR',
+      acceptanceCriteria: 'review given',
+      kind: 'pr-review',
+      links: [{ kind: 'branch', label: 'feature/tidy', url: 'origin/feature/tidy' }],
+    });
+    expect(t.kind).toBe('pr-review');
+    expect(getTask(db, t.key).links.map((l) => l.kind)).toEqual(['branch']);
+  });
+
   it('createTask persists kind=pr-review and the attached links', () => {
     const db = makeTestDb();
     const t = prReview(db);
