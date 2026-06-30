@@ -6,6 +6,8 @@ import { timeAgo, shortTime } from '../time.js';
 import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
+import { CopyButton } from './CopyButton.js';
+import { composePrReview } from '../composePrReview.js';
 import { LiveSection } from './LiveSection.js';
 import { TranscriptSection } from './TranscriptSection.js';
 import { VisualizationSection } from './VisualizationSection.js';
@@ -175,6 +177,11 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   </button>
                 )}
                 {task.status === 'done' && !task.archivedAt && (<>
+                  {/* A pr-review closes via "Mark reviewed" — let the curated review still be copied
+                      afterward (the copy affordance otherwise lives only on the in_review actions). */}
+                  {task.kind === 'pr-review' && (task.aiReview?.items?.length ?? 0) > 0 && (
+                    <CopyButton body={composePrReview(task.aiReview!.items, '')} label="Copy review for the PR" />
+                  )}
                   <button
                     className="af-mini"
                     onClick={() => api.setStatus(task.key, task.kind === 'pr-review' ? 'in_review' : 'queued').then(afterMutation).catch(() => {})}
