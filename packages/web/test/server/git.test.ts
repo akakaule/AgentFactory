@@ -78,7 +78,16 @@ describe('branchDiff', () => {
     await expect(branchDiff(repo(), 'task/AF-404')).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it.each(['--output=evil', 'a..b', '-leading-dash', 'has space', 'wild*card'])(
+  it('diffs a branch whose git-legal name has punctuation and non-ASCII (real ADO PR head)', async () => {
+    const dir = repo();
+    const branch = 'sib/US-63309--ID4--F&O-store-mængder-(FO-Adapter)';
+    addBranchWithChange(dir, branch, 'fo.txt', 'throttling retry\n');
+    const { diff } = await branchDiff(dir, branch);
+    expect(diff).toContain('fo.txt');
+    expect(diff).toContain('+throttling retry');
+  });
+
+  it.each(['--output=evil', 'a..b', '-leading-dash', 'has space', 'wild*card', 'a:b', 'a~1', 'peel@{1}'])(
     'rejects hostile or malformed ref %j before touching git',
     async (label) => {
       // Nonexistent path: validation must fire before any filesystem/git access,

@@ -17,6 +17,20 @@ describe('refFromLabel', () => {
     ).toBe('feature/AF-18-ab-16211-fjern-individualsavings-fra-sta');
   });
 
+  it('accepts real-world refs git allows — punctuation, parens, non-ASCII, double dashes', () => {
+    // An Azure DevOps PR head ref (no whitespace, so the whole label is the ref): '&', '(',
+    // ')', the non-ASCII 'æ', and '--' are all legal in a git ref and must survive the guard.
+    const ado = 'sib/User-Story-63309--ID4--Stabil-integration-mod-Dynamics-F&O-ved-store-mængder-(FO-Adapter)';
+    expect(refFromLabel(ado)).toBe(ado);
+    expect(refFromLabel('users/john.doe/feature_x')).toBe('users/john.doe/feature_x');
+  });
+
+  it('still rejects refs git forbids or that would inject', () => {
+    for (const bad of ['a:b', 'a~1', 'a^', 'wild*card', 'opt?', 'br[ack]', 'back\\slash', 'peel@{1}']) {
+      expect(refFromLabel(bad)).toBeNull();
+    }
+  });
+
   it('takes the leading whitespace-delimited token', () => {
     expect(refFromLabel('feature/AF-24 (PR 4702 source, fast-forwarded)')).toBe('feature/AF-24');
     expect(refFromLabel('  feature/AF-7   extra words ')).toBe('feature/AF-7');

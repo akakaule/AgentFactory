@@ -10,9 +10,14 @@ export class GitError extends Error { name = 'GitError'; }
 
 export interface BranchDiff { baseRef: string; diff: string; commits: number; }
 
-// Branch refs arrive as agent-submitted link labels — untrusted. No leading '-'
-// (option injection), no '..' (revision ranges), conservative charset.
-const SAFE_REF = /^(?!-)(?!.*\.\.)[\w./-]+$/;
+// Branch refs arrive as agent-submitted link labels — untrusted. They're passed to git
+// as a single argv token (execFile, no shell) and interpolated into a '+<ref>:refs/...'
+// refspec, so the guard rejects exactly what would break that or inject: a leading '-'
+// (option injection), '..'/'@{' (revision ranges / reflog peel), and the characters git
+// itself forbids in a ref name — whitespace, control/DEL, and ': ? * [ \ ^ ~'. Everything
+// else git permits passes, so real-world branches with '&', '(', ')', or non-ASCII letters
+// (e.g. 'mængder') diff correctly instead of stranding on a too-narrow ASCII allowlist.
+const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
 /**
  * A branch-kind link's label is the display string an agent submits. By convention it
