@@ -221,8 +221,16 @@ export class Reviewer {
       if (detail.stage === 'implementation') {
         const branch = this.resolveBranch(detail);
         if (!branch) throw new Error(`no branch recorded to diff`);
-        const diff = await this.deps.computeDiff(detail.repoPath, branch);
-        prompt = buildReviewPrompt({ task: detail, engine, branch, diff, maxDiffChars: this.config.maxDiffChars });
+        // A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
+        // into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
+        // diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
+        let diffRef = branch;
+        if (detail.kind === 'pr-review') {
+          await this.deps.fetchRef(detail.repoPath, branch);
+          diffRef = `origin/${branch}`;
+        }
+        const diff = await this.deps.computeDiff(detail.repoPath, diffRef);
+        prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
       } else {
         prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars });
       }

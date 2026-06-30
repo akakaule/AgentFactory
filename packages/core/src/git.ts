@@ -10,9 +10,14 @@ export class GitError extends Error { name = 'GitError'; }
 
 export interface BranchDiff { baseRef: string; diff: string; commits: number; }
 
-// Branch refs arrive as agent-submitted link labels — untrusted. No leading '-'
-// (option injection), no '..' (revision ranges), conservative charset.
-const SAFE_REF = /^(?!-)(?!.*\.\.)[\w./-]+$/;
+// Branch refs arrive as agent-submitted link labels — untrusted. They're passed to git
+// as a single argv token (execFile, no shell) and interpolated into a '+<ref>:refs/...'
+// refspec, so the guard rejects exactly what would break that or inject: a leading '-'
+// (option injection), '..'/'@{' (revision ranges / reflog peel), and the characters git
+// itself forbids in a ref name — whitespace, control/DEL, and ': ? * [ \ ^ ~'. Everything
+// else git permits passes, so real-world branches with '&', '(', ')', or non-ASCII letters
+// (e.g. 'mængder') diff correctly instead of stranding on a too-narrow ASCII allowlist.
+const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
 /**
  * A branch-kind link's label is the display string an agent submits. By convention it
@@ -59,6 +64,26 @@ export async function resolveBaseRef(repoPath: string): Promise<string> {
     if ((await runGit(repoPath, ['rev-parse', '--verify', '--quiet', name])).ok) return name;
   }
   throw new GitError('cannot determine default branch (no origin/HEAD, main, or master)');
+}
+
+/**
+ * Fetch one branch from origin into its remote-tracking ref (refs/remotes/origin/<ref>) so a ref
+ * that isn't in the local store — a teammate's PR head — becomes resolvable for branchDiff (which is
+ * then called with `origin/<ref>`). Force-updates the tracking ref (`+`) so a force-pushed PR head
+ * still lands. SAFE_REF-guarded: `ref` is an untrusted, branch-link-sourced value.
+ *
+ * The fetch SOURCE is qualified to `refs/heads/<ref>` (a bare ref is a branch name). Without this a
+ * pseudo-ref like `@` or `HEAD` would make `git fetch origin <ref>` resolve the remote's default
+ * HEAD instead of the submitted PR head — the diff would then silently compare the default branch
+ * against itself and report a clean review. Qualifying makes such a ref a (non-existent) branch
+ * name, so the fetch fails loudly rather than reviewing the wrong thing.
+ */
+export async function fetchRemoteRef(repoPath: string, ref: string): Promise<void> {
+  if (!SAFE_REF.test(ref)) throw new ValidationError(`invalid branch ref: ${ref}`);
+  if (!existsSync(repoPath)) throw new GitError(`repository path does not exist: ${repoPath}`);
+  const src = ref.startsWith('refs/') ? ref : `refs/heads/${ref}`;
+  const r = await runGit(repoPath, ['fetch', '--quiet', 'origin', `+${src}:refs/remotes/origin/${ref}`]);
+  if (!r.ok) throw new GitError(`git fetch failed for origin ${ref}`);
 }
 
 /** Merge-base diff of a branch against the repo's default branch. */

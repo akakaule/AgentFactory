@@ -267,3 +267,12 @@ CREATE TABLE IF NOT EXISTS task_visualization (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_task_visualization_task ON task_visualization(task_id);
 `;
+
+// Migration #17 — task kind: 'code' (the default — an agent-implemented feature, today's only shape)
+// vs 'pr-review' (review a teammate's GitHub PR; the deliverable is the review, not code). Additive
+// and defaulted so every existing row is 'code' and behaves exactly as before. The kind has no axis
+// in the transition table (transitions.ts) — ops/updateStatus.ts gates the kind-specific edges
+// (a 'pr-review' task is born straight into in_review and is never claimed for implementation).
+export const MIGRATION_17_SQL = `
+ALTER TABLE task ADD COLUMN kind TEXT NOT NULL DEFAULT 'code' CHECK (kind IN ('code','pr-review'));
+`;

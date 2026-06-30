@@ -9,9 +9,11 @@ const execFileAsync = promisify(execFile);
 export class GitError extends Error { name = 'GitError'; }
 
 // The branch is server-generated here (never agent input), but the same injection
-// discipline the web package uses costs nothing: no leading '-', no '..', conservative
-// charset. A name that fails this is treated as un-checkable rather than passed to git.
-const SAFE_REF = /^(?!-)(?!.*\.\.)[\w./-]+$/;
+// discipline core uses costs nothing and keeps the guard meaning one thing everywhere:
+// no leading '-', no '..'/'@{', and none of the characters git forbids in a ref name
+// (whitespace, control/DEL, ': ? * [ \ ^ ~'). A name that fails is treated as un-checkable
+// rather than passed to git. Mirrors SAFE_REF in @agentfactory/core (packages/core/src/git.ts).
+const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
 /** Run a git read. `ok:false` = git ran but exited non-zero; throws GitError only if git is absent. */
 async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string }> {

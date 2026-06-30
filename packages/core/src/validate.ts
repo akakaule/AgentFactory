@@ -10,17 +10,30 @@ const workspaceSlug = z
 
 const stageEnum = z.enum(['description', 'plan', 'implementation']);
 
+const linkInput = z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty });
+
 export const createTaskSchema = z
   .object({
     title: nonEmpty, spec: nonEmpty,
     acceptanceCriteria: nonEmpty.optional(),
     stage: stageEnum.optional(),
+    kind: z.enum(['code', 'pr-review']).optional(), // default 'code'; 'pr-review' for an imported PR-review task
+    links: z.array(linkInput).optional(),           // attached at creation (a PR-review task requires a branch link; pr link optional — see superRefine)
     workspace: workspaceSlug.optional(),
   })
   .superRefine((o, ctx) => {
     // the description stage writes the acceptance criteria; every other entry point must bring them
     if (o.stage !== 'description' && o.acceptanceCriteria === undefined)
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'acceptanceCriteria is required unless stage is description' });
+    // a pr-review task's only functional input is the remote branch to review: the diff route and
+    // reviewer fetch+diff `origin/<branch link label>`. Require that branch link at creation (the
+    // `pr` link — a deep-link to the PR/MR page — stays optional context).
+    if (o.kind === 'pr-review' && !(o.links ?? []).some((l) => l.kind === 'branch'))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a pr-review task requires a branch link (the remote branch to review)' });
+    // a pr-review is diff-based and never implemented, so it must enter at the implementation stage
+    // (its only one): a doc stage would make "Mark reviewed" advance + re-queue it instead of closing.
+    if (o.kind === 'pr-review' && o.stage !== undefined && o.stage !== 'implementation')
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `a pr-review task cannot enter at the '${o.stage}' stage — it is reviewed, not implemented` });
   });
 export const createWorkspaceSchema = z.object({ name: workspaceSlug, repoPath: nonEmpty });
 // policy / verifyCommand: a trimmed non-empty string sets it, null clears it, absence leaves it.

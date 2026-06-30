@@ -5,7 +5,7 @@ import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
-import { NotFoundError, InvalidTransitionError } from '../errors.js';
+import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
@@ -19,6 +19,15 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   // re-queues) — a raw status move to done would skip the stage machine entirely
   if (row.status === 'in_review' && status === 'done' && row.stage !== 'implementation')
     throw new InvalidTransitionError(`a ${row.stage}-stage review is approved via the approve action, not a status move`);
+  // Kind gating (the TRANSITIONS table has no kind axis): a 'pr-review' task is reviewed and never
+  // implemented, so it must NEVER enter the worker queue — from backlog, a send-back, or a reopen.
+  // (The dispatcher would otherwise claim it and spawn a worker to "implement" a teammate's PR.)
+  if (status === 'queued' && row.kind === 'pr-review')
+    throw new ValidationError('a pr-review task is reviewed, not implemented — it cannot be queued (move it to in_review)');
+  // The straight-into-review edges (born from backlog, rescued from a stray queue, reopened from
+  // done) are pr-review-only — a 'code' task can never skip implementation by jumping to review.
+  if (status === 'in_review' && row.kind !== 'pr-review' && (row.status === 'backlog' || row.status === 'queued' || row.status === 'done'))
+    throw new ValidationError(`only a pr-review task moves straight to review (got kind '${row.kind}')`);
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
     const ts = now();

@@ -56,6 +56,9 @@ export interface ReviewerDeps {
   resolveEngine: (engine: ReviewEngine) => string;
   /** Computes a branch's merge-base diff (production: core's `branchDiff`). */
   computeDiff: (repoPath: string, branch: string) => Promise<BranchDiff>;
+  /** Fetches a ref from origin into refs/remotes/origin/<ref> (production: core's `fetchRemoteRef`);
+   *  used for pr-review tasks whose PR head isn't in the local store before diffing. */
+  fetchRef: (repoPath: string, ref: string) => Promise<void>;
   /** Opens a per-review transcript log file. */
   openLog: (path: string) => LogWriter;
   /** Reads an engine's captured final message (codex `--output-last-message` file); '' if absent. */

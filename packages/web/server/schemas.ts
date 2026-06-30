@@ -10,16 +10,21 @@ export const workspaceUpdateBody = z
   .object({ policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional() })
   .refine((o) => o.policy !== undefined || o.verifyCommand !== undefined, 'at least one field required (policy, verifyCommand)');
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
+const LinkKindEnum = z.enum(['branch', 'pr', 'worktree', 'log', 'url']);
 export const createBody = z.object({
   title: z.string().min(1), spec: z.string().min(1),
   acceptanceCriteria: z.string().min(1).optional(), // required unless stage 'description' — core's ValidationError → 400
   stage: StageEnum.optional(),
+  kind: z.enum(['code', 'pr-review']).optional(),    // default 'code'; 'pr-review' for an imported PR-review task
+  links: z.array(z.object({ kind: LinkKindEnum, label: z.string().min(1), url: z.string().min(1) })).optional(),
   workspace: z.string().min(1).optional(),
 });
 export const updateBody = z.object({ title: z.string().min(1).optional(), spec: z.string().min(1).optional(), acceptanceCriteria: z.string().min(1).optional() });
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum, note: z.string().optional() });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
+// "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
+export const prReviewedBody = z.object({ review: z.string().optional() });
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
 export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
 export const attachmentBody = z.object({

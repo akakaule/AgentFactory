@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds } from './activity.js';
 import { linksFor } from './links.js';
@@ -13,7 +13,7 @@ import { nowIso } from '../time.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
-  status: Status; stage: Stage; result_summary: string | null; seq: number; created_at: string; updated_at: string;
+  status: Status; stage: Stage; kind: TaskKind; result_summary: string | null; seq: number; created_at: string; updated_at: string;
   workspace_id: number; workspace_name: string; workspace_repo_path: string;
   workspace_policy: string | null; workspace_verify_command: string | null;
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
@@ -31,7 +31,7 @@ const SELECT_TASK =
 export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
-    status: r.status, stage: r.stage, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
+    status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
     claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
@@ -190,9 +190,11 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"
-  // hold unconditionally rather than by inference
+  // hold unconditionally rather than by inference. The kind guard is defense in depth:
+  // a pr-review task is reviewed, never implemented (updateStatus blocks it from ever
+  // reaching 'queued'), so a worker must never claim one even if one is stranded there.
   return (workspaceId === undefined
-    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.archived_at IS NULL ORDER BY task.seq ASC LIMIT 1`).get()
-    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.archived_at IS NULL AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
+    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.kind != 'pr-review' AND task.archived_at IS NULL ORDER BY task.seq ASC LIMIT 1`).get()
+    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.kind != 'pr-review' AND task.archived_at IS NULL AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
   ) as TaskRow | undefined;
 }

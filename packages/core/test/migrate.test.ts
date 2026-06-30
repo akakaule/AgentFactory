@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +117,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -147,6 +147,22 @@ describe('runMigrations', () => {
     const ins = "INSERT INTO task_visualization(task_id, html_gz, bytes, generated_at, updated_at) VALUES (?, x'00', 1, '2026-01-01', '2026-01-01')";
     db.prepare(ins).run(tid);
     expect(() => db.prepare(ins).run(tid)).toThrow(); // a second row for the same task is rejected (unique task_id)
+  });
+
+  it('migration #17 adds task.kind defaulting to code with a CHECK', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain('kind');
+    // a legacy-style insert that names no kind backfills 'code'
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','backlog',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    expect(db.prepare("SELECT kind FROM task WHERE key='AF-1'").get()).toMatchObject({ kind: 'code' });
+    // the CHECK rejects anything but code/pr-review
+    expect(() => db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,kind,seq,workspace_id,created_at,updated_at) VALUES ('AF-2','t','s','a','backlog','nonsense',2,1,'2026-01-01','2026-01-01')"
+    ).run()).toThrow();
   });
 
   it('enforces the stage CHECK constraint', () => {
