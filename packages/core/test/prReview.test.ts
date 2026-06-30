@@ -4,6 +4,7 @@ import { createTask } from '../src/ops/createTask.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
+import { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from '../src/ops/reviewPrReviewed.js';
 import { getTask } from '../src/ops/getTask.js';
 import { ValidationError } from '../src/errors.js';
 
@@ -132,5 +133,32 @@ describe('pr-review tasks', () => {
     updateStatus(db, t.key, 'in_review', 'human');
     const done = reviewApprove(db, t.key);
     expect(done.status).toBe('done');
+  });
+
+  it('reviewPrReviewed captures the review as a pr-review-feedback/v1 comment and closes', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    updateStatus(db, t.key, 'in_review', 'human');
+    const done = reviewPrReviewed(db, t.key, { review: '  LGTM, one nit:\n\n- fix the guard  ' });
+    expect(done.status).toBe('done');
+    const fb = getTask(db, t.key).activity.find((a) => a.type === 'comment' && a.body.startsWith(PR_REVIEW_FEEDBACK_MARKER));
+    expect(fb).toBeDefined();
+    // marker line + the trimmed review markdown
+    expect(fb!.body).toBe(`${PR_REVIEW_FEEDBACK_MARKER}\nLGTM, one nit:\n\n- fix the guard`);
+  });
+
+  it('reviewPrReviewed with an empty review closes with no feedback comment', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    updateStatus(db, t.key, 'in_review', 'human');
+    const done = reviewPrReviewed(db, t.key, { review: '   ' });
+    expect(done.status).toBe('done');
+    expect(getTask(db, t.key).activity.some((a) => a.body.startsWith(PR_REVIEW_FEEDBACK_MARKER))).toBe(false);
+  });
+
+  it('reviewPrReviewed requires in_review', () => {
+    const db = makeTestDb();
+    const t = prReview(db); // still backlog
+    expect(() => reviewPrReviewed(db, t.key, { review: 'x' })).toThrow();
   });
 });

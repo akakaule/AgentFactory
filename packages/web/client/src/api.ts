@@ -106,5 +106,6 @@ export const api = {
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
   approve: (key: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body({})),
+  markPrReviewed: (key: string, review: string) => req<TaskDetail>(`/api/tasks/${key}/pr-reviewed`, body({ review })),
   requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
 };

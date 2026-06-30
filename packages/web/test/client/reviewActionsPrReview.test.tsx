@@ -49,4 +49,15 @@ describe('ReviewActions — pr-review kind', () => {
     render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" />);
     expect(screen.getByRole('button', { name: /Copy review for the PR/i })).toBeDisabled();
   });
+
+  it('"Mark reviewed" sends the edited review body to onMarkReviewed (not onApprove)', () => {
+    const onMarkReviewed = vi.fn();
+    const onApprove = vi.fn();
+    // no open findings, so "Mark reviewed" fires in one click (no break-glass arming step)
+    render(<ReviewActions onApprove={onApprove} onMarkReviewed={onMarkReviewed} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" />);
+    fireEvent.change(screen.getByPlaceholderText(/paste this onto the PR/i), { target: { value: 'LGTM' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed' }));
+    expect(onMarkReviewed).toHaveBeenCalledWith('LGTM');
+    expect(onApprove).not.toHaveBeenCalled();
+  });
 });

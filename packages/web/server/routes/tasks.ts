@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
 import { actorUserIdOf } from '../auth.js';
@@ -112,6 +112,10 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/request-changes', zValidator('json', feedbackBody), (c) =>
     c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
+
+  // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
+  r.post('/:key/pr-reviewed', zValidator('json', prReviewedBody), (c) =>
+    c.json(core.reviewPrReviewed(c.req.param('key'), { review: c.req.valid('json').review, actorUserId: actorUserIdOf(c) })));
 
   return r;
 }

@@ -8,6 +8,9 @@ import { I } from '../icons.js';
 interface Props {
   onApprove: () => void;
   onRequestChanges: (feedback: string) => void;
+  // pr-review only: "Mark reviewed" captures the edited review body (so it can be posted to the PR) and closes.
+  // Falls back to onApprove when not supplied.
+  onMarkReviewed?: ((review: string) => void) | undefined;
   aiReview?: AiReviewSummary | undefined; // latest AI-review verdict; drives the checklist + break-glass
   stage?: Stage | undefined; // approving a doc stage advances + re-queues — the label says so
   kind?: TaskKind | undefined; // 'pr-review' → the button is "Mark reviewed" (done = review given) and there is no send-back
@@ -20,7 +23,7 @@ const APPROVE_LABELS: Record<Stage, string> = {
   implementation: 'Approve',
 };
 
-export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, kind }: Props) {
+export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiReview, stage, kind }: Props) {
   const isPrReview = kind === 'pr-review';
   // "Mark reviewed" for a PR review (done = review given); else the stage-aware approve label.
   const approveLabel = isPrReview ? 'Mark reviewed' : APPROVE_LABELS[stage ?? 'implementation'];
@@ -53,7 +56,9 @@ export function ReviewActions({ onApprove, onRequestChanges, aiReview, stage, ki
 
   const handleApprove = () => {
     if (hasOpenFindings && !armed) { setArmed(true); return; }
-    onApprove();
+    // pr-review: "Mark reviewed" carries the edited review body so it can be posted to the PR.
+    if (isPrReview && onMarkReviewed) onMarkReviewed(note);
+    else onApprove();
   };
 
   // Compose ONE attributed body from the checked findings + the human's note, and post it

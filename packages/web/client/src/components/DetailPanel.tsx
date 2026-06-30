@@ -239,6 +239,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   stage={task.stage}
                   kind={task.kind}
                   onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
+                  onMarkReviewed={(review) => api.markPrReviewed(task.key, review).then(afterMutation).catch(() => {})}
                   onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
                 />
               )}
