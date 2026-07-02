@@ -33,9 +33,13 @@ npm run mcp:dev          # stdio MCP server (tsx)
 npm run dispatcher -- dispatcher.config.json   # headless worker supervisor (build first)
 npm run reviewer   -- reviewer.config.json     # headless AI-review supervisor (build first)
 npm run watcher    -- watcher.config.json      # PR/pipeline delivery watcher (build first; needs GITHUB_TOKEN / AZDO_PAT)
+npm run supervisors      # dispatcher + reviewer + watcher together (concurrently; build first)
+npm run supervisors:dev  # same trio via tsx (no build)
 ```
 
-`*:dev` scripts run TypeScript directly via `tsx` (no build step). The non-dev scripts (`web`, `mcp`, `dispatcher`, `reviewer`, `watcher`) run `dist/` and need `npm run build` first. **Long-lived processes (MCP sessions, the :8787 server) cache the build they started with** — rebuild `dist` *and* restart them after merging core/protocol changes, or new fields/tools go silently missing.
+The combined `supervisors`/`supervisors:dev` scripts spawn the three supervisors as separate child processes (colour-tagged output, one Ctrl-C stops all three; a crash in one leaves the others running). The watcher still needs `GITHUB_TOKEN` / `AZDO_PAT` set in the shell that launches them. The web server (:8787) is deliberately not part of the trio — it has its own lifecycle.
+
+`*:dev` scripts run TypeScript directly via `tsx` (no build step). The non-dev scripts (`web`, `mcp`, `dispatcher`, `reviewer`, `watcher`, `supervisors`) run `dist/` and need `npm run build` first. **Long-lived processes (MCP sessions, the :8787 server) cache the build they started with** — rebuild `dist` *and* restart them after merging core/protocol changes, or new fields/tools go silently missing.
 
 ## Architecture
 
