@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AiReviewSummary, Stage, TaskKind } from '../types.js';
+import type { RequestChangesCuration } from '../api.js';
 import { composeFeedback } from '../composeFeedback.js';
 import { composePrReview } from '../composePrReview.js';
 import { CopyButton } from './CopyButton.js';
@@ -7,7 +8,9 @@ import { I } from '../icons.js';
 
 interface Props {
   onApprove: () => void;
-  onRequestChanges: (feedback: string) => void;
+  // curation is the forward(checked)/dismiss(unchecked) split of the AI findings — persisted as
+  // the `curation/v1` ledger. Undefined when there is no AI review to curate (plain feedback).
+  onRequestChanges: (feedback: string, curation?: RequestChangesCuration) => void;
   // pr-review only: "Mark reviewed" captures the edited review body (so it can be posted to the PR) and closes.
   // Falls back to onApprove when not supplied.
   onMarkReviewed?: ((review: string) => void) | undefined;
@@ -67,12 +70,19 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
   };
 
   // Compose ONE attributed body from the checked findings + the human's note, and post it
-  // through the existing request-changes endpoint. Unchecked findings never ride along.
+  // through the existing request-changes endpoint. Unchecked findings never ride along — but
+  // the full forward/dismiss split rides beside it as the curation ledger.
   const handleSend = () => {
     const selected = items.filter((_, i) => !unchecked.has(i));
     const body = composeFeedback(selected, reviewer, note, reviewPresent);
     if (!body.trim()) return;
-    onRequestChanges(body);
+    const curation: RequestChangesCuration | undefined = reviewPresent
+      ? { reviewer, dispositions: items.map((f, i) => ({
+          severity: f.severity, file: f.file, line: f.line, title: f.title,
+          disposition: unchecked.has(i) ? 'dismissed' : 'forwarded',
+        })) }
+      : undefined;
+    onRequestChanges(body, curation);
     setNote('');
     setComposing(false);
   };

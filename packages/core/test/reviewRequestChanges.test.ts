@@ -5,8 +5,9 @@ import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { findRowByKey } from '../src/repo/tasks.js';
 import { recentActivity } from '../src/repo/activity.js';
+import { parseCurationComment } from '../src/curation.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../src/errors.js';
-import type { Status } from '../src/types.js';
+import type { CurationEntry, Status } from '../src/types.js';
 
 const FIXED_TS = '2030-09-02T10:00:00.000Z';
 const fixedNow = () => FIXED_TS;
@@ -122,6 +123,46 @@ describe('reviewRequestChanges', () => {
     expect(() =>
       reviewRequestChanges(db, task.key, { feedback: '   ' }, fixedNow)
     ).toThrow(ValidationError);
+  });
+
+  // ── Curation ledger ───────────────────────────────────────────────────────
+
+  const forwarded: CurationEntry = { severity: 'warning', file: 'src/x.ts', line: 1, title: 'Keep', disposition: 'forwarded' };
+  const dismissed: CurationEntry = { severity: 'info', file: null, line: null, title: 'Drop', disposition: 'dismissed' };
+
+  it('persists a curation/v1 ledger comment recording the forwarded/dismissed split', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+
+    const detail = reviewRequestChanges(db, task.key, {
+      feedback: '[reviewer-codex] Keep',
+      curation: { reviewer: 'codex', dispositions: [forwarded, dismissed] },
+    }, fixedNow);
+
+    const ledger = detail.activity.find((a) => a.type === 'comment' && parseCurationComment(a.body));
+    expect(ledger).toBeDefined();
+    expect(ledger!.actor).toBe('human');
+    const parsed = parseCurationComment(ledger!.body)!;
+    expect(parsed.reviewer).toBe('codex');
+    expect(parsed.dispositions).toEqual([forwarded, dismissed]);
+    // the feedback + status_change are still there
+    expect(detail.activity.some((a) => a.type === 'feedback')).toBe(true);
+    expect(detail.status).toBe('queued');
+  });
+
+  it('emits no curation comment when there is no AI review to curate', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+
+    const detail = reviewRequestChanges(db, task.key, { feedback: 'just fix it' }, fixedNow);
+    expect(detail.activity.some((a) => a.type === 'comment' && parseCurationComment(a.body))).toBe(false);
+
+    // an empty dispositions array is likewise a no-op
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+    const d2 = reviewRequestChanges(db, task.key, { feedback: 'again', curation: { reviewer: 'codex', dispositions: [] } }, fixedNow);
+    expect(d2.activity.some((a) => a.type === 'comment' && parseCurationComment(a.body))).toBe(false);
   });
 
   // ── Unknown key ───────────────────────────────────────────────────────────

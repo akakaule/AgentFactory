@@ -1,5 +1,8 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, CurationEntry } from './types.js';
 import type { AnalyticsData } from './metrics.js';
+
+/** The forward/dismiss split ReviewActions sends with request-changes → the `curation/v1` ledger. */
+export interface RequestChangesCuration { reviewer: string | null; dispositions: CurationEntry[]; }
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
 export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
@@ -107,5 +110,6 @@ export const api = {
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
   approve: (key: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body({})),
   markPrReviewed: (key: string, review: string) => req<TaskDetail>(`/api/tasks/${key}/pr-reviewed`, body({ review })),
-  requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
+  requestChanges: (key: string, feedback: string, curation?: RequestChangesCuration) =>
+    req<TaskDetail>(`/api/tasks/${key}/request-changes`, body(curation ? { feedback, curation } : { feedback })),
 };

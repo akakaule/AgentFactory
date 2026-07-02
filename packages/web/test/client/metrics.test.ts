@@ -17,7 +17,18 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
     ...over,
   };
 }
-const data = (tasks: AnalyticsTaskRow[], stranded: AnalyticsData['stranded'] = [], failures: AnalyticsData['failures'] = []): AnalyticsData => ({ tasks, stranded, failures });
+const data = (
+  tasks: AnalyticsTaskRow[],
+  stranded: AnalyticsData['stranded'] = [],
+  failures: AnalyticsData['failures'] = [],
+  curations: AnalyticsData['curations'] = [],
+): AnalyticsData => ({ tasks, stranded, failures, curations });
+
+let cseq = 0;
+function curation(over: Partial<AnalyticsData['curations'][number]> = {}): AnalyticsData['curations'][number] {
+  cseq += 1;
+  return { reviewer: 'codex', workspace: 'demo', disposition: 'forwarded', taskKey: `AF-${cseq}`, at: daysAgo(1), reopened: false, failed: false, ...over };
+}
 
 describe('helpers', () => {
   it('fmtDur formats minutes, hours, days, n/a', () => {
@@ -268,5 +279,56 @@ describe('computeAnalytics', () => {
   it('tolerates a payload with no failures field (stale server)', () => {
     const a = computeAnalytics({ tasks: [doneRow()], stranded: [] } as unknown as AnalyticsData, 'all', 7, NOW);
     expect(a.failures.total).toBe(0);
+  });
+
+  describe('reviewer precision', () => {
+    it('derives per-engine precision = forwarded / all dispositioned findings', () => {
+      const a = computeAnalytics(data([doneRow()], [], [], [
+        curation({ reviewer: 'codex', disposition: 'forwarded' }),
+        curation({ reviewer: 'codex', disposition: 'forwarded' }),
+        curation({ reviewer: 'codex', disposition: 'dismissed' }),
+        curation({ reviewer: 'codex', disposition: 'overridden' }),
+        curation({ reviewer: 'claude', disposition: 'forwarded' }),
+      ]), 'all', 7, NOW);
+      const codex = a.reviewerPrecision.find((r) => r.reviewer === 'codex')!;
+      expect(codex).toMatchObject({ forwarded: 2, dismissed: 1, overridden: 1, total: 4 });
+      expect(codex.precision).toBeCloseTo(0.5);
+      const claude = a.reviewerPrecision.find((r) => r.reviewer === 'claude')!;
+      expect(claude).toMatchObject({ forwarded: 1, total: 1, precision: 1 });
+      // sorted by total desc → codex first
+      expect(a.reviewerPrecision[0]!.reviewer).toBe('codex');
+    });
+
+    it('correlates forwarded findings with reopened/failed tasks, deduped per task', () => {
+      const a = computeAnalytics(data([doneRow()], [], [], [
+        // task A: two forwarded findings, task later reopened → counts once
+        curation({ reviewer: 'codex', taskKey: 'AF-A', disposition: 'forwarded', reopened: true }),
+        curation({ reviewer: 'codex', taskKey: 'AF-A', disposition: 'forwarded', reopened: true }),
+        // task B: forwarded, task failed CI → counts once
+        curation({ reviewer: 'codex', taskKey: 'AF-B', disposition: 'forwarded', failed: true }),
+        // task C: forwarded, clean → not counted
+        curation({ reviewer: 'codex', taskKey: 'AF-C', disposition: 'forwarded' }),
+        // a dismissed finding on a reopened task does NOT count (only forwarded correlate)
+        curation({ reviewer: 'codex', taskKey: 'AF-D', disposition: 'dismissed', reopened: true }),
+      ]), 'all', 7, NOW);
+      const codex = a.reviewerPrecision.find((r) => r.reviewer === 'codex')!;
+      expect(codex.tasksForwarded).toBe(3); // A, B, C
+      expect(codex.fwdReopenedOrFailed).toBe(2); // A + B
+    });
+
+    it('labels a null reviewer as (unattributed) and filters by workspace + range', () => {
+      const a = computeAnalytics(data([doneRow()], [], [], [
+        curation({ reviewer: null, workspace: 'demo' }),
+        curation({ reviewer: 'codex', workspace: 'shop' }),      // other workspace → excluded
+        curation({ reviewer: 'codex', workspace: 'demo', at: daysAgo(40) }), // out of range → excluded
+      ]), 'demo', 7, NOW);
+      expect(a.reviewerPrecision).toHaveLength(1);
+      expect(a.reviewerPrecision[0]!.reviewer).toBe('(unattributed)');
+    });
+
+    it('tolerates a payload with no curations field (stale server)', () => {
+      const a = computeAnalytics({ tasks: [doneRow()], stranded: [], failures: [] } as unknown as AnalyticsData, 'all', 7, NOW);
+      expect(a.reviewerPrecision).toEqual([]);
+    });
   });
 });

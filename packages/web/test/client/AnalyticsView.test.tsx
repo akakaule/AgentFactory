@@ -45,6 +45,7 @@ describe('AnalyticsView', () => {
       tasks: [doneRow(), doneRow({ tokensIn: null, tokensOut: null, costUsd: null, model: null })],
       stranded: [],
       failures: [],
+      curations: [],
     };
     mocked.getAnalytics.mockResolvedValue(data);
 
@@ -75,6 +76,37 @@ describe('AnalyticsView', () => {
     // 1 override of 2 reviewed = 50%; the third (no review) is excluded
     expect(screen.getByText('1 / 2 approved past findings')).toBeInTheDocument();
     expect(screen.getByText('50%')).toBeInTheDocument();
+  });
+
+  it('renders the reviewer-precision panel from curation ledger events', async () => {
+    const mocked = await getApiMock();
+    const cur = (over: Partial<AnalyticsData['curations'][number]>): AnalyticsData['curations'][number] =>
+      ({ reviewer: 'codex', workspace: 'default', disposition: 'forwarded', taskKey: 'AF-1', at: new Date(Date.now() - 3600000).toISOString(), reopened: false, failed: false, ...over });
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [doneRow()],
+      stranded: [],
+      failures: [],
+      curations: [
+        cur({ disposition: 'forwarded' }), cur({ disposition: 'forwarded' }),
+        cur({ disposition: 'dismissed' }), cur({ disposition: 'overridden' }),
+      ],
+    });
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    expect(await screen.findByText('Reviewer precision')).toBeInTheDocument();
+    expect(screen.getByText('codex')).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument(); // 2 forwarded / 4 dispositioned
+  });
+
+  it('omits the reviewer-precision panel when there are no curation events', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({ tasks: [doneRow()], stranded: [], failures: [], curations: [] });
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    expect(await screen.findByText('Tasks done')).toBeInTheDocument();
+    expect(screen.queryByText('Reviewer precision')).not.toBeInTheDocument();
   });
 
   it('shows the AI override rate as n/a when no task had an AI review', async () => {

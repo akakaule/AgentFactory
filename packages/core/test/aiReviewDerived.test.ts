@@ -10,6 +10,7 @@ import { addComment } from '../src/ops/addComment.js';
 import { getTask } from '../src/ops/getTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
 import { analyticsRows } from '../src/ops/analyticsRows.js';
+import { parseCurationComment } from '../src/curation.js';
 
 const BASE = Date.parse('2026-06-01T00:00:00.000Z');
 const at = (min: number) => () => new Date(BASE + min * 60000).toISOString();
@@ -127,6 +128,80 @@ describe('reviewApprove override logging', () => {
     submitResult(db, task.key, { summary: 'fixed' }, at(120)); // pending: result newer than review
     reviewApprove(db, task.key, at(150));
     expect(getTask(db, task.key).activity.some((a) => a.body.startsWith('override:'))).toBe(false);
+  });
+});
+
+describe('reviewApprove curation ledger (overridden)', () => {
+  const ledgerOf = (db: ReturnType<typeof makeTestDb>, key: string) => {
+    const c = getTask(db, key).activity.find((a) => a.type === 'comment' && parseCurationComment(a.body));
+    return c ? parseCurationComment(c.body) : null;
+  };
+
+  it('dispositions every open finding as overridden when approving past them, attributed to the reviewer', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2, 'codex') }, at(95));
+    reviewApprove(db, task.key, at(150));
+
+    const parsed = ledgerOf(db, task.key)!;
+    expect(parsed.reviewer).toBe('codex');
+    expect(parsed.dispositions.map((d) => d.disposition)).toEqual(['overridden', 'overridden']);
+    expect(parsed.dispositions.map((d) => d.title)).toEqual(['Finding 1', 'Finding 2']);
+  });
+
+  it('writes no curation ledger for a clean approval', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(0) }, at(95));
+    reviewApprove(db, task.key, at(150));
+    expect(ledgerOf(db, task.key)).toBeNull();
+  });
+
+  it('writes no curation ledger while pending (a result superseded the review)', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2) }, at(95));
+    reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
+    claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
+    submitResult(db, task.key, { summary: 'fixed' }, at(120));
+    reviewApprove(db, task.key, at(150));
+    expect(ledgerOf(db, task.key)).toBeNull();
+  });
+});
+
+describe('analyticsRows curation events', () => {
+  it('emits one event per disposition, tagged with reviewer/workspace and the task fate', () => {
+    const db = makeTestDb();
+    // request-changes forwards one finding, dismisses another; then the task reopens? No —
+    // exercise the override path: approve past 2 findings ⇒ two overridden events.
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2, 'codex') }, at(95));
+    reviewApprove(db, task.key, at(150));
+
+    const { curations } = analyticsRows(db, at(999));
+    const mine = curations.filter((c) => c.taskKey === task.key);
+    expect(mine).toHaveLength(2);
+    expect(mine.every((c) => c.reviewer === 'codex' && c.workspace === 'default' && c.disposition === 'overridden')).toBe(true);
+    expect(mine.every((c) => c.reopened === false && c.failed === false)).toBe(true);
+  });
+
+  it('carries the forwarded split and flags a task that later failed', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2, 'codex') }, at(95));
+    reviewRequestChanges(db, task.key, {
+      feedback: '[reviewer-codex] Finding 1',
+      curation: { reviewer: 'codex', dispositions: [
+        { severity: 'warning', file: 'src/x.ts', line: 1, title: 'Finding 1', disposition: 'forwarded' },
+        { severity: 'warning', file: 'src/x.ts', line: 2, title: 'Finding 2', disposition: 'dismissed' },
+      ] },
+    }, at(100));
+    // a CI failure note lands on the task
+    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 — build broke\n```json\n{"reason":"ci_failed","detail":"x","source":"watcher"}\n```' }, at(160));
+
+    const mine = analyticsRows(db, at(999)).curations.filter((c) => c.taskKey === task.key);
+    expect(mine.map((c) => c.disposition).sort()).toEqual(['dismissed', 'forwarded']);
+    expect(mine.every((c) => c.failed === true)).toBe(true);
   });
 });
 

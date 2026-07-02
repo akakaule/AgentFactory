@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
-import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
+import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput, type RequestChangesCuration } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
@@ -110,8 +110,14 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));
 
-  r.post('/:key/request-changes', zValidator('json', feedbackBody), (c) =>
-    c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
+  r.post('/:key/request-changes', zValidator('json', feedbackBody), (c) => {
+    const b = c.req.valid('json');
+    const input: { feedback: string; actorUserId: number | null; curation?: RequestChangesCuration } = {
+      feedback: b.feedback, actorUserId: actorUserIdOf(c),
+    };
+    if (b.curation) input.curation = b.curation; // explicit build for exactOptionalPropertyTypes
+    return c.json(core.reviewRequestChanges(c.req.param('key'), input));
+  });
 
   // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
   r.post('/:key/pr-reviewed', zValidator('json', prReviewedBody), (c) =>

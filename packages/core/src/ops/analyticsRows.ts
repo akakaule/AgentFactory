@@ -1,8 +1,9 @@
+import type { CurationDisposition, Status, TaskMetricsView } from '../types.js';
 import type { DB } from '../db.js';
-import type { Status, TaskMetricsView } from '../types.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { findingsAtApproval } from '../aiReview.js';
 import { parseFailureComment } from '../failure.js';
+import { parseCurationComment } from '../curation.js';
 import { activitySteps } from '../repo/activity.js';
 import { tokenAggregateFor, stageTokensFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
@@ -22,7 +23,17 @@ export interface AnalyticsTaskRow extends TaskMetricsView {
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 /** One supervisor failure occurrence (every failure/v1 note), for the "why tasks fail" trend. */
 export interface FailureEvent { reason: string; workspace: string; at: string; }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; }
+/**
+ * One finding's curation disposition (every `curation/v1` ledger entry), for the reviewer-
+ * precision KPI. `reopened`/`failed` snapshot the task's later fate so the client can correlate
+ * forwarded findings with reopens/CI failures without a per-task join (the same task-level flag
+ * repeats across that task's entries — the client dedupes by taskKey).
+ */
+export interface CurationEvent {
+  reviewer: string | null; workspace: string; disposition: CurationDisposition;
+  taskKey: string; at: string; reopened: boolean; failed: boolean;
+}
+export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; curations: CurationEvent[]; }
 
 /**
  * All-time per-task metric rows + stranded-release events. The client filters
@@ -37,6 +48,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
   const tasks: AnalyticsTaskRow[] = [];
   const stranded: StrandedRelease[] = [];
   const failures: FailureEvent[] = [];
+  const curations: CurationEvent[] = [];
 
   for (const r of rows) {
     const steps = activitySteps(db, r.id);
@@ -65,6 +77,22 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
         stranded.push({ worker: lastClaim, workspace: r.workspace, at: s.createdAt });
       }
     }
+
+    // Curation ledger → reviewer-precision KPI. Each `curation/v1` entry becomes one event,
+    // tagged with the task's later fate (reopened / any failure/v1) so the client can correlate
+    // forwarded findings with reopens/CI failures.
+    const taskFailed = steps.some((s) => s.type === 'comment' && !!s.body && parseFailureComment(s.body) !== null);
+    for (const s of steps) {
+      if (s.type !== 'comment' || !s.body) continue;
+      const parsed = parseCurationComment(s.body);
+      if (!parsed) continue;
+      for (const d of parsed.dispositions) {
+        curations.push({
+          reviewer: parsed.reviewer, workspace: r.workspace, disposition: d.disposition,
+          taskKey: r.key, at: s.createdAt, reopened: derived.reopened, failed: taskFailed,
+        });
+      }
+    }
   }
-  return { tasks, stranded, failures };
+  return { tasks, stranded, failures, curations };
 }

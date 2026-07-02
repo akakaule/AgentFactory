@@ -56,6 +56,25 @@ export interface AiReviewSummary {
 }
 
 /**
+ * The human's per-finding curation verdict on an AI review, captured at approve /
+ * request-changes time as a `curation/v1` ledger comment (see src/curation.ts):
+ *  - `forwarded`  — sent back to the implementing agent (worth fixing) — a true positive
+ *  - `dismissed`  — unchecked when sending changes back (reviewer noise) — a false positive
+ *  - `overridden` — the task was approved with this finding still open (not blocking)
+ * The reviewer-precision KPI derives from these; MCP strips them from the agent's payload.
+ */
+export type CurationDisposition = 'forwarded' | 'dismissed' | 'overridden';
+
+/** One finding's disposition — the AI-review locator fields plus the human's verdict. */
+export interface CurationEntry {
+  severity: AiReviewSeverity | null;
+  file: string | null;
+  line: number | null;
+  title: string;
+  disposition: CurationDisposition;
+}
+
+/**
  * The latest *current* supervisor failure for a task, derived at read time from the latest
  * `failure/v1` comment vs. the latest result (a successful result supersedes it ⇒ cleared).
  * Purely derived — there is no failure column. See src/failure.ts. null = no current failure.

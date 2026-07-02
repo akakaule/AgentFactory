@@ -6,6 +6,7 @@ import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { upsertDelivery } from '../repo/delivery.js';
 import { latestPrLinkUrl } from '../repo/links.js';
+import { buildCurationComment } from '../curation.js';
 import { InvalidTransitionError } from '../errors.js';
 
 /** Approve-time routing decision: non-null ⇒ the implementation approve enters 'delivering'
@@ -36,6 +37,17 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     appendActivity(db, {
       taskId: row.id, type: 'comment', actor: 'human',
       body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}`,
+      createdAt: ts, actorUserId,
+    });
+    // Curation ledger: approving past open findings dispositions every one of them as
+    // `overridden`. Derived server-side from the review we already have — unambiguous, so no
+    // client input is needed (unlike the forwarded/dismissed split on request-changes). The
+    // reviewer-precision KPI reads this back from the log; MCP strips it from the agent.
+    appendActivity(db, {
+      taskId: row.id, type: 'comment', actor: 'human',
+      body: buildCurationComment(review.reviewer, review.items.map((f) => ({
+        severity: f.severity, file: f.file, line: f.line, title: f.title, disposition: 'overridden' as const,
+      }))),
       createdAt: ts, actorUserId,
     });
   }

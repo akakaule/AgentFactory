@@ -81,10 +81,13 @@ describe('ReviewActions', () => {
     await user.type(screen.getByPlaceholderText(/add your own feedback/i), 'also add a test');
     await user.click(screen.getByRole('button', { name: 'Send back' }));
 
-    expect(onRequestChanges).toHaveBeenCalledWith('[reviewer-codex] Unbounded loop — no cap (src/x.ts:42)\n\n[human] also add a test');
+    expect(onRequestChanges).toHaveBeenCalledWith(
+      '[reviewer-codex] Unbounded loop — no cap (src/x.ts:42)\n\n[human] also add a test',
+      { reviewer: 'codex', dispositions: [{ severity: 'warning', file: 'src/x.ts', line: 42, title: 'Unbounded loop', disposition: 'forwarded' }] },
+    );
   });
 
-  it('omits an unchecked finding from the composed body', async () => {
+  it('omits an unchecked finding from the composed body but records it as dismissed in the curation ledger', async () => {
     const onRequestChanges = vi.fn();
     const user = userEvent.setup();
     render(<ReviewActions aiReview={review({ verdict: 'findings', findings: 2, reviewer: 'codex', items: [finding({ title: 'Keep me', file: null, line: null, detail: null }), finding({ title: 'Drop me', file: null, line: null, detail: null })] })} onApprove={vi.fn()} onRequestChanges={onRequestChanges} />);
@@ -94,9 +97,14 @@ describe('ReviewActions', () => {
     await user.click(screen.getByRole('button', { name: 'Request changes' }));
     await user.click(screen.getByRole('button', { name: 'Send back' }));
 
-    const body = onRequestChanges.mock.calls[0]![0] as string;
+    const [body, curation] = onRequestChanges.mock.calls[0]! as [string, { reviewer: string | null; dispositions: Array<{ title: string; disposition: string }> }];
     expect(body).toContain('Keep me');
     expect(body).not.toContain('Drop me');
+    // the full forward/dismiss split rides beside the feedback as the curation ledger
+    expect(curation.dispositions).toEqual([
+      { severity: 'warning', file: null, line: null, title: 'Keep me', disposition: 'forwarded' },
+      { severity: 'warning', file: null, line: null, title: 'Drop me', disposition: 'dismissed' },
+    ]);
   });
 
   it('shows a plain textarea and sends raw feedback when there is no AI review', async () => {
@@ -108,7 +116,8 @@ describe('ReviewActions', () => {
     await user.type(screen.getByPlaceholderText('Describe what needs to change…'), 'Fix the tests');
     await user.click(screen.getByRole('button', { name: 'Send back' }));
 
-    expect(onRequestChanges).toHaveBeenCalledWith('Fix the tests');
+    // no AI review to curate → no curation ledger rides along
+    expect(onRequestChanges).toHaveBeenCalledWith('Fix the tests', undefined);
   });
 
   it('does not send when nothing is selected and the note is empty', async () => {

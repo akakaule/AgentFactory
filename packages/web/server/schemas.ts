@@ -22,7 +22,19 @@ export const createBody = z.object({
 export const updateBody = z.object({ title: z.string().min(1).optional(), spec: z.string().min(1).optional(), acceptanceCriteria: z.string().min(1).optional() });
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum, note: z.string().optional() });
-export const feedbackBody = z.object({ feedback: z.string().min(1) });
+// request-changes carries the curated feedback plus the optional per-finding disposition ledger
+// (which reviewer findings were forwarded vs. dismissed) — persisted as a `curation/v1` comment.
+const curationEntry = z.object({
+  severity: z.enum(['info', 'warning', 'error']).nullable(),
+  file: z.string().nullable(),
+  line: z.number().int().nullable(),
+  title: z.string().min(1),
+  disposition: z.enum(['forwarded', 'dismissed', 'overridden']),
+});
+export const feedbackBody = z.object({
+  feedback: z.string().min(1),
+  curation: z.object({ reviewer: z.string().nullable(), dispositions: z.array(curationEntry) }).optional(),
+});
 // "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
 export const prReviewedBody = z.object({ review: z.string().optional() });
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });

@@ -211,6 +211,40 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
             </div>
           )}
 
+          {/* Reviewer precision — the curation firewall's judgment signal, per engine */}
+          {a.reviewerPrecision.length > 0 && (
+            <div className="an-panel span">
+              <div className="an-ph"><h3>Reviewer precision</h3><small>· AI findings the human forwarded vs. dismissed, {rangeLabel}</small></div>
+              <table className="an-table">
+                <thead>
+                  <tr>
+                    <th>Engine</th><th>Precision</th><th className="r">Forwarded</th><th className="r">Dismissed</th>
+                    <th className="r">Overridden</th><th className="r">Findings</th><th>Fwd → reopen/CI-fail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {a.reviewerPrecision.map((rp) => {
+                    const p = Math.round(rp.precision * 100);
+                    return (
+                      <tr key={rp.reviewer}>
+                        <td className="mono">{rp.reviewer}</td>
+                        <td><span className={'an-pill ' + (p >= 75 ? 'good' : p >= 50 ? 'warn' : 'bad')}><span className="dot" style={{ background: 'currentColor' }}></span>{p}%</span></td>
+                        <td className="r mono">{rp.forwarded}</td>
+                        <td className="r mono">{rp.dismissed}</td>
+                        <td className="r mono">{rp.overridden}</td>
+                        <td className="r mono">{rp.total}</td>
+                        <td className="mono dim">{rp.tasksForwarded === 0
+                          ? <span className="dim">—</span>
+                          : `${rp.fwdReopenedOrFailed} / ${rp.tasksForwarded}`}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="an-caption">Precision = forwarded ÷ all dispositioned findings — how often this reviewer's findings were worth acting on. The last column correlates forwarding its findings with tasks that later reopened or failed CI.</div>
+            </div>
+          )}
+
           {/* Workers */}
           <div className="an-panel span">
             <div className="an-ph"><h3>Workers</h3><small>· {rangeLabel}</small></div>

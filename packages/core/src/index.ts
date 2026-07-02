@@ -14,6 +14,7 @@ export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
+export { isCurationMarker, parseCurationComment, buildCurationComment, type ParsedCuration } from './curation.js';
 export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
 export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 export { type DeliveryObservation } from './repo/delivery.js';
@@ -22,8 +23,8 @@ export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
-export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
-export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
+export { reviewRequestChanges, type RequestChangesCuration } from './ops/reviewRequestChanges.js';
+export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type CurationEvent, type AnalyticsData } from './ops/analyticsRows.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { addAttachment } from './ops/addAttachment.js';
 export { deleteAttachment } from './ops/deleteAttachment.js';
@@ -62,7 +63,7 @@ import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, fail
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
-import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
+import { reviewRequestChanges, type RequestChangesCuration } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
 import { addTaskMetrics } from './ops/addTaskMetrics.js';
 import { addAttachment } from './ops/addAttachment.js';
@@ -133,7 +134,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     completeDelivery: (key: string, note: string) => completeDelivery(db, key, note),
     failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined }) => failDelivery(db, key, input),
     reviewPrReviewed: (key: string, input: { review?: string | undefined; actorUserId?: number | null }) => reviewPrReviewed(db, key, input),
-    reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
+    reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null; curation?: RequestChangesCuration | undefined }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
     addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, input),
     addAttachment: (key: string, input: AddAttachmentInput) => addAttachment(db, key, input),

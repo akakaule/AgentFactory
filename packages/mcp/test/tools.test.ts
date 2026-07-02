@@ -230,15 +230,20 @@ describe('ai-review activity strip', () => {
     expect(detail.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('ai-review/v1'))).toBe(false);
   });
 
-  it('get_next_task strips ai-review on reclaim but the curated feedback rides through', async () => {
+  it('get_next_task strips ai-review + curation on reclaim but the curated feedback rides through', async () => {
     const { client, core } = await makeClient();
     const t = reviewedTask(core);
-    // human curates feedback and sends it back → task re-queues
-    core.reviewRequestChanges(t.key, { feedback: '[reviewer-codex] Unbounded loop\n\n[human] also add a test' });
+    // human curates feedback and sends it back → task re-queues; the forward/dismiss split
+    // is persisted as a curation/v1 ledger that must ALSO be hidden from the agent.
+    core.reviewRequestChanges(t.key, {
+      feedback: '[reviewer-codex] Unbounded loop\n\n[human] also add a test',
+      curation: { reviewer: 'codex', dispositions: [{ severity: null, file: null, line: null, title: 'Unbounded loop', disposition: 'forwarded' }] },
+    });
 
     const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
     expect(payload.key).toBe(t.key);
     expect(payload.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('ai-review/v1'))).toBe(false);
+    expect(payload.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('curation/v1'))).toBe(false);
     const feedback = payload.activity.find((a: any) => a.type === 'feedback');
     expect(feedback).toBeTruthy();
     expect(feedback.body).toContain('[reviewer-codex]');

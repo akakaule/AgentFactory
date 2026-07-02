@@ -52,7 +52,14 @@ describe('e2e: a worked loop lands in the analytics', () => {
 
     worker.claimNextTask({ claimedBy: 'worker-1' });
     worker.submitResult(t.key, { summary: 'v1' });
-    await post(app, `/api/tasks/${t.key}/request-changes`, { feedback: 'tighten it up' });
+    await post(app, `/api/tasks/${t.key}/request-changes`, {
+      feedback: 'tighten it up',
+      // the curation firewall's forward/dismiss split rides the request-changes over HTTP
+      curation: { reviewer: 'codex', dispositions: [
+        { severity: 'warning', file: 'src/x.ts', line: 1, title: 'Keep', disposition: 'forwarded' },
+        { severity: 'info', file: null, line: null, title: 'Drop', disposition: 'dismissed' },
+      ] },
+    });
     worker.claimNextTask({ claimedBy: 'worker-1' });
     worker.submitResult(t.key, { summary: 'v2' });
     await post(app, `/api/tasks/${t.key}/approve`);
@@ -80,6 +87,7 @@ describe('e2e: a worked loop lands in the analytics', () => {
         model: string | null; tokensIn: number | null; costUsd: number | null;
       }>;
       stranded: Array<{ worker: string | null; workspace: string }>;
+      curations: Array<{ reviewer: string | null; workspace: string; disposition: string; taskKey: string }>;
     };
 
     const row = body.tasks.find((x) => x.key === t.key)!;
@@ -92,5 +100,11 @@ describe('e2e: a worked loop lands in the analytics', () => {
 
     expect(body.stranded).toHaveLength(1);
     expect(body.stranded[0]).toMatchObject({ worker: 'worker-2', workspace: 'default' });
+
+    // the curation ledger flowed end-to-end: HTTP request-changes → curation/v1 comment → analytics
+    const curations = body.curations.filter((c) => c.taskKey === t.key);
+    expect(curations).toHaveLength(2);
+    expect(curations.every((c) => c.reviewer === 'codex' && c.workspace === 'default')).toBe(true);
+    expect(curations.map((c) => c.disposition).sort()).toEqual(['dismissed', 'forwarded']);
   });
 });

@@ -12,7 +12,12 @@ export interface AnalyticsTaskRow {
 }
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 export interface FailureEvent { reason: string; workspace: string; at: string; }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; }
+export type CurationDisposition = 'forwarded' | 'dismissed' | 'overridden';
+export interface CurationEvent {
+  reviewer: string | null; workspace: string; disposition: CurationDisposition;
+  taskKey: string; at: string; reopened: boolean; failed: boolean;
+}
+export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; curations: CurationEvent[]; }
 
 /** Friendly labels for known supervisor failure reasons; unknown reasons render as-is. */
 export const FAILURE_LABELS: Record<string, string> = {
@@ -26,6 +31,19 @@ export interface WorkerStats {
   name: string; ws: string; claims: number; done: number;
   firstPass: number | null; medWork: number | null; releases: number;
   tokens: number | null; cost: number | null; branch: string | null;
+}
+/**
+ * One reviewer engine's curation-firewall track record, over the selected workspace/range.
+ * `precision` = forwarded / all dispositioned findings — the fraction of what the reviewer
+ * surfaced that the human deemed worth acting on. `fwdReopenedOrFailed` / `tasksForwarded`
+ * correlates forwarding this reviewer's findings with tasks that later reopened or failed CI.
+ */
+export interface ReviewerPrecision {
+  reviewer: string; // engine label; '(unattributed)' when the review carried no reviewer name
+  forwarded: number; dismissed: number; overridden: number; total: number;
+  precision: number; // 0..1
+  tasksForwarded: number; // unique tasks with ≥1 forwarded finding from this reviewer
+  fwdReopenedOrFailed: number; // of those, how many were later reopened or hit a CI/delivery failure
 }
 export interface ComputedAnalytics {
   hasData: boolean;
@@ -46,6 +64,7 @@ export interface ComputedAnalytics {
   tokenCoverage: { reported: number; total: number };
   workers: WorkerStats[];
   failures: { byReason: Array<{ reason: string; label: string; count: number }>; total: number; max: number };
+  reviewerPrecision: ReviewerPrecision[];
 }
 
 export const STAGES: Array<{ key: StageKey; field: keyof AnalyticsTaskRow; label: string; hue: string }> = [
@@ -223,5 +242,36 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     .sort((a, b) => b.count - a.count);
   const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
 
-  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workers, failures };
+  // Reviewer precision: per engine, how the human dispositioned its findings (the curation
+  // firewall's judgment signal), and whether forwarding them correlated with reopens/CI failures.
+  // Tolerate a stale server build that predates `curations`.
+  const REVIEWER_UNATTRIBUTED = '(unattributed)';
+  const curationsIn = (data.curations ?? []).filter((c) => matchWs(c.workspace) && Date.parse(c.at) >= cutoff);
+  const byReviewer = new Map<string, {
+    forwarded: number; dismissed: number; overridden: number;
+    forwardedTasks: Set<string>; reopenedOrFailedTasks: Set<string>;
+  }>();
+  for (const c of curationsIn) {
+    const key = c.reviewer ?? REVIEWER_UNATTRIBUTED;
+    let e = byReviewer.get(key);
+    if (!e) { e = { forwarded: 0, dismissed: 0, overridden: 0, forwardedTasks: new Set(), reopenedOrFailedTasks: new Set() }; byReviewer.set(key, e); }
+    e[c.disposition] += 1;
+    if (c.disposition === 'forwarded') {
+      e.forwardedTasks.add(c.taskKey);
+      if (c.reopened || c.failed) e.reopenedOrFailedTasks.add(c.taskKey);
+    }
+  }
+  const reviewerPrecision: ReviewerPrecision[] = [...byReviewer.entries()]
+    .map(([reviewer, e]) => {
+      const total = e.forwarded + e.dismissed + e.overridden;
+      return {
+        reviewer, forwarded: e.forwarded, dismissed: e.dismissed, overridden: e.overridden, total,
+        precision: total ? e.forwarded / total : 0,
+        tasksForwarded: e.forwardedTasks.size,
+        fwdReopenedOrFailed: e.reopenedOrFailedTasks.size,
+      };
+    })
+    .sort((a, b) => b.total - a.total || b.precision - a.precision);
+
+  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workers, failures, reviewerPrecision };
 }
