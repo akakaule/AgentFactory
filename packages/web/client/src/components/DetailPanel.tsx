@@ -12,6 +12,7 @@ import { LiveSection } from './LiveSection.js';
 import { TranscriptSection } from './TranscriptSection.js';
 import { VisualizationSection } from './VisualizationSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
+import { DeliveryChip } from './DeliveryChip.js';
 import { FailureBanner } from './FailureBanner.js';
 import { BlockedBanner } from './BlockedBanner.js';
 import { StatusTrail } from './StatusTrail.js';
@@ -238,10 +239,49 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                   aiReview={task.aiReview ?? undefined}
                   stage={task.stage}
                   kind={task.kind}
+                  willDeliver={task.stage === 'implementation' && task.kind === 'code' && task.branch != null}
                   onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
                   onMarkReviewed={(review) => api.markPrReviewed(task.key, review).then(afterMutation).catch(() => {})}
                   onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
                 />
+              )}
+
+              {task.status === 'delivering' && task.delivery && (
+                <div className="af-delivery-sec">
+                  <div className="hd">
+                    <DeliveryChip delivery={task.delivery} />
+                    {task.delivery.checkedAt && (
+                      <span className="checked">last checked {timeAgo(task.delivery.checkedAt)}</span>
+                    )}
+                  </div>
+                  {task.delivery.failing.length > 0 && (
+                    <ul className="af-delivery-fails">
+                      {task.delivery.failing.map((c, i) => (
+                        <li key={i}>
+                          {c.url
+                            ? <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a>
+                            : <span>{c.name}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="af-delivery-acts">
+                    <button
+                      className="af-mini go"
+                      onClick={() => api.setStatus(task.key, 'done').then(afterMutation).catch(() => {})}
+                      title="Force-complete — use when there is no CI or the watcher is down."
+                    >
+                      Mark done
+                    </button>
+                    <button
+                      className="af-mini"
+                      onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
+                      title="Pull the task back to the queue for rework."
+                    >
+                      Re-queue
+                    </button>
+                  </div>
+                </div>
               )}
 
               {editing && task.status === 'backlog' && (

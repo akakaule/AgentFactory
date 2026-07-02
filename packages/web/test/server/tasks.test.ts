@@ -294,6 +294,42 @@ describe('tasks REST API', () => {
     });
   });
 
+  describe('delivering — human overrides + list filter', () => {
+    // Drive a task into 'delivering' the way the lifecycle allows in a test: the in_review →
+    // delivering edge is a human move, so we can reach it without a live git host / watcher.
+    const toDelivering = (title: string) => {
+      const task = core.createTask({ title, spec: 'Spec', acceptanceCriteria: 'AC' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(task.key, { summary: 'Done!' });
+      core.updateStatus(task.key, 'delivering', 'human');
+      return task.key;
+    };
+
+    it('POST /:key/status {done} force-completes a delivering task → 200', async () => {
+      const key = toDelivering('Deliver A');
+      const res = await post(app, `/api/tasks/${key}/status`, { status: 'done' });
+      expect(res.status).toBe(200);
+      expect((await res.json() as { status: string }).status).toBe('done');
+    });
+
+    it('POST /:key/status {queued} re-queues a delivering task → 200', async () => {
+      const key = toDelivering('Deliver B');
+      const res = await post(app, `/api/tasks/${key}/status`, { status: 'queued' });
+      expect(res.status).toBe(200);
+      expect((await res.json() as { status: string }).status).toBe('queued');
+    });
+
+    it('GET /api/tasks?status=delivering returns the delivering task', async () => {
+      const key = toDelivering('Deliver C');
+      const res = await app.request('/api/tasks?status=delivering');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Array<{ key: string; status: string }>;
+      expect(body.map((t) => t.key)).toEqual([key]);
+      expect(body[0]!.status).toBe('delivering');
+    });
+  });
+
   describe('POST /:key/approve', () => {
     it('approves a task in_review → 200, status done', async () => {
       // Create task and drive to in_review via core

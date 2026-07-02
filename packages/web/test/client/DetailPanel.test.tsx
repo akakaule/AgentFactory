@@ -464,6 +464,37 @@ describe('DetailPanel', () => {
     expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
   });
 
+  it('shows the delivery section with Mark done / Re-queue on a delivering task', async () => {
+    const mocked = await getApiMock();
+    mocked.setStatus.mockClear();
+    mocked.setStatus.mockResolvedValue({});
+    const deliveringTask: TaskDetail = {
+      ...inReviewTask,
+      key: 'AF-21',
+      status: 'delivering',
+      delivery: {
+        provider: 'github', branch: 'feature/AF-21-x', prUrl: 'https://github.com/o/r/pull/21', prId: '21',
+        prState: 'open', checksState: 'failing',
+        failing: [{ name: 'unit-tests', url: 'https://ci/run/1' }],
+        checkedAt: '2026-07-02T00:00:00Z', stateChangedAt: '2026-07-02T00:00:00Z',
+      },
+    };
+    mocked.getTask.mockResolvedValue(deliveringTask);
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-21" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    // the chip and the failing-check link both render
+    expect(await screen.findByText('PR #21 · checks failed')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'unit-tests' })).toHaveAttribute('href', 'https://ci/run/1');
+
+    await user.click(screen.getByRole('button', { name: 'Re-queue' }));
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-21', 'queued');
+
+    await user.click(screen.getByRole('button', { name: 'Mark done' }));
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-21', 'done');
+  });
+
   it('calls onClose when the close button is clicked', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(backlogTask);

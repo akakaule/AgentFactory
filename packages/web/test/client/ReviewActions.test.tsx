@@ -19,6 +19,21 @@ describe('ReviewActions', () => {
     expect(onApprove).toHaveBeenCalledTimes(1);
   });
 
+  it('labels approve "Approve → deliver" when it will route to delivering', async () => {
+    const onApprove = vi.fn();
+    const user = userEvent.setup();
+    render(<ReviewActions stage="implementation" kind="code" willDeliver onApprove={onApprove} onRequestChanges={vi.fn()} />);
+    const btn = screen.getByRole('button', { name: 'Approve → deliver' });
+    await user.click(btn);
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the plain "Approve" label when it will not deliver', () => {
+    render(<ReviewActions stage="implementation" kind="code" onApprove={vi.fn()} onRequestChanges={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve → deliver' })).not.toBeInTheDocument();
+  });
+
   it('approves in one click when the AI review is clean', async () => {
     const onApprove = vi.fn();
     const user = userEvent.setup();

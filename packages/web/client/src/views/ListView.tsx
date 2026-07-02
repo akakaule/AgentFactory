@@ -4,7 +4,7 @@ import { shortTime } from '../time.js';
 
 // active work first, archive last (per the design handoff)
 const ORDER: Record<Task['status'], number> = {
-  in_progress: 0, in_review: 1, blocked: 2, queued: 3, backlog: 4, done: 5,
+  in_progress: 0, in_review: 1, delivering: 2, blocked: 3, queued: 4, backlog: 5, done: 6,
 };
 
 interface Props {

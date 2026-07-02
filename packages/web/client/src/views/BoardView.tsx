@@ -10,6 +10,7 @@ const HUMAN_MOVES: Record<Status, Status[]> = {
   queued: [],
   in_progress: ['queued'], // release a stranded claim
   in_review: ['queued', 'done'],
+  delivering: ['queued', 'done'], // human override: re-queue for rework, or force-complete
   blocked: ['queued'],
   done: [],
 };

@@ -74,13 +74,27 @@ describe('BoardView', () => {
   it('renders a column for every status in lifecycle order', () => {
     render(<BoardView tasks={tasks} onSelect={vi.fn()} />);
 
-    // All 6 status badges appear (column headers)
+    // All status badges appear (column headers), including the new Delivering column
     expect(screen.getAllByText('Backlog').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('In Progress').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('In Review').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Delivering').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Blocked').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Done').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows the delivery chip on a delivering card', () => {
+    const delivering = {
+      ...makeTask('AF-20', 'Shipping task', 'delivering'),
+      delivery: {
+        provider: 'github' as const, branch: 'feature/AF-20-x', prUrl: null, prId: '20',
+        prState: 'open' as const, checksState: 'pending' as const, failing: [],
+        checkedAt: null, stateChangedAt: '2024-01-01T00:00:00Z',
+      },
+    };
+    render(<BoardView tasks={[delivering]} onSelect={vi.fn()} />);
+    expect(screen.getByText('PR #20 · checks running')).toBeInTheDocument();
   });
 
   it('places each task in its status column', () => {
