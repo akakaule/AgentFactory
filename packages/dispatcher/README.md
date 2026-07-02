@@ -47,6 +47,7 @@ sessions are killed.
 | `stageArgs` | — (optional) | Per-stage extra args — see [Per-stage model selection](#per-stage-model-selection). |
 | `maxSessionMinutes` | `60` | Hard wall-clock cap; the supervisor kills a session that exceeds it (counts as an attempt). |
 | `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left queued for a human. |
+| `staleClaimMinutes` | `120` | DB-scan reaper threshold. Each tick, an `in_progress` claim with no live child (a dispatcher orphan left by a restart, or an abandoned interactive `/work-task` claim) is released back to `queued` once its staleness — now − (live heartbeat, else `claimed_at`) — exceeds this. A still-alive orphaned worker keeps heartbeating and is left alone. `0` disables it; keep it ≥ `maxSessionMinutes`. |
 
 See [`dispatcher.config.example.json`](./dispatcher.config.example.json).
 
@@ -98,6 +99,11 @@ prompt it cannot answer.
   `in_progress` under that session's label (crash, non-zero exit, or timeout kill), it
   comments the log tail, releases the claim (`in_progress → queued`), and retries — up to
   `maxAttempts`, after which the task is skip-listed with a console warning.
+- **Reaps stale claims** it does *not* hold: each tick it scans `in_progress` tasks and releases
+  any whose live heartbeat (else `claimed_at`) is older than `staleClaimMinutes`, posting a
+  `stale` `failure/v1` note. This recovers orphans left by a supervisor restart and abandoned
+  interactive `/work-task` claims — the in-memory reap above only covers a child still running.
+  A dispatcher-labelled orphan keeps its attempt budget; a foreign claim just returns to the queue.
 - **Logs** every session to `logs/<key>-attempt-<n>.log` (stdout + stderr); the release
   comment quotes the tail.
 

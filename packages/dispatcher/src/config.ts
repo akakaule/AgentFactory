@@ -43,6 +43,16 @@ export const configSchema = z.object({
   /** Attempts a task gets before it is skip-listed. */
   maxAttempts: z.number().int().positive().default(2),
   /**
+   * DB-scan reaper threshold, minutes. Each tick, an `in_progress` claim NOT owned by a live
+   * child (a dispatcher orphan left by a supervisor restart, or an abandoned interactive
+   * `/work-task` claim) is released back to `queued` once its staleness — now − (live
+   * agent_session heartbeat, else claimed_at) — exceeds this. A still-alive orphaned worker
+   * keeps heartbeating via report_progress and is left alone. `0` disables the reaper. Keep it
+   * ≥ `maxSessionMinutes` and well above normal report_progress gaps so healthy long-thinking
+   * sessions are never yanked.
+   */
+  staleClaimMinutes: z.number().nonnegative().default(120),
+  /**
    * Optional OpenTelemetry export. When set, spawned sessions export token usage as OTLP
    * logs to `endpoint` (e.g. the AgentFactory web server's `/v1/logs`), tagged with the task
    * key — so usage is captured for interactive/streamed runs too. Its presence also disables

@@ -16,7 +16,7 @@ export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRe
 
 /** Friendly labels for known supervisor failure reasons; unknown reasons render as-is. */
 export const FAILURE_LABELS: Record<string, string> = {
-  timeout: 'Timed out', crashed: 'Crashed', permission_denied: 'Permission denied',
+  timeout: 'Timed out', crashed: 'Crashed', stale: 'Stale claim', permission_denied: 'Permission denied',
   max_attempts: 'Out of attempts', review_failed: 'Auto-review failed',
 };
 

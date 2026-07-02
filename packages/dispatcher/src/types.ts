@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput } from '@agentfactory/core';
 
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
@@ -7,6 +7,7 @@ import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AddTaskMetri
  */
 export interface DispatcherCore {
   listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
+  getTask(key: string): TaskDetail;
   listWorkspaces(): Workspace[];
   updateStatus(key: string, status: Status, actor: Actor): TaskDetail;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;
@@ -14,6 +15,8 @@ export interface DispatcherCore {
   // live agent status: keep a running session warm, and end it when the process exits
   touchAgentSession(key: string): void;
   endAgentSession(key: string): void;
+  // stale-claim reaper: read live-session heartbeats to detect orphaned in_progress claims
+  listLiveAgents(): AgentSessionView[];
   // supervisor health: report a heartbeat each poll so the board knows the loop is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): void;
   // agent transcript: tail the running session's raw JSONL live, then persist it whole at exit

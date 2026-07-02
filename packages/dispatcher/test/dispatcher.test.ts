@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { InvalidTransitionError, type Core } from '@agentfactory/core';
 import { Dispatcher } from '../src/dispatcher.js';
 import {
   makeCore,
@@ -393,6 +394,192 @@ describe('session timeout', () => {
     // released, then re-served in the same cycle as attempt 2
     expect(calls.length).toBe(2);
     expect(workerLabel(calls[1]!.req.env)).toContain('-a2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stale-claim reaper (DB-scan recovery of orphaned in_progress claims)
+// ---------------------------------------------------------------------------
+describe('stale-claim reaper', () => {
+  const HOUR = 3_600_000;
+  // The core stamps DB rows with real system time (nowIso), while deps.now() is injected.
+  // Offsetting deps.now() into the future makes a just-made claim look that many ms stale,
+  // and — because a spawned session's startedAtMs uses the same offset clock — keeps
+  // enforceTimeouts inert (its elapsed measurement nets the offset out to ~0).
+  const staleNow = (ms: number) => () => Date.now() + ms;
+
+  it('reaps a stale interactive claim, posts a stale failure note, and respawns it', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Abandoned');
+    // an interactive /work-task style claim: plain workspace label, no live dispatcher child
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: log }));
+
+    await d.tick();
+
+    const t = core.getTask(key);
+    // released and re-served in the same tick as a fresh dispatcher attempt
+    expect(calls.length).toBe(1);
+    expect(workerLabel(calls[0]!.req.env)).toBe(`ws#${key}-a1`);
+    const comment = t.activity.find((a) => a.type === 'comment' && a.body.includes('failure/v1'));
+    expect(comment).toBeTruthy();
+    expect(comment!.body).toContain('"reason":"stale"');
+    expect(comment!.body).toContain('"source":"dispatcher"');
+    // a foreign claim carries no attempt budget, so no attempt bookkeeping in the note
+    expect(comment!.body).not.toContain('"attempt"');
+    expect(d.isSkipListed(key)).toBe(false);
+    // the orphaned live session row was ended by the release
+    expect(core.listLiveAgents().some((a) => a.key === key)).toBe(false);
+    expect(log.logs.some((l) => l.includes('reaping stale claim'))).toBe(true);
+  });
+
+  it('never reaps its own live child', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Working');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: makeFakeConsole() }));
+
+    await d.tick(); // spawn
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+
+    await d.tick(); // the reaper must skip the live child despite the stale-looking offset clock
+
+    const t = core.getTask(key);
+    expect(t.status).toBe('in_progress');
+    expect(t.claimedBy).toBe(label);
+    expect(calls[0]!.child.killed).toBe(false);
+    expect(t.activity.some((a) => a.body.includes('failure/v1'))).toBe(false);
+    expect(calls.length).toBe(1); // not respawned
+  });
+
+  it('leaves a claim whose heartbeat is within the threshold', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Recent');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120 }), makeDeps(core, spawn, { now: staleNow(30 * 60_000), console: makeFakeConsole() }));
+
+    await d.tick(); // 30m < 120m ⇒ not stale
+
+    const t = core.getTask(key);
+    expect(t.status).toBe('in_progress');
+    expect(t.activity.some((a) => a.body.includes('failure/v1'))).toBe(false);
+    expect(calls.length).toBe(0);
+  });
+
+  it('falls back to claimed_at when the live session row is gone', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'NoSession');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
+    core.endAgentSession(key); // drop the live heartbeat row; only task.claimed_at remains
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: makeFakeConsole() }));
+
+    await d.tick();
+
+    const t = core.getTask(key);
+    expect(t.activity.some((a) => a.type === 'comment' && a.body.includes('"reason":"stale"'))).toBe(true);
+    expect(calls.length).toBe(1); // respawned from the claimed_at fallback
+  });
+
+  it('tolerates a race where the release transition is no longer valid', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Racy');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
+    const { spawn } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    // updateStatus throws as if a human settled the task in the gap before release
+    const racy = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'updateStatus') return () => { throw new InvalidTransitionError('in_progress -> queued raced'); };
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120 }), makeDeps(racy, spawn, { now: staleNow(3 * HOUR), console: log }));
+
+    await expect(d.tick()).resolves.toBeUndefined(); // never throws out of the tick
+
+    // release-first ordering ⇒ no spurious failure note when the release lost the race
+    expect(core.getTask(key).activity.some((a) => a.body.includes('failure/v1'))).toBe(false);
+    expect(d.isSkipListed(key)).toBe(false);
+    expect(log.logs.some((l) => l.toLowerCase().includes('race'))).toBe(true);
+  });
+
+  it('aborts silently when the task advanced out of in_progress before release', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Advanced');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
+    const { spawn, calls } = makeFakeSpawn();
+    // the freshness re-check sees the task already moved to in_review (a concurrent submit)
+    const proxy = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'getTask') return (k: string) => ({ ...target.getTask(k), status: 'in_review' });
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120 }), makeDeps(proxy, spawn, { now: staleNow(3 * HOUR), console: makeFakeConsole() }));
+
+    await d.tick();
+
+    const t = core.getTask(key); // the real task was never released or commented on
+    expect(t.status).toBe('in_progress');
+    expect(t.activity.some((a) => a.body.includes('failure/v1'))).toBe(false);
+    expect(calls.length).toBe(0);
+  });
+
+  it('skip-lists a dispatcher-orphaned claim at the attempt cap and does not respawn it', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Orphan');
+    core.claimNextTask({ workspace: 'ws', claimedBy: `ws#${key}-a2` }); // orphaned at attempt 2
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120, maxAttempts: 2 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: log }));
+
+    await d.tick();
+
+    const t = core.getTask(key);
+    expect(t.status).toBe('queued');
+    const comment = t.activity.find((a) => a.body.includes('"reason":"stale"'));
+    expect(comment!.body).toContain('attempt 2/2');
+    expect(d.isSkipListed(key)).toBe(true);
+    expect(t.activity.some((a) => a.body.includes('"reason":"max_attempts"'))).toBe(true);
+    expect(calls.length).toBe(0); // skip-listed ⇒ not respawned
+  });
+
+  it('re-serves a stale dispatcher-orphan below the cap as the next attempt', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'OrphanRetry');
+    core.claimNextTask({ workspace: 'ws', claimedBy: `ws#${key}-a1` });
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120, maxAttempts: 2 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: makeFakeConsole() }));
+
+    await d.tick();
+
+    expect(core.getTask(key).status).toBe('queued');
+    expect(d.isSkipListed(key)).toBe(false);
+    expect(calls.length).toBe(1);
+    // the parsed attempt carried across the reap ⇒ the respawn is attempt 2
+    expect(workerLabel(calls[0]!.req.env)).toBe(`ws#${key}-a2`);
+  });
+
+  it('does nothing when staleClaimMinutes is 0', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Disabled');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 0 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: makeFakeConsole() }));
+
+    await d.tick();
+
+    const t = core.getTask(key);
+    expect(t.status).toBe('in_progress');
+    expect(t.activity.some((a) => a.body.includes('failure/v1'))).toBe(false);
+    expect(calls.length).toBe(0);
   });
 });
 

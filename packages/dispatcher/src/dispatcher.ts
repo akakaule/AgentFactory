@@ -1,5 +1,5 @@
-import { buildFailureComment } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -62,6 +62,12 @@ export class Dispatcher {
   /** Begin polling on the configured interval. Runs one tick immediately. */
   start(): void {
     if (this.timer) return;
+    if (this.config.staleClaimMinutes > 0 && this.config.staleClaimMinutes < this.config.maxSessionMinutes) {
+      this.console.warn(
+        `[dispatcher] staleClaimMinutes (${this.config.staleClaimMinutes}) < maxSessionMinutes (${this.config.maxSessionMinutes}); ` +
+          `the reaper may release a still-alive orphaned worker mid-gap — raise it to at least maxSessionMinutes`,
+      );
+    }
     void this.safeTick();
     this.timer = setInterval(() => void this.safeTick(), this.config.pollSeconds * 1000);
   }
@@ -95,6 +101,7 @@ export class Dispatcher {
     this.touchLiveSessions();
     this.tailTranscripts();
     this.recordHeartbeat();
+    this.reapStaleClaims();
     for (const workspace of this.config.workspaces) this.pollWorkspace(workspace);
   }
 
@@ -145,6 +152,82 @@ export class Dispatcher {
       }
     }
   }
+
+  // -- stale-claim reaping ---------------------------------------------------
+
+  /**
+   * Release `in_progress` claims that have gone silent — a dispatcher orphan left by a restart
+   * (this process no longer holds the child, so enforceTimeouts/reap can never see it) or an
+   * abandoned interactive `/work-task` claim. Staleness = now − (live agent_session heartbeat,
+   * else claimed_at) > staleClaimMinutes. A claim this dispatcher is actively running is skipped
+   * (governed by enforceTimeouts, kept warm by touchLiveSessions). Runs each tick before
+   * pollWorkspace so a freed task is re-served in the same cycle.
+   */
+  private reapStaleClaims(): void {
+    if (this.config.staleClaimMinutes <= 0) return;
+    const thresholdMs = this.config.staleClaimMinutes * 60_000;
+    const now = this.deps.now();
+
+    // task key -> last live heartbeat. Best-effort: an observability read must never break the tick.
+    const heartbeats = new Map<string, string>();
+    try {
+      for (const a of this.deps.core.listLiveAgents()) heartbeats.set(a.key, a.heartbeatAt);
+    } catch (err) {
+      this.console.error(`[dispatcher] stale-claim scan skipped: listLiveAgents failed: ${(err as Error).message}`);
+      return;
+    }
+
+    for (const workspace of this.config.workspaces) {
+      for (const task of this.deps.core.listTasks({ status: 'in_progress', workspace })) {
+        if (task.claimedBy !== null && this.running.has(task.claimedBy)) continue; // our own live child
+        if (this.hasRunningFor(task.key)) continue; // a session we just spawned, not yet claimed
+
+        const lastSeen = heartbeats.get(task.key) ?? task.claimedAt;
+        if (!lastSeen) continue; // no signal at all — leave it for a human
+        const seenMs = Date.parse(lastSeen);
+        if (!Number.isFinite(seenMs) || now - seenMs <= thresholdMs) continue;
+
+        // Re-read immediately before releasing: in_review→queued and blocked→queued are BOTH legal
+        // human edges, so a raced release against a just-advanced task would SILENTLY succeed and
+        // yank it back. Abort unless it is still the same in_progress claim we scanned; the release
+        // itself also catches InvalidTransitionError for the residual cross-process window.
+        const fresh = this.tryGetTask(task.key);
+        if (!fresh || fresh.status !== 'in_progress' || fresh.claimedBy !== task.claimedBy) continue;
+
+        const ageMinutes = Math.round((now - seenMs) / 60_000);
+        const label = task.claimedBy ?? 'unknown';
+        this.console.log(`[dispatcher] reaping stale claim ${task.key} (claimed by ${label}, no heartbeat for ${ageMinutes}m)`);
+        this.releaseClaim(task.key, {
+          reason: 'stale',
+          detail: `claim by \`${label}\` looks abandoned — no heartbeat for ${ageMinutes}m (staleClaimMinutes ${this.config.staleClaimMinutes})`,
+          body:
+            'The supervisor found this task `in_progress` with no live agent activity — typically an ' +
+            'orphaned claim after a supervisor or session crash. Releasing it back to the queue for pickup.',
+          attempt: this.parseAttempt(task.claimedBy),
+        });
+      }
+    }
+  }
+
+  /** getTask that swallows a NotFound race (the task vanished under us), returning null. */
+  private tryGetTask(key: string): TaskDetail | null {
+    try {
+      return this.deps.core.getTask(key);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Attempt number embedded in a dispatcher worker label (`ws#KEY-aN`), or undefined for a plain
+   * (interactive `/work-task`) label. Gates whether a reaped claim carries a retry/skip-list budget.
+   */
+  private parseAttempt(label: string | null): number | undefined {
+    const m = label?.match(/^.+#.+-a(\d+)$/);
+    return m ? Number(m[1]) : undefined;
+  }
+
+  // -- liveness --------------------------------------------------------------
 
   /** Keep each running session's live row warm between agent milestones (best-effort liveness). */
   private touchLiveSessions(): void {
@@ -429,32 +512,58 @@ export class Dispatcher {
     }
   }
 
+  /** A dead session's claim: build the crash/timeout note and release it through releaseClaim. */
   private releaseAndRetry(session: Session, key: string, code: number | null): void {
-    const attempt = session.attempt;
-    this.attempts.set(key, attempt);
-
-    const reasonCode = session.timedOut ? 'timeout' : 'crashed';
+    const reasonCode: FailureReason = session.timedOut ? 'timeout' : 'crashed';
     const detail = session.timedOut
-      ? `session \`${session.label}\` timed out after ${this.config.maxSessionMinutes}m`
-      : `session \`${session.label}\` exited with code ${code ?? 'null'}`;
+      ? `session \`${session.label}\` timed out after ${this.config.maxSessionMinutes}m with the task still in progress`
+      : `session \`${session.label}\` exited with code ${code ?? 'null'} with the task still in progress`;
     const tail = this.commentTail(session.logTail);
-    const body = buildFailureComment({
+    this.releaseClaim(key, {
       reason: reasonCode,
-      detail: `${detail} with the task still in progress`,
-      source: 'dispatcher',
-      attempt,
-      maxAttempts: this.config.maxAttempts,
+      detail,
       body: `Releasing the claim for retry.\n\nLog tail:\n\`\`\`\n${tail}\n\`\`\``,
+      attempt: session.attempt,
     });
+  }
 
+  /**
+   * Release a stranded `in_progress` claim back to `queued` and post the explanatory `failure/v1`
+   * note. Shared by the crash/timeout reaper (releaseAndRetry) and the DB-scan reaper
+   * (reapStaleClaims). Order matters: release FIRST so a claim that lost a race to a concurrent
+   * settle posts no spurious failure note; `in_progress→queued` (human) is the recovery edge, and
+   * if it is no longer valid the task already moved on, so we leave it untouched. When `attempt`
+   * is supplied (a dispatcher-labelled claim) the retry budget is bookkept and the task is
+   * skip-listed at `maxAttempts`; a foreign/interactive claim (no attempt) just returns to the queue.
+   */
+  private releaseClaim(
+    key: string,
+    opts: { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined },
+  ): void {
     try {
-      this.deps.core.addComment(key, { actor: 'agent', body });
       this.deps.core.updateStatus(key, 'queued', 'human'); // automate the human claim-recovery release
     } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        this.console.log(`[dispatcher] release of ${key} raced a concurrent move; leaving as-is`);
+        return;
+      }
       this.console.error(`[dispatcher] failed to release ${key}: ${(err as Error).message}`);
       return;
     }
 
+    const attempt = opts.attempt;
+    const maxAttempts = attempt !== undefined ? this.config.maxAttempts : undefined;
+    try {
+      this.deps.core.addComment(key, {
+        actor: 'agent',
+        body: buildFailureComment({ reason: opts.reason, detail: opts.detail, source: 'dispatcher', attempt, maxAttempts, body: opts.body }),
+      });
+    } catch {
+      /* the release is the contract; the board comment is a bonus */
+    }
+
+    if (attempt === undefined) return; // foreign/interactive claim: no attempt budget to bookkeep
+    this.attempts.set(key, attempt);
     if (attempt >= this.config.maxAttempts) {
       this.skipList(key);
       this.console.warn(

@@ -63,6 +63,19 @@ describe('config', () => {
     expect(() => parseConfig({ db: 'x', workspaces: ['a'], stageArgs: { review: ['--model', 'opus'] } })).toThrow();
   });
 
+  it('defaults staleClaimMinutes to 120', () => {
+    expect(parseConfig({ db: 'x', workspaces: ['a'] }).staleClaimMinutes).toBe(120);
+  });
+
+  it('accepts staleClaimMinutes 0 (disabled) and an explicit override', () => {
+    expect(parseConfig({ db: 'x', workspaces: ['a'], staleClaimMinutes: 0 }).staleClaimMinutes).toBe(0);
+    expect(parseConfig({ db: 'x', workspaces: ['a'], staleClaimMinutes: 240 }).staleClaimMinutes).toBe(240);
+  });
+
+  it('rejects a negative staleClaimMinutes', () => {
+    expect(() => parseConfig({ db: 'x', workspaces: ['a'], staleClaimMinutes: -1 })).toThrow();
+  });
+
   it('requires at least one workspace', () => {
     expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow();
   });

@@ -110,6 +110,7 @@ export function makeConfig(overrides: Partial<DispatcherConfig> = {}): Dispatche
     claudeArgs: [],
     maxSessionMinutes: 60,
     maxAttempts: 2,
+    staleClaimMinutes: 120,
     ...overrides,
   };
 }

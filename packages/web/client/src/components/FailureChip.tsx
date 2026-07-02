@@ -5,6 +5,7 @@ import { I } from '../icons.js';
 const FAILURE_LABELS: Record<string, string> = {
   timeout: 'Timed out',
   crashed: 'Crashed',
+  stale: 'Stale claim',
   permission_denied: 'Permission denied',
   max_attempts: 'Out of attempts',
   review_failed: 'Auto-review failed',
