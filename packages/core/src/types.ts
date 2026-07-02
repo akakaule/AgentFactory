@@ -1,4 +1,4 @@
-export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'done' | 'blocked';
+export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
 
 /**
@@ -70,6 +70,31 @@ export interface FailureSummary {
   at: string;                // the failure comment's created_at
 }
 
+/** Which git host a workspace's origin points at — the axis the delivery watcher polls. */
+export type DeliveryProvider = 'github' | 'azdo';
+export type DeliveryPrState = 'unknown' | 'not_found' | 'open' | 'merged' | 'closed';
+export type DeliveryChecksState = 'unknown' | 'none' | 'pending' | 'passing' | 'failing';
+export interface DeliveryFailingCheck { name: string; url: string | null; }
+
+/**
+ * The PR/pipeline state of a 'delivering' task, as last observed by the watcher supervisor
+ * (current-state `task_delivery` row, migration #18 — seeded at approve, updated per poll).
+ * External, polled and mutable — persisted, not derived from the activity log; NOT part of
+ * getVersion() (ops bump task.updated_at only when the observed state changes). null on a
+ * task that never entered delivery.
+ */
+export interface DeliverySummary {
+  provider: DeliveryProvider;
+  branch: string;
+  prUrl: string | null;
+  prId: string | null;
+  prState: DeliveryPrState;
+  checksState: DeliveryChecksState;
+  failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing')
+  checkedAt: string | null;            // last watcher poll; null until the first one
+  stateChangedAt: string;              // last time the observed state actually changed
+}
+
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
   status: Status; stage: Stage; kind: TaskKind; resultSummary: string | null; seq: number;
@@ -78,6 +103,7 @@ export interface Task {
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
+  delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   createdAt: string; updatedAt: string;
 }
 export interface Activity {
@@ -144,7 +170,7 @@ export interface TranscriptResponse {
   blocks: TranscriptBlock[];
 }
 
-export type SupervisorKind = 'dispatcher' | 'reviewer';
+export type SupervisorKind = 'dispatcher' | 'reviewer' | 'watcher';
 
 /**
  * A headless supervisor (dispatcher/reviewer) as surfaced to the health view. Current-state,

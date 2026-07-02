@@ -1,0 +1,6 @@
+{
+  "db": "./agentfactory.db",
+  "workspaces": ["agentfactory", "agent-demo", "pmd", "kl-ceadapter", "wf2", "kl-dis", "nimbus", "mithrec", "kl-foadapter"],
+  "pollSeconds": 60,
+  "postMergeChecks": false
+}

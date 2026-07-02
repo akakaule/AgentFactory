@@ -276,3 +276,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_task_visualization_task ON task_visualizat
 export const MIGRATION_17_SQL = `
 ALTER TABLE task ADD COLUMN kind TEXT NOT NULL DEFAULT 'code' CHECK (kind IN ('code','pr-review'));
 `;
+
+// Migration #18 — the 'delivering' lifecycle state + PR/CI delivery tracking. Approving an
+// implementation-stage review no longer means "done": when the task's workspace has a
+// recognizable GitHub/Azure-DevOps origin, approve routes to 'delivering' and the watcher
+// supervisor completes it to 'done' only once the PR is merged and the pipeline is green
+// (or bounces it back to 'queued' with a failure/v1 comment). Widening the status CHECK
+// (and supervisor_heartbeat.kind for the new watcher) requires a table rebuild — SQLite
+// cannot ALTER a CHECK — which lives in migrate.ts as a data-driven rebuild (it must not
+// enumerate columns: a diverged DB may carry extras this repo's history doesn't know about).
+// Only `task_delivery` is plain SQL: current-state per task (like agent_session #10), seeded
+// at approve, updated by the watcher's polls. Like #10/#13 it is DELIBERATELY NOT read by
+// getVersion(): a poll every minute must not thrash the board version — ops bump
+// task.updated_at only when the *observed state changes* (rare), which is what refreshes the UI.
+export const MIGRATION_18_SQL = `
+CREATE TABLE IF NOT EXISTS task_delivery (
+  task_id          INTEGER PRIMARY KEY REFERENCES task(id) ON DELETE CASCADE,
+  provider         TEXT NOT NULL CHECK (provider IN ('github','azdo')),
+  branch           TEXT NOT NULL,
+  pr_url           TEXT,
+  pr_id            TEXT,
+  pr_state         TEXT NOT NULL DEFAULT 'unknown' CHECK (pr_state IN ('unknown','not_found','open','merged','closed')),
+  checks_state     TEXT NOT NULL DEFAULT 'unknown' CHECK (checks_state IN ('unknown','none','pending','passing','failing')),
+  detail           TEXT,
+  checked_at       TEXT,
+  state_changed_at TEXT NOT NULL,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+`;

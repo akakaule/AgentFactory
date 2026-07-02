@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -27,6 +27,8 @@ export type ProtocolInput =
       base?: { ref: string; fetch: boolean };
       /** Per-workspace verification command; when set it must pass before push (see git.ts/submitResult). */
       verifyCommand?: string | null;
+      /** Set when origin is a GitHub remote ⇒ emit a finish step that opens/updates the PR. */
+      github?: { defaultBranch: string | null };
     };
 
 // Forward slashes only: Windows backslash paths lose their backslashes when the
@@ -88,6 +90,17 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   const verifyStep = verify
     ? `Run \`${verify}\` from the worktree root; it MUST pass before you push. Report its outcome via submit_result \`verification\`.`
     : 'Run the repo tests and build from the worktree root; both must pass before you push.';
+  // When origin is GitHub, open (or reuse, on a reclaim) the PR right after the push and before
+  // the worktree is removed. Idempotent and best-effort — a gh/auth failure must not block the
+  // submit (the push itself is what the submit guardrail enforces).
+  const github = input.github;
+  const prStep = github
+    ? [
+        `Open or update the pull request for this branch (best-effort — continue if it fails): ` +
+          `\`gh pr view ${branch} --json url --jq .url 2>/dev/null || gh pr create --head ${branch}${github.defaultBranch ? ` --base ${github.defaultBranch}` : ''} --fill\`. ` +
+          `Pass the resulting URL as a 'pr' link in submit_result.`,
+      ]
+    : [];
   return {
     version: PROTOCOL_VERSION,
     stage,
@@ -98,8 +111,9 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       'Commit all work inside the worktree.',
       verifyStep,
       `git push -u origin ${branch}`,
+      ...prStep,
       `git worktree remove ${wt} && git worktree prune`,
-      `Call submit_result with a branch link (label = the branch name)${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
+      `Call submit_result with a branch link (label = the branch name)${github ? `, the PR link (kind 'pr')` : ''}${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
     ],
   };
 }

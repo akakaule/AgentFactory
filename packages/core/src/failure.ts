@@ -19,7 +19,7 @@ const MARKER = /^failure\/v1\b/i;
  * Reasons the supervisors emit today. The parser keeps any non-empty string as the reason
  * (forward-compatible with new emitters); this list is just the set the UI styles and labels.
  */
-export const FAILURE_REASONS = ['timeout', 'crashed', 'permission_denied', 'max_attempts', 'review_failed'] as const;
+export const FAILURE_REASONS = ['timeout', 'crashed', 'permission_denied', 'max_attempts', 'review_failed', 'ci_failed', 'pr_closed'] as const;
 export type FailureReason = (typeof FAILURE_REASONS)[number];
 
 /** True iff a comment body carries the `failure/v1` marker (regardless of JSON well-formedness). */
@@ -103,9 +103,11 @@ export function summarizeFailure(parsed: ParsedFailure | null, at: string, super
 export interface FailureCommentInput {
   reason: FailureReason | string;
   detail: string;            // one-line human reason, e.g. "session `x` timed out after 60m"
-  source: 'dispatcher' | 'reviewer' | string;
-  attempt: number;
-  maxAttempts: number;
+  source: 'dispatcher' | 'reviewer' | 'watcher' | string;
+  // attempt bookkeeping is the dispatcher/reviewer retry loop's; the watcher's delivery bounces
+  // (ci_failed / pr_closed) have no attempt budget, so both are optional and omitted together
+  attempt?: number | undefined;
+  maxAttempts?: number | undefined;
   body?: string;             // extra human text appended below (e.g. a fenced log tail)
 }
 
@@ -119,10 +121,12 @@ export function buildFailureComment(i: FailureCommentInput): string {
     reason: i.reason,
     detail: i.detail,
     source: i.source,
+    // undefined drops out of JSON.stringify ⇒ the parser's intOrNull reads them back as null
     attempt: i.attempt,
     maxAttempts: i.maxAttempts,
   });
-  const head = `failure/v1 — ${i.detail} (attempt ${i.attempt}/${i.maxAttempts})`;
+  const suffix = i.attempt !== undefined && i.maxAttempts !== undefined ? ` (attempt ${i.attempt}/${i.maxAttempts})` : '';
+  const head = `failure/v1 — ${i.detail}${suffix}`;
   const extra = i.body && i.body.trim() ? `\n\n${i.body.trim()}` : '';
   return `${head}\n\n\`\`\`json\n${json}\n\`\`\`${extra}`;
 }

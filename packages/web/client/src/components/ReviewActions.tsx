@@ -14,6 +14,7 @@ interface Props {
   aiReview?: AiReviewSummary | undefined; // latest AI-review verdict; drives the checklist + break-glass
   stage?: Stage | undefined; // approving a doc stage advances + re-queues — the label says so
   kind?: TaskKind | undefined; // 'pr-review' → the button is "Mark reviewed" (done = review given) and there is no send-back
+  willDeliver?: boolean | undefined; // approve will route to 'delivering' (impl-stage code task on a git-host branch) → label says "→ deliver"
 }
 
 // what the approve click actually does, per stage — doc stages advance, impl closes
@@ -23,10 +24,14 @@ const APPROVE_LABELS: Record<Stage, string> = {
   implementation: 'Approve',
 };
 
-export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiReview, stage, kind }: Props) {
+export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiReview, stage, kind, willDeliver }: Props) {
   const isPrReview = kind === 'pr-review';
   // "Mark reviewed" for a PR review (done = review given); else the stage-aware approve label.
-  const approveLabel = isPrReview ? 'Mark reviewed' : APPROVE_LABELS[stage ?? 'implementation'];
+  // An implementation-stage code task on a git-host branch routes to 'delivering' on approve —
+  // say so, since "Approve" no longer closes the task directly (the watcher verifies the PR).
+  const approveLabel = isPrReview ? 'Mark reviewed'
+    : willDeliver ? 'Approve → deliver'
+    : APPROVE_LABELS[stage ?? 'implementation'];
   const items = aiReview?.items ?? [];
   const reviewer = aiReview?.reviewer ?? null;
   const reviewPresent = items.length > 0;

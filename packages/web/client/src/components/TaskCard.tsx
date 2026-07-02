@@ -5,6 +5,7 @@ import { shortTime } from '../time.js';
 import { taskBranch } from '../branch.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { FailureChip } from './FailureChip.js';
+import { DeliveryChip } from './DeliveryChip.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -64,6 +65,7 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
         <FailureChip failure={task.failure} />
         {task.status === 'in_review' && <span className="af-tag review">{I.check({})}Needs review</span>}
         {task.status === 'in_review' && <AiReviewChip review={task.aiReview} />}
+        {task.status === 'delivering' && task.delivery && <DeliveryChip delivery={task.delivery} />}
         <span className="af-meta-i">{I.clock({})}{shortTime(task.updatedAt)}</span>
       </div>
     </div>

@@ -22,6 +22,15 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   // pr-review task wrongly parked in the queue, and reopen a closed review to re-review.
   { from: 'queued',      to: 'in_review',   by: 'human' },
   { from: 'done',        to: 'in_review',   by: 'human' },
+
+  // Delivery verification (migration #18): approving an implementation review with a recognizable
+  // git-host origin routes to 'delivering' instead of 'done'; the watcher supervisor closes or
+  // bounces it, and the human edges keep the board operable when there is no CI / no watcher.
+  { from: 'in_review',   to: 'delivering',  by: 'human' }, // approve (ops/reviewApprove.ts routes here)
+  { from: 'delivering',  to: 'done',        by: 'agent' }, // watcher: PR merged + pipeline green
+  { from: 'delivering',  to: 'queued',      by: 'agent' }, // watcher: CI failed / PR closed unmerged
+  { from: 'delivering',  to: 'done',        by: 'human' }, // force-complete (no CI configured / watcher down)
+  { from: 'delivering',  to: 'queued',      by: 'human' }, // manual pull-back for rework
 ] as const;
 
 export function isValidTransition(from: Status, to: Status, by: Actor): boolean {

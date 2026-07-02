@@ -14,6 +14,7 @@ export const LIFECYCLE_ORDER: Status[] = [
   'queued',
   'in_progress',
   'in_review',
+  'delivering',
   'blocked',
   'done',
 ];
@@ -23,6 +24,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   queued: 'Queued',
   in_progress: 'In Progress',
   in_review: 'In Review',
+  delivering: 'Delivering',
   blocked: 'Blocked',
   done: 'Done',
 };
@@ -32,6 +34,7 @@ export const STATUS_COLORS: Record<Status, string> = {
   queued: '#60A5FA',
   in_progress: '#F59E0B',
   in_review: '#A78BFA',
+  delivering: '#2DD4BF',
   blocked: '#F87171',
   done: '#4ADE80',
 };

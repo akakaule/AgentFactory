@@ -9,6 +9,9 @@ const VALID: [string, string, string][] = [
   ['in_review','done','human'], ['in_review','queued','human'],
   ['done','queued','human'], // reopen (e.g. CI failed on the PR)
   ['queued','in_review','human'], ['done','in_review','human'], // pr-review rescue / reopen (kind-gated in updateStatus)
+  ['in_review','delivering','human'], // approve with a recognizable git-host origin
+  ['delivering','done','agent'], ['delivering','queued','agent'], // watcher: merged+green / CI failed
+  ['delivering','done','human'], ['delivering','queued','human'], // force-complete / pull-back
 ];
 
 describe('isValidTransition', () => {
@@ -20,9 +23,11 @@ describe('isValidTransition', () => {
     expect(isValidTransition('queued','in_progress','human')).toBe(false);
     expect(isValidTransition('in_progress','queued','agent')).toBe(false); // release is human-only
     expect(isValidTransition('done','queued','agent')).toBe(false); // reopen is human-only
+    expect(isValidTransition('in_review','delivering','agent')).toBe(false); // only the human approve enters delivery
   });
   it('rejects edges not in the table', () => {
-    for (const [f, t] of [['backlog','done'],['queued','blocked'],['backlog','in_progress'],['in_review','in_progress'],['done','done']] as const)
+    for (const [f, t] of [['backlog','done'],['queued','blocked'],['backlog','in_progress'],['in_review','in_progress'],['done','done'],
+      ['queued','delivering'],['delivering','in_review'],['delivering','blocked'],['done','delivering']] as const)
       expect(isValidTransition(f as any, t as any, 'human')).toBe(false);
   });
 });

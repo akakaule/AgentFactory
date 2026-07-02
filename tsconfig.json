@@ -5,6 +5,7 @@
     { "path": "packages/mcp" },
     { "path": "packages/web" },
     { "path": "packages/dispatcher" },
-    { "path": "packages/reviewer" }
+    { "path": "packages/reviewer" },
+    { "path": "packages/watcher" }
   ]
 }

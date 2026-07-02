@@ -37,6 +37,20 @@ describe('list_tasks', () => {
     expect(tasks.length).toBe(1);
     expect(tasks[0].key).toBe(t1.key);
   });
+
+  it('accepts the delivering filter', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Delivering one'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+    core.submitResult(t.key, { summary: 'done', links: [] });
+    core.updateStatus(t.key, 'delivering', 'human'); // in_review → delivering is a human edge
+
+    const res = await client.callTool({ name: 'list_tasks', arguments: { status: 'delivering' } });
+    expect(res.isError).toBeFalsy();
+    const tasks = JSON.parse(textOf(res));
+    expect(tasks.map((t: any) => t.key)).toEqual([t.key]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -111,7 +125,7 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(5);
+    expect(payload.protocol.version).toBe(6);
     expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
@@ -447,6 +461,45 @@ describe('update_status', () => {
       arguments: { key: t.key, status: 'done' },
     });
     expect(res.isError).toBe(true);
+  });
+
+  it('rejects a task currently in delivering — the watcher owns it', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+    core.submitResult(t.key, { summary: 'done', links: [] });
+    core.updateStatus(t.key, 'delivering', 'human'); // watcher-owned state
+
+    const res = await client.callTool({
+      name: 'update_status',
+      arguments: { key: t.key, status: 'queued' },
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res).toLowerCase()).toContain('delivery verification');
+    // untouched — the guard fires before any transition
+    expect(core.getTask(t.key).status).toBe('delivering');
+  });
+
+  it('rejects delivering as a target status (excluded from the agent input schema)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+    core.submitResult(t.key, { summary: 'done', links: [] }); // in_review
+
+    let caught: unknown;
+    let res: any;
+    try {
+      res = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'delivering' } });
+    } catch (err) {
+      caught = err;
+    }
+    // input-schema violation surfaces as isError:true (or a throw on stricter SDKs)
+    if (caught !== undefined) expect(caught).toBeTruthy();
+    else expect(res.isError).toBe(true);
+    // the task never entered delivery
+    expect(core.getTask(t.key).status).toBe('in_review');
   });
 });
 

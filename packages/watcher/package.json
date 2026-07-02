@@ -1,0 +1,11 @@
+{
+  "name": "@agentfactory/watcher",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "agentfactory-watcher": "./dist/index.js" },
+  "scripts": { "build": "tsc -b", "test": "vitest run" },
+  "dependencies": {
+    "@agentfactory/core": "*",
+    "zod": "^3.23.0"
+  }
+}

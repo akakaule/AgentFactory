@@ -168,6 +168,25 @@
 .af-airev.clean { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .af-airev.pending { color: var(--ink-2); background: color-mix(in srgb, var(--ink-3) 16%, transparent); }
 .af-airev-row { margin: 6px 0 2px; }
+
+/* Delivery chip (card + drawer) — the watcher's last read of PR + checks for a 'delivering' task */
+.af-delivery { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; text-decoration: none; color: var(--st-delivering, #2DD4BF); background: color-mix(in srgb, var(--st-delivering, #2DD4BF) 15%, transparent); max-width: 100%; }
+.af-delivery svg { width: 11px; height: 11px; flex: none; }
+.af-delivery .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-delivery.ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.af-delivery.fail { color: var(--st-blocked); background: color-mix(in srgb, var(--st-blocked) 14%, transparent); }
+a.af-delivery:hover { background: color-mix(in srgb, var(--st-delivering, #2DD4BF) 26%, transparent); }
+a.af-delivery.ok:hover { background: color-mix(in srgb, var(--green) 24%, transparent); }
+a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%, transparent); }
+
+/* Delivery section (drawer) — chip, last-checked, failing checks list, and human overrides */
+.af-delivery-sec { border: 1px solid var(--line-soft); border-radius: 9px; background: var(--bg-deep); padding: 9px 11px; margin: 8px 0 4px; }
+.af-delivery-sec .hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.af-delivery-sec .checked { font-size: 11px; color: var(--ink-3); }
+.af-delivery-fails { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.af-delivery-fails li { font-size: 12px; }
+.af-delivery-fails a, .af-delivery-fails span { color: var(--st-blocked); }
+.af-delivery-acts { display: flex; gap: 8px; margin-top: 9px; }
 .af-airev-warn { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.45; color: var(--active-2); background: color-mix(in srgb, var(--active) 9%, var(--bg-deep)); border: 1px solid color-mix(in srgb, var(--active) 30%, var(--line-soft)); border-radius: 8px; padding: 8px 11px; margin-bottom: 9px; }
 .af-airev-warn svg { width: 14px; height: 14px; flex: none; margin-top: 1px; color: var(--active-2); }
 .af-airev-warn strong { font-weight: 600; }
