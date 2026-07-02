@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../src/db.js';
-import { runMigrations } from '../src/migrate.js';
+import { runMigrations, widenCheck } from '../src/migrate.js';
 
 const tables = (db: any) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r: any) => r.name);
@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 18 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 18 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +117,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 18 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -163,6 +163,79 @@ describe('runMigrations', () => {
     expect(() => db.prepare(
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,kind,seq,workspace_id,created_at,updated_at) VALUES ('AF-2','t','s','a','backlog','nonsense',2,1,'2026-01-01','2026-01-01')"
     ).run()).toThrow();
+  });
+
+  it('migration #18 widens the status + supervisor kind CHECKs and adds task_delivery', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    expect(tables(db)).toEqual(expect.arrayContaining(['task_delivery']));
+    // the widened status CHECK accepts delivering...
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','delivering',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    // ...and still rejects nonsense
+    expect(() => db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-2','t','s','a','nonsense',2,1,'2026-01-01','2026-01-01')"
+    ).run()).toThrow();
+    // the heartbeat kind CHECK accepts the watcher
+    db.prepare(
+      "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('w','watcher','default',0,0,'2026-01-01','2026-01-01')"
+    ).run();
+    // the four task indexes survived the rebuild
+    const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task' AND sql IS NOT NULL").all() as Array<{ name: string }>).map((r) => r.name);
+    expect(idx.sort()).toEqual(['idx_task_archived', 'idx_task_status_seq', 'idx_task_updated', 'idx_task_workspace']);
+    // task_delivery cascades with its task
+    const tid = (db.prepare("SELECT id FROM task WHERE key='AF-1'").get() as { id: number }).id;
+    db.prepare(
+      "INSERT INTO task_delivery(task_id,provider,branch,state_changed_at,created_at,updated_at) VALUES (?,'github','feature/x','2026-01-01','2026-01-01','2026-01-01')"
+    ).run(tid);
+    db.prepare('DELETE FROM task WHERE id=?').run(tid);
+    expect(db.prepare('SELECT count(*) c FROM task_delivery').get()).toMatchObject({ c: 0 });
+  });
+
+  it('migration #18 rebuild preserves task rows, children, unknown columns and AUTOINCREMENT (data-driven widenCheck)', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    // Build a task table in the pre-#18 shape carrying (a) data, (b) children behind ON DELETE
+    // CASCADE, (c) a column this repo's history does not know (a diverged branch's `priority`) —
+    // then run the widen directly, the way migration #18 does under fkOff.
+    db.exec('ALTER TABLE task ADD COLUMN priority INTEGER');
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at,priority) VALUES ('AF-1','t','s','a','done',1,1,'2026-01-01','2026-01-01',2)"
+    ).run();
+    const tid = (db.prepare("SELECT id FROM task WHERE key='AF-1'").get() as { id: number }).id;
+    db.prepare("INSERT INTO activity(task_id,type,actor,body,created_at) VALUES (?,'comment','human','kept','2026-01-01')").run(tid);
+    db.prepare("INSERT INTO link(task_id,kind,label,url) VALUES (?,'pr','#1','https://x/pull/1')").run(tid);
+
+    db.exec('PRAGMA foreign_keys = OFF');
+    // widen back FROM the already-widened list to a wider one to exercise the rebuild with data
+    widenCheck(
+      db,
+      'task',
+      "('backlog','queued','in_progress','in_review','delivering','done','blocked')",
+      "('backlog','queued','in_progress','in_review','delivering','done','blocked','zz_test')",
+    );
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toHaveLength(0);
+    db.exec('PRAGMA foreign_keys = ON');
+
+    // data, children and the unknown column survived
+    expect(db.prepare("SELECT status, priority FROM task WHERE key='AF-1'").get()).toMatchObject({ status: 'done', priority: 2 });
+    expect(db.prepare('SELECT body FROM activity WHERE task_id=?').get(tid)).toMatchObject({ body: 'kept' });
+    expect(db.prepare('SELECT url FROM link WHERE task_id=?').get(tid)).toMatchObject({ url: 'https://x/pull/1' });
+    // ON DELETE CASCADE still points at the rebuilt table
+    db.prepare('DELETE FROM task WHERE id=?').run(tid);
+    expect(db.prepare('SELECT count(*) c FROM activity WHERE task_id=?').get(tid)).toMatchObject({ c: 0 });
+    // AUTOINCREMENT continues past the copied ids (sqlite_sequence carried over)
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-2','t','s','a','zz_test',2,1,'2026-01-01','2026-01-01')"
+    ).run();
+    expect((db.prepare("SELECT id FROM task WHERE key='AF-2'").get() as { id: number }).id).toBeGreaterThan(tid);
+    // idempotency: re-running with the same target list is a no-op
+    db.exec('PRAGMA foreign_keys = OFF');
+    widenCheck(db, 'task', 'irrelevant-old-list', "('backlog','queued','in_progress','in_review','delivering','done','blocked','zz_test')");
+    db.exec('PRAGMA foreign_keys = ON');
+    // an unexpected shape fails loudly instead of guessing
+    expect(() => widenCheck(db, 'task', 'no-such-list', 'another-list')).toThrow(/neither/);
   });
 
   it('enforces the stage CHECK constraint', () => {

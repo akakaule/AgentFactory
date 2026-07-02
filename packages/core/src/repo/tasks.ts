@@ -8,6 +8,7 @@ import { visualizationMetaFor } from './visualizations.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
 import { parseFailureComment, summarizeFailure } from '../failure.js';
+import { deliveryByTaskIds } from './delivery.js';
 import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
 
@@ -32,7 +33,7 @@ export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null, delivery: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -96,6 +97,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     ...toTask(r),
     aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
     failure: failureByTaskIds(db, [r.id]).get(r.id) ?? null,
+    delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
     hasVisualization: viz !== null,
     visualizationGeneratedAt: viz?.generatedAt ?? null,
     repoPath: r.workspace_repo_path,
@@ -186,7 +188,8 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const ids = rows.map((r) => r.id);
   const reviews = aiReviewByTaskIds(db, ids);
   const failures = failureByTaskIds(db, ids);
-  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null }));
+  const deliveries = deliveryByTaskIds(db, ids);
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null }));
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"

@@ -14,6 +14,9 @@ export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
+export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
+export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
@@ -55,6 +58,9 @@ import { addComment } from './ops/addComment.js';
 import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
 import { reviewApprove } from './ops/reviewApprove.js';
+import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+import type { DeliveryObservation } from './repo/delivery.js';
+import { resolveOriginUrl } from './remote.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
@@ -74,10 +80,17 @@ import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider } from './types.js';
+
+export interface CoreOptions {
+  /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
+   *  production defaults to shelling `git remote get-url origin` — see remote.ts). */
+  resolveOrigin?: ((repoPath: string) => string | null) | undefined;
+}
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
-export function createCore(db: DB) {
+export function createCore(db: DB, opts: CoreOptions = {}) {
+  const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
@@ -113,7 +126,12 @@ export function createCore(db: DB) {
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
-    reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId),
+    reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin),
+    getDelivery: (key: string) => getDelivery(db, key),
+    beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
+    recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),
+    completeDelivery: (key: string, note: string) => completeDelivery(db, key, note),
+    failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined }) => failDelivery(db, key, input),
     reviewPrReviewed: (key: string, input: { review?: string | undefined; actorUserId?: number | null }) => reviewPrReviewed(db, key, input),
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
@@ -127,8 +145,8 @@ export function createCore(db: DB) {
 export type Core = ReturnType<typeof createCore>;
 
 /** Open + migrate a DB and return a bound Core — the one-call entry for adapters. */
-export function openCore(path: string): Core {
+export function openCore(path: string, opts: CoreOptions = {}): Core {
   const db = openDb(path);
   runMigrations(db);
-  return createCore(db);
+  return createCore(db, opts);
 }

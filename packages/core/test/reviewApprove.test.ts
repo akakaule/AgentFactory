@@ -38,7 +38,7 @@ describe('reviewApprove', () => {
 
   // ── Rejects non-in_review statuses ───────────────────────────────────────
 
-  it.each<Status>(['backlog', 'queued', 'in_progress', 'done', 'blocked'])(
+  it.each<Status>(['backlog', 'queued', 'in_progress', 'delivering', 'done', 'blocked'])(
     'rejects from status=%s with InvalidTransitionError; nothing changed',
     (status) => {
       const db = makeTestDb();
