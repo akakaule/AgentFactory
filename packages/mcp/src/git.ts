@@ -41,11 +41,12 @@ async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; 
  * guess. Preference: remote-tracking `origin/<default>` (with a fetch, so the worktree starts
  * from the latest main), else local `<default>` (no origin to fetch from).
  */
-export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: string; fetch: boolean } | null> {
-  if (!existsSync(repoPath)) return null;
-  if (!(await runGit(repoPath, ['rev-parse', '--git-dir'])).ok) return null;
-
-  // Default branch NAME: prefer origin/HEAD, else probe local main/master.
+/**
+ * The default branch NAME for a repo: prefer origin/HEAD, else probe local main/master.
+ * Returns null when none resolves or the name fails ref-safety. Shared by worktree-base
+ * resolution and GitHub PR base selection.
+ */
+export async function resolveDefaultBranchName(repoPath: string): Promise<string | null> {
   let name: string | null = null;
   const head = await runGit(repoPath, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
   if (head.ok && head.stdout.trim()) {
@@ -55,7 +56,15 @@ export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: stri
       if ((await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', cand])).ok) { name = cand; break; }
     }
   }
-  if (!name || !SAFE_REF.test(name)) return null;
+  return name && SAFE_REF.test(name) ? name : null;
+}
+
+export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: string; fetch: boolean } | null> {
+  if (!existsSync(repoPath)) return null;
+  if (!(await runGit(repoPath, ['rev-parse', '--git-dir'])).ok) return null;
+
+  const name = await resolveDefaultBranchName(repoPath);
+  if (!name) return null;
 
   // Prefer the freshest EXISTING base: origin/<name> (refreshed by a fetch), else local <name>.
   if ((await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `origin/${name}`])).ok) {
@@ -65,6 +74,31 @@ export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: stri
     return { ref: name, fetch: false };
   }
   return null;
+}
+
+// origin points at github.com — https://github.com/…, git@github.com:…, ssh://git@github.com/….
+// Host-anchored (the host segment must BE github.com) so a path like notgithub.com never matches.
+function isGitHubUrl(url: string): boolean {
+  return /^(?:https?:\/\/|ssh:\/\/)?(?:[^@/]+@)?github\.com[/:]/i.test(url);
+}
+
+/**
+ * When the repo's `origin` is a GitHub remote, the default branch to target a PR at (null when
+ * it can't be resolved — the caller then lets `gh` pick the repo default). Returns null when
+ * origin is absent, non-GitHub, or the repo/git is unreachable. Read-only and safe-degrading
+ * like resolveWorktreeBase: detection must never block a claim.
+ */
+export async function detectGitHubRemote(repoPath: string): Promise<{ defaultBranch: string | null } | null> {
+  if (!existsSync(repoPath)) return null;
+  let url: { ok: boolean; stdout: string };
+  try {
+    url = await runGit(repoPath, ['remote', 'get-url', 'origin']);
+  } catch (err) {
+    if (err instanceof GitError) return null; // git absent
+    throw err;
+  }
+  if (!url.ok || !isGitHubUrl(url.stdout.trim())) return null;
+  return { defaultBranch: await resolveDefaultBranchName(repoPath) };
 }
 
 export interface SubmitGuardResult { ok: boolean; message?: string; }
