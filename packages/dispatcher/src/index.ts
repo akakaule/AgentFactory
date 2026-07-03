@@ -159,8 +159,11 @@ const deps: DispatcherDeps = {
 
 const dispatcher = new Dispatcher(config, deps);
 
+const wsDesc = config.workspaces
+  ? `[${config.workspaces.join(', ')}]`
+  : `all${config.excludeWorkspaces.length ? ` except [${config.excludeWorkspaces.join(', ')}]` : ''}`;
 console.log(
-  `[dispatcher] starting — db ${config.db}, workspaces [${config.workspaces.join(', ')}], ` +
+  `[dispatcher] starting — db ${config.db}, workspaces ${wsDesc}, ` +
     `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s, permission ${config.permissionMode}`,
 );
 console.log(`[dispatcher] mcp entry ${mcpEntry}; logs ${logDir}`);

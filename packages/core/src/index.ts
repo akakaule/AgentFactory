@@ -32,6 +32,7 @@ export { deriveTaskMetrics, type DerivedTaskMetrics, type ActivityStep } from '.
 export { createWorkspace } from './ops/createWorkspace.js';
 export { updateWorkspace } from './ops/updateWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
+export { resolveServedWorkspaces } from './workspaceSelection.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
 export { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';

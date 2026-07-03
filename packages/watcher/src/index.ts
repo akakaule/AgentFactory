@@ -37,8 +37,11 @@ const watcher = new Watcher(config, deps);
 
 const ghToken = process.env[config.github.tokenEnv] ? 'set' : 'NOT SET';
 const azdoPat = process.env[config.azdo.patEnv] ? 'set' : 'NOT SET';
+const wsDesc = config.workspaces
+  ? `[${config.workspaces.join(', ')}]`
+  : `all${config.excludeWorkspaces.length ? ` except [${config.excludeWorkspaces.join(', ')}]` : ''}`;
 console.log(
-  `[watcher] starting — db ${config.db}, workspaces [${config.workspaces.join(', ')}], ` +
+  `[watcher] starting — db ${config.db}, workspaces ${wsDesc}, ` +
     `poll ${config.pollSeconds}s, postMergeChecks ${config.postMergeChecks}, ` +
     `${config.github.tokenEnv} ${ghToken}, ${config.azdo.patEnv} ${azdoPat}`,
 );

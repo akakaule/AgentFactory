@@ -10,8 +10,14 @@ export const configSchema = z.object({
   db: z.string().min(1),
   /** Stable supervisor identity for the health view (one heartbeat row per name). */
   name: z.string().min(1).default('watcher'),
-  /** Workspace slugs to serve. */
-  workspaces: z.array(z.string().min(1)).min(1),
+  /**
+   * Workspace slugs to serve. OMIT to serve every workspace in the DB (opt-out model) —
+   * re-read each tick, so a workspace created on the board is picked up with no config edit
+   * or restart. When present, pins the watcher to exactly these slugs (opt-in back-compat).
+   */
+  workspaces: z.array(z.string().min(1)).min(1).optional(),
+  /** Workspace slugs to never serve — the opt-out list, applied whether or not `workspaces` is set. */
+  excludeWorkspaces: z.array(z.string().min(1)).default([]),
   /** Poll interval, seconds. */
   pollSeconds: z.number().positive().default(60),
   /**

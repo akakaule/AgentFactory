@@ -76,8 +76,18 @@ describe('config', () => {
     expect(() => parseConfig({ db: 'x', workspaces: ['a'], staleClaimMinutes: -1 })).toThrow();
   });
 
-  it('requires at least one workspace', () => {
+  it('requires at least one workspace WHEN the field is present', () => {
     expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow();
+  });
+
+  it('allows omitting workspaces (opt-out: serve all) and defaults excludeWorkspaces to []', () => {
+    const cfg = parseConfig({ db: 'x' });
+    expect(cfg.workspaces).toBeUndefined();
+    expect(cfg.excludeWorkspaces).toEqual([]);
+  });
+
+  it('accepts an excludeWorkspaces opt-out list', () => {
+    expect(parseConfig({ db: 'x', excludeWorkspaces: ['agent-demo'] }).excludeWorkspaces).toEqual(['agent-demo']);
   });
 
   it('rejects an unknown permission mode', () => {

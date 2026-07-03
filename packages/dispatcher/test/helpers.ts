@@ -104,6 +104,7 @@ export function makeConfig(overrides: Partial<DispatcherConfig> = {}): Dispatche
   return {
     db: ':memory:',
     workspaces: ['ws'],
+    excludeWorkspaces: [],
     maxConcurrent: 1,
     pollSeconds: 15,
     permissionMode: 'acceptEdits',

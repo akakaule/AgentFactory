@@ -93,8 +93,11 @@ const deps: ReviewerDeps = {
 
 const reviewer = new Reviewer(config, deps);
 
+const wsDesc = config.workspaces
+  ? `[${config.workspaces.join(', ')}]`
+  : `all${config.excludeWorkspaces.length ? ` except [${config.excludeWorkspaces.join(', ')}]` : ''}`;
 console.log(
-  `[reviewer] starting — db ${config.db}, workspaces [${config.workspaces.join(', ')}], ` +
+  `[reviewer] starting — db ${config.db}, workspaces ${wsDesc}, ` +
     `engine ${config.engine}${config.model ? ` (${config.model})` : ''}, ` +
     `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s`,
 );

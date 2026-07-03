@@ -52,7 +52,8 @@ reviews them) and the web server, all pointed at the same DB.
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `db` | — (required) | Path to the agentfactory sqlite DB. |
-| `workspaces` | — (required) | Workspace slugs to watch (≥ 1). |
+| `workspaces` | — (optional) | Workspace slugs to watch. **Omit to watch every workspace in the DB** (opt-out model) — the list is re-read each tick, so a workspace created on the board is reviewed automatically, with no config edit and no restart. When present, pins the reviewer to exactly these slugs (opt-in back-compat). |
+| `excludeWorkspaces` | `[]` | Workspace slugs to **never** watch — the opt-out escape hatch. Applied whether or not `workspaces` is set. |
 | `engine` | `codex` | Review engine: `codex` or `claude`. |
 | `model` | — (optional) | Model override (codex `-m`, claude `--model`). |
 | `pollSeconds` | `60` | Queue poll interval. |

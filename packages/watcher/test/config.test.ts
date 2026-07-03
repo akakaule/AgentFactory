@@ -13,9 +13,17 @@ describe('watcher config', () => {
       azdo: { patEnv: 'AZDO_PAT', apiVersion: '7.1' },
     });
   });
-  it('requires db and at least one workspace', () => {
-    expect(() => parseConfig({ workspaces: ['a'] })).toThrow();
-    expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow();
+  it('requires db, and at least one workspace WHEN the field is present', () => {
+    expect(() => parseConfig({ workspaces: ['a'] })).toThrow(); // missing db
+    expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow(); // present but empty
+  });
+  it('allows omitting workspaces (opt-out: serve all) and defaults excludeWorkspaces to []', () => {
+    const c = parseConfig({ db: 'x' });
+    expect(c.workspaces).toBeUndefined();
+    expect(c.excludeWorkspaces).toEqual([]);
+  });
+  it('accepts an excludeWorkspaces opt-out list', () => {
+    expect(parseConfig({ db: 'x', excludeWorkspaces: ['agent-demo'] }).excludeWorkspaces).toEqual(['agent-demo']);
   });
   it('rejects unknown provider keys (strict blocks typos)', () => {
     expect(() => parseConfig({ db: 'x', workspaces: ['a'], github: { token: 'inline-secret' } })).toThrow();

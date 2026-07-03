@@ -1,6 +1,6 @@
 {
   "db": "./agentfactory.db",
-  "workspaces": ["agentfactory"],
+  "excludeWorkspaces": ["agent-demo"],
   "engine": "codex",
   "pollSeconds": 60,
   "maxConcurrent": 1,

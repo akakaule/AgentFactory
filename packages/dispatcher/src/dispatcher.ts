@@ -1,4 +1,4 @@
-import { buildFailureComment, InvalidTransitionError } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
@@ -100,20 +100,33 @@ export class Dispatcher {
     this.enforceTimeouts();
     this.touchLiveSessions();
     this.tailTranscripts();
-    this.recordHeartbeat();
-    this.reapStaleClaims();
-    for (const workspace of this.config.workspaces) this.pollWorkspace(workspace);
+    const served = this.servedWorkspaces();
+    this.recordHeartbeat(served);
+    this.reapStaleClaims(served);
+    for (const workspace of served) this.pollWorkspace(workspace);
+  }
+
+  /**
+   * The workspace slugs to serve this tick: the explicit `workspaces` allowlist if set, else every
+   * workspace in the DB, minus `excludeWorkspaces`. Re-read each tick so a newly-created workspace
+   * is dispatched automatically (opt-out model).
+   */
+  servedWorkspaces(): string[] {
+    return resolveServedWorkspaces(
+      this.deps.core.listWorkspaces().map((w) => w.name),
+      { workspaces: this.config.workspaces, exclude: this.config.excludeWorkspaces },
+    );
   }
 
   /** Report a heartbeat so the board's health view knows this supervisor is alive. Best-effort. */
-  private recordHeartbeat(): void {
+  private recordHeartbeat(served: string[]): void {
     try {
       this.deps.core.recordSupervisorHeartbeat({
         name: this.config.name,
         kind: 'dispatcher',
-        workspaces: this.config.workspaces,
+        workspaces: served,
         inFlight: this.running.size,
-        capacity: this.config.maxConcurrent * this.config.workspaces.length,
+        capacity: this.config.maxConcurrent * served.length,
         pollSeconds: this.config.pollSeconds,
       });
     } catch {
@@ -163,7 +176,7 @@ export class Dispatcher {
    * (governed by enforceTimeouts, kept warm by touchLiveSessions). Runs each tick before
    * pollWorkspace so a freed task is re-served in the same cycle.
    */
-  private reapStaleClaims(): void {
+  private reapStaleClaims(served: string[]): void {
     if (this.config.staleClaimMinutes <= 0) return;
     const thresholdMs = this.config.staleClaimMinutes * 60_000;
     const now = this.deps.now();
@@ -177,7 +190,7 @@ export class Dispatcher {
       return;
     }
 
-    for (const workspace of this.config.workspaces) {
+    for (const workspace of served) {
       for (const task of this.deps.core.listTasks({ status: 'in_progress', workspace })) {
         if (task.claimedBy !== null && this.running.has(task.claimedBy)) continue; // our own live child
         if (this.hasRunningFor(task.key)) continue; // a session we just spawned, not yet claimed

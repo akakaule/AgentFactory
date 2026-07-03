@@ -15,8 +15,18 @@ describe('reviewer config', () => {
     expect(c.model).toBeUndefined();
   });
 
-  it('requires at least one workspace', () => {
+  it('requires at least one workspace WHEN the field is present', () => {
     expect(() => parseConfig({ db: './x.db', workspaces: [] })).toThrow();
+  });
+
+  it('allows omitting workspaces (opt-out: watch all) and defaults excludeWorkspaces to []', () => {
+    const c = parseConfig({ db: './x.db' });
+    expect(c.workspaces).toBeUndefined();
+    expect(c.excludeWorkspaces).toEqual([]);
+  });
+
+  it('accepts an excludeWorkspaces opt-out list', () => {
+    expect(parseConfig({ db: './x.db', excludeWorkspaces: ['agent-demo'] }).excludeWorkspaces).toEqual(['agent-demo']);
   });
 
   it('rejects an unknown engine', () => {

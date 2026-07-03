@@ -150,6 +150,28 @@ describe('watcher tick', () => {
     expect(fetchJson.calls).toHaveLength(0);
   });
 
+  it('serves every workspace when config.workspaces is omitted (opt-out default)', async () => {
+    const core = makeCore();
+    const key = deliverTask(core); // lands in the seeded 'default' workspace
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
+      ['/check-runs', { body: green }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const w = new Watcher(makeConfig({ workspaces: undefined }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key).status).toBe('done'); // examined + closed (contrast the pinned-['other'] skip above)
+  });
+
+  it('excludeWorkspaces skips a delivering task even in serve-all mode', async () => {
+    const core = makeCore();
+    deliverTask(core); // in 'default'
+    const fetchJson = fakeFetch([]);
+    const w = new Watcher(makeConfig({ workspaces: undefined, excludeWorkspaces: ['default'] }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(fetchJson.calls).toHaveLength(0);
+  });
+
   it('self-heals a raw drag into delivering (no seeded row) via the origin resolver', async () => {
     const core = makeCore();
     const t = core.createTask({ title: 'Dragged', spec: 's', acceptanceCriteria: 'a' });

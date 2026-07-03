@@ -82,6 +82,71 @@ describe('spawn gating', () => {
 });
 
 // ---------------------------------------------------------------------------
+// workspace selection (opt-out model)
+// ---------------------------------------------------------------------------
+describe('workspace selection', () => {
+  const spawnedWorkspaces = (calls: { req: { env: NodeJS.ProcessEnv } }[]): Set<string> =>
+    new Set(calls.map((c) => c.req.env['AGENTFACTORY_WORKSPACE']!));
+
+  it('serves every DB workspace when config.workspaces is omitted', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    core.createWorkspace({ name: 'other', repoPath: '/repo/other' });
+    seedQueued(core, 'ws', 'A');
+    seedQueued(core, 'other', 'B');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ workspaces: undefined, maxConcurrent: 5 }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await d.tick();
+    expect(spawnedWorkspaces(calls)).toEqual(new Set(['ws', 'other']));
+  });
+
+  it('picks up a workspace created AFTER startup — no restart (re-read each tick)', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ workspaces: undefined, maxConcurrent: 5 }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await d.tick();
+    expect(calls.length).toBe(0);
+    core.createWorkspace({ name: 'late', repoPath: '/repo/late' }); // added while running
+    seedQueued(core, 'late', 'L');
+    await d.tick();
+    expect(spawnedWorkspaces(calls)).toEqual(new Set(['late']));
+  });
+
+  it('excludeWorkspaces drops a workspace from the served-all set', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    core.createWorkspace({ name: 'demo', repoPath: '/repo/demo' });
+    seedQueued(core, 'ws', 'A');
+    seedQueued(core, 'demo', 'B');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ workspaces: undefined, excludeWorkspaces: ['demo'], maxConcurrent: 5 }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await d.tick();
+    expect(spawnedWorkspaces(calls)).toEqual(new Set(['ws']));
+  });
+
+  it('still honours an explicit workspaces allowlist (opt-in back-compat)', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    core.createWorkspace({ name: 'other', repoPath: '/repo/other' });
+    seedQueued(core, 'ws', 'A');
+    seedQueued(core, 'other', 'B');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ workspaces: ['ws'], maxConcurrent: 5 }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await d.tick();
+    expect(spawnedWorkspaces(calls)).toEqual(new Set(['ws']));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // per-stage model / args selection
 // ---------------------------------------------------------------------------
 describe('per-stage claude args', () => {

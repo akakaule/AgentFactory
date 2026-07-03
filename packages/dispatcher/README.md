@@ -39,7 +39,8 @@ sessions are killed.
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `db` | — (required) | Path to the agentfactory sqlite DB. |
-| `workspaces` | — (required) | Workspace slugs to serve (≥ 1). |
+| `workspaces` | — (optional) | Workspace slugs to serve. **Omit to serve every workspace in the DB** (opt-out model) — the list is re-read each tick, so a workspace created on the board is dispatched automatically, with no config edit and no restart. When present, pins the dispatcher to exactly these slugs (opt-in back-compat). |
+| `excludeWorkspaces` | `[]` | Workspace slugs to **never** serve — the opt-out escape hatch (a scratch/demo workspace). Applied whether or not `workspaces` is set. |
 | `maxConcurrent` | `1` | Max concurrent sessions **per workspace**. Same-repo parallelism is opt-in — shared local resources (test DBs, ports) make 1 the safe default. |
 | `pollSeconds` | `15` | Queue poll interval. |
 | `permissionMode` | `acceptEdits` | `claude --permission-mode` for unattended sessions. `bypassPermissions` is supported but for contained environments only. |

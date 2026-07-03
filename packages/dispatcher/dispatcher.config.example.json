@@ -1,6 +1,6 @@
 {
   "db": "./agentfactory.db",
-  "workspaces": ["agentfactory"],
+  "excludeWorkspaces": ["agent-demo"],
   "maxConcurrent": 1,
   "pollSeconds": 15,
   "permissionMode": "acceptEdits",

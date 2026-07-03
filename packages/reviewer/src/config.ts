@@ -16,8 +16,14 @@ export const configSchema = z.object({
   db: z.string().min(1),
   /** Stable supervisor identity for the health view (one heartbeat row per name). */
   name: z.string().min(1).default('reviewer'),
-  /** Workspace slugs to watch. */
-  workspaces: z.array(z.string().min(1)).min(1),
+  /**
+   * Workspace slugs to watch. OMIT to watch every workspace in the DB (opt-out model) —
+   * re-read each tick, so a workspace created on the board is picked up with no config edit
+   * or restart. When present, pins the reviewer to exactly these slugs (opt-in back-compat).
+   */
+  workspaces: z.array(z.string().min(1)).min(1).optional(),
+  /** Workspace slugs to never watch — the opt-out list, applied whether or not `workspaces` is set. */
+  excludeWorkspaces: z.array(z.string().min(1)).default([]),
   /** Which CLI runs the review. */
   engine: z.enum(REVIEW_ENGINES).default('codex'),
   /** Optional model override passed to the engine (codex `-m`, claude `--model`). */

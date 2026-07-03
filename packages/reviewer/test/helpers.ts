@@ -141,6 +141,7 @@ export function makeConfig(overrides: Partial<ReviewerConfig> = {}): ReviewerCon
   return {
     db: ':memory:',
     workspaces: ['ws'],
+    excludeWorkspaces: [],
     engine: 'codex',
     pollSeconds: 60,
     maxConcurrent: 1,

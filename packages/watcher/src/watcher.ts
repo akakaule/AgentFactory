@@ -1,4 +1,4 @@
-import { InvalidTransitionError, parseRemoteUrl, type RemoteRef, type Task, type DeliveryFailingCheck } from '@agentfactory/core';
+import { InvalidTransitionError, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -74,11 +74,18 @@ export class Watcher {
 
   async tick(): Promise<void> {
     const { core, console } = this.deps;
-    const mine = (t: Task): boolean => this.config.workspaces.includes(t.workspace);
+    // Served set, re-read each tick: the explicit allowlist if set, else every DB workspace,
+    // minus excludeWorkspaces — so a newly-created workspace is watched with no config edit.
+    const served = resolveServedWorkspaces(core.listWorkspaces().map((w) => w.name), {
+      workspaces: this.config.workspaces,
+      exclude: this.config.excludeWorkspaces,
+    });
+    const servedSet = new Set(served);
+    const mine = (t: Task): boolean => servedSet.has(t.workspace);
     const tasks = core.listTasks({ status: 'delivering' }).filter(mine);
     try {
       core.recordSupervisorHeartbeat({
-        name: this.config.name, kind: 'watcher', workspaces: this.config.workspaces,
+        name: this.config.name, kind: 'watcher', workspaces: served,
         inFlight: tasks.length, capacity: 0, pollSeconds: this.config.pollSeconds,
       });
     } catch (err) {

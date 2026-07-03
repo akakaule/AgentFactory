@@ -1,4 +1,4 @@
-import { buildFailureComment, refFromLabel } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel, resolveServedWorkspaces } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
@@ -85,19 +85,32 @@ export class Reviewer {
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
     this.enforceTimeouts();
-    this.recordHeartbeat();
-    for (const workspace of this.config.workspaces) await this.pollWorkspace(workspace);
+    const served = this.servedWorkspaces();
+    this.recordHeartbeat(served);
+    for (const workspace of served) await this.pollWorkspace(workspace);
+  }
+
+  /**
+   * The workspace slugs to watch this tick: the explicit `workspaces` allowlist if set, else every
+   * workspace in the DB, minus `excludeWorkspaces`. Re-read each tick so a newly-created workspace
+   * is reviewed automatically (opt-out model).
+   */
+  servedWorkspaces(): string[] {
+    return resolveServedWorkspaces(
+      this.deps.core.listWorkspaces().map((w) => w.name),
+      { workspaces: this.config.workspaces, exclude: this.config.excludeWorkspaces },
+    );
   }
 
   /** Report a heartbeat so the board's health view knows the reviewer is alive. Best-effort. */
-  private recordHeartbeat(): void {
+  private recordHeartbeat(served: string[]): void {
     try {
       this.deps.core.recordSupervisorHeartbeat({
         name: this.config.name,
         kind: 'reviewer',
-        workspaces: this.config.workspaces,
+        workspaces: served,
         inFlight: this.running.size,
-        capacity: this.config.maxConcurrent * this.config.workspaces.length,
+        capacity: this.config.maxConcurrent * served.length,
         pollSeconds: this.config.pollSeconds,
       });
     } catch {

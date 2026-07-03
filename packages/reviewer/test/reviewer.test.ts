@@ -309,3 +309,55 @@ describe('failure paths', () => {
     expect(t.failure).toBeNull(); // the successful review cleared the prior failure note
   });
 });
+
+// ---------------------------------------------------------------------------
+// workspace selection (opt-out model)
+// ---------------------------------------------------------------------------
+describe('workspace selection', () => {
+  // otel makes the codex spawn stamp AF_TASK_KEY, so we can assert exactly which tasks were reviewed
+  const otel = { endpoint: 'http://localhost:8787' };
+  const reviewedKeys = (calls: { req: { env: NodeJS.ProcessEnv } }[]): Set<string> =>
+    new Set(calls.map((c) => c.req.env['AF_TASK_KEY']!));
+
+  it('reviews in_review tasks across every DB workspace when config.workspaces is omitted', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    core.createWorkspace({ name: 'other', repoPath: '/repo/other' });
+    const a = seedInReview(core, 'ws', 'A');
+    const b = seedInReview(core, 'other', 'B');
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(
+      makeConfig({ workspaces: undefined, maxConcurrent: 5, otel }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await r.tick();
+    expect(reviewedKeys(calls)).toEqual(new Set([a, b]));
+  });
+
+  it('excludeWorkspaces drops a workspace from review', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    core.createWorkspace({ name: 'demo', repoPath: '/repo/demo' });
+    const a = seedInReview(core, 'ws', 'A');
+    seedInReview(core, 'demo', 'B'); // must NOT be reviewed
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(
+      makeConfig({ workspaces: undefined, excludeWorkspaces: ['demo'], maxConcurrent: 5, otel }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await r.tick();
+    expect(reviewedKeys(calls)).toEqual(new Set([a]));
+  });
+
+  it('still honours an explicit workspaces allowlist (opt-in back-compat)', async () => {
+    const core = makeCore('ws', '/repo/ws');
+    core.createWorkspace({ name: 'other', repoPath: '/repo/other' });
+    const a = seedInReview(core, 'ws', 'A');
+    seedInReview(core, 'other', 'B'); // not in the allowlist → not reviewed
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(
+      makeConfig({ workspaces: ['ws'], maxConcurrent: 5, otel }),
+      makeDeps(core, spawn, { console: makeFakeConsole() }),
+    );
+    await r.tick();
+    expect(reviewedKeys(calls)).toEqual(new Set([a]));
+  });
+});
