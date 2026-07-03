@@ -30,7 +30,11 @@ export const configSchema = z.object({
   postMergeChecks: z.boolean().default(false),
   /** Cap for the per-task exponential error backoff, seconds. */
   maxBackoffSeconds: z.number().positive().default(900),
-  /** GitHub REST access. The token env var needs repo read scope (PRs + checks). */
+  /**
+   * GitHub REST access. `tokenEnv` names the SHARED token env var (needs repo read scope: PRs +
+   * checks). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
+   * `_`) to give one workspace its own token — e.g. `GITHUB_TOKEN_ACME`. Falls back to the shared var.
+   */
   github: z
     .object({
       tokenEnv: z.string().min(1).default('GITHUB_TOKEN'),
@@ -38,7 +42,12 @@ export const configSchema = z.object({
     })
     .strict()
     .default({}),
-  /** Azure DevOps REST access. The PAT env var needs Code (Read) scope — never write. */
+  /**
+   * Azure DevOps REST access. `patEnv` names the SHARED PAT env var (needs Code (Read) scope — never
+   * write). A PAT authenticates to ONE organization, so workspaces in different orgs/projects need
+   * their own: set `<patEnv>_<WORKSPACE>` (e.g. `AZDO_PAT_KL_DISCONFIGURATION`) to override per
+   * workspace; falls back to the shared `patEnv`.
+   */
   azdo: z
     .object({
       patEnv: z.string().min(1).default('AZDO_PAT'),

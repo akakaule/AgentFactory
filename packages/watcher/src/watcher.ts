@@ -4,6 +4,10 @@ import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
 import { makeAzdoProvider } from './providers/azdo.js';
 import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi } from './providers/types.js';
+import { resolveCredential } from './credentials.js';
+
+/** HTTP statuses that mean "the credential is wrong", not "back off and retry" (see provider guards). */
+const AUTH_STATUSES = new Set([203, 401, 403]);
 
 /**
  * The watcher supervisor: polls every `delivering` task in its workspaces, observes the PR +
@@ -28,25 +32,21 @@ export class Watcher {
   /** repoPath → parsed origin (or null); refreshed lazily, cached for the process lifetime. */
   private remoteCache = new Map<string, RemoteRef | null>();
 
-  private readonly providers: Record<'github' | 'azdo', DeliveryProviderApi>;
-
   constructor(
     private readonly config: WatcherConfig,
     private readonly deps: WatcherDeps,
-  ) {
-    this.providers = {
-      github: makeGitHubProvider({
-        fetchJson: deps.fetchJson,
-        token: deps.env[config.github.tokenEnv] ?? null,
-        apiBase: config.github.apiBase,
-        now: deps.now,
-      }),
-      azdo: makeAzdoProvider({
-        fetchJson: deps.fetchJson,
-        pat: deps.env[config.azdo.patEnv] ?? null,
-        apiVersion: config.azdo.apiVersion,
-      }),
-    };
+  ) {}
+
+  /** The base credential env var name for a provider (the shared fallback; per-workspace overrides it). */
+  private baseEnvVar(provider: 'github' | 'azdo'): string {
+    return provider === 'github' ? this.config.github.tokenEnv : this.config.azdo.patEnv;
+  }
+
+  /** Build a provider bound to a specific token — rebuilt per task since the token varies by workspace. */
+  private buildProvider(provider: 'github' | 'azdo', token: string | null): DeliveryProviderApi {
+    return provider === 'github'
+      ? makeGitHubProvider({ fetchJson: this.deps.fetchJson, token, apiBase: this.config.github.apiBase, now: this.deps.now })
+      : makeAzdoProvider({ fetchJson: this.deps.fetchJson, pat: token, apiVersion: this.config.azdo.apiVersion });
   }
 
   start(): void {
@@ -139,13 +139,16 @@ export class Watcher {
     }
 
     const prUrl = delivery.prUrl ?? [...detail.links].reverse().find((l) => l.kind === 'pr')?.url ?? null;
+    // Resolve this workspace's credential (its own <BASE>_<WORKSPACE> var, else the shared base),
+    // and build the provider bound to it — different workspaces can live in different orgs/hosts.
+    const cred = resolveCredential(this.deps.env, this.baseEnvVar(delivery.provider), detail.workspace);
     let result: DeliveryCheckResult;
     try {
-      result = await this.providers[delivery.provider].check(remote, delivery.branch, prUrl, {
+      result = await this.buildProvider(delivery.provider, cred.token).check(remote, delivery.branch, prUrl, {
         postMergeChecks: this.config.postMergeChecks,
       });
     } catch (err) {
-      this.noteFailure(key, err);
+      this.noteFailure(key, err, cred);
       return;
     }
     this.backoffUntil.delete(key);
@@ -203,7 +206,7 @@ export class Watcher {
     return `PR: ${prUrl} (${prState}, head ${branch})\nFailing checks:\n${list}\n\n${instruction}`;
   }
 
-  private noteFailure(key: string, err: unknown): void {
+  private noteFailure(key: string, err: unknown, cred?: { envVar: string; base: string }): void {
     const { console, now } = this.deps;
     if (err instanceof ProviderHttpError && err.pauseUntilMs !== null) {
       this.pausedUntil = Math.max(this.pausedUntil, err.pauseUntilMs);
@@ -214,6 +217,13 @@ export class Watcher {
     this.backoffLevel.set(key, level);
     const delayMs = Math.min(this.config.pollSeconds * 2 ** level, this.config.maxBackoffSeconds) * 1000;
     this.backoffUntil.set(key, now() + delayMs);
-    console.warn(`[watcher] ${key}: provider check failed (${err instanceof Error ? err.message : String(err)}) — backing off ${Math.round(delayMs / 1000)}s`);
+    // An auth failure won't heal on retry — name the exact env var to set so the operator can act.
+    const authHint =
+      cred && err instanceof ProviderHttpError && AUTH_STATUSES.has(err.status)
+        ? ` — set a valid credential in ${cred.envVar} (or the shared ${cred.base}) and restart the watcher`
+        : '';
+    console.warn(
+      `[watcher] ${key}: provider check failed (${err instanceof Error ? err.message : String(err)})${authHint} — backing off ${Math.round(delayMs / 1000)}s`,
+    );
   }
 }

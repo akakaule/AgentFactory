@@ -67,8 +67,19 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
     if (res.status === 200) return res;
     // ADO throttling: 429 with Retry-After (also X-RateLimit-Reset on some responses).
     const retryAfter = Number(res.headers['retry-after'] ?? NaN);
-    const pause = res.status === 429 ? Date.now() + (Number.isFinite(retryAfter) ? retryAfter : 60) * 1000 : null;
-    throw new ProviderHttpError(`azdo ${res.status} for ${url}`, res.status, pause);
+    if (res.status === 429) {
+      throw new ProviderHttpError(`azdo 429 for ${url}`, 429, Date.now() + (Number.isFinite(retryAfter) ? retryAfter : 60) * 1000);
+    }
+    // Auth: ADO answers an unauthenticated/failed-PAT request with the Azure AD sign-in page and a
+    // 203 (Non-Authoritative Information), not a 401 — so 203/401/403 all mean "the PAT is missing,
+    // invalid, expired, or lacks Code (Read) for this org/project", not a transient error.
+    if (res.status === 203 || res.status === 401 || res.status === 403) {
+      throw new ProviderHttpError(
+        `azdo auth failed (${res.status}) — the PAT is missing, invalid, expired, or lacks Code (Read) for this org/project: ${url}`,
+        res.status,
+      );
+    }
+    throw new ProviderHttpError(`azdo ${res.status} for ${url}`, res.status);
   };
   const get = async (url: string): Promise<unknown> => guard(await fetchJson(url, { headers }), url).body;
 

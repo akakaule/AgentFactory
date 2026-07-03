@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isFailureMarker, parseFailureComment } from '@agentfactory/core';
 import { Watcher } from '../src/watcher.js';
-import { deliverTask, fakeFetch, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
+import { ADO_ORIGIN, deliverTask, fakeFetch, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
 
 const green = { check_runs: [{ name: 'build', status: 'completed', conclusion: 'success', html_url: null, details_url: null }] };
 const red = { check_runs: [{ name: 'build', status: 'completed', conclusion: 'failure', html_url: 'https://gh/run/1', details_url: null }] };
@@ -240,5 +240,65 @@ describe('watcher tick', () => {
     await w.tick();
     const sup = core.listSupervisors().find((s) => s.name === 'watcher-test')!;
     expect(sup).toMatchObject({ kind: 'watcher', inFlight: 1, capacity: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// per-workspace credentials + auth-failure diagnostics
+// ---------------------------------------------------------------------------
+describe('per-workspace credentials', () => {
+  // Records the Authorization header of every request; PR searches come back empty (one call, no PR).
+  const authCapturingFetch = () => {
+    const auths: (string | null)[] = [];
+    const fn = async (_url: string, init: { headers: Record<string, string> }) => {
+      auths.push(init.headers['Authorization'] ?? null);
+      return { status: 200, headers: {}, body: { value: [] } };
+    };
+    return Object.assign(fn, { auths });
+  };
+  const basic = (pat: string): string => `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
+
+  it('uses the per-workspace PAT (AZDO_PAT_<WORKSPACE>) over the shared AZDO_PAT', async () => {
+    const core = makeCore(ADO_ORIGIN); // deliverTask lands in the seeded 'default' workspace
+    deliverTask(core);
+    const fetchJson = authCapturingFetch();
+    const w = new Watcher(
+      makeConfig(),
+      makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN, env: { AZDO_PAT: 'shared', AZDO_PAT_DEFAULT: 'ws-pat' } }),
+    );
+    await w.tick();
+    expect(fetchJson.auths[0]).toBe(basic('ws-pat'));
+  });
+
+  it('falls back to the shared AZDO_PAT when no per-workspace var is set', async () => {
+    const core = makeCore(ADO_ORIGIN);
+    deliverTask(core);
+    const fetchJson = authCapturingFetch();
+    const w = new Watcher(
+      makeConfig(),
+      makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN, env: { AZDO_PAT: 'shared' } }),
+    );
+    await w.tick();
+    expect(fetchJson.auths[0]).toBe(basic('shared'));
+  });
+
+  it('classifies an ADO 203 as an auth failure and names the exact env var to set', async () => {
+    const core = makeCore(ADO_ORIGIN);
+    const key = deliverTask(core);
+    const warnings: string[] = [];
+    const fetchJson = async () => ({ status: 203, headers: {}, body: '<html>sign in</html>' });
+    const w = new Watcher(
+      makeConfig(),
+      makeDeps(core, fetchJson, {
+        resolveOrigin: () => ADO_ORIGIN,
+        env: {}, // no PAT at all
+        console: { log: () => {}, warn: (...a: unknown[]) => void warnings.push(a.map(String).join(' ')), error: () => {} },
+      }),
+    );
+    await w.tick();
+    const msg = warnings.join('\n');
+    expect(msg).toContain('auth failed (203)');
+    expect(msg).toContain('AZDO_PAT_DEFAULT'); // the per-workspace var to set
+    expect(core.getTask(key).status).toBe('delivering'); // a sign-in page is never treated as a merged PR
   });
 });

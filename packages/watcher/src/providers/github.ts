@@ -75,11 +75,19 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
     const remaining = Number(res.headers['x-ratelimit-remaining'] ?? NaN);
     const reset = Number(res.headers['x-ratelimit-reset'] ?? NaN);
     const retryAfter = Number(res.headers['retry-after'] ?? NaN);
-    let pause: number | null = null;
     if (res.status === 429 || ((res.status === 403 || res.status === 401) && remaining === 0)) {
-      pause = Number.isFinite(retryAfter) ? now() + retryAfter * 1000 : Number.isFinite(reset) ? reset * 1000 : now() + 60_000;
+      const pause = Number.isFinite(retryAfter) ? now() + retryAfter * 1000 : Number.isFinite(reset) ? reset * 1000 : now() + 60_000;
+      throw new ProviderHttpError(`github ${res.status} for ${url}`, res.status, pause);
     }
-    throw new ProviderHttpError(`github ${res.status} for ${url}`, res.status, pause);
+    // Auth (not rate limit): a bad/missing token is 401; a token without repo read scope is 403
+    // with rate-limit budget remaining. Both mean "fix the token", not "back off and retry".
+    if (res.status === 401 || res.status === 403) {
+      throw new ProviderHttpError(
+        `github auth failed (${res.status}) — the token is missing, invalid, or lacks repo read scope: ${url}`,
+        res.status,
+      );
+    }
+    throw new ProviderHttpError(`github ${res.status} for ${url}`, res.status);
   };
 
   const get = async (url: string): Promise<unknown> => guard(await fetchJson(url, { headers }), url).body;

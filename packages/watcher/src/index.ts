@@ -43,7 +43,11 @@ const wsDesc = config.workspaces
 console.log(
   `[watcher] starting — db ${config.db}, workspaces ${wsDesc}, ` +
     `poll ${config.pollSeconds}s, postMergeChecks ${config.postMergeChecks}, ` +
-    `${config.github.tokenEnv} ${ghToken}, ${config.azdo.patEnv} ${azdoPat}`,
+    `${config.github.tokenEnv} ${ghToken} (shared), ${config.azdo.patEnv} ${azdoPat} (shared)`,
+);
+console.log(
+  `[watcher] per-workspace credentials override the shared vars: set ` +
+    `${config.github.tokenEnv}_<WORKSPACE> / ${config.azdo.patEnv}_<WORKSPACE> (slug uppercased, non-alphanumerics → _)`,
 );
 
 watcher.start();
