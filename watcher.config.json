@@ -1,5 +1,6 @@
 {
   "db": "./agentfactory.db",
+  "excludeWorkspaces": ["default", "clawpatch-selftest", "reviewboard"],
   "pollSeconds": 60,
   "postMergeChecks": false
 }
