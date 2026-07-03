@@ -101,7 +101,7 @@
 
 /* ============================== BOARD ============================== */
 .af-board {
-  flex: 1; display: grid; grid-template-columns: repeat(6, minmax(var(--col-min-w), var(--col-w)));
+  flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(var(--col-min-w), var(--col-w));
   gap: 14px; padding: 16px 18px 18px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
 }
 .af-col {
