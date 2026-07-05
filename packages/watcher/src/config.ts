@@ -31,6 +31,13 @@ export const configSchema = z.object({
   /** Cap for the per-task exponential error backoff, seconds. */
   maxBackoffSeconds: z.number().positive().default(900),
   /**
+   * On a failing PR build, fetch the actual build errors (ADO build-timeline issues / GitHub
+   * check-run output) and embed them in the requeue note, so the fixing worker gets the concrete
+   * error, not just check names. Best-effort — a fetch failure degrades to names-only. One extra
+   * REST call per bounce; ADO needs the PAT to also have Build (Read). Set false to disable.
+   */
+  captureBuildErrors: z.boolean().default(true),
+  /**
    * GitHub REST access. `tokenEnv` names the SHARED token env var (needs repo read scope: PRs +
    * checks). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
    * `_`) to give one workspace its own token — e.g. `GITHUB_TOKEN_ACME`. Falls back to the shared var.

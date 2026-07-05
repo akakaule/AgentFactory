@@ -49,6 +49,49 @@ describe('watcher tick', () => {
     expect(core.getTask(key).activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body))).toHaveLength(1);
   });
 
+  it('embeds the captured build errors in the ci_failed bounce note', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const redWithOutput = {
+      check_runs: [{
+        name: 'CE-Adapter - Build', status: 'completed', conclusion: 'failure',
+        html_url: 'https://gh/run/1', details_url: null,
+        output: { title: 'Build failed', summary: "NU1903: Package 'Microsoft.OpenApi' 2.0.0 has a known high severity vulnerability" },
+      }],
+    };
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr()] }],
+      ['/check-runs', { body: redWithOutput }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    const t = core.getTask(key);
+    expect(t.status).toBe('queued');
+    const failure = t.activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body)).at(-1)!;
+    expect(failure.body).toContain('Build errors:');
+    expect(failure.body).toContain('NU1903');
+    expect(failure.body).toContain('Microsoft.OpenApi');
+  });
+
+  it('captureBuildErrors=false bounces with check names only (no error block)', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const redWithOutput = {
+      check_runs: [{ name: 'build', status: 'completed', conclusion: 'failure', html_url: 'https://gh/run/1', details_url: null, output: { summary: 'NU1903 vuln' } }],
+    };
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr()] }],
+      ['/check-runs', { body: redWithOutput }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const w = new Watcher(makeConfig({ captureBuildErrors: false }), makeDeps(core, fetchJson));
+    await w.tick();
+    const failure = core.getTask(key).activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body)).at(-1)!;
+    expect(failure.body).not.toContain('Build errors:');
+    expect(failure.body).toContain('https://gh/run/1'); // still names the failing check + its link
+  });
+
   it('PR closed without merge → queued with pr_closed', async () => {
     const core = makeCore();
     const key = deliverTask(core);

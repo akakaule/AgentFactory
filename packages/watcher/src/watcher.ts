@@ -142,9 +142,10 @@ export class Watcher {
     // Resolve this workspace's credential (its own <BASE>_<WORKSPACE> var, else the shared base),
     // and build the provider bound to it — different workspaces can live in different orgs/hosts.
     const cred = resolveCredential(this.deps.env, this.baseEnvVar(delivery.provider), detail.workspace);
+    const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;
     try {
-      result = await this.buildProvider(delivery.provider, cred.token).check(remote, delivery.branch, prUrl, {
+      result = await provider.check(remote, delivery.branch, prUrl, {
         postMergeChecks: this.config.postMergeChecks,
       });
     } catch (err) {
@@ -180,12 +181,13 @@ export class Watcher {
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
       } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
+        const errors = await this.captureErrors(provider, remote, result);
         core.failDelivery(key, {
           reason: 'ci_failed',
           detail: `PR ${pr.id} checks failed: ${names}`,
-          body: this.ciFailureBody(pr.url, pr.state, delivery.branch, checks.failing),
+          body: this.ciFailureBody(pr.url, pr.state, delivery.branch, checks.failing, errors),
         });
-        console.log(`[watcher] ${key}: bounced — checks failed (${names})`);
+        console.log(`[watcher] ${key}: bounced — checks failed (${names})${errors.length ? ` · captured ${errors.length} error line(s)` : ''}`);
       }
       // open + pending/passing/none/unknown, or no PR yet: recorded; keep waiting.
     } catch (err) {
@@ -197,13 +199,33 @@ export class Watcher {
     }
   }
 
-  private ciFailureBody(prUrl: string, prState: 'open' | 'merged' | 'closed', branch: string, failing: DeliveryFailingCheck[]): string {
+  /**
+   * Best-effort error capture for the failing checks (gated by config.captureBuildErrors and whether
+   * the provider implements it). Never throws to the tick — a capture failure just bounces with the
+   * check names, which is the pre-existing behaviour.
+   */
+  private async captureErrors(provider: DeliveryProviderApi, remote: RemoteRef, result: DeliveryCheckResult): Promise<string[]> {
+    if (!this.config.captureBuildErrors || !provider.describeFailures) return [];
+    try {
+      return await provider.describeFailures(remote, result, { postMergeChecks: this.config.postMergeChecks });
+    } catch (err) {
+      this.deps.console.warn(
+        `[watcher] build-error capture failed (${err instanceof Error ? err.message : String(err)}) — bouncing with check names only`,
+      );
+      return [];
+    }
+  }
+
+  private ciFailureBody(prUrl: string, prState: 'open' | 'merged' | 'closed', branch: string, failing: DeliveryFailingCheck[], errors: string[]): string {
     const list = failing.map((f) => `- ${f.name}${f.url ? ` — ${f.url}` : ''}`).join('\n');
+    // The concrete errors behind the red checks (build-log issues / check output) — this is what the
+    // fixing worker acts on, so it doesn't have to go dig the CI log itself.
+    const errorBlock = errors.length ? `\n\nBuild errors:\n\`\`\`text\n${errors.join('\n')}\n\`\`\`` : '';
     const instruction =
       prState === 'merged'
         ? 'The PR is already merged but its checks are red. Fix the failures on a follow-up commit on the SAME branch and open a new PR.'
         : 'The branch and PR still exist. Fix the failures and push to the SAME branch — do not open a new PR.';
-    return `PR: ${prUrl} (${prState}, head ${branch})\nFailing checks:\n${list}\n\n${instruction}`;
+    return `PR: ${prUrl} (${prState}, head ${branch})\nFailing checks:\n${list}${errorBlock}\n\n${instruction}`;
   }
 
   private noteFailure(key: string, err: unknown, cred?: { envVar: string; base: string }): void {

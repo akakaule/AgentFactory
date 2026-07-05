@@ -1,6 +1,6 @@
 import type { DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
-import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
+import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
 
 /**
  * Azure DevOps via REST with a PAT (Code Read scope — the watcher never writes to the host).
@@ -21,6 +21,21 @@ interface AdoPrStatus {
   state: string; // succeeded | failed | error | pending | notSet | notApplicable
   context?: { name?: string; genre?: string } | null;
   targetUrl?: string | null;
+}
+/** One node of a build's execution tree; each carries any errors/warnings it raised. */
+interface AdoTimeline {
+  records?: Array<{ issues?: Array<{ type?: string; message?: string }> | null }>;
+}
+
+/**
+ * A build id from a PR-status targetUrl. Build-validation statuses point at the build results page
+ * (`_build/results?buildId=123`); older/vstfs links use `/Build/Build/123`. Null when neither shape
+ * matches (e.g. an external non-build status), so that check is simply skipped.
+ */
+export function parseBuildId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = /(?:[?&]buildId=|\/Build\/Build\/)(\d+)/i.exec(url);
+  return m ? m[1]! : null;
 }
 
 const basicPat = (pat: string): string => `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
@@ -107,6 +122,34 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       const obs = toPr(remote, pr);
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       return { pr: obs, checks: combineAdoStatuses(statuses.value ?? []) };
+    },
+
+    async describeFailures(remote, result): Promise<string[]> {
+      if (remote.provider !== 'azdo') return [];
+      const e = encodeURIComponent;
+      const projectBase = `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}`;
+      // Each failing build-validation status targets a build; pull that build's timeline and
+      // collect the error issues (the `##[error]` lines). Dedupe across builds/records.
+      const buildIds = new Set<string>();
+      for (const f of result.checks.failing) {
+        const id = parseBuildId(f.url);
+        if (id) buildIds.add(id);
+      }
+      const messages: string[] = [];
+      for (const id of buildIds) {
+        try {
+          const tl = (await get(`${projectBase}/_apis/build/builds/${id}/timeline?api-version=${apiVersion}`)) as AdoTimeline;
+          for (const rec of tl.records ?? []) {
+            for (const issue of rec.issues ?? []) {
+              if ((issue.type ?? '').toLowerCase() === 'error' && issue.message) messages.push(issue.message);
+            }
+          }
+        } catch {
+          // best-effort: a missing build, or a PAT without Build (Read) → this build yields no
+          // excerpts; the bounce still carries the check names. Never throws to the watcher.
+        }
+      }
+      return capExcerpts(messages);
     },
   };
 }

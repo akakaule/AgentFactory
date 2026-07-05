@@ -1,6 +1,6 @@
 import type { RemoteRef, DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
-import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
+import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
 
 /**
  * GitHub via REST with a token — deliberately not the `gh` CLI: a long-lived poller wants the
@@ -24,6 +24,7 @@ interface CheckRun {
   conclusion: string | null; // success | failure | neutral | cancelled | timed_out | action_required | skipped | stale
   html_url: string | null;
   details_url: string | null;
+  output?: { title?: string | null; summary?: string | null } | null; // the annotated failure text
 }
 interface CommitStatus { state: string; context: string; target_url: string | null; }
 
@@ -123,6 +124,28 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       const runsBody = (await get(`${repo}/commits/${sha}/check-runs?per_page=100`)) as { check_runs?: CheckRun[] };
       const statusBody = (await get(`${repo}/commits/${sha}/status`)) as { statuses?: CommitStatus[] };
       return { pr: obs, checks: combineChecks(runsBody.check_runs ?? [], statusBody.statuses ?? []) };
+    },
+
+    async describeFailures(remote, result, { postMergeChecks }): Promise<string[]> {
+      if (remote.provider !== 'github' || !result.pr) return [];
+      const pr = result.pr;
+      const sha = pr.state === 'merged' && postMergeChecks ? (pr.mergeCommitSha ?? pr.headSha) : pr.headSha;
+      if (!sha) return [];
+      const repo = `${apiBase}/repos/${encodeURIComponent(remote.owner)}/${encodeURIComponent(remote.repo)}`;
+      const messages: string[] = [];
+      try {
+        // Re-read the check-runs and lift the `output` (title/summary) of the failing ones — that
+        // is where a workflow surfaces the actual error. One extra call, only at the bounce moment.
+        const runsBody = (await get(`${repo}/commits/${sha}/check-runs?per_page=100`)) as { check_runs?: CheckRun[] };
+        for (const run of runsBody.check_runs ?? []) {
+          if (run.status !== 'completed' || run.conclusion === null || !FAILING_CONCLUSIONS.has(run.conclusion)) continue;
+          const parts = [run.output?.title, run.output?.summary].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+          if (parts.length) messages.push(`${run.name}: ${parts.join(' — ')}`);
+        }
+      } catch {
+        // best-effort: a hiccup here just drops back to check names in the bounce note.
+      }
+      return capExcerpts(messages);
     },
   };
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeGitHubProvider, combineChecks } from '../src/providers/github.js';
-import { makeAzdoProvider, combineAdoStatuses } from '../src/providers/azdo.js';
-import { ProviderHttpError } from '../src/providers/types.js';
+import { makeAzdoProvider, combineAdoStatuses, parseBuildId } from '../src/providers/azdo.js';
+import { ProviderHttpError, type DeliveryCheckResult } from '../src/providers/types.js';
 import { parseRemoteUrl } from '@agentfactory/core';
 import { fakeFetch, ghPr, GH_ORIGIN, ADO_ORIGIN } from './helpers.js';
 
@@ -67,6 +67,22 @@ describe('github provider', () => {
     const r = await p.check(ghRemote, 'feature/x', null, { postMergeChecks: false });
     expect(r.pr).toBeNull();
     expect(r.checks.state).toBe('unknown');
+  });
+
+  it('describeFailures lifts check-run output for the failing runs only', async () => {
+    const fetchJson = fakeFetch([['/commits/headsha/check-runs', { body: { check_runs: [
+      { name: 'build', status: 'completed', conclusion: 'failure', html_url: null, details_url: null, output: { title: 'Build failed', summary: 'NU1903 Microsoft.OpenApi 2.0.0' } },
+      { name: 'lint', status: 'completed', conclusion: 'success', html_url: null, details_url: null, output: { summary: 'all good' } },
+    ] } }]]);
+    const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
+    const result: DeliveryCheckResult = {
+      pr: { id: '#42', url: 'x', state: 'open', headSha: 'headsha', mergeCommitSha: 'mergesha' },
+      checks: { state: 'failing', failing: [{ name: 'build', url: null }] },
+    };
+    const errors = await p.describeFailures!(ghRemote, result, { postMergeChecks: false });
+    expect(errors.some((e) => e.includes('NU1903'))).toBe(true);
+    expect(errors.some((e) => e.startsWith('build:'))).toBe(true);
+    expect(errors.some((e) => e.includes('all good'))).toBe(false); // passing run excluded
   });
 
   it('postMergeChecks moves a merged PR\'s check target to the merge commit', async () => {
@@ -145,5 +161,40 @@ describe('azdo provider', () => {
     await expect(p.check(adoRemote, 'b', null, { postMergeChecks: false })).rejects.toSatisfy(
       (e: unknown) => e instanceof ProviderHttpError && e.pauseUntilMs !== null,
     );
+  });
+
+  it('parseBuildId reads the id from a results url and a vstfs link, null otherwise', () => {
+    expect(parseBuildId('https://dev.azure.com/o/p/_build/results?buildId=123&view=results')).toBe('123');
+    expect(parseBuildId('vstfs:///Build/Build/456')).toBe('456');
+    expect(parseBuildId('https://external/status')).toBeNull();
+    expect(parseBuildId(null)).toBeNull();
+  });
+
+  it('describeFailures pulls error issues from the failing build timeline (warnings excluded)', async () => {
+    const fetchJson = fakeFetch([
+      ['/_apis/build/builds/555/timeline', { body: { records: [
+        { issues: [{ type: 'error', message: "NU1903: Package 'Microsoft.OpenApi' 2.0.0 vulnerability" }, { type: 'warning', message: 'noise' }] },
+        { issues: [{ type: 'error', message: 'CS1061: MaterialProjectPurchase has no WarehouseID' }] },
+      ] } }],
+    ]);
+    const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+    const result: DeliveryCheckResult = {
+      pr: { id: '!7', url: 'x', state: 'open', headSha: null, mergeCommitSha: null },
+      checks: { state: 'failing', failing: [{ name: 'CE-Adapter - Build', url: 'https://dev.azure.com/acme/Widgets/_build/results?buildId=555' }] },
+    };
+    const errors = await p.describeFailures!(adoRemote, result, { postMergeChecks: false });
+    expect(errors).toContain("NU1903: Package 'Microsoft.OpenApi' 2.0.0 vulnerability");
+    expect(errors).toContain('CS1061: MaterialProjectPurchase has no WarehouseID');
+    expect(errors.some((e) => e.includes('noise'))).toBe(false);
+  });
+
+  it('describeFailures degrades to [] when the build timeline is forbidden (PAT lacks Build read)', async () => {
+    const fetchJson = fakeFetch([['/_apis/build/builds/555/timeline', { status: 203, body: '<html/>' }]]);
+    const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+    const result: DeliveryCheckResult = {
+      pr: { id: '!7', url: 'x', state: 'open', headSha: null, mergeCommitSha: null },
+      checks: { state: 'failing', failing: [{ name: 'Build', url: 'https://x/_build/results?buildId=555' }] },
+    };
+    expect(await p.describeFailures!(adoRemote, result, { postMergeChecks: false })).toEqual([]);
   });
 });
