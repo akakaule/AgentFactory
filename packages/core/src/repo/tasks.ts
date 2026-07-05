@@ -1,7 +1,7 @@
 import type { DB } from '../db.js';
 import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds } from './activity.js';
+import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds, latestRestartMarkerIds } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
@@ -50,14 +50,16 @@ function failureByTaskIds(db: DB, ids: number[]): Map<number, FailureSummary> {
   if (comments.size === 0) return out;
   const keys = [...comments.keys()];
   // A failure is cleared by later *progress*: a new result (a worker crash superseded by a
-  // successful submission) OR a new ai-review comment (a reviewer crash superseded by a
-  // successful re-review). Take the max id of either as the supersede marker.
+  // successful submission), a new ai-review comment (a reviewer crash superseded by a
+  // successful re-review), OR an operator restart/v1 marker (a skip-listed task restarted from
+  // the board). Take the max id of any as the supersede marker.
   const results = latestResultIds(db, keys);
   const reviews = latestAiReviewComments(db, keys);
+  const restarts = latestRestartMarkerIds(db, keys);
   for (const [taskId, { id: failureId, body, createdAt }] of comments) {
     const parsed = parseFailureComment(body);
     if (!parsed) continue;
-    const progressId = Math.max(results.get(taskId) ?? 0, reviews.get(taskId)?.id ?? 0);
+    const progressId = Math.max(results.get(taskId) ?? 0, reviews.get(taskId)?.id ?? 0, restarts.get(taskId) ?? 0);
     const summary = summarizeFailure(parsed, createdAt, progressId > failureId);
     if (summary) out.set(taskId, summary);
   }

@@ -5,6 +5,7 @@ import { updateStatus } from '../src/ops/updateStatus.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { submitResult } from '../src/ops/submitResult.js';
 import { addComment } from '../src/ops/addComment.js';
+import { restartTask } from '../src/ops/restartTask.js';
 import { getTask } from '../src/ops/getTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
 import { buildFailureComment } from '../src/failure.js';
@@ -64,6 +65,18 @@ describe('derived failure field', () => {
     claimNextTask(db, { claimedBy: 'worker-2' }, at(100));
     submitResult(db, task.key, { summary: 'fixed on retry' }, at(120));
     expect(getTask(db, task.key).failure).toBeNull();
+  });
+
+  it('clears once an operator restart supersedes it (the board Restart action)', () => {
+    const db = makeTestDb();
+    const task = driveToInProgress(db);
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'max_attempts', attempt: 2, maxAttempts: 2 }) }, at(95));
+    updateStatus(db, task.key, 'queued', 'human', at(96));
+    expect(getTask(db, task.key).failure).toMatchObject({ skipListed: true });
+    // restart posts a restart/v1 marker that postdates the failure note → derived failure cleared
+    restartTask(db, task.key, null, at(100));
+    expect(getTask(db, task.key).failure).toBeNull();
+    expect(listTasks(db, { status: 'queued' })[0]!.failure).toBeNull();
   });
 
   it('ignores ordinary comments and malformed markers', () => {

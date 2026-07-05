@@ -218,7 +218,17 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 />
               )}
 
-              {task.failure && <FailureBanner failure={task.failure} activity={task.activity} />}
+              {task.failure && (
+                <FailureBanner
+                  failure={task.failure}
+                  activity={task.activity}
+                  onRestart={
+                    task.failure.skipListed
+                      ? () => api.restart(task.key).then(afterMutation).catch(() => {})
+                      : undefined
+                  }
+                />
+              )}
 
               {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
 

@@ -13,13 +13,14 @@ export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimN
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
-export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
+export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
 export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
+export { restartTask } from './ops/restartTask.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
@@ -58,6 +59,7 @@ import { claimNextTask, type ClaimOptions } from './ops/claimNextTask.js';
 import { addComment } from './ops/addComment.js';
 import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
+import { restartTask } from './ops/restartTask.js';
 import { reviewApprove } from './ops/reviewApprove.js';
 import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
@@ -127,6 +129,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
+    restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),

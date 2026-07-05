@@ -16,6 +16,25 @@ import type { FailureSummary } from './types.js';
 const MARKER = /^failure\/v1\b/i;
 
 /**
+ * The `restart/v1` marker convention — an operator "restart" note. Posted (human actor) when a
+ * skip-listed task is restarted from the board: it supersedes the task's latest `failure/v1`
+ * note the same way a fresh result does, so the derived FailureSummary clears (the board drops
+ * the skip-list chip) and the dispatcher — which follows the derived failure state — forgets the
+ * task's burned attempts and retries it with a fresh budget, without a supervisor bounce.
+ */
+const RESTART_MARKER = /^restart\/v1\b/i;
+
+/** True iff a comment body carries the `restart/v1` marker (an operator restart note). */
+export function isRestartMarker(body: string): boolean {
+  return RESTART_MARKER.test(body.trimStart());
+}
+
+/** Compose a `restart/v1` comment body: the marker + a one-line human reason. */
+export function buildRestartComment(detail: string): string {
+  return `restart/v1 — ${detail}`;
+}
+
+/**
  * Reasons the supervisors emit today. The parser keeps any non-empty string as the reason
  * (forward-compatible with new emitters); this list is just the set the UI styles and labels.
  */

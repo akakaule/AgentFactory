@@ -59,6 +59,24 @@ export function latestFailureComments(db: DB, taskIds: number[]): Map<number, { 
 }
 
 /**
+ * Latest `restart/v1` marker id per task id (one query for the whole list). An operator restart
+ * newer than the latest failure note supersedes it (like a fresh result) ⇒ the failure clears.
+ * Mirrors latestResultIds — the SQL pre-filters on the marker prefix; only the id is needed.
+ */
+export function latestRestartMarkerIds(db: DB, taskIds: number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  if (taskIds.length === 0) return out;
+  const placeholders = taskIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT task_id AS taskId, MAX(id) AS mid FROM activity
+     WHERE type = 'comment' AND lower(body) LIKE 'restart/v1%' AND task_id IN (${placeholders}) GROUP BY task_id`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ).all(...taskIds) as Array<{ taskId: number; mid: number }>;
+  for (const r of rows) out.set(r.taskId, r.mid);
+  return out;
+}
+
+/**
  * Latest `result` activity id per task id (one query for the whole list). A result newer
  * than the latest ai-review comment means a resubmission is awaiting re-review ⇒ pending.
  */

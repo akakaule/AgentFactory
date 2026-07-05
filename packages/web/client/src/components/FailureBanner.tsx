@@ -18,7 +18,7 @@ function latestFailureBody(activity: Activity[]): string | null {
  * count / skip-list state, and a one-click expander that reveals the captured log tail (read
  * from the latest failure/v1 comment) — so triage doesn't mean scrolling the activity log.
  */
-export function FailureBanner({ failure, activity }: { failure: FailureSummary; activity: Activity[] }) {
+export function FailureBanner({ failure, activity, onRestart }: { failure: FailureSummary; activity: Activity[]; onRestart?: () => void }) {
   const [open, setOpen] = useState(false);
   const log = latestFailureBody(activity);
   const attempts = failure.attempt !== null && failure.maxAttempts !== null ? `attempt ${failure.attempt}/${failure.maxAttempts}` : null;
@@ -33,6 +33,15 @@ export function FailureBanner({ failure, activity }: { failure: FailureSummary; 
         </span>
       </div>
       {failure.detail && <div className="af-failbanner-detail">{failure.detail}</div>}
+      {failure.skipListed && onRestart && (
+        <button
+          className="af-mini go af-fail-restart"
+          onClick={onRestart}
+          title="Reset the attempt budget and retry — the dispatcher spawns a fresh session. No supervisor restart needed."
+        >
+          Restart task
+        </button>
+      )}
       {log && (
         <>
           <button className="af-fail-toggle" onClick={() => setOpen((v) => !v)}>

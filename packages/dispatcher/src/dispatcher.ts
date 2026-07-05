@@ -1,5 +1,5 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -299,9 +299,10 @@ export class Dispatcher {
   // -- spawning --------------------------------------------------------------
 
   private pollWorkspace(workspace: string): void {
+    const queued = this.deps.core.listTasks({ status: 'queued', workspace });
+    this.clearRestarted(queued); // an operator restart forgives a task's burned attempts before we decide to skip it
     const slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
-    const queued = this.deps.core.listTasks({ status: 'queued', workspace });
     let spawned = 0;
     for (const task of queued) {
       if (spawned >= slots) break;
@@ -313,6 +314,26 @@ export class Dispatcher {
         continue;
       }
       if (this.spawnSession(workspace, task.key, task.stage, attempt)) spawned += 1;
+    }
+  }
+
+  /**
+   * Forget the in-memory attempt budget for any queued task an operator has restarted from the
+   * board. A restart posts a `restart/v1` marker that supersedes the task's failure note, so the
+   * board's derived `failure` goes null — that is our signal to drop the task's skip-list entry and
+   * burned-attempt count and retry it with a fresh budget, without bouncing the dispatcher. A task
+   * still carrying a failure (mid-retry, or genuinely skip-listed) is left alone, so the maxAttempts
+   * guard still holds. (The board-derived `failure` is the single source of truth for "is this
+   * stuck"; the dispatcher's maps merely track live retry state and defer to it.)
+   */
+  private clearRestarted(queued: Task[]): void {
+    for (const task of queued) {
+      if (task.failure !== null) continue; // still failing / never failed — no stale budget to forgive
+      const wasSkipped = this.skipped.delete(task.key);
+      const hadAttempts = this.attempts.delete(task.key);
+      if (wasSkipped || hadAttempts) {
+        this.console.log(`[dispatcher] ${task.key} was restarted from the board; cleared attempt budget, will retry`);
+      }
     }
   }
 

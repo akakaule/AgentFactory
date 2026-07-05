@@ -351,6 +351,37 @@ describe('crash path', () => {
     expect(calls.length).toBe(2);
   });
 
+  it('retries a skip-listed task after an operator restart clears its failure', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Stuck');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, spawn, { console: log }));
+
+    // burn both attempts → skip-listed
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    calls[0]!.child.exit(1);
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[1]!.req.env) });
+    calls[1]!.child.exit(1);
+    expect(d.isSkipListed(key)).toBe(true);
+    expect(core.getTask(key).failure).toMatchObject({ skipListed: true });
+
+    // no respawn while skip-listed
+    await d.tick();
+    expect(calls.length).toBe(2);
+
+    // operator restarts from the board → failure cleared → dispatcher forgets the burned budget
+    core.restartTask(key);
+    await d.tick();
+    expect(core.getTask(key).failure).toBeNull();
+    expect(d.isSkipListed(key)).toBe(false);
+    expect(calls.length).toBe(3);
+    expect(workerLabel(calls[2]!.req.env)).toContain('-a1'); // a FRESH attempt budget, not -a3
+    expect(log.logs.some((l) => l.includes('was restarted from the board'))).toBe(true);
+  });
+
   it('only releases the task carrying its OWN worker label (lost race exits clean)', async () => {
     const core = makeCore();
     const key = seedQueued(core, 'ws', 'Contested');

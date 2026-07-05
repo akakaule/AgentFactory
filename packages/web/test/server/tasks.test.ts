@@ -353,6 +353,35 @@ describe('tasks REST API', () => {
     });
   });
 
+  describe('POST /:key/restart', () => {
+    it('restarts a skip-listed queued task → 200, failure cleared', async () => {
+      const task = core.createTask({ title: 'Stuck', spec: 'Spec', acceptanceCriteria: 'AC' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.addComment(task.key, {
+        actor: 'agent',
+        body: 'failure/v1 — reached maxAttempts (2) and is skip-listed\n\n```json\n{"reason":"max_attempts","attempt":2,"maxAttempts":2}\n```',
+      });
+      expect((await (await app.request(`/api/tasks/${task.key}`)).json() as { failure: { skipListed: boolean } | null }).failure).toMatchObject({ skipListed: true });
+
+      const res = await post(app, `/api/tasks/${task.key}/restart`, {});
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; failure: unknown };
+      expect(body.status).toBe('queued');
+      expect(body.failure).toBeNull(); // the restart/v1 marker superseded the failure note
+    });
+
+    it('restarting a non-queued task → 409', async () => {
+      await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' }); // backlog AF-1
+      const res = await post(app, '/api/tasks/AF-1/restart', {});
+      expect(res.status).toBe(409);
+    });
+
+    it('restarting an unknown key → 404', async () => {
+      const res = await post(app, '/api/tasks/AF-9999/restart', {});
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('POST /:key/request-changes', () => {
     it('requests changes on in_review task → 200, status queued', async () => {
       // Drive to in_review via core

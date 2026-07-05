@@ -226,6 +226,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-fail-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 0; background: none; border: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
 .af-fail-toggle svg { width: 12px; height: 12px; }
 .af-fail-log { margin: 7px 0 0; padding: 8px 10px; max-height: 280px; overflow: auto; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 7px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; line-height: 1.45; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+.af-fail-restart { margin-top: 9px; }
 
 /* Blocked-reason banner (drawer) — the agent's reason for the current block, focused above the fold */
 .af-blockbanner { border: 1px solid color-mix(in srgb, var(--st-blocked) 34%, var(--line-soft)); background: color-mix(in srgb, var(--st-blocked) 9%, var(--bg-deep)); border-radius: 8px; padding: 9px 11px; margin: 8px 0 4px; }
