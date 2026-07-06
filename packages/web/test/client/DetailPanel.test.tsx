@@ -152,6 +152,27 @@ describe('DetailPanel', () => {
     expect(screen.getByText('A comment here')).toBeInTheDocument();
   });
 
+  it('deduplicates repeated links by kind and URL in the drawer', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      links: [
+        { id: 1, taskId: 1, kind: 'branch', label: 'feature/AF-10-x', url: 'https://example.com/branch/x' },
+        { id: 2, taskId: 1, kind: 'branch', label: 'feature/AF-10-x', url: 'https://example.com/branch/x' },
+        { id: 3, taskId: 1, kind: 'pr', label: 'PR #42', url: 'https://example.com/pr/42' },
+        { id: 4, taskId: 1, kind: 'pr', label: '#42', url: 'https://example.com/pr/42' },
+      ],
+    });
+
+    const { container } = render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByText('This is the spec');
+    const renderedLinks = [...container.querySelectorAll('.af-links .af-link')] as HTMLAnchorElement[];
+    expect(renderedLinks.map((a) => a.href)).toEqual(['https://example.com/branch/x', 'https://example.com/pr/42']);
+    expect(screen.getByRole('link', { name: 'PR #42' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '#42' })).not.toBeInTheDocument();
+  });
+
   it('focuses the block reason and offers Unblock on a blocked task', async () => {
     const mocked = await getApiMock();
     mocked.setStatus.mockClear();

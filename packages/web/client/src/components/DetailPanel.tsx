@@ -32,6 +32,16 @@ const LINK_ICON: Record<LinkKind, (p: object) => ReactElement> = {
   branch: I.branch, pr: I.link, worktree: I.folder, log: I.link, url: I.link,
 };
 
+function uniqueDisplayLinks(links: TaskDetail['links']): TaskDetail['links'] {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    const key = `${link.kind}\0${link.url.trim()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function ActivityItem({ entry }: { entry: Activity }) {
   // prefer the attributed human name (Phase 1 actor_user_id); fall back to the machine axis
   const who = entry.actorName ?? (entry.actor === 'agent' ? 'agent' : 'you');
@@ -93,6 +103,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
 
   const hue = task ? STATUS_COLORS[task.status] : 'var(--ink-2)';
   const branchLink = task?.links.filter((l) => l.kind === 'branch').at(-1);
+  const visibleLinks = task ? uniqueDisplayLinks(task.links) : [];
 
   const head = (
     <div className="af-drawer-head">
@@ -355,10 +366,10 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
               <div className="af-sl">Metrics</div>
               <TaskMetrics metrics={task.metrics} />
 
-              {task.links.length > 0 && (<>
+              {visibleLinks.length > 0 && (<>
                 <div className="af-sl">Links</div>
                 <div className="af-links">
-                  {task.links.map((link) => (
+                  {visibleLinks.map((link) => (
                     <a key={link.id} className="af-link" href={link.url} target="_blank" rel="noreferrer" aria-label={link.label}>
                       {LINK_ICON[link.kind]({})}
                       <span className="lk">{link.label}</span>
