@@ -194,6 +194,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-delivery-fails li { font-size: 12px; }
 .af-delivery-fails a, .af-delivery-fails span { color: var(--st-blocked); }
 .af-delivery-acts { display: flex; gap: 8px; margin-top: 9px; }
+.af-airev-warn span { min-width: 0; overflow-wrap: anywhere; }
 .af-airev-warn { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--active-2); background: color-mix(in srgb, var(--active) 9%, var(--bg-deep)); border: 1px solid color-mix(in srgb, var(--active) 30%, var(--line-soft)); border-radius: 8px; padding: 8px 11px; margin-bottom: 9px; }
 .af-airev-warn svg { width: 14px; height: 14px; flex: none; margin-top: 1px; color: var(--active-2); }
 .af-airev-warn strong { font-weight: 600; }
@@ -206,13 +207,14 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-airev-list .it:first-of-type { border-top: none; }
 .af-airev-list .it input { margin-top: 2px; flex: none; accent-color: var(--accent); }
 .af-airev-list .bd { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.af-airev-list .ti { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; font-weight: 600; color: var(--ink-1); }
+.af-airev-list .ti { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; font-size: 14px; font-weight: 600; color: var(--ink-1); }
+.af-airev-list .tx { min-width: 0; overflow-wrap: anywhere; }
 .af-airev-list .sev { width: 7px; height: 7px; border-radius: 99px; flex: none; background: var(--ink-3); }
 .af-airev-list .sev.info { background: var(--active); }
 .af-airev-list .sev.warning { background: #d8a23a; }
 .af-airev-list .sev.error { background: var(--st-blocked); }
-.af-airev-list .loc { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; color: var(--ink-3); }
-.af-airev-list .dt { font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+.af-airev-list .loc { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; color: var(--ink-3); min-width: 0; word-break: break-all; }
+.af-airev-list .dt { font-size: 13.5px; color: var(--ink-2); line-height: 1.55; overflow-wrap: anywhere; }
 .af-compose-hint { font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }
 
 /* Supervisor-failure chip (card) — tells the operator WHY a task is stuck at a glance */
@@ -274,7 +276,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-claimline { font-size: 12.5px; color: var(--ink-2); }
 .af-claimline strong { color: var(--active-2); }
 .af-sl { font-family: "Space Grotesk", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin: 20px 0 8px; }
-.af-d-body { font-size: 13.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
+.af-d-body { font-size: 13.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .af-result { font-size: 13px; line-height: 1.6; color: var(--ink); background: var(--bg-deep); border: 1px solid var(--line-soft); border-left: 2px solid var(--active); border-radius: 10px; padding: 13px 15px; white-space: pre-wrap; }
 .af-links { display: flex; flex-direction: column; gap: 6px; }
 .af-link { display: flex; align-items: center; gap: 9px; padding: 9px 11px; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 9px; text-decoration: none; }
