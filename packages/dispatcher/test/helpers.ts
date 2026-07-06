@@ -109,6 +109,8 @@ export function makeConfig(overrides: Partial<DispatcherConfig> = {}): Dispatche
     pollSeconds: 15,
     permissionMode: 'acceptEdits',
     claudeArgs: [],
+    engine: 'claude',
+    codexArgs: ['--dangerously-bypass-approvals-and-sandbox'],
     maxSessionMinutes: 60,
     maxAttempts: 2,
     staleClaimMinutes: 120,
@@ -122,6 +124,7 @@ export interface DepsOverrides {
   spawn?: SpawnFn;
   writeMcp?: (path: string, contents: string) => void;
   uuid?: () => string;
+  resolveCodex?: () => { command: string; args: string[] };
   findTranscript?: (cwd: string, sessionId: string) => string | null;
   tailFile?: (path: string, offset: number) => { chunk: string; offset: number } | null;
   readFile?: (path: string) => string | null;
@@ -132,6 +135,7 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
     core,
     spawn,
     resolveClaude: () => 'claude.exe',
+    resolveCodex: overrides.resolveCodex ?? (() => ({ command: 'codex.exe', args: [] })),
     mcp: { command: 'node', args: ['/abs/mcp/dist/index.js'] },
     openLog: () => noopLog(),
     writeMcp: overrides.writeMcp ?? (() => {}),

@@ -9,6 +9,7 @@ import { openCore } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
+import { resolveCodexCommand } from './codex.js';
 import { encodeProjectDir } from './transcript.js';
 import type { DispatcherDeps, LogWriter, McpServerSpec, SpawnFn } from './types.js';
 
@@ -43,21 +44,31 @@ function winQuote(s: string): string {
   return `"${escaped}"`;
 }
 
-const realSpawn: SpawnFn = ({ command, args, cwd, env }) => {
+const realSpawn: SpawnFn = ({ command, args, cwd, env, stdin }) => {
+  let child;
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)) {
     // Modern Node refuses to spawn a .cmd/.bat without a shell (CVE-2024-27980), and
     // shell:true does NOT quote args (it only concatenates). So drive cmd.exe ourselves
     // with a hand-quoted command line and verbatim args. The argv here is quote-free
     // (prompt) and file paths only — the MCP JSON went to a file — so this survives intact.
+    // (A codex worker never reaches here: its command is `node <codex.js>`, spawned directly,
+    // because cmd.exe would strip the double-quotes from codex's `-c` TOML values.)
     const line = [command, ...args].map(winQuote).join(' ');
-    return spawn(process.env['ComSpec'] ?? 'cmd.exe', ['/d', '/s', '/c', line], {
+    child = spawn(process.env['ComSpec'] ?? 'cmd.exe', ['/d', '/s', '/c', line], {
       cwd,
       env,
       windowsVerbatimArguments: true,
     });
+  } else {
+    // POSIX, or a Windows .exe / node — spawn directly; Node applies correct argument quoting.
+    child = spawn(command, args, { cwd, env });
   }
-  // POSIX, or a Windows .exe — spawn directly; Node applies correct argument quoting.
-  return spawn(command, args, { cwd, env });
+  if (stdin !== undefined) {
+    // codex reads its worker prompt from stdin (trailing `-`); end() sends EOF so it starts.
+    child.stdin?.write(stdin);
+    child.stdin?.end();
+  }
+  return child;
 };
 
 const openLog = (path: string): LogWriter => {
@@ -129,8 +140,8 @@ function readTranscript(path: string): string | null {
   }
 }
 
-/** PATH lookup for the claude shim via `where` (Windows) / `which` (POSIX). */
-function lookupClaude(name: string): string | null {
+/** PATH lookup for a CLI shim via `where` (Windows) / `which` (POSIX). */
+function lookupOnPath(name: string): string | null {
   const finder = process.platform === 'win32' ? 'where' : 'which';
   try {
     const out = execFileSync(finder, [name], { encoding: 'utf8' });
@@ -143,7 +154,9 @@ function lookupClaude(name: string): string | null {
 const deps: DispatcherDeps = {
   core,
   spawn: realSpawn,
-  resolveClaude: () => resolveClaudeCommand({ platform: process.platform, env: process.env, lookup: lookupClaude }),
+  resolveClaude: () => resolveClaudeCommand({ platform: process.platform, env: process.env, lookup: lookupOnPath }),
+  resolveCodex: () =>
+    resolveCodexCommand({ platform: process.platform, env: process.env, lookup: lookupOnPath, fileExists: existsSync }),
   mcp,
   openLog,
   writeMcp,

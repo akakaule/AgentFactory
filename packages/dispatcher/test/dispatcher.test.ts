@@ -308,6 +308,62 @@ describe('otel token capture', () => {
 });
 
 // ---------------------------------------------------------------------------
+// codex worker engine (per-stage)
+// ---------------------------------------------------------------------------
+describe('codex worker engine', () => {
+  it('runs the implementation stage on codex: exec + -c MCP injection + prompt on stdin, no --mcp-config', async () => {
+    const core = makeCore();
+    const key = seedQueuedStage(core, 'ws', 'Impl on codex', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const wroteMcp: string[] = [];
+    const d = new Dispatcher(
+      makeConfig({ engine: 'claude', stageEngines: { implementation: 'codex' } }),
+      makeDeps(core, spawn, { writeMcp: (p) => void wroteMcp.push(p) }),
+    );
+
+    await d.tick();
+    const req = calls[0]!.req;
+    expect(req.command).toBe('codex.exe'); // the fake resolveCodex
+    expect(req.args[0]).toBe('exec');
+    expect(req.args[req.args.length - 1]).toBe('-');
+    expect(req.args).toContain('--dangerously-bypass-approvals-and-sandbox');
+    expect(req.args).not.toContain('--mcp-config'); // codex has no such flag
+    // MCP injected via -c with this task's workspace + worker label
+    expect(req.args).toContain(`mcp_servers.agentfactory.env.AGENTFACTORY_WORKSPACE="ws"`);
+    expect(req.args).toContain(`mcp_servers.agentfactory.env.AGENTFACTORY_WORKER="ws#${key}-a1"`);
+    // the worker prompt rides stdin, not argv
+    expect(req.stdin).toContain('get_next_task');
+    expect(req.args.join(' ')).not.toContain('get_next_task');
+    // no per-attempt .mcp.json file is written for a codex worker
+    expect(wroteMcp).toHaveLength(0);
+  });
+
+  it('prepends the configured worker system prompt to the codex stdin prompt', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Impl on codex', 'implementation');
+    core.setGlobalPrompts({ 'worker.implementation': 'Follow the house style.' });
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ stageEngines: { implementation: 'codex' } }), makeDeps(core, spawn));
+
+    await d.tick();
+    expect(calls[0]!.req.stdin?.startsWith('Follow the house style.')).toBe(true);
+    expect(calls[0]!.req.stdin).toContain('get_next_task'); // the worker prompt still follows
+  });
+
+  it('leaves other stages on claude when only implementation is mapped to codex', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Plan on claude', 'plan');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ stageEngines: { implementation: 'codex' } }), makeDeps(core, spawn));
+
+    await d.tick();
+    expect(calls[0]!.req.command).toBe('claude.exe'); // the fake resolveClaude
+    expect(calls[0]!.req.args).toContain('--mcp-config');
+    expect(calls[0]!.req.stdin).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // worker git auth injection (per-workspace PAT → GIT_CONFIG_*)
 // ---------------------------------------------------------------------------
 describe('worker git auth', () => {

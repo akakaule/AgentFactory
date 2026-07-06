@@ -1,8 +1,9 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey } from '@agentfactory/core';
-import type { DispatcherConfig } from './config.js';
-import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
+import type { DispatcherConfig, WorkerEngine } from './config.js';
+import type { DispatcherDeps, SpawnedChild, LogWriter, CodexCommand } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
+import { buildCodexArgs } from './codex.js';
 import { parseCliMetrics, hasMetrics, parsePermissionDenials, type ParsedMetrics } from './metrics.js';
 
 /** Live state for one spawned worker session. */
@@ -12,6 +13,8 @@ interface Session {
   /** The queued key this session was spawned for (matches the claimed key at maxConcurrent 1). */
   predictedKey: string;
   attempt: number;
+  /** Which engine this session runs — claude (`-p`) or codex (`exec`, prompt on stdin). */
+  engine: WorkerEngine;
   child: SpawnedChild;
   logWriter: LogWriter;
   startedAtMs: number;
@@ -48,6 +51,7 @@ export class Dispatcher {
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
   private readonly prompt = buildWorkerPrompt();
   private claudeCommand: string | null = null;
+  private codexResolved: CodexCommand | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -263,6 +267,7 @@ export class Dispatcher {
   private tailTranscripts(): void {
     for (const s of this.running.values()) {
       if (s.settled) continue;
+      if (s.engine === 'codex') continue; // live transcript tail is the claude JSONL format only
       try {
         if (s.transcriptKey === null) {
           const claimed = this.findClaimed(s);
@@ -286,6 +291,7 @@ export class Dispatcher {
 
   /** Persist a session's full transcript at exit so it survives worktree prune + ~/.claude GC. */
   private persistTranscript(session: Session, key: string): void {
+    if (session.engine === 'codex') return; // codex has no claude JSONL transcript to persist
     try {
       const path = session.transcriptPath ?? this.deps.findTranscript(session.cwd, session.sessionId);
       if (!path) return;
@@ -351,6 +357,11 @@ export class Dispatcher {
     return this.claudeCommand;
   }
 
+  private resolveCodexCommand(): CodexCommand {
+    if (this.codexResolved === null) this.codexResolved = this.deps.resolveCodex();
+    return this.codexResolved;
+  }
+
   /** Global claudeArgs plus any per-stage args (stage args last, so a stage `--model` wins). */
   private stageClaudeArgs(stage: Stage): string[] {
     return [...this.config.claudeArgs, ...(this.config.stageArgs?.[stage] ?? [])];
@@ -364,42 +375,64 @@ export class Dispatcher {
       return false;
     }
     const label = `${workspace}#${key}-a${attempt}`;
+    const engine: WorkerEngine = this.config.stageEngines?.[stage] ?? this.config.engine ?? 'claude';
     const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}.log`;
-    const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}.mcp.json`;
     const logWriter = this.deps.openLog(logPath);
+    const sessionId = this.deps.uuid();
 
     const mcpEnv: Record<string, string> = {
       AGENTFACTORY_DB: this.config.db,
       AGENTFACTORY_WORKSPACE: workspace,
       AGENTFACTORY_WORKER: label,
     };
-    // The MCP config is written to a file rather than inlined: cmd.exe (the Windows .cmd
-    // spawn path) strips the JSON's embedded quotes from argv.
-    this.deps.writeMcp(mcpConfigPath, buildMcpConfig(this.deps.mcp, mcpEnv));
-    const sessionId = this.deps.uuid();
-    const args = buildSpawnArgs({
-      prompt: this.prompt,
-      permissionMode: this.config.permissionMode,
-      mcpConfigPath,
-      claudeArgs: this.stageClaudeArgs(stage),
-      sessionId,
-      // the effective worker system prompt for this stage/workspace (override → global → '')
-      appendSystemPrompt: this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace),
-    });
+    // The effective worker system prompt for this stage/workspace (override → global → '').
+    const systemPrompt = this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace);
+
+    // Assemble the engine-specific command + argv. Codex reaches the MCP server via `-c` overrides
+    // and reads its prompt from stdin; claude uses a written `--mcp-config` file and `-p`.
+    let command: string;
+    let args: string[];
+    let stdin: string | undefined;
+    if (engine === 'codex') {
+      const codex = this.resolveCodexCommand();
+      command = codex.command;
+      args = [...codex.args, ...buildCodexArgs({ mcp: this.deps.mcp, mcpEnv, codexArgs: this.config.codexArgs })];
+      // codex has no --append-system-prompt; prepend the configured system prompt to the stdin prompt.
+      stdin = systemPrompt.trim() ? `${systemPrompt.trim()}\n\n${this.prompt}` : this.prompt;
+    } else {
+      const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}.mcp.json`;
+      // The MCP config is a file, not inline: cmd.exe (the Windows .cmd spawn path) strips its quotes.
+      this.deps.writeMcp(mcpConfigPath, buildMcpConfig(this.deps.mcp, mcpEnv));
+      command = this.resolveCommand();
+      args = buildSpawnArgs({
+        prompt: this.prompt,
+        permissionMode: this.config.permissionMode,
+        mcpConfigPath,
+        claudeArgs: this.stageClaudeArgs(stage),
+        sessionId,
+        appendSystemPrompt: systemPrompt,
+      });
+    }
+
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.baseEnv ?? {}),
       AGENTFACTORY_WORKSPACE: workspace,
       AGENTFACTORY_WORKER: label,
     };
     if (this.config.otel) {
-      // Export token usage over OTLP (captured even for streamed/interactive turns), tagged
-      // with the task key so the receiver attributes it to this task.
-      env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
-      env['OTEL_LOGS_EXPORTER'] = 'otlp';
-      env['OTEL_EXPORTER_OTLP_PROTOCOL'] = 'http/json';
-      env['OTEL_EXPORTER_OTLP_ENDPOINT'] = this.config.otel.endpoint;
-      if (this.config.otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${this.config.otel.token}`;
-      env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
+      // Export token usage over OTLP, tagged with the task key so the receiver attributes it.
+      if (engine === 'codex') {
+        // codex reads its OTLP config from ~/.codex/config.toml; it only interpolates these in.
+        env['AF_TASK_KEY'] = key;
+        if (this.config.otel.token) env['AF_OTEL_TOKEN'] = this.config.otel.token;
+      } else {
+        env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
+        env['OTEL_LOGS_EXPORTER'] = 'otlp';
+        env['OTEL_EXPORTER_OTLP_PROTOCOL'] = 'http/json';
+        env['OTEL_EXPORTER_OTLP_ENDPOINT'] = this.config.otel.endpoint;
+        if (this.config.otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${this.config.otel.token}`;
+        env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
+      }
     }
     // Git auth for the worker's push/fetch: the board resolves this workspace's PAT (stored, else
     // env) and hands git an http.extraheader (+ a url.insteadOf rewrite that strips any stale
@@ -417,12 +450,13 @@ export class Dispatcher {
       });
     }
 
-    const child = this.deps.spawn({ command: this.resolveCommand(), args, cwd, env });
+    const child = this.deps.spawn({ command, args, cwd, env, stdin });
     const session: Session = {
       label,
       workspace,
       predictedKey: key,
       attempt,
+      engine,
       child,
       logWriter,
       startedAtMs: this.deps.now(),

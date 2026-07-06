@@ -63,6 +63,27 @@ describe('config', () => {
     expect(() => parseConfig({ db: 'x', workspaces: ['a'], stageArgs: { review: ['--model', 'opus'] } })).toThrow();
   });
 
+  it('defaults the engine to claude with no per-stage overrides', () => {
+    const cfg = parseConfig({ db: 'x', workspaces: ['a'] });
+    expect(cfg.engine).toBe('claude');
+    expect(cfg.stageEngines).toBeUndefined();
+  });
+
+  it('defaults codexArgs to the headless full-access posture', () => {
+    expect(parseConfig({ db: 'x', workspaces: ['a'] }).codexArgs).toEqual(['--dangerously-bypass-approvals-and-sandbox']);
+  });
+
+  it('accepts a per-stage engine override (codex for implementation)', () => {
+    const cfg = parseConfig({ db: 'x', workspaces: ['a'], engine: 'claude', stageEngines: { implementation: 'codex' } });
+    expect(cfg.stageEngines?.implementation).toBe('codex');
+    expect(cfg.stageEngines?.plan).toBeUndefined();
+  });
+
+  it('rejects an unknown engine and an unknown stageEngines key', () => {
+    expect(() => parseConfig({ db: 'x', workspaces: ['a'], engine: 'gpt' })).toThrow();
+    expect(() => parseConfig({ db: 'x', workspaces: ['a'], stageEngines: { review: 'codex' } })).toThrow();
+  });
+
   it('defaults staleClaimMinutes to 120', () => {
     expect(parseConfig({ db: 'x', workspaces: ['a'] }).staleClaimMinutes).toBe(120);
   });

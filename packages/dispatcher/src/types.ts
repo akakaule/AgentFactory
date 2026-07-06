@@ -49,6 +49,8 @@ export interface SpawnRequest {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  /** Fed to the process on STDIN (codex reads its prompt from stdin via the trailing `-`). */
+  stdin?: string | undefined;
 }
 
 export type SpawnFn = (req: SpawnRequest) => SpawnedChild;
@@ -65,12 +67,20 @@ export interface McpServerSpec {
   args: string[];
 }
 
+/** A directly-spawnable codex invocation: a command + any prefix args (e.g. `node <codex.js>`). */
+export interface CodexCommand {
+  command: string;
+  args: string[];
+}
+
 /** Everything the supervisor needs from the outside world — all injectable for tests. */
 export interface DispatcherDeps {
   core: DispatcherCore;
   spawn: SpawnFn;
   /** Resolves the `claude` CLI command (cached after first call). */
   resolveClaude: () => string;
+  /** Resolves a directly-spawnable `codex` (command + prefix args) — for codex-engine stages. */
+  resolveCodex: () => CodexCommand;
   /** The agentfactory MCP server launch spec, inlined into each session's --mcp-config. */
   mcp: McpServerSpec;
   /** Opens a per-session log file. */

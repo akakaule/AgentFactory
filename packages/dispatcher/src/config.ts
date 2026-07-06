@@ -4,6 +4,10 @@ import { z } from 'zod';
 export const PERMISSION_MODES = ['acceptEdits', 'bypassPermissions', 'default', 'plan'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
+/** Worker engines the dispatcher can spawn: `claude -p` (default) or `codex exec`. */
+export const WORKER_ENGINES = ['claude', 'codex'] as const;
+export type WorkerEngine = (typeof WORKER_ENGINES)[number];
+
 /**
  * `dispatcher.config.json` schema. Defaults match the design: one session per
  * workspace, a 15 s poll, `acceptEdits` permissions, a 60 min session cap, two attempts.
@@ -44,6 +48,30 @@ export const configSchema = z.object({
     })
     .strict()
     .optional(),
+  /** Default worker engine (`claude` or `codex`). Per-stage overrides in `stageEngines`. */
+  engine: z.enum(WORKER_ENGINES).default('claude'),
+  /**
+   * Per-stage engine override, e.g. `{ "implementation": "codex" }` to run the implementation
+   * stage on codex while description/plan stay on the default engine. A stage you omit uses `engine`.
+   * A codex worker reaches the board's MCP server via `-c mcp_servers.agentfactory.*` overrides the
+   * dispatcher injects per task — no `~/.codex/config.toml` MCP block required (codex must be on PATH
+   * / `AGENTFACTORY_CODEX_BIN` and `codex login`-ed).
+   */
+  stageEngines: z
+    .object({
+      description: z.enum(WORKER_ENGINES).optional(),
+      plan: z.enum(WORKER_ENGINES).optional(),
+      implementation: z.enum(WORKER_ENGINES).optional(),
+    })
+    .strict()
+    .optional(),
+  /**
+   * Extra args for a `codex exec` worker, appended before the trailing stdin `-`. The default is the
+   * headless full-access posture (no sandbox, no approval prompts) a writing+pushing worker needs —
+   * the codex parity of the claude worker's acceptEdits/bypass mode. Override to tighten the sandbox
+   * or pin a model (e.g. add `-m gpt-5.3-codex`).
+   */
+  codexArgs: z.array(z.string()).default(['--dangerously-bypass-approvals-and-sandbox']),
   /** Hard wall-clock cap per session before the supervisor kills it. */
   maxSessionMinutes: z.number().positive().default(60),
   /** Attempts a task gets before it is skip-listed. */
