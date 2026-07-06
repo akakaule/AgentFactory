@@ -13,8 +13,9 @@ const AUTH_STATUSES = new Set([203, 401, 403]);
  * The watcher supervisor: polls every `delivering` task in its workspaces, observes the PR +
  * pipeline on the task's git host, and finishes the close the human approval started —
  * `delivering → done` when the PR merged and the checks came up green, `delivering → queued`
- * (with a failure/v1 comment carrying the failing checks) when CI failed or the PR was closed
- * unmerged. Pure DB + REST — the one local-git touch is the injected origin resolver, used
+ * (with a failure/v1 comment carrying the failing checks or merge-conflict detail) when CI
+ * failed, the PR has merge conflicts, or the PR was closed unmerged. Pure DB + REST — the one
+ * local-git touch is the injected origin resolver, used
  * only to self-heal tasks dragged into delivering without an approve-seeded delivery row.
  *
  * Mirrors the Dispatcher's start/stop/safeTick shape minus all spawn/session machinery.
@@ -185,6 +186,13 @@ export class Watcher {
           body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix and reopen a PR from the SAME branch.`,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
+      } else if (pr && pr.mergeConflict) {
+        core.failDelivery(key, {
+          reason: 'merge_conflict',
+          detail: `PR ${pr.id} has merge conflicts`,
+          body: this.mergeConflictBody(pr.url, delivery.branch, pr.mergeConflict.detail),
+        });
+        console.log(`[watcher] ${key}: bounced — PR ${pr.id} has merge conflicts`);
       } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
         const errors = await this.captureErrors(provider, remote, result);
@@ -220,6 +228,11 @@ export class Watcher {
       );
       return [];
     }
+  }
+
+  private mergeConflictBody(prUrl: string, branch: string, detail: string | null): string {
+    const problem = detail ? `\nMerge conflict detail: ${detail}` : '';
+    return `PR: ${prUrl} (open, head ${branch})${problem}\n\nResolve the conflict: merge latest base branch into ${branch}, fix the conflicts, run verification, and push to the SAME branch - do not open a new PR.`;
   }
 
   private ciFailureBody(prUrl: string, prState: 'open' | 'merged' | 'closed', branch: string, failing: DeliveryFailingCheck[], errors: string[]): string {

@@ -107,6 +107,24 @@ describe('watcher tick', () => {
     expect(t.failure).toMatchObject({ reason: 'pr_closed' });
   });
 
+  it('open PR with merge conflicts → queued with merge_conflict and same-branch repair instructions', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ mergeable: false, mergeable_state: 'dirty' })] }],
+    ]);
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    const t = core.getTask(key);
+    expect(t.status).toBe('queued');
+    expect(t.claimedBy).toBeNull();
+    const failure = t.activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body)).at(-1)!;
+    expect(parseFailureComment(failure.body)).toMatchObject({ reason: 'merge_conflict', source: 'watcher' });
+    expect(failure.body).toContain('merge latest base branch');
+    expect(failure.body).toContain('push to the SAME branch');
+    expect(t.failure).toMatchObject({ reason: 'merge_conflict', skipListed: false });
+  });
+
   it('open PR with running checks → records state, stays delivering, version bumps only on change', async () => {
     const core = makeCore();
     const key = deliverTask(core);

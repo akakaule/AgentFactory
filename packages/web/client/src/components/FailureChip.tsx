@@ -9,6 +9,9 @@ const FAILURE_LABELS: Record<string, string> = {
   permission_denied: 'Permission denied',
   max_attempts: 'Out of attempts',
   review_failed: 'Auto-review failed',
+  ci_failed: 'CI failed',
+  pr_closed: 'PR closed',
+  merge_conflict: 'Merge conflict',
 };
 
 export function failureLabel(failure: FailureSummary): string {

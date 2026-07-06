@@ -10,7 +10,7 @@ import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 
 /** The watcher's reasons for bouncing a delivering task back to the queue. */
-export type DeliveryFailureReason = 'ci_failed' | 'pr_closed';
+export type DeliveryFailureReason = 'ci_failed' | 'pr_closed' | 'merge_conflict';
 
 // The watcher (its own process) races the web server's human overrides on these rows, so unlike
 // the single-process ops the status read happens INSIDE the BEGIN IMMEDIATE transaction.
@@ -76,9 +76,10 @@ export function completeDelivery(db: DB, key: string, note: string, now: () => s
 }
 
 /**
- * The watcher's bounce: CI failed or the PR was closed unmerged ⇒ one transaction posting a
- * `failure/v1` comment (reason ci_failed | pr_closed — rendered by the existing failure chip,
- * carried into the next claim payload so the fixing session reads why) AND re-queuing the task.
+ * The watcher's bounce: CI failed, the PR was closed unmerged, or the PR cannot merge cleanly
+ * ⇒ one transaction posting a `failure/v1` comment (reason ci_failed | pr_closed |
+ * merge_conflict — rendered by the existing failure chip, carried into the next claim payload so
+ * the fixing session reads why) AND re-queuing the task.
  * Comment + requeue must not tear: a requeue without the why (or the why without the requeue)
  * would strand the next agent/human without context.
  */

@@ -38,7 +38,7 @@ export function buildRestartComment(detail: string): string {
  * Reasons the supervisors emit today. The parser keeps any non-empty string as the reason
  * (forward-compatible with new emitters); this list is just the set the UI styles and labels.
  */
-export const FAILURE_REASONS = ['timeout', 'crashed', 'stale', 'permission_denied', 'max_attempts', 'review_failed', 'ci_failed', 'pr_closed'] as const;
+export const FAILURE_REASONS = ['timeout', 'crashed', 'stale', 'permission_denied', 'max_attempts', 'review_failed', 'ci_failed', 'pr_closed', 'merge_conflict'] as const;
 export type FailureReason = (typeof FAILURE_REASONS)[number];
 
 /** True iff a comment body carries the `failure/v1` marker (regardless of JSON well-formedness). */
@@ -124,7 +124,8 @@ export interface FailureCommentInput {
   detail: string;            // one-line human reason, e.g. "session `x` timed out after 60m"
   source: 'dispatcher' | 'reviewer' | 'watcher' | string;
   // attempt bookkeeping is the dispatcher/reviewer retry loop's; the watcher's delivery bounces
-  // (ci_failed / pr_closed) have no attempt budget, so both are optional and omitted together
+  // (ci_failed / pr_closed / merge_conflict) have no attempt budget, so both are optional and
+  // omitted together
   attempt?: number | undefined;
   maxAttempts?: number | undefined;
   body?: string;             // extra human text appended below (e.g. a fenced log tail)

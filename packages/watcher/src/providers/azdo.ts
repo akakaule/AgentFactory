@@ -13,6 +13,8 @@ import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type Delivery
 interface AdoPr {
   pullRequestId: number;
   status: 'active' | 'completed' | 'abandoned' | string;
+  mergeStatus?: 'notSet' | 'queued' | 'conflicts' | 'succeeded' | 'rejectedByPolicy' | 'failure' | string;
+  mergeFailureMessage?: string | null;
   lastMergeSourceCommit?: { commitId: string } | null;
   lastMergeCommit?: { commitId: string } | null;
   creationDate?: string;
@@ -47,13 +49,17 @@ function prWebUrl(remote: { organization: string; project: string; repo: string 
 }
 
 function toPr(remote: { organization: string; project: string; repo: string }, pr: AdoPr): PrObservation {
-  return {
+  const obs: PrObservation = {
     id: `!${pr.pullRequestId}`,
     url: prWebUrl(remote, pr.pullRequestId),
     state: pr.status === 'completed' ? 'merged' : pr.status === 'abandoned' ? 'closed' : 'open',
     headSha: pr.lastMergeSourceCommit?.commitId ?? null,
     mergeCommitSha: pr.lastMergeCommit?.commitId ?? null,
   };
+  if (obs.state === 'open' && pr.mergeStatus === 'conflicts') {
+    return { ...obs, mergeConflict: { detail: pr.mergeFailureMessage?.trim() || 'Azure DevOps reports mergeStatus=conflicts' } };
+  }
+  return obs;
 }
 
 /** Fold ADO PR statuses into one verdict (red beats pending beats green; none = no gate configured). */
@@ -120,6 +126,9 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       if (!pr) return { pr: null, checks: { state: 'unknown', failing: [] } };
 
       const obs = toPr(remote, pr);
+      if (obs.state === 'open' && obs.mergeConflict) {
+        return { pr: obs, checks: { state: 'failing', failing: [{ name: 'merge conflict', url: obs.url }] } };
+      }
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       const checks = combineAdoStatuses(statuses.value ?? []);
       // A completed (merged) PR already cleared its required branch policies at merge time, and ADO

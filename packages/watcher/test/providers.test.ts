@@ -69,6 +69,17 @@ describe('github provider', () => {
     expect(r.checks.state).toBe('unknown');
   });
 
+  it('classifies an open PR with merge conflicts without waiting for CI', async () => {
+    const fetchJson = fakeFetch([
+      ['/pulls/42', { body: ghPr({ mergeable: false, mergeable_state: 'dirty' }) }],
+    ]);
+    const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
+    const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: false });
+    expect(r.pr).toMatchObject({ id: '#42', state: 'open', mergeConflict: { detail: 'GitHub reports mergeable_state=dirty' } });
+    expect(r.checks).toMatchObject({ state: 'failing', failing: [{ name: 'merge conflict', url: 'https://github.com/acme/widgets/pull/42' }] });
+    expect(fetchJson.calls).toHaveLength(1);
+  });
+
   it('describeFailures lifts check-run output for the failing runs only', async () => {
     const fetchJson = fakeFetch([['/commits/headsha/check-runs', { body: { check_runs: [
       { name: 'build', status: 'completed', conclusion: 'failure', html_url: null, details_url: null, output: { title: 'Build failed', summary: 'NU1903 Microsoft.OpenApi 2.0.0' } },
@@ -174,6 +185,17 @@ describe('azdo provider', () => {
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
     expect(r.pr).toMatchObject({ state: 'open' });
     expect(r.checks.state).toBe('pending'); // unmerged → genuinely gating, keep waiting
+  });
+
+  it('classifies an active PR with merge conflicts without waiting for statuses', async () => {
+    const fetchJson = fakeFetch([
+      ['/pullrequests/7?api-version', { body: adoPr({ status: 'active', mergeStatus: 'conflicts', mergeFailureMessage: 'Conflicts in src/app.ts' }) }],
+    ]);
+    const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+    const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });
+    expect(r.pr).toMatchObject({ id: '!7', state: 'open', mergeConflict: { detail: 'Conflicts in src/app.ts' } });
+    expect(r.checks).toMatchObject({ state: 'failing', failing: [{ name: 'merge conflict', url: 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7' }] });
+    expect(fetchJson.calls).toHaveLength(1);
   });
 
   it('resolves a pr link directly and maps abandoned → closed', async () => {

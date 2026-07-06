@@ -15,6 +15,8 @@ interface GitHubPr {
   state: 'open' | 'closed';
   merged?: boolean;               // present on GET /pulls/{n}, absent on the list endpoint
   merged_at: string | null;       // list endpoint's merge signal
+  mergeable?: boolean | null;      // null while GitHub is still computing mergeability
+  mergeable_state?: string | null; // undocumented REST detail; "dirty" means merge conflicts
   head: { sha: string };
   merge_commit_sha: string | null;
 }
@@ -33,13 +35,20 @@ const FAILING_STATUS_STATES = new Set(['failure', 'error']);
 
 function toPr(pr: GitHubPr): PrObservation {
   const merged = pr.merged === true || pr.merged_at !== null;
-  return {
+  const detail =
+    pr.mergeable_state === 'dirty'
+      ? 'GitHub reports mergeable_state=dirty'
+      : pr.mergeable === false
+        ? 'GitHub reports mergeable=false'
+        : null;
+  const obs: PrObservation = {
     id: `#${pr.number}`,
     url: pr.html_url,
     state: merged ? 'merged' : pr.state === 'closed' ? 'closed' : 'open',
     headSha: pr.head.sha,
     mergeCommitSha: pr.merge_commit_sha,
   };
+  return detail ? { ...obs, mergeConflict: { detail } } : obs;
 }
 
 /** Fold check-runs + legacy commit statuses into one verdict (red beats pending beats green). */
@@ -116,6 +125,9 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       if (!pr) return { pr: null, checks: { state: 'unknown', failing: [] } };
 
       const obs = toPr(pr);
+      if (obs.state === 'open' && obs.mergeConflict) {
+        return { pr: obs, checks: { state: 'failing', failing: [{ name: 'merge conflict', url: obs.url }] } };
+      }
       // Pre-merge semantics check the PR head; postMergeChecks moves a merged PR's target to
       // the merge commit (falling back to the head when the API returns no merge sha).
       const sha = obs.state === 'merged' && postMergeChecks ? (obs.mergeCommitSha ?? obs.headSha) : obs.headSha;

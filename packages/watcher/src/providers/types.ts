@@ -7,6 +7,7 @@ export interface PrObservation {
   state: 'open' | 'merged' | 'closed'; // closed = closed/abandoned WITHOUT merging
   headSha: string | null;
   mergeCommitSha: string | null;
+  mergeConflict?: { detail: string | null };
 }
 
 export interface DeliveryCheckResult {
