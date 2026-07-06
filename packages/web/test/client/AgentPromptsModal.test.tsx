@@ -32,4 +32,22 @@ describe('AgentPromptsModal — global agent system prompts', () => {
     expect(sent['worker.implementation']).toBe('write tests first');
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('"Insert example" fills a field with the sample and Save sends it', async () => {
+    const user = userEvent.setup();
+    render(<AgentPromptsModal onClose={() => {}} />);
+    await screen.findByDisplayValue('existing reviewer prompt'); // loaded
+
+    // the Worker · Implementation field starts blank; its Insert-example button fills it
+    const implField = screen.getByLabelText('Worker · Implementation') as HTMLTextAreaElement;
+    expect(implField.value).toBe('');
+    const buttons = screen.getAllByRole('button', { name: 'Insert example' });
+    await user.click(buttons[2]!); // order: description, plan, implementation, reviewer, evaluator
+    expect(implField.value).toContain('simplest change');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.setAgentPrompts).toHaveBeenCalled());
+    const sent = (api.setAgentPrompts as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![0] as Record<string, string>;
+    expect(sent['worker.implementation']).toContain('simplest change');
+  });
 });

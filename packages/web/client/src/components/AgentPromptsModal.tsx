@@ -46,7 +46,17 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '60vh', overflowY: 'auto' }}>
             {AGENT_PROMPT_FIELDS.map((f) => (
               <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontWeight: 600, fontSize: '13px' }}>{f.label}</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <label style={{ fontWeight: 600, fontSize: '13px' }}>{f.label}</label>
+                  <button
+                    className="af-mini"
+                    style={{ height: 24, padding: '0 8px', fontSize: '11px' }}
+                    onClick={() => set(f.key, f.example)}
+                    title="Fill this field with an editable example — tweak it, then Save."
+                  >
+                    Insert example
+                  </button>
+                </div>
                 <span style={{ fontSize: '12px', color: 'var(--ink-3)' }}>{f.hint}</span>
                 <textarea
                   aria-label={f.label}
