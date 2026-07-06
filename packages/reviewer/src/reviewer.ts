@@ -231,6 +231,8 @@ export class Reviewer {
     try {
       const detail = this.deps.core.getTask(key);
       stage = detail.stage;
+      // the configured reviewer system prompt (workspace override → global default → ''), inlined
+      const systemPrompt = this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
       if (detail.stage === 'implementation') {
         const branch = this.resolveBranch(detail);
         if (!branch) throw new Error(`no branch recorded to diff`);
@@ -243,9 +245,9 @@ export class Reviewer {
           diffRef = `origin/${branch}`;
         }
         const diff = await this.deps.computeDiff(detail.repoPath, diffRef);
-        prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
+        prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
       } else {
-        prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars });
+        prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.

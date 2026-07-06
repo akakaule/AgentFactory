@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
 
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
@@ -12,6 +12,8 @@ export interface DispatcherCore {
   // git auth for the worker's push/fetch: the workspace's stored PAT (or env fallback) shaped as
   // an http.extraheader, or null when none resolves (worker uses ambient git credentials).
   resolveGitAuth(workspace: string): GitAuth | null;
+  // the effective agent system prompt (workspace override → global default → '') for this role.
+  resolveAgentPrompt(key: AgentPromptKey, workspace: string): string;
   updateStatus(key: string, status: Status, actor: Actor): TaskDetail;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): TaskDetail;

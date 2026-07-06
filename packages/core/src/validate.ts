@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ValidationError } from './errors.js';
 import { ATTACHMENT_MIMES } from './types.js';
+import { AGENT_PROMPT_KEYS } from './agentPrompts.js';
 
 const nonEmpty = z.string().trim().min(1);
 const workspaceSlug = z
@@ -42,13 +43,23 @@ const clearable = z
   .string()
   .transform((s) => (s.trim().length === 0 ? null : s.trim()))
   .nullable();
+// promptOverrides: a map of agent-prompt keys → text; unknown keys are rejected, blank values dropped
+// (so a blank textarea inherits the global default), yielding a cleaned AgentPrompts to store.
+const promptOverridesInput = z
+  .record(z.string(), z.string())
+  .refine((o) => Object.keys(o).every((k) => (AGENT_PROMPT_KEYS as readonly string[]).includes(k)), 'unknown agent prompt key')
+  .transform((o) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(o)) { const t = v.trim(); if (t !== '') out[k] = t; }
+    return out;
+  });
 export const updateWorkspaceSchema = z
   // repoPath is a defining field (never cleared to null — a workspace must point somewhere), so it
   // takes nonEmpty; policy/verifyCommand/pat are clearable. Name is intentionally not editable here.
-  .object({ repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional() })
+  .object({ repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional(), promptOverrides: promptOverridesInput.optional() })
   .refine(
-    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides)',
   );
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional() })

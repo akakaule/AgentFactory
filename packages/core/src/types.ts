@@ -1,3 +1,5 @@
+import type { AgentPrompts } from './agentPrompts.js';
+
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
 
@@ -23,6 +25,9 @@ export interface Workspace {
   // Whether a git PAT is stored for this workspace (migration #19). The raw credential is SECRET
   // and never serialized — only this boolean is exposed. Set/clear it via UpdateWorkspaceInput.pat.
   hasPat: boolean;
+  // Per-workspace agent system-prompt overrides (migration #20); {} = inherit the global defaults.
+  // The effective prompt an agent runs with is override ?? global ?? '' (see resolveAgentPrompt).
+  promptOverrides: AgentPrompts;
 }
 
 /** A real human (or the seeded system row). Distinct from the `Actor` machine axis. */
@@ -234,7 +239,12 @@ export interface CreateTaskInput {
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
 // null clears the field, undefined leaves it untouched (matches the PATCH semantics in the web layer).
 // repoPath is a defining field: a string re-points the workspace; it is never null.
-export interface UpdateWorkspaceInput { repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined; }
+export interface UpdateWorkspaceInput {
+  repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined;
+  // the full override set (only keys to override; a blank/omitted key inherits the global default);
+  // replaces the stored map. Present-but-empty ({}) clears all overrides.
+  promptOverrides?: Record<string, string> | undefined;
+}
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {

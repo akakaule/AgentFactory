@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../types.js';
 import { api } from '../api.js';
 import { wsColor } from '../wsColor.js';
+import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 
 interface Props {
   workspaces: Workspace[];
@@ -23,24 +24,37 @@ function WorkspaceItem({ workspace, dot, onSaved, highlight }: { workspace: Work
   // The PAT is write-only: we never receive its value, only workspace.hasPat. An empty input means
   // "leave it unchanged"; a typed value replaces it. Clearing is a separate explicit action.
   const [pat, setPat] = useState('');
+  const po = workspace.promptOverrides ?? {}; // guard: some fixtures/old payloads omit it
+  // per-workspace agent prompt overrides (blank field = inherit the global default)
+  const [overrides, setOverrides] = useState<Record<string, string>>(
+    () => Object.fromEntries(AGENT_PROMPT_FIELDS.map((f) => [f.key, po[f.key] ?? ''])),
+  );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const overridesDirty = AGENT_PROMPT_FIELDS.some((f) => (overrides[f.key] ?? '').trim() !== (po[f.key] ?? ''));
   const dirty =
     repoPath !== workspace.repoPath ||
     policy !== (workspace.policy ?? '') ||
     verifyCommand !== (workspace.verifyCommand ?? '') ||
-    pat.trim() !== '';
+    pat.trim() !== '' ||
+    overridesDirty;
 
   const handleSave = () => {
     setSaving(true);
     setErr(null);
     // empty string clears policy/verifyCommand (server normalises whitespace-only to null); the PAT
     // is only sent when the user typed a new one — omitted, it stays untouched (never accidentally cleared).
-    // repoPath is a defining field: sent only when non-empty (it can never be blanked).
-    const body: { repoPath?: string; policy: string; verifyCommand: string; pat?: string } = { policy, verifyCommand };
+    // repoPath is a defining field: sent only when non-empty (it can never be blanked). promptOverrides
+    // (replace-whole: blank fields drop → inherit the global) is sent only when the section changed.
+    const body: { repoPath?: string; policy: string; verifyCommand: string; pat?: string; promptOverrides?: Record<string, string> } = { policy, verifyCommand };
     if (repoPath.trim() !== '') body.repoPath = repoPath.trim();
     if (pat.trim() !== '') body.pat = pat.trim();
+    if (overridesDirty) {
+      body.promptOverrides = Object.fromEntries(
+        AGENT_PROMPT_FIELDS.map((f) => [f.key, (overrides[f.key] ?? '').trim()] as const).filter(([, v]) => v !== ''),
+      );
+    }
     api.updateWorkspace(workspace.name, body)
       .then(() => { setPat(''); onSaved(); })
       .catch((e: Error) => setErr(e.message))
@@ -117,6 +131,26 @@ function WorkspaceItem({ workspace, dot, onSaved, highlight }: { workspace: Work
             </button>
           )}
         </div>
+        <details style={{ marginTop: '2px' }}>
+          <summary style={{ fontSize: '12px', color: 'var(--ink-3)', cursor: 'pointer' }}>
+            Agent prompt overrides{Object.keys(po).length ? ` (${Object.keys(po).length} set)` : ''} — blank inherits the global default
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+            {AGENT_PROMPT_FIELDS.map((f) => (
+              <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <label style={{ fontSize: '12px', color: 'var(--ink-3)' }}>{f.label}</label>
+                <textarea
+                  aria-label={`override ${f.label}`}
+                  value={overrides[f.key] ?? ''}
+                  onChange={(e) => setOverrides((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  placeholder="(inherit global default)"
+                  rows={2}
+                  style={{ padding: '6px 10px', resize: 'vertical', fontFamily: 'inherit' }}
+                />
+              </div>
+            ))}
+          </div>
+        </details>
         {err && <div className="af-err">{err}</div>}
         <div>
           <button className="af-btn-primary" onClick={handleSave} disabled={!dirty || saving}>

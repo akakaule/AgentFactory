@@ -1,5 +1,5 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -383,6 +383,8 @@ export class Dispatcher {
       mcpConfigPath,
       claudeArgs: this.stageClaudeArgs(stage),
       sessionId,
+      // the effective worker system prompt for this stage/workspace (override → global → '')
+      appendSystemPrompt: this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace),
     });
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.baseEnv ?? {}),

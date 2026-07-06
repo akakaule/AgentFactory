@@ -16,6 +16,13 @@ function policySection(task: TaskDetail): string[] {
   return ['', '=== WORKSPACE POLICY (the work must also satisfy these standards) ===', task.policy.trim()];
 }
 
+/** Configured reviewer system prompt (empty when unset). codex has no system-prompt flag, so it is
+ *  inlined as prominent instructions — the effective prompt is resolveAgentPrompt('reviewer', ws). */
+function systemPromptSection(systemPrompt: string | undefined): string[] {
+  if (!systemPrompt || systemPrompt.trim().length === 0) return [];
+  return ['', '=== REVIEWER INSTRUCTIONS (configured — follow these) ===', systemPrompt.trim()];
+}
+
 /** Truncate a diff to maxDiffChars (0 = no limit), flagging the cut in-band so the engine says so. */
 export function truncateDiff(diff: string, maxDiffChars: number): string {
   if (maxDiffChars > 0 && diff.length > maxDiffChars) {
@@ -56,6 +63,7 @@ function implementationPrompt(
   branch: string,
   diff: BranchDiff,
   maxDiffChars: number,
+  systemPrompt: string | undefined,
 ): string {
   return [
     'You are an automated first-pass code reviewer for a task board. A human reviews after you;',
@@ -65,6 +73,7 @@ function implementationPrompt(
     'visible in the diff. Do not pad; zero findings is a perfectly good verdict. Severity:',
     '"error" = will not meet the brief / breaks something, "warning" = likely problem worth a look,',
     '"info" = worth knowing, not blocking.',
+    ...systemPromptSection(systemPrompt),
     '',
     outputContract(engine),
     '',
@@ -89,7 +98,7 @@ function implementationPrompt(
 }
 
 /** Doc-stage prompt (description/plan): the deliverable is the task's own fields, not a diff. */
-function docPrompt(task: TaskDetail, engine: ReviewEngine): string {
+function docPrompt(task: TaskDetail, engine: ReviewEngine, systemPrompt: string | undefined): string {
   let charge: string;
   let deliverable: string[];
   if (task.stage === 'description') {
@@ -132,6 +141,7 @@ function docPrompt(task: TaskDetail, engine: ReviewEngine): string {
     'findings escalate to a human.',
     charge,
     'Do not pad; zero findings is a perfectly good verdict.',
+    ...systemPromptSection(systemPrompt),
     '',
     outputContract(engine),
     '',
@@ -152,6 +162,8 @@ export interface ReviewPromptInput {
   branch?: string | undefined;
   diff?: BranchDiff | undefined;
   maxDiffChars?: number | undefined;
+  /** The configured reviewer system prompt (resolveAgentPrompt('reviewer', workspace)); inlined. */
+  systemPrompt?: string | undefined;
 }
 
 /**
@@ -160,12 +172,12 @@ export interface ReviewPromptInput {
  * `ai-review/v1` output contract.
  */
 export function buildReviewPrompt(input: ReviewPromptInput): string {
-  const { task, engine, branch, diff, maxDiffChars = DEFAULT_MAX_DIFF_CHARS } = input;
+  const { task, engine, branch, diff, maxDiffChars = DEFAULT_MAX_DIFF_CHARS, systemPrompt } = input;
   if (task.stage === 'implementation') {
     if (!branch || !diff) throw new Error(`implementation review needs a branch + diff for ${task.key}`);
-    return implementationPrompt(task, engine, branch, diff, maxDiffChars);
+    return implementationPrompt(task, engine, branch, diff, maxDiffChars, systemPrompt);
   }
-  return docPrompt(task, engine);
+  return docPrompt(task, engine, systemPrompt);
 }
 
 /**

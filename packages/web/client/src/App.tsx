@@ -13,6 +13,7 @@ import { TelemetryView } from './views/TelemetryView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
+import { AgentPromptsModal } from './components/AgentPromptsModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate } from './components/TokenGate.js';
 import { Mark, I } from './icons.js';
@@ -44,6 +45,7 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
   const [editWorkspace, setEditWorkspace] = useState<string | null>(null); // which workspace the editor should focus
+  const [managingPrompts, setManagingPrompts] = useState(false); // global agent system-prompt editor
   const [wsFilter, setWsFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [lastWorkspace, setLastWorkspace] = useState('default');
@@ -102,6 +104,9 @@ export function App() {
           onNewWorkspace={() => { setEditWorkspace(null); setManagingWorkspaces(true); }}
           onEditWorkspace={(name) => { setEditWorkspace(name); setManagingWorkspaces(true); }}
         />
+        <button className="af-mini" title="Configure agent system prompts" onClick={() => setManagingPrompts(true)}>
+          {I.bot({ width: 14, height: 14 })} Agents
+        </button>
         {taskChrome && (
           <label className="af-search">
             {I.search({})}
@@ -188,6 +193,8 @@ export function App() {
           onClose={() => { setManagingWorkspaces(false); setEditWorkspace(null); }}
         />
       )}
+
+      {managingPrompts && <AgentPromptsModal onClose={() => setManagingPrompts(false)} />}
 
       {authNeeded && <TokenGate />}
     </div>

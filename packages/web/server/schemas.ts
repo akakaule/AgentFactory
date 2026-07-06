@@ -8,12 +8,16 @@ export const workspaceBody = z.object({ name: workspaceSlug, repoPath: z.string(
 // PATCH: policy/verifyCommand/pat may be a string (set), null (clear), or absent (leave); repoPath
 // is a defining field (string re-points the workspace, never null). ≥1 field enforced by core.
 // `pat` is the git-host credential (write-only — GET never returns it, only workspace.hasPat).
+// `promptOverrides` is a full agent-prompt override map (unknown keys / blanks handled by core).
 export const workspaceUpdateBody = z
-  .object({ repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional() })
+  .object({ repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional(), promptOverrides: z.record(z.string(), z.string()).optional() })
   .refine(
-    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides)',
   );
+// Global agent system prompts: a map of prompt-key → text (a blank value clears that key). Keys are
+// validated against the known set in core (setGlobalPrompts ignores unknown keys).
+export const agentPromptsBody = z.record(z.string(), z.string());
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
 const LinkKindEnum = z.enum(['branch', 'pr', 'worktree', 'log', 'url']);
 export const createBody = z.object({

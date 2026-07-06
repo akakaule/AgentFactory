@@ -17,6 +17,7 @@ export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureCom
 export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
+export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
 export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
@@ -68,6 +69,8 @@ import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
 import { resolveGitAuth } from './gitAuth.js';
 import { getWorkspacePat } from './repo/workspaces.js';
+import { getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt } from './agentPrompts.js';
+import type { AgentPromptKey } from './agentPrompts.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
@@ -116,6 +119,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     resolveGitAuth: (workspace: string) => resolveGitAuth(db, workspace, { env: process.env, resolveOrigin }),
     /** The raw stored PAT for a workspace, or null (watcher REST credential). Secret — never serialize. */
     getWorkspacePat: (workspace: string) => getWorkspacePat(db, workspace),
+    /** Global default agent system prompts (app_kv) and the effective (override → global) resolver. */
+    getGlobalPrompts: () => getGlobalPrompts(db),
+    setGlobalPrompts: (partial: Record<string, string | null | undefined>) => setGlobalPrompts(db, partial),
+    resolveAgentPrompt: (key: AgentPromptKey, workspace: string) => resolveAgentPrompt(db, key, workspace),
     createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
     createApiToken: (input: { label: string; userId?: number | null; isService?: boolean }) => createApiToken(db, input),
     authenticateToken: (rawToken: string) => authenticateToken(db, rawToken),

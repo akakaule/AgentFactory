@@ -14,7 +14,7 @@ import { api } from '../../client/src/api.js';
 
 const ws = (over: Partial<Workspace> = {}): Workspace => ({
   id: 1, name: 'repo-a', repoPath: '/a', createdAt: '2026-01-01T00:00:00.000Z',
-  policy: null, verifyCommand: null, hasPat: false, ...over,
+  policy: null, verifyCommand: null, hasPat: false, promptOverrides: {}, ...over,
 });
 const noop = () => {};
 
@@ -55,6 +55,16 @@ describe('WorkspacesModal — git PAT is settable in the web UI', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(api.updateWorkspace).toHaveBeenCalledWith('repo-a', expect.objectContaining({ repoPath: '/new/path' }));
+  });
+
+  it('sends promptOverrides when a per-workspace agent-prompt override is entered', async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws()]} onCreated={noop} onClose={noop} />);
+
+    await user.type(screen.getByLabelText('override Reviewer'), 'workspace-specific review focus');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(api.updateWorkspace).toHaveBeenCalledWith('repo-a', expect.objectContaining({ promptOverrides: { reviewer: 'workspace-specific review focus' } }));
   });
 
   it('does not touch the PAT when only policy changed (no accidental clear)', async () => {

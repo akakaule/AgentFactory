@@ -316,3 +316,10 @@ CREATE TABLE IF NOT EXISTS task_delivery (
 export const MIGRATION_19_SQL = `
 ALTER TABLE workspace ADD COLUMN pat TEXT;
 `;
+
+// Migration #20 — per-workspace agent system-prompt overrides. A JSON map { <agent-prompt-key>: text }
+// layered over the global defaults (app_kv, key 'agent_prompts'); effective prompt = override ?? global
+// ?? '' (see agentPrompts.ts). Nullable: existing workspaces inherit the globals and behave as today.
+export const MIGRATION_20_SQL = `
+ALTER TABLE workspace ADD COLUMN prompt_overrides TEXT;
+`;

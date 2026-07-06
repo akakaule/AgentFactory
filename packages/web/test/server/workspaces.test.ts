@@ -110,6 +110,37 @@ describe('workspaces REST API', () => {
     });
   });
 
+  describe('PATCH /api/workspaces/:name — prompt overrides', () => {
+    it('stores overrides (blanks dropped) and returns them on GET', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });
+      const res = await patch(app, '/api/workspaces/repo-a', { promptOverrides: { reviewer: 'be strict', 'worker.plan': '   ' } });
+      expect(res.status).toBe(200);
+      expect((await res.json() as { promptOverrides: Record<string, string> }).promptOverrides).toEqual({ reviewer: 'be strict' });
+
+      const list = await (await app.request('/api/workspaces')).json() as Array<{ name: string; promptOverrides: Record<string, string> }>;
+      expect(list.find((w) => w.name === 'repo-a')?.promptOverrides).toEqual({ reviewer: 'be strict' });
+    });
+
+    it('rejects an unknown prompt key → 400', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });
+      expect((await patch(app, '/api/workspaces/repo-a', { promptOverrides: { nope: 'x' } })).status).toBe(400);
+    });
+  });
+
+  describe('agent-prompts REST API', () => {
+    it('GET starts empty; PUT sets/merges/clears keys; GET reflects it', async () => {
+      expect(await (await app.request('/api/agent-prompts')).json()).toEqual({});
+
+      const put = async (b: unknown) => app.request('/api/agent-prompts', { method: 'PUT', body: JSON.stringify(b), headers: { 'content-type': 'application/json' } });
+      await put({ reviewer: 'be strict', 'worker.plan': 'plan well' });
+      expect(await (await app.request('/api/agent-prompts')).json()).toEqual({ reviewer: 'be strict', 'worker.plan': 'plan well' });
+
+      // blank clears a key, merge keeps the other
+      const res = await put({ 'worker.plan': '   ' });
+      expect(await res.json()).toEqual({ reviewer: 'be strict' });
+    });
+  });
+
   describe('tasks API with workspaces', () => {
     it('POST /api/tasks passes workspace through; GET ?workspace= filters', async () => {
       await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });

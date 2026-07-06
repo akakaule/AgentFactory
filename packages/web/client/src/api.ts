@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse } from './types.js';
+import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts } from './types.js';
 import type { AnalyticsData } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -96,7 +96,9 @@ export const api = {
   createTask: (b: { title: string; spec: string; acceptanceCriteria?: string; stage?: Stage; workspace?: string }) => req<Task>('/api/tasks', body(b)),
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
   createWorkspace: (b: { name: string; repoPath: string }) => req<Workspace>('/api/workspaces', body(b)),
-  updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null }) =>
+  getAgentPrompts: () => req<AgentPrompts>('/api/agent-prompts'),
+  setAgentPrompts: (b: Record<string, string>) => req<AgentPrompts>('/api/agent-prompts', { method: 'PUT', body: JSON.stringify(b) }),
+  updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string> }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),

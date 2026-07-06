@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace } from '@agentfactory/core';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 /**
@@ -12,6 +12,8 @@ export interface ReviewerCore {
   listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
   listWorkspaces(): Workspace[];
   getTask(key: string): TaskDetail;
+  // the configured reviewer/evaluator system prompt (workspace override → global default → '').
+  resolveAgentPrompt(key: AgentPromptKey, workspace: string): string;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): void;

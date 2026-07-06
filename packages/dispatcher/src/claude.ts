@@ -111,6 +111,9 @@ export interface SpawnArgsOpts {
    *  (`<config>/projects/<encoded-cwd>/<session-id>.jsonl`) deterministic at spawn, so the
    *  supervisor can tail + persist it, and disambiguates concurrent sessions sharing a cwd. */
   sessionId: string;
+  /** The effective worker system prompt for this stage/workspace (resolveAgentPrompt); when
+   *  non-empty it is appended to Claude's system prompt via `--append-system-prompt`. */
+  appendSystemPrompt?: string | undefined;
 }
 
 /**
@@ -120,7 +123,7 @@ export interface SpawnArgsOpts {
  * headless session cannot answer a permission prompt, and the worker protocol requires its
  * tools for every step.
  */
-export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeArgs, sessionId }: SpawnArgsOpts): string[] {
+export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeArgs, sessionId, appendSystemPrompt }: SpawnArgsOpts): string[] {
   return [
     '-p',
     prompt,
@@ -134,6 +137,8 @@ export function buildSpawnArgs({ prompt, permissionMode, mcpConfigPath, claudeAr
     mcpConfigPath,
     '--allowedTools',
     'mcp__agentfactory',
+    // the configured per-stage/workspace worker system prompt, if any (single execFile arg — no shell)
+    ...(appendSystemPrompt && appendSystemPrompt.trim() ? ['--append-system-prompt', appendSystemPrompt] : []),
     ...claudeArgs,
   ];
 }

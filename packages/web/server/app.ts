@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { Core } from './types.js';
 import { taskRoutes } from './routes/tasks.js';
 import { workspaceRoutes } from './routes/workspaces.js';
+import { agentPromptRoutes } from './routes/agentPrompts.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { agentRoutes } from './routes/agents.js';
@@ -39,6 +40,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/auth', authRoutes(core, auth));
   app.route('/api/tasks', taskRoutes(core));
   app.route('/api/workspaces', workspaceRoutes(core));
+  app.route('/api/agent-prompts', agentPromptRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
   app.route('/api/attachments', attachmentRoutes(core));
   app.route('/api/agents', agentRoutes(core));

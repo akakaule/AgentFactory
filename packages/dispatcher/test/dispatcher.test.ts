@@ -361,6 +361,35 @@ describe('worker git auth', () => {
 });
 
 // ---------------------------------------------------------------------------
+// worker system prompt (configurable per stage/workspace)
+// ---------------------------------------------------------------------------
+describe('worker system prompt', () => {
+  it('passes --append-system-prompt with the resolved worker prompt for the stage', async () => {
+    const core = makeCore();
+    core.setGlobalPrompts({ 'worker.implementation': 'Always write tests first.' });
+    seedQueued(core, 'ws', 'Prompted');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+
+    await d.tick();
+    const args = calls[0]!.req.args;
+    const i = args.indexOf('--append-system-prompt');
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe('Always write tests first.');
+  });
+
+  it('omits --append-system-prompt when no worker prompt is configured', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Unprompted');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+
+    await d.tick();
+    expect(calls[0]!.req.args).not.toContain('--append-system-prompt');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // crash path → release, retry, skip-list
 // ---------------------------------------------------------------------------
 describe('crash path', () => {
