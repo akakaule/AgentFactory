@@ -49,6 +49,12 @@
 .af-ws-opt .rp { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); }
 .af-ws-opt .cnt { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-2); background: var(--panel); padding: 2px 7px; border-radius: 99px; }
 .af-ws-new { border-top: 1px solid var(--line-soft); margin-top: 5px; padding-top: 9px; color: var(--accent-2); font-size: 13px; font-weight: 600; }
+/* A dropdown workspace row = filter button (flex) + an edit button that opens the editor. */
+.af-ws-optrow { display: flex; align-items: stretch; }
+.af-ws-optrow .af-ws-opt { flex: 1; width: auto; }
+.af-ws-editbtn { flex: none; display: inline-flex; align-items: center; padding: 0 10px; background: none; border: none; cursor: pointer; color: var(--ink-3); border-radius: 8px; opacity: 0; transition: opacity .12s, color .12s; }
+.af-ws-optrow:hover .af-ws-editbtn, .af-ws-editbtn:focus-visible { opacity: 1; }
+.af-ws-editbtn:hover { color: var(--accent-2); background: rgba(96,165,250,0.10); }
 
 .af-search { position: relative; display: flex; align-items: center; }
 .af-search svg { position: absolute; left: 10px; width: 15px; height: 15px; color: var(--ink-3); pointer-events: none; }

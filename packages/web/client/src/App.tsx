@@ -43,6 +43,7 @@ export function App() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
+  const [editWorkspace, setEditWorkspace] = useState<string | null>(null); // which workspace the editor should focus
   const [wsFilter, setWsFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [lastWorkspace, setLastWorkspace] = useState('default');
@@ -98,7 +99,8 @@ export function App() {
           value={wsFilter}
           counts={counts}
           onChange={setWsFilter}
-          onNewWorkspace={() => setManagingWorkspaces(true)}
+          onNewWorkspace={() => { setEditWorkspace(null); setManagingWorkspaces(true); }}
+          onEditWorkspace={(name) => { setEditWorkspace(name); setManagingWorkspaces(true); }}
         />
         {taskChrome && (
           <label className="af-search">
@@ -181,8 +183,9 @@ export function App() {
       {managingWorkspaces && (
         <WorkspacesModal
           workspaces={workspaces}
+          focusWorkspace={editWorkspace}
           onCreated={refetchWorkspaces}
-          onClose={() => setManagingWorkspaces(false)}
+          onClose={() => { setManagingWorkspaces(false); setEditWorkspace(null); }}
         />
       )}
 

@@ -133,7 +133,8 @@ describe('App', () => {
     expect(screen.getByText('Repo-a task')).toBeInTheDocument();
 
     await user.click(screen.getByLabelText('Workspace filter'));
-    await user.click(screen.getByRole('menu').querySelector('button.af-ws-opt:nth-child(3)')!);
+    // the repo-a row is the 3rd menu child (All / default / repo-a / New…); click its filter button
+    await user.click(screen.getByRole('menu').querySelector('.af-ws-optrow:nth-child(3) .af-ws-opt')!);
 
     expect(screen.queryByText('Default task')).not.toBeInTheDocument();
     expect(screen.getByText('Repo-a task')).toBeInTheDocument();
@@ -150,5 +151,17 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Create workspace' }));
 
     expect(api.createWorkspace).toHaveBeenCalledWith({ name: 'repo-b', repoPath: 'C:/Git/RepoB' });
+  });
+
+  it('opens the workspace editor from a row’s Edit button, ready to edit that workspace', async () => {
+    vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByLabelText('Workspace filter')); // open the switcher dropdown
+    await user.click(screen.getByRole('button', { name: 'Edit repo-a' })); // per-workspace edit affordance
+
+    // the editor is open with repo-a's repo path as an editable field (value '/a')
+    expect(screen.getByDisplayValue('/a')).toBeInTheDocument();
   });
 });

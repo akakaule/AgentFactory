@@ -1,16 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../types.js';
 import { api } from '../api.js';
 import { wsColor } from '../wsColor.js';
 
 interface Props {
   workspaces: Workspace[];
+  focusWorkspace?: string | null; // scroll to + highlight this workspace when opening to edit it
   onCreated: () => void;
   onClose: () => void;
 }
 
 /** One workspace row with inline editing of its repo path, engineering-discipline fields, and PAT. */
-function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot: string; onSaved: () => void }) {
+function WorkspaceItem({ workspace, dot, onSaved, highlight }: { workspace: Workspace; dot: string; onSaved: () => void; highlight?: boolean }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // optional-chain: scrollIntoView is undefined under jsdom (tests) — a no-op there, real in the browser
+    if (highlight && rowRef.current) rowRef.current.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [highlight]);
   const [repoPath, setRepoPath] = useState(workspace.repoPath);
   const [policy, setPolicy] = useState(workspace.policy ?? '');
   const [verifyCommand, setVerifyCommand] = useState(workspace.verifyCommand ?? '');
@@ -51,7 +57,15 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
   };
 
   return (
-    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--line-soft)' }}>
+    <div
+      ref={rowRef}
+      style={{
+        padding: '10px', margin: '0 -6px', borderBottom: '1px solid var(--line-soft)', borderRadius: '8px',
+        boxShadow: highlight ? 'inset 0 0 0 1.5px var(--accent)' : undefined,
+        background: highlight ? 'rgba(96,165,250,0.06)' : undefined,
+        transition: 'box-shadow .2s, background .2s',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span className="af-ws-dot" style={{ background: dot }}></span>
         <span style={{ fontWeight: 600, minWidth: '120px' }}>{workspace.name}</span>
@@ -114,7 +128,7 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
   );
 }
 
-export function WorkspacesModal({ workspaces, onCreated, onClose }: Props) {
+export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose }: Props) {
   const [name, setName] = useState('');
   const [repoPath, setRepoPath] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +160,7 @@ export function WorkspacesModal({ workspaces, onCreated, onClose }: Props) {
 
         <div style={{ margin: '12px 0' }}>
           {workspaces.map((w) => (
-            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} />
+            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} highlight={w.name === focusWorkspace} />
           ))}
         </div>
 

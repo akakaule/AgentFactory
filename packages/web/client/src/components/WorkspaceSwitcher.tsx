@@ -9,9 +9,10 @@ interface Props {
   counts: Record<string, number>; // per slug + 'all'
   onChange: (value: string) => void;
   onNewWorkspace: () => void;
+  onEditWorkspace: (name: string) => void;
 }
 
-export function WorkspaceSwitcher({ workspaces, value, counts, onChange, onNewWorkspace }: Props) {
+export function WorkspaceSwitcher({ workspaces, value, counts, onChange, onNewWorkspace, onEditWorkspace }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,15 +45,24 @@ export function WorkspaceSwitcher({ workspaces, value, counts, onChange, onNewWo
             <span className="cnt">{counts['all'] ?? 0}</span>
           </button>
           {workspaces.map((w) => (
-            <button
-              key={w.id}
-              className={'af-ws-opt' + (value === w.name ? ' on' : '')}
-              onClick={() => { onChange(w.name); setOpen(false); }}
-            >
-              <span className="af-ws-dot" style={{ background: wsColor(workspaces, w.name) }}></span>
-              <span className="col"><span className="nm">{w.name}</span><span className="rp">{w.repoPath}</span></span>
-              <span className="cnt">{counts[w.name] ?? 0}</span>
-            </button>
+            <div key={w.id} className="af-ws-optrow">
+              <button
+                className={'af-ws-opt' + (value === w.name ? ' on' : '')}
+                onClick={() => { onChange(w.name); setOpen(false); }}
+              >
+                <span className="af-ws-dot" style={{ background: wsColor(workspaces, w.name) }}></span>
+                <span className="col"><span className="nm">{w.name}</span><span className="rp">{w.repoPath}</span></span>
+                <span className="cnt">{counts[w.name] ?? 0}</span>
+              </button>
+              <button
+                className="af-ws-editbtn"
+                title={`Edit ${w.name}`}
+                aria-label={`Edit ${w.name}`}
+                onClick={() => { setOpen(false); onEditWorkspace(w.name); }}
+              >
+                {I.pencil({ width: 14, height: 14 })}
+              </button>
+            </div>
           ))}
           <button className="af-ws-opt af-ws-new" onClick={() => { setOpen(false); onNewWorkspace(); }}>
             {I.plus({ width: 13, height: 13 })} New workspace…
