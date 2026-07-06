@@ -230,6 +230,18 @@ describe('ai-review activity strip', () => {
     expect(detail.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('ai-review/v1'))).toBe(false);
   });
 
+  it('get_task also hides the delivering-feedback markers (pr-feedback/v1, feedback-eval/v1)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Delivered'));
+    core.addComment(t.key, { actor: 'human', body: 'pr-feedback/v1 — from sam\n```json\n{"feedback":"rename X"}\n```' });
+    core.addComment(t.key, { actor: 'agent', body: 'feedback-eval/v1 - warranted\n```json\n{"disposition":"warranted","reasoning":"real","suggestedChange":"do it"}\n```' });
+    core.addComment(t.key, { actor: 'human', body: 'a plain note' });
+
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect(detail.activity.map((a: any) => a.body)).toContain('a plain note');
+    expect(detail.activity.some((a: any) => a.type === 'comment' && (a.body.startsWith('pr-feedback/v1') || a.body.startsWith('feedback-eval/v1')))).toBe(false);
+  });
+
   it('get_next_task strips ai-review on reclaim but the curated feedback rides through', async () => {
     const { client, core } = await makeClient();
     const t = reviewedTask(core);

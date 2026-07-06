@@ -1,5 +1,5 @@
 import type { TaskDetail, BranchDiff } from '@agentfactory/core';
-import { isAiReviewMarker, parseAiReviewComment } from '@agentfactory/core';
+import { isAiReviewMarker, parseAiReviewComment, isFeedbackEvalMarker } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 const DEFAULT_MAX_DIFF_CHARS = 120000;
@@ -16,11 +16,11 @@ function policySection(task: TaskDetail): string[] {
   return ['', '=== WORKSPACE POLICY (the work must also satisfy these standards) ===', task.policy.trim()];
 }
 
-/** Configured reviewer system prompt (empty when unset). codex has no system-prompt flag, so it is
- *  inlined as prominent instructions — the effective prompt is resolveAgentPrompt('reviewer', ws). */
-function systemPromptSection(systemPrompt: string | undefined): string[] {
+/** Configured system prompt (empty when unset). codex has no system-prompt flag, so it is inlined
+ *  as prominent instructions — the effective prompt is resolveAgentPrompt(<role>, ws). */
+function systemPromptSection(systemPrompt: string | undefined, label = 'REVIEWER INSTRUCTIONS (configured — follow these)'): string[] {
   if (!systemPrompt || systemPrompt.trim().length === 0) return [];
-  return ['', '=== REVIEWER INSTRUCTIONS (configured — follow these) ===', systemPrompt.trim()];
+  return ['', `=== ${label} ===`, systemPrompt.trim()];
 }
 
 /** Truncate a diff to maxDiffChars (0 = no limit), flagging the cut in-band so the engine says so. */
@@ -192,4 +192,79 @@ export function ensureMarker(body: string, engine: ReviewEngine): string {
   const n = parsed ? parsed.findings.length : 0;
   const head = n === 0 ? `ai-review/v1 - clean (${engine})` : `ai-review/v1 - ${n} findings (${engine})`;
   return `${head}\n${trimmed}`;
+}
+
+// ---------------------------------------------------------------------------
+// Delivering-feedback evaluation (feedback-eval/v1)
+// ---------------------------------------------------------------------------
+
+/** The strict feedback-eval/v1 output contract (matches core's parseFeedbackEvalComment). */
+function feedbackEvalContract(): string {
+  return [
+    'Respond with EXACTLY this structure and nothing else — no preamble, no trailing commentary:',
+    '',
+    'feedback-eval/v1 - <disposition>',
+    '<one short paragraph: your critical assessment>',
+    '```json',
+    '{',
+    '  "disposition": "warranted" | "partial" | "not_warranted",',
+    '  "reasoning": "<why the feedback is or is not a real issue, referencing the diff>",',
+    '  "suggestedChange": "<the concrete change to make; omit when not_warranted>"',
+    '}',
+    '```',
+  ].join('\n');
+}
+
+export interface FeedbackEvalPromptInput {
+  task: TaskDetail;
+  engine: ReviewEngine;
+  feedback: string; // the human's pasted PR-review comment
+  branch: string;
+  diff: BranchDiff;
+  maxDiffChars?: number | undefined;
+  systemPrompt?: string | undefined; // resolveAgentPrompt('delivering-evaluator', workspace)
+}
+
+/**
+ * Build the delivering-feedback evaluation prompt: critically judge whether a PR-review comment
+ * identifies a REAL issue in the branch diff worth a code change. Deliberately skeptical — reviewers
+ * are sometimes wrong, stylistic, or out of scope. Ends in the strict feedback-eval/v1 contract.
+ */
+export function buildFeedbackEvalPrompt(input: FeedbackEvalPromptInput): string {
+  const { task, feedback, branch, diff, maxDiffChars = DEFAULT_MAX_DIFF_CHARS, systemPrompt } = input;
+  return [
+    'You are a CRITICAL evaluator. A human received the PR-review comment below on an already-delivered',
+    'branch and wants to know whether it identifies a real issue worth changing the code. Be skeptical:',
+    'reviewers are sometimes mistaken, stylistic, or out of scope. Judge the comment against the ACTUAL',
+    'diff and the task brief. "warranted" = a concrete, correct change is justified; "partial" = some of',
+    'it is; "not_warranted" = it should not drive a change (say why). Do not agree just to be agreeable.',
+    ...systemPromptSection(systemPrompt, 'EVALUATOR INSTRUCTIONS (configured — follow these)'),
+    '',
+    feedbackEvalContract(),
+    '',
+    `=== TASK ${task.key}: ${task.title} ===`,
+    ...policySection(task),
+    '',
+    '=== SPEC ===',
+    task.spec,
+    '',
+    '=== ACCEPTANCE CRITERIA ===',
+    task.acceptanceCriteria,
+    '',
+    '=== PR REVIEW COMMENT (evaluate this) ===',
+    feedback,
+    '',
+    '=== BRANCH ===',
+    `${branch} (${diff.commits} commit(s) vs ${diff.baseRef})`,
+    '',
+    '=== DIFF ===',
+    truncateDiff(diff.diff, maxDiffChars),
+  ].join('\n');
+}
+
+/** Guarantee the posted body carries the feedback-eval/v1 marker (safety net for an engine that
+ *  emits the JSON but forgets the marker line — the disposition is read from the JSON, not the head). */
+export function ensureFeedbackEvalMarker(body: string): string {
+  const trimmed = body.trim();
+  return isFeedbackEvalMarker(trimmed) ? trimmed : `feedback-eval/v1\n${trimmed}`;
 }

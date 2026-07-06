@@ -1,9 +1,13 @@
-import { buildFailureComment, refFromLabel, resolveServedWorkspaces } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildEngineArgs } from './engine.js';
-import { buildReviewPrompt, ensureMarker } from './review.js';
+import { buildReviewPrompt, ensureMarker, buildFeedbackEvalPrompt, ensureFeedbackEvalMarker } from './review.js';
+
+/** A review session evaluates one of two things: a task's deliverable (`review` → ai-review/v1) or
+ *  a forwarded PR-review comment on a delivering task (`feedback-eval` → feedback-eval/v1). */
+type ReviewMode = 'review' | 'feedback-eval';
 
 /** Live state for one spawned review session. */
 interface ReviewSession {
@@ -11,6 +15,7 @@ interface ReviewSession {
   workspace: string;
   key: string;
   stage: Stage;
+  mode: ReviewMode;
   attempt: number;
   engine: ReviewEngine;
   child: SpawnedChild;
@@ -162,17 +167,40 @@ export class Reviewer {
     return false;
   }
 
+  /** A delivering task needs evaluation iff its latest pr-feedback/v1 has no later feedback-eval/v1. */
+  private needsEval(detail: TaskDetail): boolean {
+    let lastFeedback = -1;
+    let lastEval = -1;
+    detail.activity.forEach((a, i) => {
+      if (a.type !== 'comment') return;
+      if (isPrFeedbackMarker(a.body)) lastFeedback = i;
+      if (isFeedbackEvalMarker(a.body)) lastEval = i;
+    });
+    return lastFeedback !== -1 && lastFeedback > lastEval;
+  }
+
   private async pollWorkspace(workspace: string): Promise<void> {
-    const slots = this.config.maxConcurrent - this.runningCount(workspace);
+    let slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
     const inReview = this.deps.core.listTasks({ status: 'in_review', workspace });
-    let started = 0;
     for (const task of inReview) {
-      if (started >= slots) break;
+      if (slots <= 0) break;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already reviewing this cycle
       if (!this.needsReview(task)) continue; // already has a current verdict
-      if (await this.startReview(workspace, task.key)) started += 1;
+      if (await this.startReview(workspace, task.key)) slots -= 1;
+    }
+
+    // Delivering-feedback evaluation: a human forwarded a PR-review comment (pr-feedback/v1) onto a
+    // delivering task — critically evaluate it and post a feedback-eval/v1 verdict.
+    slots = this.config.maxConcurrent - this.runningCount(workspace);
+    if (slots <= 0) return;
+    for (const task of this.deps.core.listTasks({ status: 'delivering', workspace })) {
+      if (slots <= 0) break;
+      if (this.skipped.has(task.key)) continue;
+      if (this.hasRunningFor(task.key)) continue;
+      if (!this.needsEval(this.deps.core.getTask(task.key))) continue;
+      if (await this.startReview(workspace, task.key, 'feedback-eval')) slots -= 1;
     }
   }
 
@@ -217,8 +245,8 @@ export class Reviewer {
     return detail.branch ?? null;
   }
 
-  /** Build the prompt + spawn one review; returns false (no slot consumed) on a pre-spawn failure. */
-  private async startReview(workspace: string, key: string): Promise<boolean> {
+  /** Build the prompt + spawn one review/evaluation; returns false (no slot consumed) on a pre-spawn failure. */
+  private async startReview(workspace: string, key: string, mode: ReviewMode = 'review'): Promise<boolean> {
     const attempt = (this.attempts.get(key) ?? 0) + 1;
     if (attempt > this.config.maxAttempts) {
       this.skipList(key);
@@ -231,27 +259,39 @@ export class Reviewer {
     try {
       const detail = this.deps.core.getTask(key);
       stage = detail.stage;
-      // the configured reviewer system prompt (workspace override → global default → ''), inlined
-      const systemPrompt = this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
-      if (detail.stage === 'implementation') {
+      if (mode === 'feedback-eval') {
+        // critically evaluate the latest forwarded PR-review comment against the branch diff
+        const systemPrompt = this.deps.core.resolveAgentPrompt('delivering-evaluator', detail.workspace);
         const branch = this.resolveBranch(detail);
-        if (!branch) throw new Error(`no branch recorded to diff`);
-        // A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
-        // into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
-        // diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
-        let diffRef = branch;
-        if (detail.kind === 'pr-review') {
-          await this.deps.fetchRef(detail.repoPath, branch);
-          diffRef = `origin/${branch}`;
-        }
-        const diff = await this.deps.computeDiff(detail.repoPath, diffRef);
-        prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+        if (!branch) throw new Error('no branch recorded to diff');
+        const feedback = [...detail.activity.filter((a) => a.type === 'comment')].reverse()
+          .map((a) => parsePrFeedbackComment(a.body)).find((p) => p !== null);
+        if (!feedback) throw new Error('no pr-feedback to evaluate');
+        const diff = await this.deps.computeDiff(detail.repoPath, branch);
+        prompt = buildFeedbackEvalPrompt({ task: detail, engine, feedback: feedback.feedback, branch, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
       } else {
-        prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+        // the configured reviewer system prompt (workspace override → global default → ''), inlined
+        const systemPrompt = this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
+        if (detail.stage === 'implementation') {
+          const branch = this.resolveBranch(detail);
+          if (!branch) throw new Error(`no branch recorded to diff`);
+          // A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
+          // into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
+          // diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
+          let diffRef = branch;
+          if (detail.kind === 'pr-review') {
+            await this.deps.fetchRef(detail.repoPath, branch);
+            diffRef = `origin/${branch}`;
+          }
+          const diff = await this.deps.computeDiff(detail.repoPath, diffRef);
+          prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+        } else {
+          prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+        }
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.
-      this.burnAttempt(key, attempt, `could not prepare review: ${(err as Error).message}`);
+      this.burnAttempt(key, attempt, `could not prepare ${mode}: ${(err as Error).message}`);
       return false;
     }
 
@@ -269,6 +309,7 @@ export class Reviewer {
       workspace,
       key,
       stage,
+      mode,
       attempt,
       engine,
       child,
@@ -294,7 +335,7 @@ export class Reviewer {
     });
     child.on('exit', (code) => this.reap(session, code));
 
-    this.console.log(`[reviewer] reviewing ${key} (${stage}) via ${engine} — ${label}, log ${logPath}`);
+    this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${logPath}`);
     return true;
   }
 
@@ -324,10 +365,11 @@ export class Reviewer {
       return;
     }
 
-    const body = ensureMarker(verdict, session.engine);
+    const body = session.mode === 'feedback-eval' ? ensureFeedbackEvalMarker(verdict) : ensureMarker(verdict, session.engine);
     try {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation
-      // and findings stay in_review for the human gate. The reviewer only posts.
+      // and findings stay in_review for the human gate; a feedback-eval verdict is advisory on a
+      // delivering task (the human clicks "Apply fix"). The reviewer only posts.
       this.deps.core.addComment(session.key, { actor: 'agent', body });
     } catch (err) {
       // The review succeeded but the post failed — don't burn an attempt; it still needs

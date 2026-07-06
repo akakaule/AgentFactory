@@ -1,6 +1,39 @@
 import { describe, it, expect } from 'vitest';
+import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
 import { makeCore, seedInReview, aiReviewBody, makeConfig, makeDeps, makeFakeSpawn, makeFakeConsole } from './helpers.js';
+
+// ---------------------------------------------------------------------------
+// delivering-feedback evaluation
+// ---------------------------------------------------------------------------
+describe('delivering-feedback evaluation', () => {
+  it('evaluates a forwarded PR comment on a delivering task and posts a feedback-eval/v1 verdict', async () => {
+    // a github origin so approve routes in_review → delivering
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    const key = seedInReview(core, 'ws', 'Delivered feature', 'implementation');
+    core.reviewApprove(key);
+    expect(core.getTask(key).status).toBe('delivering');
+    core.addPrFeedback(key, { feedback: 'the null check is missing' });
+
+    const verdict = 'feedback-eval/v1 - warranted\nreal issue\n```json\n{"disposition":"warranted","reasoning":"npe","suggestedChange":"add a guard"}\n```';
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { readOutput: () => verdict, console: makeFakeConsole() }));
+
+    await r.tick();
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.req.stdin).toContain('the null check is missing'); // the eval prompt carries the feedback
+    expect(calls[0]!.req.stdin).toContain('feedback-eval/v1 - <disposition>'); // the eval output contract
+
+    calls[0]!.child.exit(0); // the engine finishes → reviewer reaps + posts the verdict
+    const comments = core.getTask(key).activity.filter((a) => a.type === 'comment');
+    expect(comments.some((a) => a.body.startsWith('feedback-eval/v1 - warranted'))).toBe(true);
+
+    // a second tick does not re-evaluate (a later feedback-eval now exists)
+    await r.tick();
+    expect(calls.length).toBe(1);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // poll + spawn + dedup

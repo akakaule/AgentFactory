@@ -31,6 +31,31 @@ describe('tasks REST API', () => {
     expect(res.status).toBe(404);
   });
 
+  describe('delivering-feedback loop', () => {
+    it('POST pr-feedback then apply-feedback pulls the task back to queued', async () => {
+      const c = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });
+      const a = buildApp(c);
+      c.createWorkspace({ name: 'ws', repoPath: '/x' });
+      const t = c.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A', workspace: 'ws' });
+      c.updateStatus(t.key, 'queued', 'human');
+      c.claimNextTask({ workspace: 'ws' });
+      c.submitResult(t.key, { summary: 'done' });
+      c.reviewApprove(t.key); // github origin → delivering
+      expect(c.getTask(t.key).status).toBe('delivering');
+
+      expect((await post(a, `/api/tasks/${t.key}/pr-feedback`, { feedback: 'guard the null case' })).status).toBe(201);
+      const applied = await a.request(`/api/tasks/${t.key}/apply-feedback`, { method: 'POST' });
+      expect(applied.status).toBe(200);
+      expect((await applied.json() as { status: string }).status).toBe('queued');
+    });
+
+    it('pr-feedback on a non-delivering task → 400', async () => {
+      const created = await post(app, '/api/tasks', { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+      const t = await created.json() as { key: string };
+      expect((await post(app, `/api/tasks/${t.key}/pr-feedback`, { feedback: 'x' })).status).toBe(400);
+    });
+  });
+
   describe('pipeline stages over HTTP', () => {
     it('POST / with stage=description and no acceptanceCriteria → 201, stage persisted', async () => {
       const res = await post(app, '/api/tasks', { title: 'T', spec: 'raw idea', stage: 'description' });

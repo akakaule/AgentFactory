@@ -13,6 +13,7 @@ import { TranscriptSection } from './TranscriptSection.js';
 import { VisualizationSection } from './VisualizationSection.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { DeliveryChip } from './DeliveryChip.js';
+import { DeliveringFeedback } from './DeliveringFeedback.js';
 import { FailureBanner } from './FailureBanner.js';
 import { BlockedBanner } from './BlockedBanner.js';
 import { StatusTrail } from './StatusTrail.js';
@@ -291,6 +292,7 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                       Re-queue
                     </button>
                   </div>
+                  <DeliveringFeedback task={task} onMutated={afterMutation} />
                 </div>
               )}
 

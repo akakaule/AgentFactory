@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { TaskDetail } from '@agentfactory/core';
-import { buildReviewPrompt, truncateDiff, ensureMarker } from '../src/review.js';
+import { buildReviewPrompt, truncateDiff, ensureMarker, buildFeedbackEvalPrompt, ensureFeedbackEvalMarker } from '../src/review.js';
 
 /** A minimal TaskDetail for prompt-builder tests. */
 function detail(over: Partial<TaskDetail> = {}): TaskDetail {
@@ -118,5 +118,27 @@ describe('ensureMarker', () => {
     const out = ensureMarker(raw, 'codex');
     expect(out.startsWith('ai-review/v1 - 1 findings (codex)')).toBe(true);
     expect(out).toContain('I reviewed it.');
+  });
+});
+
+describe('buildFeedbackEvalPrompt', () => {
+  const diff = { branch: 'feature/x', baseRef: 'origin/main', diff: 'diff --git a b\n+risky code', commits: 1 };
+  it('includes the PR comment, the diff, configured evaluator instructions, and the feedback-eval contract', () => {
+    const p = buildFeedbackEvalPrompt({
+      task: detail(), engine: 'codex', feedback: 'this null check is missing', branch: 'feature/x', diff,
+      systemPrompt: 'weigh test coverage heavily',
+    });
+    expect(p).toContain('this null check is missing');
+    expect(p).toContain('risky code');
+    expect(p).toContain('EVALUATOR INSTRUCTIONS');
+    expect(p).toContain('weigh test coverage heavily');
+    expect(p).toContain('feedback-eval/v1 - <disposition>');
+  });
+});
+
+describe('ensureFeedbackEvalMarker', () => {
+  it('leaves a marked body; prepends the marker when absent', () => {
+    expect(ensureFeedbackEvalMarker('  feedback-eval/v1 - warranted\nok  ')).toBe('feedback-eval/v1 - warranted\nok');
+    expect(ensureFeedbackEvalMarker('```json\n{"disposition":"partial"}\n```').startsWith('feedback-eval/v1\n')).toBe(true);
   });
 });

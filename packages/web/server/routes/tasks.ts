@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
 import { actorUserIdOf } from '../auth.js';
@@ -120,6 +120,13 @@ export function taskRoutes(core: Core) {
   // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
   r.post('/:key/pr-reviewed', zValidator('json', prReviewedBody), (c) =>
     c.json(core.reviewPrReviewed(c.req.param('key'), { review: c.req.valid('json').review, actorUserId: actorUserIdOf(c) })));
+
+  // Delivering-feedback loop: forward a PR-review comment for evaluation, and apply a warranted verdict.
+  r.post('/:key/pr-feedback', zValidator('json', prFeedbackBody), (c) => {
+    const b = c.req.valid('json');
+    return c.json(core.addPrFeedback(c.req.param('key'), { feedback: b.feedback, author: b.author ?? null, url: b.url ?? null, actorUserId: actorUserIdOf(c) }), 201);
+  });
+  r.post('/:key/apply-feedback', (c) => c.json(core.applyFeedbackFix(c.req.param('key'), actorUserIdOf(c))));
 
   return r;
 }

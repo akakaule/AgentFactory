@@ -15,6 +15,9 @@ export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, typ
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
+export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
+export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
+export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
@@ -63,6 +66,8 @@ import { addComment } from './ops/addComment.js';
 import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
 import { restartTask } from './ops/restartTask.js';
+import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
+import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
 import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
@@ -146,6 +151,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
+    /** Delivering-feedback loop: attach a human's PR-review comment (trigger for the evaluator),
+     *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
+    addPrFeedback: (key: string, input: AddPrFeedbackInput) => addPrFeedback(db, key, input),
+    applyFeedbackFix: (key: string, actorUserId: number | null = null) => applyFeedbackFix(db, key, actorUserId),
     reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
