@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseUnifiedDiff } from '../../client/src/diff.js';
+import { parseUnifiedDiff, toSplitRows, type DiffLine } from '../../client/src/diff.js';
 import {
   MODIFY_MULTI_HUNK, ADDED_FILE, DELETED_FILE, PURE_RENAME, RENAME_WITH_EDITS,
   BINARY_FILE, NO_NEWLINE, MODE_ONLY, MULTI_FILE,
@@ -82,5 +82,44 @@ describe('parseUnifiedDiff', () => {
     expect(files.map((f) => f.status)).toEqual(['added', 'modified', 'deleted']);
     expect(adds).toBe(5);
     expect(dels).toBe(4);
+  });
+});
+
+describe('toSplitRows (side-by-side pairing)', () => {
+  const del = (text: string, oldNo: number): DiffLine => ({ type: 'del', text, oldNo, newNo: null });
+  const add = (text: string, newNo: number): DiffLine => ({ type: 'add', text, oldNo: null, newNo });
+  const ctx = (text: string, oldNo: number, newNo: number): DiffLine => ({ type: 'context', text, oldNo, newNo });
+
+  it('pairs a del-run with the following add-run row-by-row; leftover adds are right-only', () => {
+    expect(toSplitRows([del('a', 1), del('b', 2), add('x', 1), add('y', 2), add('z', 3)])).toEqual([
+      { left: del('a', 1), right: add('x', 1) },
+      { left: del('b', 2), right: add('y', 2) },
+      { left: null, right: add('z', 3) },
+    ]);
+  });
+
+  it('mirrors a context line to both sides and flushes pending runs first', () => {
+    expect(toSplitRows([ctx('same', 1, 1), del('gone', 2)])).toEqual([
+      { left: ctx('same', 1, 1), right: ctx('same', 1, 1) },
+      { left: del('gone', 2), right: null },
+    ]);
+  });
+
+  it('pure-add → all right-only, pure-del → all left-only, meta dropped', () => {
+    expect(toSplitRows([add('n1', 1), add('n2', 2)])).toEqual([
+      { left: null, right: add('n1', 1) },
+      { left: null, right: add('n2', 2) },
+    ]);
+    expect(toSplitRows([del('o1', 1), { type: 'meta', text: '\\ No newline', oldNo: null, newNo: null }])).toEqual([
+      { left: del('o1', 1), right: null },
+    ]);
+  });
+
+  it('a real parsed hunk splits into rows with old/new numbers on the correct side', () => {
+    const hunk = parseUnifiedDiff(MODIFY_MULTI_HUNK).files[0]!.hunks[0]!;
+    const rows = toSplitRows(hunk.lines);
+    // first line is context (both sides), the del/add pair follows on one row
+    expect(rows[0]).toMatchObject({ left: { oldNo: 1 }, right: { newNo: 1 } });
+    expect(rows[1]).toMatchObject({ left: { type: 'del', oldNo: 2 }, right: { type: 'add', newNo: 2 } });
   });
 });

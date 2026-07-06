@@ -9,6 +9,35 @@ export interface DiffFile {
 }
 export interface ParsedDiff { files: DiffFile[]; adds: number; dels: number; }
 
+/** One row of a side-by-side view: the old-side line (left) and the new-side line (right). Either
+ *  may be null (a pure add has no left; a pure del has no right). */
+export interface SplitRow { left: DiffLine | null; right: DiffLine | null; }
+
+/**
+ * Pair a hunk's lines into side-by-side rows (the GitHub/ADO layout): a context line flushes any
+ * pending del/add run and shows on both sides; a run of dels then adds pairs row-by-row up to the
+ * longer run (leftover dels are left-only, leftover adds right-only); meta lines are dropped.
+ */
+export function toSplitRows(lines: DiffLine[]): SplitRow[] {
+  const rows: SplitRow[] = [];
+  let dels: DiffLine[] = [];
+  let adds: DiffLine[] = [];
+  const flush = (): void => {
+    const n = Math.max(dels.length, adds.length);
+    for (let i = 0; i < n; i++) rows.push({ left: dels[i] ?? null, right: adds[i] ?? null });
+    dels = [];
+    adds = [];
+  };
+  for (const line of lines) {
+    if (line.type === 'del') dels.push(line);
+    else if (line.type === 'add') adds.push(line);
+    else if (line.type === 'meta') continue; // "\ No newline at end of file" — annotation, drop it
+    else { flush(); rows.push({ left: line, right: line }); } // context: identical on both sides
+  }
+  flush();
+  return rows;
+}
+
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/;
 const GIT_LINE_RE = /^"?a\/(.*?)"? "?b\/(.*?)"?$/;
 

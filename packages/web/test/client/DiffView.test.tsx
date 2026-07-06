@@ -61,4 +61,15 @@ describe('DiffView', () => {
     render(<DiffView parsed={parseUnifiedDiff(PURE_RENAME)} />);
     expect(screen.getByText('README.md → RENAMED.md')).toBeInTheDocument();
   });
+
+  it('switches to side-by-side split rows (old | new columns) when toggled', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<DiffView parsed={parseUnifiedDiff(MODIFY_MULTI_HUNK)} />);
+    expect(container.querySelector('.af-diff-srow')).toBeNull(); // unified by default
+
+    await user.click(screen.getByRole('button', { name: 'Side-by-side' }));
+    const rows = container.querySelectorAll('.af-diff-srow:not(.hunkhead)');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]!.children.length).toBe(4); // oldNo | old code | newNo | new code
+  });
 });

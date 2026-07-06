@@ -332,7 +332,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-modal .af-err { color: var(--st-blocked); }
 
 /* ============================== DIFF VIEW ============================== */
-.af-diffstat { display: inline-flex; align-items: center; gap: 9px; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); }
+.af-diffstat { display: flex; align-items: center; gap: 9px; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); }
 .af-diffstat .a { color: var(--green); }
 .af-diffstat .d { color: var(--st-blocked); }
 .af-changes-row { display: flex; align-items: center; gap: 12px; }
@@ -407,6 +407,21 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-diff-line.meta .code, .af-diff-line.hunkhead .code { color: var(--ink-3); }
 .af-diff-line.hunkhead { background: var(--panel); }
 .af-diff-line.hunkhead .code { color: var(--accent-2); }
+/* Unified/Side-by-side toggle (right of the diff stat row). */
+.af-diff-modetoggle { margin-left: auto; display: inline-flex; gap: 2px; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.af-diff-modetoggle button { height: 24px; padding: 0 10px; border: none; background: transparent; color: var(--ink-2); font-family: inherit; font-size: 11.5px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+.af-diff-modetoggle button:hover { color: var(--ink); }
+.af-diff-modetoggle button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-2); }
+/* Side-by-side (split) rows: oldNo | old code | newNo | new code. */
+.af-diff-srow { display: grid; grid-template-columns: 44px 1fr 44px 1fr; font-family: "IBM Plex Mono", monospace; font-size: 12px; line-height: 1.7; }
+.af-diff-srow .ln { user-select: none; text-align: right; padding-right: 8px; color: var(--ink-3); border-right: 1px solid var(--line-soft); }
+.af-diff-srow .ln:nth-child(3) { border-left: 1px solid var(--line); }
+.af-diff-srow .code { padding: 0 10px; white-space: pre-wrap; word-break: break-all; color: var(--ink); }
+.af-diff-srow .code.del { background: color-mix(in srgb, var(--st-blocked) 24%, transparent); }
+.af-diff-srow .code.add { background: color-mix(in srgb, var(--green) 24%, transparent); }
+.af-diff-srow .code.blank { background: color-mix(in srgb, var(--ink-3) 7%, transparent); }
+.af-diff-srow.hunkhead { background: var(--panel); }
+.af-diff-srow.hunkhead .code { color: var(--accent-2); padding-left: 10px; }
 
 /* ============================== LIST VIEW ============================== */
 .af-list { flex: 1; overflow-y: auto; }
