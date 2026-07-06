@@ -9,6 +9,13 @@ const post = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
     headers: { 'content-type': 'application/json' },
   });
 
+const patch = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
+  app.request(path, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  });
+
 describe('workspaces REST API', () => {
   let core: ReturnType<typeof openCore>;
   let app: ReturnType<typeof buildApp>;
@@ -53,6 +60,37 @@ describe('workspaces REST API', () => {
     it('missing repoPath → 400', async () => {
       const res = await post(app, '/api/workspaces', { name: 'ok' });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('PATCH /api/workspaces/:name — git PAT (write-only, masked)', () => {
+    it('sets a PAT: response and GET expose only hasPat, never the raw value', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });
+
+      const res = await patch(app, '/api/workspaces/repo-a', { pat: 'super-secret-token' });
+      expect(res.status).toBe(200);
+      const patched = await res.json() as Record<string, unknown>;
+      expect(patched.hasPat).toBe(true);
+      expect(patched.pat).toBeUndefined();
+
+      const list = await app.request('/api/workspaces');
+      const raw = await list.text(); // assert the secret is nowhere in the serialized payload
+      expect(raw).not.toContain('super-secret-token');
+      const repoA = (JSON.parse(raw) as Array<{ name: string; hasPat: boolean; pat?: unknown }>).find((w) => w.name === 'repo-a')!;
+      expect(repoA.hasPat).toBe(true);
+      expect(repoA.pat).toBeUndefined();
+    });
+
+    it('clears a PAT with { pat: null } → hasPat false', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });
+      await patch(app, '/api/workspaces/repo-a', { pat: 'tok' });
+      const cleared = await (await patch(app, '/api/workspaces/repo-a', { pat: null })).json() as { hasPat: boolean };
+      expect(cleared.hasPat).toBe(false);
+    });
+
+    it('empty patch → 400', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });
+      expect((await patch(app, '/api/workspaces/repo-a', {})).status).toBe(400);
     });
   });
 

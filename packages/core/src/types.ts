@@ -20,6 +20,9 @@ export interface Workspace {
   // per-workspace engineering discipline (migration #12); null = unset, behaves as before.
   policy: string | null;        // free-text standards injected into the claim payload + reviewer prompt
   verifyCommand: string | null; // command the implementation stage must run and pass before handoff
+  // Whether a git PAT is stored for this workspace (migration #19). The raw credential is SECRET
+  // and never serialized — only this boolean is exposed. Set/clear it via UpdateWorkspaceInput.pat.
+  hasPat: boolean;
 }
 
 /** A real human (or the seeded system row). Distinct from the `Actor` machine axis. */
@@ -230,7 +233,7 @@ export interface CreateTaskInput {
 }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
 // null clears the field, undefined leaves it untouched (matches the PATCH semantics in the web layer)
-export interface UpdateWorkspaceInput { policy?: string | null | undefined; verifyCommand?: string | null | undefined; }
+export interface UpdateWorkspaceInput { policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {

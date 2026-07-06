@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import type { GitAuth } from '@agentfactory/core';
 
 const execFileAsync = promisify(execFile);
 
@@ -129,8 +130,8 @@ function skip(reason: string): SubmitGuardResult {
  * is a configured-but-unreachable remote — failing open there would silently re-create
  * the very incident this guards against.
  */
-export async function checkSubmission(opts: { repoPath: string; branch: string | null; key: string }): Promise<SubmitGuardResult> {
-  const { repoPath, branch, key } = opts;
+export async function checkSubmission(opts: { repoPath: string; branch: string | null; key: string; auth?: GitAuth | null }): Promise<SubmitGuardResult> {
+  const { repoPath, branch, key, auth } = opts;
 
   if (branch === null) return skip(`${key} has no branch (claimed before the protocol existed)`);
   if (!repoPath || !isAbsolute(repoPath)) return skip(`repoPath is not absolute (${repoPath || '<empty>'})`);
@@ -159,7 +160,12 @@ export async function checkSubmission(opts: { repoPath: string; branch: string |
   const remotes = await runGit(repoPath, ['remote']);
   const hasOrigin = remotes.ok && remotes.stdout.split(/\r?\n/).map((s) => s.trim()).includes('origin');
   if (hasOrigin) {
-    const ls = await runGit(repoPath, ['ls-remote', '--heads', '--end-of-options', 'origin', branch]);
+    // With a resolved workspace credential, authenticate the check with `http.<origin>.extraheader`
+    // against the bare origin URL — so an expired PAT embedded in the on-disk origin URL can't 401
+    // the verify. Without one, fall back to `origin` and whatever ambient credential git resolves.
+    const target = auth ? auth.remoteUrl : 'origin';
+    const authArgs = auth ? ['-c', `${auth.configKey}=${auth.configValue}`] : [];
+    const ls = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', target, branch]);
     if (!ls.ok) {
       // configured but unreachable — fail closed; the push needed this same network moments ago
       failures.push(`origin is configured but unreachable, so the push could not be verified — retry submit once the remote responds.`);

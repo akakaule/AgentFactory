@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { InvalidTransitionError, type Core } from '@agentfactory/core';
+import { InvalidTransitionError, openCore, type Core } from '@agentfactory/core';
 import { Dispatcher } from '../src/dispatcher.js';
 import {
   makeCore,
@@ -304,6 +304,59 @@ describe('otel token capture', () => {
     calls[0]!.child.exit(0);
 
     expect(core.getTask(key).metrics.tokensIn).toBeNull(); // dispatcher skipped the stdout parse
+  });
+});
+
+// ---------------------------------------------------------------------------
+// worker git auth injection (per-workspace PAT → GIT_CONFIG_*)
+// ---------------------------------------------------------------------------
+describe('worker git auth', () => {
+  it('injects the extraheader + a url.insteadOf rewrite when the origin embeds a credential', async () => {
+    // a core whose origin resolves to a recognizable https host WITH an embedded credential
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://oldpat@github.com/acme/repo' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'ghp_secret' });
+    seedQueued(core, 'ws', 'Auth');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+
+    await d.tick();
+    const env = calls[0]!.req.env;
+    expect(env['GIT_CONFIG_COUNT']).toBe('2');
+    expect(env['GIT_CONFIG_KEY_0']).toBe('http.https://github.com/acme/repo.extraheader');
+    expect(env['GIT_CONFIG_VALUE_0']).toMatch(/^Authorization: Basic /);
+    // insteadOf strips the stale embedded credential (remote.origin.url can't be overridden via env)
+    expect(env['GIT_CONFIG_KEY_1']).toBe('url.https://github.com/acme/repo.insteadOf');
+    expect(env['GIT_CONFIG_VALUE_1']).toBe('https://oldpat@github.com/acme/repo');
+    // the raw PAT rides only inside the base64 header, never as a bare env value
+    expect(JSON.stringify(env)).not.toContain('ghp_secret');
+  });
+
+  it('with a bare origin (no embedded credential), injects only the extraheader (no insteadOf)', async () => {
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/acme/repo' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'ghp_secret' });
+    seedQueued(core, 'ws', 'Auth');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+
+    await d.tick();
+    const env = calls[0]!.req.env;
+    expect(env['GIT_CONFIG_COUNT']).toBe('1'); // extraheader only — nothing to rewrite
+    expect(env['GIT_CONFIG_KEY_0']).toBe('http.https://github.com/acme/repo.extraheader');
+  });
+
+  it('injects nothing when no git auth resolves (worker uses ambient git credentials)', async () => {
+    // no resolvable origin → resolveGitAuth is null even with a stored PAT → no GIT_CONFIG_*
+    const core = openCore(':memory:', { resolveOrigin: () => null });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'ghp_secret' });
+    seedQueued(core, 'ws', 'NoOrigin');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+
+    await d.tick();
+    expect(calls[0]!.req.env['GIT_CONFIG_COUNT']).toBeUndefined();
   });
 });
 

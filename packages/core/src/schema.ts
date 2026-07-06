@@ -305,3 +305,14 @@ CREATE TABLE IF NOT EXISTS task_delivery (
   updated_at       TEXT NOT NULL
 );
 `;
+
+// Migration #19 — per-workspace git PAT. A credential the board owns (set in the UI) for the
+// workspace's git host, so rotating an expired token is an edit in the board rather than a
+// hand-edit of the repo's embedded-in-origin-URL credential. Nullable: unset = fall back to the
+// env vars (<BASE>_<WORKSPACE> then <BASE>) exactly as before. Write-only over the API — the
+// value never leaves core (see toWorkspace, which exposes only a `hasPat` boolean). Consumed by
+// the worker's git (dispatcher injects it as an http.extraheader), the submit-verify (mcp
+// checkSubmission), and the watcher's REST — all via resolveGitAuth / getWorkspacePat.
+export const MIGRATION_19_SQL = `
+ALTER TABLE workspace ADD COLUMN pat TEXT;
+`;

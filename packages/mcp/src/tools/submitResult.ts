@@ -37,7 +37,7 @@ export function registerSubmitResult(server: McpServer, core: Core): void {
         const detail = core.getTask(key);
         const guard =
           detail.stage === 'implementation'
-            ? await checkSubmission({ repoPath: detail.repoPath, branch: detail.branch, key })
+            ? await checkSubmission({ repoPath: detail.repoPath, branch: detail.branch, key, auth: core.resolveGitAuth(detail.workspace) })
             : { ok: true as const };
         if (!guard.ok) {
           return { isError: true as const, content: [{ type: 'text' as const, text: guard.message ?? 'Submission blocked.' }] };

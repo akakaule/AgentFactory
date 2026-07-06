@@ -139,9 +139,15 @@ export class Watcher {
     }
 
     const prUrl = delivery.prUrl ?? [...detail.links].reverse().find((l) => l.kind === 'pr')?.url ?? null;
-    // Resolve this workspace's credential (its own <BASE>_<WORKSPACE> var, else the shared base),
-    // and build the provider bound to it — different workspaces can live in different orgs/hosts.
-    const cred = resolveCredential(this.deps.env, this.baseEnvVar(delivery.provider), detail.workspace);
+    // Resolve this workspace's credential (its stored PAT set in the board UI, else its own
+    // <BASE>_<WORKSPACE> var, else the shared base) and build the provider bound to it — different
+    // workspaces can live in different orgs/hosts.
+    const cred = resolveCredential(
+      this.deps.env,
+      this.baseEnvVar(delivery.provider),
+      detail.workspace,
+      this.deps.core.getWorkspacePat(detail.workspace),
+    );
     const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;
     try {

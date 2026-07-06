@@ -1,4 +1,4 @@
-import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
@@ -398,6 +398,21 @@ export class Dispatcher {
       env['OTEL_EXPORTER_OTLP_ENDPOINT'] = this.config.otel.endpoint;
       if (this.config.otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${this.config.otel.token}`;
       env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
+    }
+    // Git auth for the worker's push/fetch: the board resolves this workspace's PAT (stored, else
+    // env) and hands git an http.extraheader (+ a url.insteadOf rewrite that strips any stale
+    // credential embedded in the on-disk origin URL) via GIT_CONFIG_* — so the worker authenticates
+    // with the managed credential without the secret ever touching the claim payload or `.git/config`.
+    // Null (no PAT anywhere) injects nothing — the worker uses ambient git credentials.
+    const auth = this.deps.core.resolveGitAuth(workspace);
+    if (auth) {
+      const pairs = gitAuthConfigPairs(auth);
+      const n = Number(env['GIT_CONFIG_COUNT'] ?? '0') || 0;
+      env['GIT_CONFIG_COUNT'] = String(n + pairs.length);
+      pairs.forEach(([k, v], i) => {
+        env[`GIT_CONFIG_KEY_${n + i}`] = k;
+        env[`GIT_CONFIG_VALUE_${n + i}`] = v;
+      });
     }
 
     const child = this.deps.spawn({ command: this.resolveCommand(), args, cwd, env });

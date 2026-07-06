@@ -46,8 +46,9 @@ console.log(
     `${config.github.tokenEnv} ${ghToken} (shared), ${config.azdo.patEnv} ${azdoPat} (shared)`,
 );
 console.log(
-  `[watcher] per-workspace credentials override the shared vars: set ` +
-    `${config.github.tokenEnv}_<WORKSPACE> / ${config.azdo.patEnv}_<WORKSPACE> (slug uppercased, non-alphanumerics → _)`,
+  `[watcher] credential precedence: a PAT set on the workspace in the board UI wins; else the ` +
+    `per-workspace env var ${config.github.tokenEnv}_<WORKSPACE> / ${config.azdo.patEnv}_<WORKSPACE> ` +
+    `(slug uppercased, non-alphanumerics → _); else the shared base var`,
 );
 
 watcher.start();

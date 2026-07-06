@@ -30,4 +30,15 @@ describe('resolveCredential', () => {
     expect(r.envVar).toBe('AZDO_PAT_KL_DIS'); // still reports what to set
     expect(r.base).toBe('AZDO_PAT');
   });
+
+  it('prefers the stored (UI-set) PAT over both env vars', () => {
+    const env = { AZDO_PAT: 'shared', AZDO_PAT_KL_DIS: 'per-ws' };
+    expect(resolveCredential(env, 'AZDO_PAT', 'kl-dis', 'stored-pat').token).toBe('stored-pat');
+  });
+
+  it('falls back to the env chain when no PAT is stored (null / undefined)', () => {
+    const env = { AZDO_PAT_KL_DIS: 'per-ws' };
+    expect(resolveCredential(env, 'AZDO_PAT', 'kl-dis', null).token).toBe('per-ws');
+    expect(resolveCredential(env, 'AZDO_PAT', 'kl-dis', undefined).token).toBe('per-ws');
+  });
 });

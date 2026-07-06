@@ -13,17 +13,33 @@ interface Props {
 function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot: string; onSaved: () => void }) {
   const [policy, setPolicy] = useState(workspace.policy ?? '');
   const [verifyCommand, setVerifyCommand] = useState(workspace.verifyCommand ?? '');
+  // The PAT is write-only: we never receive its value, only workspace.hasPat. An empty input means
+  // "leave it unchanged"; a typed value replaces it. Clearing is a separate explicit action.
+  const [pat, setPat] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const dirty = policy !== (workspace.policy ?? '') || verifyCommand !== (workspace.verifyCommand ?? '');
+  const dirty =
+    policy !== (workspace.policy ?? '') || verifyCommand !== (workspace.verifyCommand ?? '') || pat.trim() !== '';
 
   const handleSave = () => {
     setSaving(true);
     setErr(null);
-    // empty string clears the field (server normalises whitespace-only to null)
-    api.updateWorkspace(workspace.name, { policy, verifyCommand })
-      .then(() => onSaved())
+    // empty string clears policy/verifyCommand (server normalises whitespace-only to null); the PAT
+    // is only sent when the user typed a new one — omitted, it stays untouched (never accidentally cleared).
+    const body: { policy: string; verifyCommand: string; pat?: string } = { policy, verifyCommand };
+    if (pat.trim() !== '') body.pat = pat.trim();
+    api.updateWorkspace(workspace.name, body)
+      .then(() => { setPat(''); onSaved(); })
+      .catch((e: Error) => setErr(e.message))
+      .finally(() => setSaving(false));
+  };
+
+  const handleClearPat = () => {
+    setSaving(true);
+    setErr(null);
+    api.updateWorkspace(workspace.name, { pat: null })
+      .then(() => { setPat(''); onSaved(); })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setSaving(false));
   };
@@ -52,6 +68,27 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
           placeholder="e.g. npm test && npm run build"
           style={{ padding: '6px 10px' }}
         />
+        <label style={{ fontSize: '12px', color: 'var(--ink-3)' }}>
+          Git PAT (used for push/verify; falls back to env if unset) —{' '}
+          <span style={{ color: workspace.hasPat ? 'var(--ok, #16a34a)' : 'var(--ink-3)' }}>
+            {workspace.hasPat ? 'set ✓' : 'not set'}
+          </span>
+        </label>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            type="password"
+            value={pat}
+            onChange={(e) => setPat(e.target.value)}
+            placeholder={workspace.hasPat ? 'Enter a new PAT to replace the stored one' : 'Paste a personal access token'}
+            autoComplete="off"
+            style={{ flex: 1, padding: '6px 10px' }}
+          />
+          {workspace.hasPat && (
+            <button className="af-mini danger" onClick={handleClearPat} disabled={saving} title="Remove the stored PAT (fall back to env vars)">
+              Clear
+            </button>
+          )}
+        </div>
         {err && <div className="af-err">{err}</div>}
         <div>
           <button className="af-btn-primary" onClick={handleSave} disabled={!dirty || saving}>

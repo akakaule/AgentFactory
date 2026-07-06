@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth } from '@agentfactory/core';
 
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
@@ -9,6 +9,9 @@ export interface DispatcherCore {
   listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
   getTask(key: string): TaskDetail;
   listWorkspaces(): Workspace[];
+  // git auth for the worker's push/fetch: the workspace's stored PAT (or env fallback) shaped as
+  // an http.extraheader, or null when none resolves (worker uses ambient git credentials).
+  resolveGitAuth(workspace: string): GitAuth | null;
   updateStatus(key: string, status: Status, actor: Actor): TaskDetail;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): TaskDetail;

@@ -43,8 +43,11 @@ const clearable = z
   .transform((s) => (s.trim().length === 0 ? null : s.trim()))
   .nullable();
 export const updateWorkspaceSchema = z
-  .object({ policy: clearable.optional(), verifyCommand: clearable.optional() })
-  .refine((o) => o.policy !== undefined || o.verifyCommand !== undefined, 'at least one field required (policy, verifyCommand)');
+  .object({ policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional() })
+  .refine(
+    (o) => o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined,
+    'at least one field required (policy, verifyCommand, pat)',
+  );
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional() })
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');

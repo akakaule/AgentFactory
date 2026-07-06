@@ -109,6 +109,22 @@ describe('checkSubmission — origin variants', () => {
     expect(res.ok).toBe(false);
     expect(res.message?.toLowerCase()).toContain('unreachable');
   });
+
+  it('with auth, verifies against auth.remoteUrl (not the literal origin) + carries the extraheader', async () => {
+    const repo = initRepo();
+    addOrigin(repo); // origin A — the branch is NEVER pushed here
+    const bareB = mkTemp('af-auth-origin-');
+    git(bareB, 'init', '--bare', '-b', 'main');
+    git(repo, 'push', bareB, BRANCH); // push the branch to B only (the managed-auth target)
+    // a well-formed extraheader arg (base64 with '=' padding, to prove `-c name=value` splits on the first '=')
+    const auth = { provider: 'azdo' as const, remoteUrl: bareB, configKey: 'http.x.extraheader', configValue: 'Authorization: Basic Zm9v==' };
+
+    // Without auth: the check targets origin A (no branch) → blocked with the push command.
+    expect((await checkSubmission({ repoPath: repo, branch: BRANCH, key: KEY })).ok).toBe(false);
+    // With auth: the check targets auth.remoteUrl (B, which has the branch at the local sha) → accepted,
+    // and git tolerates the injected `-c http.x.extraheader=...` (unused for a local transport).
+    expect((await checkSubmission({ repoPath: repo, branch: BRANCH, key: KEY, auth })).ok).toBe(true);
+  });
 });
 
 describe('checkSubmission — degradation (skips, never blocks)', () => {
@@ -166,7 +182,7 @@ describe('submit_result tool — guardrail wiring (integration)', () => {
     const ok = await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'done', links: [] } });
     expect(ok.isError).toBeFalsy();
     expect(core.getTask(t.key).status).toBe('in_review');
-  });
+  }, 15_000); // ~10 real git spawns (two submits) — slow on Windows under parallel load; 5s default is too tight
 
   it('doc-stage submits bypass the git guardrails entirely (nothing pushed, still accepted)', async () => {
     const repo = mainOnlyRepoWithOrigin(); // origin exists, nothing pushed — would block an implementation submit

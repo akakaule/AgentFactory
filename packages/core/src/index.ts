@@ -15,6 +15,8 @@ export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, typ
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
+export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
+export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
@@ -64,6 +66,8 @@ import { reviewApprove } from './ops/reviewApprove.js';
 import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
+import { resolveGitAuth } from './gitAuth.js';
+import { getWorkspacePat } from './repo/workspaces.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
@@ -107,6 +111,11 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),
     listWorkspaces: () => listWorkspaces(db),
+    /** The git auth (http.extraheader against a bare origin) for a workspace, or null — used by
+     *  the dispatcher (worker git env) and the MCP submit-verify. Resolves DB PAT → env → null. */
+    resolveGitAuth: (workspace: string) => resolveGitAuth(db, workspace, { env: process.env, resolveOrigin }),
+    /** The raw stored PAT for a workspace, or null (watcher REST credential). Secret — never serialize. */
+    getWorkspacePat: (workspace: string) => getWorkspacePat(db, workspace),
     createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
     createApiToken: (input: { label: string; userId?: number | null; isService?: boolean }) => createApiToken(db, input),
     authenticateToken: (rawToken: string) => authenticateToken(db, rawToken),
