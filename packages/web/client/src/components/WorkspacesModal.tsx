@@ -9,8 +9,9 @@ interface Props {
   onClose: () => void;
 }
 
-/** One workspace row with inline editing of the engineering-discipline fields. */
+/** One workspace row with inline editing of its repo path, engineering-discipline fields, and PAT. */
 function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot: string; onSaved: () => void }) {
+  const [repoPath, setRepoPath] = useState(workspace.repoPath);
   const [policy, setPolicy] = useState(workspace.policy ?? '');
   const [verifyCommand, setVerifyCommand] = useState(workspace.verifyCommand ?? '');
   // The PAT is write-only: we never receive its value, only workspace.hasPat. An empty input means
@@ -20,14 +21,19 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
   const [err, setErr] = useState<string | null>(null);
 
   const dirty =
-    policy !== (workspace.policy ?? '') || verifyCommand !== (workspace.verifyCommand ?? '') || pat.trim() !== '';
+    repoPath !== workspace.repoPath ||
+    policy !== (workspace.policy ?? '') ||
+    verifyCommand !== (workspace.verifyCommand ?? '') ||
+    pat.trim() !== '';
 
   const handleSave = () => {
     setSaving(true);
     setErr(null);
     // empty string clears policy/verifyCommand (server normalises whitespace-only to null); the PAT
     // is only sent when the user typed a new one — omitted, it stays untouched (never accidentally cleared).
-    const body: { policy: string; verifyCommand: string; pat?: string } = { policy, verifyCommand };
+    // repoPath is a defining field: sent only when non-empty (it can never be blanked).
+    const body: { repoPath?: string; policy: string; verifyCommand: string; pat?: string } = { policy, verifyCommand };
+    if (repoPath.trim() !== '') body.repoPath = repoPath.trim();
     if (pat.trim() !== '') body.pat = pat.trim();
     api.updateWorkspace(workspace.name, body)
       .then(() => { setPat(''); onSaved(); })
@@ -49,9 +55,17 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span className="af-ws-dot" style={{ background: dot }}></span>
         <span style={{ fontWeight: 600, minWidth: '120px' }}>{workspace.name}</span>
-        <code className="mono" style={{ color: 'var(--ink-3)', fontSize: '12px' }}>{workspace.repoPath}</code>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', paddingLeft: '22px' }}>
+        <label style={{ fontSize: '12px', color: 'var(--ink-3)' }}>Repo path (absolute path to the workspace's git repo)</label>
+        <input
+          type="text"
+          value={repoPath}
+          onChange={(e) => setRepoPath(e.target.value)}
+          placeholder="/absolute/path/to/repo"
+          className="mono"
+          style={{ padding: '6px 10px' }}
+        />
         <label style={{ fontSize: '12px', color: 'var(--ink-3)' }}>Engineering policy (injected into every agent + reviewer)</label>
         <textarea
           value={policy}

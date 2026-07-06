@@ -232,8 +232,9 @@ export interface CreateTaskInput {
   actor?: Actor | undefined; // caller-set attribution for the seed activity; default 'human' (not part of createTaskSchema)
 }
 export interface CreateWorkspaceInput { name: string; repoPath: string; }
-// null clears the field, undefined leaves it untouched (matches the PATCH semantics in the web layer)
-export interface UpdateWorkspaceInput { policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined; }
+// null clears the field, undefined leaves it untouched (matches the PATCH semantics in the web layer).
+// repoPath is a defining field: a string re-points the workspace; it is never null.
+export interface UpdateWorkspaceInput { repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined; }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {

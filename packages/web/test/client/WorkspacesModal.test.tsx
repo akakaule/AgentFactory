@@ -45,6 +45,18 @@ describe('WorkspacesModal — git PAT is settable in the web UI', () => {
     expect(api.updateWorkspace).toHaveBeenCalledWith('repo-a', { pat: null });
   });
 
+  it('lets you edit an existing workspace repoPath and Saves it', async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws({ repoPath: '/old' })]} onCreated={noop} onClose={noop} />);
+
+    const input = screen.getByDisplayValue('/old');
+    await user.clear(input);
+    await user.type(input, '/new/path');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(api.updateWorkspace).toHaveBeenCalledWith('repo-a', expect.objectContaining({ repoPath: '/new/path' }));
+  });
+
   it('does not touch the PAT when only policy changed (no accidental clear)', async () => {
     const user = userEvent.setup();
     render(<WorkspacesModal workspaces={[ws({ hasPat: true })]} onCreated={noop} onClose={noop} />);

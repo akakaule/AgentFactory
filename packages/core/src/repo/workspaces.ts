@@ -36,15 +36,17 @@ export function insertWorkspace(db: DB, name: string, repoPath: string, ts: stri
   return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false };
 }
 
-/** Patch the discipline fields (policy / verify_command) and/or the git PAT. Only keys present in
- *  `fields` are written; `pat` is the secret credential (null clears it). */
+/** Patch a workspace's editable fields: repoPath (defining, non-null), the discipline fields
+ *  (policy / verify_command), and/or the git PAT (null clears it). Only keys present in `fields`
+ *  are written. */
 export function updateWorkspaceFields(
   db: DB,
   id: number,
-  fields: { policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined },
+  fields: { repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined; pat?: string | null | undefined },
 ): void {
   const sets: string[] = [];
   const vals: (string | null)[] = [];
+  if ('repoPath' in fields && fields.repoPath !== undefined) { sets.push('repo_path = ?'); vals.push(fields.repoPath); }
   if ('policy' in fields) { sets.push('policy = ?'); vals.push(fields.policy ?? null); }
   if ('verifyCommand' in fields) { sets.push('verify_command = ?'); vals.push(fields.verifyCommand ?? null); }
   if ('pat' in fields) { sets.push('pat = ?'); vals.push(fields.pat ?? null); }

@@ -94,6 +94,22 @@ describe('workspaces REST API', () => {
     });
   });
 
+  describe('PATCH /api/workspaces/:name — edit repoPath', () => {
+    it('re-points an existing workspace to a new repoPath', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/old' });
+      const res = await patch(app, '/api/workspaces/repo-a', { repoPath: '/new/location' });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ repoPath: '/new/location' });
+      const list = await (await app.request('/api/workspaces')).json() as Array<{ name: string; repoPath: string }>;
+      expect(list.find((w) => w.name === 'repo-a')?.repoPath).toBe('/new/location');
+    });
+
+    it('rejects a blank repoPath → 400', async () => {
+      await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/old' });
+      expect((await patch(app, '/api/workspaces/repo-a', { repoPath: '   ' })).status).toBe(400);
+    });
+  });
+
   describe('tasks API with workspaces', () => {
     it('POST /api/tasks passes workspace through; GET ?workspace= filters', async () => {
       await post(app, '/api/workspaces', { name: 'repo-a', repoPath: '/a' });

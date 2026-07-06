@@ -5,13 +5,14 @@ export const workspaceSlug = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9-]*$/, 'workspace name must be a lowercase slug (a-z, 0-9, dashes; starts alphanumeric)');
 export const workspaceBody = z.object({ name: workspaceSlug, repoPath: z.string().min(1) });
-// PATCH: each field may be a string (set), null (clear), or absent (leave). ≥1 field enforced by core.
+// PATCH: policy/verifyCommand/pat may be a string (set), null (clear), or absent (leave); repoPath
+// is a defining field (string re-points the workspace, never null). ≥1 field enforced by core.
 // `pat` is the git-host credential (write-only — GET never returns it, only workspace.hasPat).
 export const workspaceUpdateBody = z
-  .object({ policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional() })
+  .object({ repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional() })
   .refine(
-    (o) => o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined,
-    'at least one field required (policy, verifyCommand, pat)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat)',
   );
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
 const LinkKindEnum = z.enum(['branch', 'pr', 'worktree', 'log', 'url']);

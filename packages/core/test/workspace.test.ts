@@ -100,6 +100,15 @@ describe('updateWorkspace — engineering discipline', () => {
     expect(() => updateWorkspace(db, 'nope', { policy: 'x' })).toThrow(NotFoundError);
   });
 
+  it('re-points an existing workspace to a new repoPath (and rejects a blank one)', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-a', repoPath: '/old' });
+    const moved = updateWorkspace(db, 'repo-a', { repoPath: '/new/location' });
+    expect(moved.repoPath).toBe('/new/location');
+    expect(listWorkspaces(db).find((w) => w.name === 'repo-a')?.repoPath).toBe('/new/location');
+    expect(() => updateWorkspace(db, 'repo-a', { repoPath: '   ' })).toThrow(ValidationError);
+  });
+
   it('the claimed task detail carries the workspace policy + verify command', () => {
     const db = makeTestDb();
     updateWorkspace(db, 'default', { policy: 'Follow house style', verifyCommand: 'npm run ci' });
