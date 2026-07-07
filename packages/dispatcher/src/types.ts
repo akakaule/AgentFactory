@@ -1,4 +1,5 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey, SupervisorKind } from '@agentfactory/core';
+import type { DispatcherConfig } from './config.js';
 
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
@@ -9,6 +10,8 @@ export interface DispatcherCore {
   listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
   getTask(key: string): TaskDetail;
   listWorkspaces(): Workspace[];
+  // effective config for this tick: the file config with the board's DB settings for this kind merged in.
+  resolveSupervisorConfig(kind: SupervisorKind, fileConfig: DispatcherConfig): DispatcherConfig;
   // git auth for the worker's push/fetch: the workspace's stored PAT (or env fallback) shaped as
   // an http.extraheader, or null when none resolves (worker uses ambient git credentials).
   resolveGitAuth(workspace: string): GitAuth | null;

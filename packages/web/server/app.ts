@@ -8,6 +8,7 @@ import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { agentRoutes } from './routes/agents.js';
 import { supervisorRoutes } from './routes/supervisors.js';
+import { supervisorSettingsRoutes } from './routes/supervisorSettings.js';
 import { otelRoutes } from './routes/otel.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { authRoutes } from './routes/auth.js';
@@ -45,6 +46,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/api/attachments', attachmentRoutes(core));
   app.route('/api/agents', agentRoutes(core));
   app.route('/api/supervisors', supervisorRoutes(core));
+  app.route('/api/supervisor-settings', supervisorSettingsRoutes(core));
   app.route('/api/telemetry', telemetryRoutes(telemetry)); // live OTel feed (read side)
   app.route('/v1', otelRoutes(core, telemetry)); // OTLP/HTTP logs receiver → task_metric + live feed (POST /v1/logs)
   registerSse(app, core, opts.sseIntervalMs ?? 1000);

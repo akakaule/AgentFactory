@@ -100,6 +100,9 @@ export const api = {
   applyFeedback: (key: string) => req<TaskDetail>(`/api/tasks/${key}/apply-feedback`, { method: 'POST' }),
   getAgentPrompts: () => req<AgentPrompts>('/api/agent-prompts'),
   setAgentPrompts: (b: Record<string, string>) => req<AgentPrompts>('/api/agent-prompts', { method: 'PUT', body: JSON.stringify(b) }),
+  getSupervisorSettings: () => req<Record<string, Record<string, unknown>>>('/api/supervisor-settings'),
+  setSupervisorSettings: (kind: string, b: Record<string, unknown>) =>
+    req<Record<string, unknown>>(`/api/supervisor-settings/${kind}`, { method: 'PUT', body: JSON.stringify(b) }),
   updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string> }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),

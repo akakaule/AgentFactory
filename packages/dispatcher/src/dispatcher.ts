@@ -53,11 +53,16 @@ export class Dispatcher {
   private claudeCommand: string | null = null;
   private codexResolved: CodexCommand | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private timerSeconds = 0;
+  /** The config from the JSON file (bootstrap + defaults + secrets); never mutated. */
+  private readonly fileConfig: DispatcherConfig;
+  /** The effective config for the current tick: fileConfig with the board's DB settings merged in. */
+  private config: DispatcherConfig;
 
-  constructor(
-    private readonly config: DispatcherConfig,
-    private readonly deps: DispatcherDeps,
-  ) {}
+  constructor(fileConfig: DispatcherConfig, private readonly deps: DispatcherDeps) {
+    this.fileConfig = fileConfig;
+    this.config = fileConfig;
+  }
 
   private get console(): Pick<Console, 'log' | 'warn' | 'error'> {
     return this.deps.console ?? console;
@@ -72,8 +77,23 @@ export class Dispatcher {
           `the reaper may release a still-alive orphaned worker mid-gap — raise it to at least maxSessionMinutes`,
       );
     }
+    this.timerSeconds = this.config.pollSeconds;
     void this.safeTick();
-    this.timer = setInterval(() => void this.safeTick(), this.config.pollSeconds * 1000);
+    this.timer = setInterval(() => void this.safeTick(), this.timerSeconds * 1000);
+  }
+
+  /**
+   * Re-resolve the effective config (file config + the board's live DB settings) — called at the top
+   * of every tick so a board edit takes effect with no restart, exactly like `servedWorkspaces()`
+   * re-reads the workspace list. Re-arms the poll timer when `pollSeconds` changed.
+   */
+  private refreshConfig(): void {
+    this.config = this.deps.core.resolveSupervisorConfig('dispatcher', this.fileConfig);
+    if (this.timer && this.config.pollSeconds !== this.timerSeconds) {
+      clearInterval(this.timer);
+      this.timerSeconds = this.config.pollSeconds;
+      this.timer = setInterval(() => void this.safeTick(), this.timerSeconds * 1000);
+    }
   }
 
   /** Stop polling and kill any in-flight sessions. */
@@ -101,6 +121,7 @@ export class Dispatcher {
 
   /** One poll cycle: enforce session timeouts, then spawn for each workspace's free slots. */
   async tick(): Promise<void> {
+    this.refreshConfig();
     this.enforceTimeouts();
     this.touchLiveSessions();
     this.tailTranscripts();

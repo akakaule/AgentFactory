@@ -14,6 +14,7 @@ import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
 import { AgentPromptsModal } from './components/AgentPromptsModal.js';
+import { SupervisorSettingsModal } from './components/SupervisorSettingsModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate } from './components/TokenGate.js';
 import { Mark, I } from './icons.js';
@@ -46,6 +47,7 @@ export function App() {
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
   const [editWorkspace, setEditWorkspace] = useState<string | null>(null); // which workspace the editor should focus
   const [managingPrompts, setManagingPrompts] = useState(false); // global agent system-prompt editor
+  const [managingSupervisors, setManagingSupervisors] = useState(false); // dispatcher/reviewer/watcher settings
   const [wsFilter, setWsFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [lastWorkspace, setLastWorkspace] = useState('default');
@@ -106,6 +108,9 @@ export function App() {
         />
         <button className="af-mini" title="Configure agent system prompts" onClick={() => setManagingPrompts(true)}>
           {I.bot({ width: 14, height: 14 })} Agents
+        </button>
+        <button className="af-mini" title="Configure dispatcher / reviewer / watcher settings" onClick={() => setManagingSupervisors(true)}>
+          {I.clock({ width: 14, height: 14 })} Supervisors
         </button>
         {taskChrome && (
           <label className="af-search">
@@ -195,6 +200,8 @@ export function App() {
       )}
 
       {managingPrompts && <AgentPromptsModal onClose={() => setManagingPrompts(false)} />}
+
+      {managingSupervisors && <SupervisorSettingsModal onClose={() => setManagingSupervisors(false)} />}
 
       {authNeeded && <TokenGate />}
     </div>

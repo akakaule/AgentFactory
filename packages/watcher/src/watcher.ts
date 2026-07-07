@@ -33,10 +33,16 @@ export class Watcher {
   /** repoPath → parsed origin (or null); refreshed lazily, cached for the process lifetime. */
   private remoteCache = new Map<string, RemoteRef | null>();
 
-  constructor(
-    private readonly config: WatcherConfig,
-    private readonly deps: WatcherDeps,
-  ) {}
+  private timerSeconds = 0;
+  /** The config from the JSON file (bootstrap + defaults + secrets); never mutated. */
+  private readonly fileConfig: WatcherConfig;
+  /** The effective config for the current tick: fileConfig with the board's DB settings merged in. */
+  private config: WatcherConfig;
+
+  constructor(fileConfig: WatcherConfig, private readonly deps: WatcherDeps) {
+    this.fileConfig = fileConfig;
+    this.config = fileConfig;
+  }
 
   /** The base credential env var name for a provider (the shared fallback; per-workspace overrides it). */
   private baseEnvVar(provider: 'github' | 'azdo'): string {
@@ -51,8 +57,23 @@ export class Watcher {
   }
 
   start(): void {
+    this.timerSeconds = this.config.pollSeconds;
     void this.safeTick();
-    this.timer = setInterval(() => void this.safeTick(), this.config.pollSeconds * 1000);
+    this.timer = setInterval(() => void this.safeTick(), this.timerSeconds * 1000);
+  }
+
+  /**
+   * Re-resolve the effective config (file config + the board's live DB settings) — called at the top
+   * of every tick so a board edit takes effect with no restart. Re-arms the poll timer when
+   * `pollSeconds` changed.
+   */
+  private refreshConfig(): void {
+    this.config = this.deps.core.resolveSupervisorConfig('watcher', this.fileConfig);
+    if (this.timer && this.config.pollSeconds !== this.timerSeconds) {
+      clearInterval(this.timer);
+      this.timerSeconds = this.config.pollSeconds;
+      this.timer = setInterval(() => void this.safeTick(), this.timerSeconds * 1000);
+    }
   }
 
   stop(): void {
@@ -74,6 +95,7 @@ export class Watcher {
   }
 
   async tick(): Promise<void> {
+    this.refreshConfig();
     const { core, console } = this.deps;
     // Served set, re-read each tick: the explicit allowlist if set, else every DB workspace,
     // minus excludeWorkspaces — so a newly-created workspace is watched with no config edit.

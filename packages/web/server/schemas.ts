@@ -18,6 +18,9 @@ export const workspaceUpdateBody = z
 // Global agent system prompts: a map of prompt-key → text (a blank value clears that key). Keys are
 // validated against the known set in core (setGlobalPrompts ignores unknown keys).
 export const agentPromptsBody = z.record(z.string(), z.string());
+// A sparse supervisor-settings override for one kind; core validates the fields authoritatively
+// (per-kind allowlist + value constraints), rejecting unknown/secret keys with a ValidationError→400.
+export const supervisorSettingsBody = z.record(z.string(), z.unknown());
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
 const LinkKindEnum = z.enum(['branch', 'pr', 'worktree', 'log', 'url']);
 export const createBody = z.object({

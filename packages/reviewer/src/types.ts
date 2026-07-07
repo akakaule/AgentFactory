@@ -1,5 +1,5 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey } from '@agentfactory/core';
-import type { ReviewEngine } from './config.js';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, SupervisorKind } from '@agentfactory/core';
+import type { ReviewEngine, ReviewerConfig } from './config.js';
 
 /**
  * The slice of `@agentfactory/core` the reviewer drives. Declaring the surface (instead of
@@ -12,6 +12,8 @@ export interface ReviewerCore {
   listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
   listWorkspaces(): Workspace[];
   getTask(key: string): TaskDetail;
+  // effective config for this tick: the file config with the board's DB settings for this kind merged in.
+  resolveSupervisorConfig(kind: SupervisorKind, fileConfig: ReviewerConfig): ReviewerConfig;
   // the configured reviewer/evaluator system prompt (workspace override → global default → '').
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): string;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;

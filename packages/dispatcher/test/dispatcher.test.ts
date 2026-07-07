@@ -308,6 +308,40 @@ describe('otel token capture', () => {
 });
 
 // ---------------------------------------------------------------------------
+// board-editable supervisor settings (live per tick, file-as-fallback)
+// ---------------------------------------------------------------------------
+describe('live supervisor settings', () => {
+  it('with no board settings, spawns with the file-config engine (back-compat)', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Impl', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+    await d.tick();
+    expect(calls[0]!.req.command).toBe('claude.exe'); // file default engine
+  });
+
+  it('applies a board engine override on the very next tick — no restart', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Impl', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+    core.setSupervisorSettings('dispatcher', { stageEngines: { implementation: 'codex' } });
+    await d.tick();
+    expect(calls[0]!.req.command).toBe('codex.exe'); // board override wins, live
+  });
+
+  it('applies a board excludeWorkspaces override on the next tick', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'A');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn)); // file allowlist ['ws']
+    core.setSupervisorSettings('dispatcher', { excludeWorkspaces: ['ws'] });
+    await d.tick();
+    expect(calls.length).toBe(0); // 'ws' now excluded → nothing spawned
+  });
+});
+
+// ---------------------------------------------------------------------------
 // codex worker engine (per-stage)
 // ---------------------------------------------------------------------------
 describe('codex worker engine', () => {

@@ -47,11 +47,16 @@ export class Reviewer {
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
+  private timerSeconds = 0;
+  /** The config from the JSON file (bootstrap + defaults + secrets); never mutated. */
+  private readonly fileConfig: ReviewerConfig;
+  /** The effective config for the current tick: fileConfig with the board's DB settings merged in. */
+  private config: ReviewerConfig;
 
-  constructor(
-    private readonly config: ReviewerConfig,
-    private readonly deps: ReviewerDeps,
-  ) {}
+  constructor(fileConfig: ReviewerConfig, private readonly deps: ReviewerDeps) {
+    this.fileConfig = fileConfig;
+    this.config = fileConfig;
+  }
 
   private get console(): Pick<Console, 'log' | 'warn' | 'error'> {
     return this.deps.console ?? console;
@@ -60,8 +65,23 @@ export class Reviewer {
   /** Begin polling on the configured interval. Runs one tick immediately. */
   start(): void {
     if (this.timer) return;
+    this.timerSeconds = this.config.pollSeconds;
     void this.safeTick();
-    this.timer = setInterval(() => void this.safeTick(), this.config.pollSeconds * 1000);
+    this.timer = setInterval(() => void this.safeTick(), this.timerSeconds * 1000);
+  }
+
+  /**
+   * Re-resolve the effective config (file config + the board's live DB settings) — called at the top
+   * of every tick so a board edit takes effect with no restart. Re-arms the poll timer when
+   * `pollSeconds` changed.
+   */
+  private refreshConfig(): void {
+    this.config = this.deps.core.resolveSupervisorConfig('reviewer', this.fileConfig);
+    if (this.timer && this.config.pollSeconds !== this.timerSeconds) {
+      clearInterval(this.timer);
+      this.timerSeconds = this.config.pollSeconds;
+      this.timer = setInterval(() => void this.safeTick(), this.timerSeconds * 1000);
+    }
   }
 
   /** Stop polling and kill any in-flight reviews. */
@@ -89,6 +109,7 @@ export class Reviewer {
 
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
+    this.refreshConfig();
     this.enforceTimeouts();
     const served = this.servedWorkspaces();
     this.recordHeartbeat(served);
