@@ -14,6 +14,14 @@ import { api } from '../../client/src/api.js';
 describe('AgentPromptsModal — global agent system prompts', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('renders in a wider modal shell for editing long prompts', async () => {
+    render(<AgentPromptsModal onClose={() => {}} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Agent system prompts' });
+
+    expect(dialog).toHaveStyle({ width: 'min(960px, 95vw)', maxWidth: 'none' });
+  });
+
   it('loads the current global prompts and saves the edited values', async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();

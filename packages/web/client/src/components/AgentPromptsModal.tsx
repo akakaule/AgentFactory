@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { AgentPrompts } from '../types.js';
 import { api } from '../api.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
@@ -6,6 +6,7 @@ import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 /** Edit the GLOBAL default agent system prompts. A workspace can override any of these per repo
  *  (Workspaces modal). Effective prompt an agent runs with = workspace override ?? global ?? ''. */
 export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
+  const titleId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,9 +33,15 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="af-overlay">
-      <div className="af-modal" style={{ padding: '16px', maxWidth: '760px' }}>
+      <div
+        className="af-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        style={{ padding: '16px', width: 'min(960px, 95vw)', maxWidth: 'none', maxHeight: '94vh' }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>Agent system prompts</h3>
+          <h3 id={titleId} style={{ margin: 0 }}>Agent system prompts</h3>
           <button className="af-x" onClick={onClose}>✕</button>
         </div>
         <p style={{ fontSize: '12px', color: 'var(--ink-3)', margin: '6px 0 12px' }}>
@@ -43,7 +50,7 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
         {loading ? (
           <div style={{ color: 'var(--ink-3)' }}>Loading…</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '60vh', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '72vh', overflowY: 'auto' }}>
             {AGENT_PROMPT_FIELDS.map((f) => (
               <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
