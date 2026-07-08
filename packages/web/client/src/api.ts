@@ -109,6 +109,7 @@ export const api = {
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
   setStatus: (key: string, status: Status, note?: string) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note })),
+  setAutoReview: (key: string, enabled: boolean) => req<TaskDetail>(`/api/tasks/${key}/auto-review`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   archive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/archive`, body({})),
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),

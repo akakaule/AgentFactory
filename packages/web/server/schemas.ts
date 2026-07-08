@@ -34,6 +34,7 @@ export const createBody = z.object({
 export const updateBody = z.object({ title: z.string().min(1).optional(), spec: z.string().min(1).optional(), acceptanceCriteria: z.string().min(1).optional() });
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum, note: z.string().optional() });
+export const autoReviewBody = z.object({ enabled: z.boolean() });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
 // "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
 export const prReviewedBody = z.object({ review: z.string().optional() });

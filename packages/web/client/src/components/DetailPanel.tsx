@@ -11,7 +11,7 @@ import { composePrReview } from '../composePrReview.js';
 import { LiveSection } from './LiveSection.js';
 import { TranscriptSection } from './TranscriptSection.js';
 import { VisualizationSection } from './VisualizationSection.js';
-import { AiReviewChip } from './AiReviewChip.js';
+import { AiOnlyReviewChip, AiReviewChip } from './AiReviewChip.js';
 import { DeliveryChip } from './DeliveryChip.js';
 import { DeliveringFeedback } from './DeliveringFeedback.js';
 import { FailureBanner } from './FailureBanner.js';
@@ -221,6 +221,18 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                     Unarchive
                   </button>
                 )}
+                {!task.archivedAt && task.kind === 'code' && (
+                  <label className="af-auto-review-toggle" title="Automatically send AI-review findings back to the worker until the review is clean or the cap is reached.">
+                    <input
+                      type="checkbox"
+                      aria-label="Auto AI loop"
+                      checked={task.reviewGate.autoIterate}
+                      onChange={() => api.setAutoReview(task.key, !task.reviewGate.autoIterate).then(afterMutation).catch(() => {})}
+                    />
+                    <span>Auto AI loop</span>
+                    <span className="cnt">{task.reviewGate.autoRounds}/{task.reviewGate.autoLimit}</span>
+                  </label>
+                )}
               </div>
 
               {task.status === 'blocked' && (
@@ -252,8 +264,11 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 generatedAt={task.visualizationGeneratedAt}
               />
 
-              {task.aiReview && (
-                <div className="af-airev-row"><AiReviewChip review={task.aiReview} /></div>
+              {(task.aiReview || task.reviewGate.aiOnly) && (
+                <div className="af-airev-row">
+                  <AiReviewChip review={task.aiReview} />
+                  <AiOnlyReviewChip aiOnly={task.reviewGate.aiOnly} />
+                </div>
               )}
 
               {task.status === 'in_review' && (

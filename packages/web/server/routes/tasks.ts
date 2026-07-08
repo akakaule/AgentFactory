@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, autoReviewBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
 import { actorUserIdOf } from '../auth.js';
@@ -89,6 +89,9 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/status', zValidator('json', statusBody), (c) =>
     c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c), c.req.valid('json').note)));
+
+  r.put('/:key/auto-review', zValidator('json', autoReviewBody), (c) =>
+    c.json(core.setTaskAutoReview(c.req.param('key'), c.req.valid('json').enabled)));
 
   r.post('/:key/metrics', zValidator('json', metricsBody), (c) => {
     const b = c.req.valid('json');

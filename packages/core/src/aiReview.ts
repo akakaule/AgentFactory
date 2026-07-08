@@ -28,6 +28,25 @@ export interface ParsedAiReview {
   findings: AiReviewFinding[];
 }
 
+function locator(f: AiReviewFinding): string | null {
+  if (!f.file) return null;
+  return f.line != null ? `${f.file}:${f.line}` : f.file;
+}
+
+function findingLine(f: AiReviewFinding, who: string): string {
+  let line = `[${who}] ${f.title}`;
+  if (f.detail) line += ` — ${f.detail}`;
+  const loc = locator(f);
+  if (loc) line += ` (${loc})`;
+  return line;
+}
+
+/** Compose the normal feedback body an opted-in task sends back to the worker from AI findings. */
+export function composeAiReviewFeedback(parsed: ParsedAiReview): string {
+  const who = parsed.reviewer ? `reviewer-${parsed.reviewer}` : 'reviewer';
+  return parsed.findings.map((f) => findingLine(f, who)).join('\n\n');
+}
+
 /** The fenced ```json block if present, else the first `{…}` span; null if neither parses. */
 function extractJson(text: string): unknown {
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);

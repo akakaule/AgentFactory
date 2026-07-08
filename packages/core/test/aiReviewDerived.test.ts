@@ -6,6 +6,7 @@ import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { submitResult } from '../src/ops/submitResult.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
+import { setTaskAutoReview } from '../src/ops/setTaskAutoReview.js';
 import { addComment } from '../src/ops/addComment.js';
 import { getTask } from '../src/ops/getTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
@@ -94,6 +95,78 @@ describe('derived aiReview field', () => {
     const task = driveToReview(db);
     addComment(db, task.key, { actor: 'agent', body: 'ai-review/v1 broken\n{ not json' }, at(95));
     expect(getTask(db, task.key).aiReview).toBeNull();
+  });
+});
+
+describe('auto AI-review iteration', () => {
+  it('requeues an opted-in code task with composed feedback when AI review has findings', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    setTaskAutoReview(db, task.key, true, at(92));
+
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2) }, at(95));
+
+    const detail = getTask(db, task.key);
+    expect(detail.status).toBe('queued');
+    expect(detail.reviewGate).toMatchObject({ autoIterate: true, autoRounds: 1, autoLimit: 5, humanReviewed: false, aiOnly: true });
+    const feedback = detail.activity.find((a) => a.type === 'feedback')!;
+    expect(feedback.actor).toBe('agent');
+    expect(feedback.body).toContain('[reviewer-codex] Finding 1');
+    expect(feedback.body).toContain('src/x.ts:1');
+    expect(feedback.body).not.toContain('ai-review/v1');
+    expect(detail.activity.some((a) => a.type === 'status_change' && a.actor === 'agent' && a.fromStatus === 'in_review' && a.toStatus === 'queued')).toBe(true);
+  });
+
+  it('stops an implementation task in review when the AI review is clean', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    setTaskAutoReview(db, task.key, true, at(92));
+
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(0) }, at(95));
+
+    expect(getTask(db, task.key)).toMatchObject({
+      status: 'in_review',
+      reviewGate: { autoIterate: true, autoRounds: 0, humanReviewed: false, aiOnly: true },
+      aiReview: { verdict: 'clean', findings: 0 },
+    });
+  });
+
+  it('pauses at the auto-loop cap and leaves the task in review for a human', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    setTaskAutoReview(db, task.key, true, at(92));
+    db.prepare('UPDATE task SET auto_review_rounds = 5 WHERE key = ?').run(task.key);
+
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(1) }, at(95));
+
+    const detail = getTask(db, task.key);
+    expect(detail.status).toBe('in_review');
+    expect(detail.reviewGate).toMatchObject({ autoIterate: true, autoRounds: 5, autoLimit: 5, humanReviewed: false, aiOnly: true });
+    expect(detail.activity.some((a) => a.type === 'feedback')).toBe(false);
+    expect(detail.activity.some((a) => a.type === 'comment' && a.body.includes('auto AI review loop paused'))).toBe(true);
+  });
+
+  it('resets the AI-only flag after a human request-changes action', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(1) }, at(95));
+
+    reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
+
+    expect(getTask(db, task.key).reviewGate).toMatchObject({ humanReviewed: true, aiOnly: false });
+  });
+
+  it('rejects enabling the loop on a pr-review task', () => {
+    const db = makeTestDb();
+    const task = createTask(db, {
+      title: 'Review PR',
+      spec: 'Review this PR',
+      acceptanceCriteria: 'Review posted',
+      kind: 'pr-review',
+      links: [{ kind: 'branch', label: 'feature/pr-head', url: 'https://example.com/branch' }],
+    }, at(0));
+
+    expect(() => setTaskAutoReview(db, task.key, true, at(1))).toThrow(/pr-review/);
   });
 });
 

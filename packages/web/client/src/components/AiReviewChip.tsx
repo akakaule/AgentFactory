@@ -23,3 +23,13 @@ export function AiReviewChip({ review }: { review: AiReviewSummary | null }) {
     </span>
   );
 }
+
+export function AiOnlyReviewChip({ aiOnly }: { aiOnly: boolean }) {
+  if (!aiOnly) return null;
+  return (
+    <span className="af-airev ai-only" title="Current result has an AI review, but no human review action yet">
+      {I.bot({})}
+      <span className="tx">AI-only review</span>
+    </span>
+  );
+}

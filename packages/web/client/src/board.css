@@ -174,7 +174,11 @@
 .af-airev .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-airev.clean { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .af-airev.pending { color: var(--ink-2); background: color-mix(in srgb, var(--ink-3) 16%, transparent); }
-.af-airev-row { margin: 6px 0 2px; }
+.af-airev.ai-only { color: var(--active-2); background: color-mix(in srgb, var(--active) 18%, transparent); }
+.af-airev-row { margin: 6px 0 2px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.af-auto-review-toggle { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.af-auto-review-toggle input { width: 14px; height: 14px; accent-color: var(--accent); }
+.af-auto-review-toggle .cnt { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-3); }
 
 /* Delivery chip (card + drawer) — the watcher's last read of PR + checks for a 'delivering' task */
 .af-delivery { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; text-decoration: none; color: var(--st-delivering, #2DD4BF); background: color-mix(in srgb, var(--st-delivering, #2DD4BF) 15%, transparent); max-width: 100%; }

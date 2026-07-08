@@ -323,3 +323,11 @@ ALTER TABLE workspace ADD COLUMN pat TEXT;
 export const MIGRATION_20_SQL = `
 ALTER TABLE workspace ADD COLUMN prompt_overrides TEXT;
 `;
+
+// Migration #21 — per-task AI-review auto-iteration. Disabled by default: a human opts in
+// individual code tasks. `auto_review_rounds` counts automatic findings→queued round-trips since
+// the toggle was enabled; the fixed cap lives in code (AUTO_REVIEW_LIMIT).
+export const MIGRATION_21_SQL = `
+ALTER TABLE task ADD COLUMN auto_review_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE task ADD COLUMN auto_review_rounds INTEGER NOT NULL DEFAULT 0;
+`;

@@ -1,6 +1,6 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary } from '../types.js';
-import { RECENT_ACTIVITY_LIMIT } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, ReviewGateSummary } from '../types.js';
+import { RECENT_ACTIVITY_LIMIT, AUTO_REVIEW_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds, latestRestartMarkerIds } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
@@ -19,6 +19,7 @@ export interface TaskRow {
   workspace_policy: string | null; workspace_verify_command: string | null;
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
   archived_at: string | null;
+  auto_review_enabled: number; auto_review_rounds: number;
   original_spec: string | null; original_acceptance_criteria: string | null;
 }
 
@@ -33,9 +34,36 @@ export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null, delivery: null,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null,
+    reviewGate: {
+      autoIterate: r.auto_review_enabled === 1,
+      autoRounds: r.auto_review_rounds,
+      autoLimit: AUTO_REVIEW_LIMIT,
+      humanReviewed: false,
+      aiOnly: false,
+    },
+    failure: null, delivery: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
+}
+
+function latestHumanReviewActionIds(db: DB, ids: number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  if (ids.length === 0) return out;
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT task_id AS taskId, MAX(id) AS mid FROM activity
+     WHERE actor = 'human'
+       AND task_id IN (${placeholders})
+       AND (
+         type = 'feedback'
+         OR (type = 'status_change' AND from_status = 'in_review' AND to_status IN ('queued','delivering','done'))
+       )
+     GROUP BY task_id`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ).all(...ids) as Array<{ taskId: number; mid: number }>;
+  for (const r of rows) out.set(r.taskId, r.mid);
+  return out;
 }
 
 /**
@@ -88,6 +116,31 @@ function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> 
   return out;
 }
 
+function reviewGateByTaskIds(db: DB, rows: TaskRow[]): Map<number, ReviewGateSummary> {
+  const out = new Map<number, ReviewGateSummary>();
+  if (rows.length === 0) return out;
+  const ids = rows.map((r) => r.id);
+  const reviews = latestAiReviewComments(db, ids);
+  const results = latestResultIds(db, ids);
+  const humanActions = latestHumanReviewActionIds(db, ids);
+  for (const r of rows) {
+    const latestResultId = results.get(r.id) ?? 0;
+    const humanReviewed = (humanActions.get(r.id) ?? 0) > latestResultId;
+    const review = reviews.get(r.id);
+    const parsed = review ? parseAiReviewComment(review.body) : null;
+    const superseded = review !== undefined && latestResultId > review.id;
+    const aiOnly = parsed !== null && !superseded && !humanReviewed;
+    out.set(r.id, {
+      autoIterate: r.auto_review_enabled === 1,
+      autoRounds: r.auto_review_rounds,
+      autoLimit: AUTO_REVIEW_LIMIT,
+      humanReviewed,
+      aiOnly,
+    });
+  }
+  return out;
+}
+
 /** Latest ai-review verdict for one task (or null). Used by the approve path. */
 export function aiReviewFor(db: DB, taskId: number): AiReviewSummary | null {
   return aiReviewByTaskIds(db, [taskId]).get(taskId) ?? null;
@@ -95,9 +148,11 @@ export function aiReviewFor(db: DB, taskId: number): AiReviewSummary | null {
 
 export function toDetail(db: DB, r: TaskRow): TaskDetail {
   const viz = visualizationMetaFor(db, r.id);
+  const reviewGate = reviewGateByTaskIds(db, [r]).get(r.id)!;
   return {
     ...toTask(r),
     aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
+    reviewGate,
     failure: failureByTaskIds(db, [r.id]).get(r.id) ?? null,
     delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
     hasVisualization: viz !== null,
@@ -151,6 +206,16 @@ export function deleteRowById(db: DB, id: number): void {
 export function touch(db: DB, id: number, ts: string): void {
   db.prepare('UPDATE task SET updated_at = ? WHERE id = ?').run(ts, id);
 }
+export function setAutoReview(db: DB, id: number, enabled: boolean, ts: string): void {
+  db.prepare(
+    enabled
+      ? 'UPDATE task SET auto_review_enabled = 1, auto_review_rounds = 0, updated_at = ? WHERE id = ?'
+      : 'UPDATE task SET auto_review_enabled = 0, updated_at = ? WHERE id = ?'
+  ).run(ts, id);
+}
+export function incrementAutoReviewRounds(db: DB, id: number, ts: string): void {
+  db.prepare('UPDATE task SET auto_review_rounds = auto_review_rounds + 1, updated_at = ? WHERE id = ?').run(ts, id);
+}
 export function applyEdit(db: DB, id: number, fields: UpdateTaskInput, ts: string): void {
   const sets: string[] = [];
   // Cast to (string | number)[] — SQLInputValue includes both; spread is valid at runtime.
@@ -189,9 +254,10 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const rows = (db.prepare(sql).all as (...a: any[]) => unknown)(...vals) as TaskRow[];
   const ids = rows.map((r) => r.id);
   const reviews = aiReviewByTaskIds(db, ids);
+  const gates = reviewGateByTaskIds(db, rows);
   const failures = failureByTaskIds(db, ids);
   const deliveries = deliveryByTaskIds(db, ids);
-  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null }));
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, reviewGate: gates.get(r.id)!, failure: failures.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null }));
 }
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"

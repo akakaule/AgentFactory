@@ -13,6 +13,7 @@ vi.mock('../../client/src/api.js', () => ({
     setStatus: vi.fn().mockResolvedValue({}),
     approve: vi.fn().mockResolvedValue({}),
     requestChanges: vi.fn().mockResolvedValue({}),
+    setAutoReview: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue({}),
     getDiff: vi.fn().mockResolvedValue({ branch: 'task/AF-13', baseRef: 'main', diff: '', commits: 0 }),
     getTranscript: vi.fn().mockResolvedValue({ state: 'none', engine: null, attempt: null, bytes: null, blocks: [] }),
@@ -49,6 +50,7 @@ const backlogTask: TaskDetail = {
   key: 'AF-10',
   title: 'My backlog task',
   status: 'backlog',
+  kind: 'code',
   stage: 'implementation',
   branch: null,
   plan: null,
@@ -62,6 +64,7 @@ const backlogTask: TaskDetail = {
   claimedAt: null,
   archivedAt: null,
   aiReview: null,
+  reviewGate: { autoIterate: false, autoRounds: 0, autoLimit: 5, humanReviewed: false, aiOnly: false },
   failure: null,
   originalSpec: null,
   originalAcceptanceCriteria: null,
@@ -132,6 +135,7 @@ async function getApiMock() {
     unarchive: ReturnType<typeof vi.fn>;
     approve: ReturnType<typeof vi.fn>;
     requestChanges: ReturnType<typeof vi.fn>;
+    setAutoReview: ReturnType<typeof vi.fn>;
     addComment: ReturnType<typeof vi.fn>;
     updateTask: ReturnType<typeof vi.fn>;
     getDiff: ReturnType<typeof vi.fn>;
@@ -252,6 +256,39 @@ describe('DetailPanel', () => {
     expect(screen.queryByText(/recorded as an override/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Approve' }));
     expect(mocked.approve).toHaveBeenCalledWith('AF-11');
+  });
+
+  it('shows and toggles the auto AI loop setting', async () => {
+    const mocked = await getApiMock();
+    mocked.setAutoReview.mockClear();
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask,
+      reviewGate: { autoIterate: true, autoRounds: 2, autoLimit: 5, humanReviewed: false, aiOnly: false },
+    });
+    mocked.setAutoReview.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Auto AI loop' });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText('2/5')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(mocked.setAutoReview).toHaveBeenCalledWith('AF-11', false);
+  });
+
+  it('surfaces an AI-only review badge when no human has reviewed the current result', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask,
+      aiReview: { verdict: 'clean', findings: 0, reviewer: 'codex', items: [] },
+      reviewGate: { autoIterate: false, autoRounds: 0, autoLimit: 5, humanReviewed: false, aiOnly: true },
+    });
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('AI-only review')).toBeInTheDocument();
   });
 
   it('shows no Release claim button outside in_progress', async () => {

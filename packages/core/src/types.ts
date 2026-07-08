@@ -50,6 +50,7 @@ export interface AiReviewFinding {
 
 /** clean = current review, no findings; findings = current review with N>0; pending = a result is newer than the latest review. */
 export type AiReviewVerdict = 'clean' | 'findings' | 'pending';
+export const AUTO_REVIEW_LIMIT = 5;
 
 /**
  * Verdict of the latest automated AI review, derived at read time from the activity log
@@ -61,6 +62,16 @@ export interface AiReviewSummary {
   findings: number; // count of items (0 when clean); for pending, the superseded review's count
   reviewer: string | null;
   items: AiReviewFinding[];
+}
+
+/** Per-task review automation + human-gate state. `aiOnly` means a current AI review exists
+ * and no human review action has happened for the latest result yet. */
+export interface ReviewGateSummary {
+  autoIterate: boolean;
+  autoRounds: number;
+  autoLimit: number;
+  humanReviewed: boolean;
+  aiOnly: boolean;
 }
 
 /**
@@ -110,6 +121,7 @@ export interface Task {
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
+  reviewGate: ReviewGateSummary; // persisted automation settings + derived human-review state
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   createdAt: string; updatedAt: string;

@@ -17,6 +17,13 @@ const patch = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
     headers: { 'content-type': 'application/json' },
   });
 
+const put = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
+  app.request(path, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  });
+
 describe('tasks REST API', () => {
   let core: ReturnType<typeof openCore>;
   let app: ReturnType<typeof buildApp>;
@@ -164,6 +171,32 @@ describe('tasks REST API', () => {
     it('unknown key → 404 with message', async () => {
       const res = await app.request('/api/tasks/AF-9999');
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('PUT /api/tasks/:key/auto-review', () => {
+    it('toggles the per-task auto AI-review loop', async () => {
+      const created = await (await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' })).json() as { key: string };
+
+      const enabled = await put(app, `/api/tasks/${created.key}/auto-review`, { enabled: true });
+      expect(enabled.status).toBe(200);
+      expect(await enabled.json()).toMatchObject({ reviewGate: { autoIterate: true, autoRounds: 0, autoLimit: 5 } });
+
+      const disabled = await put(app, `/api/tasks/${created.key}/auto-review`, { enabled: false });
+      expect(disabled.status).toBe(200);
+      expect(await disabled.json()).toMatchObject({ reviewGate: { autoIterate: false } });
+    });
+
+    it('rejects enabling auto-review on a pr-review task', async () => {
+      const created = await (await post(app, '/api/tasks', {
+        title: 'Review PR',
+        spec: 'Review this PR',
+        acceptanceCriteria: 'Review posted',
+        kind: 'pr-review',
+        links: [{ kind: 'branch', label: 'feature/pr-head', url: 'https://example.com/branch' }],
+      })).json() as { key: string };
+
+      expect((await put(app, `/api/tasks/${created.key}/auto-review`, { enabled: true })).status).toBe(400);
     });
   });
 
