@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFactory — Enterprise Co-Build Working Session · context& × Agentics</title>
+<style>
+  :root{
+    --bg:#0b0a10;
+    --ink:#f5f3f8;
+    --muted:#a7a1b4;
+    --purple:#8b5cf6;
+    --purple-bright:#a78bfa;
+    --amber:#f6851f;
+    --amber-bright:#ffa640;
+    --line:#2b2733;
+    --card:#141119;
+    --green:#4ade80;
+    --radius:18px;
+    --font:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    --mono:'Cascadia Code',Consolas,'SF Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--ink);overflow:hidden}
+  .deck{height:100vh;width:100vw;position:relative}
+
+  .amp{position:absolute;top:-7vh;right:-1vw;font-size:54vh;line-height:1;font-weight:800;
+    color:#ffffff;opacity:.04;font-family:Georgia,'Times New Roman',serif;pointer-events:none;
+    user-select:none;z-index:0}
+
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;
+    padding:7.5vh 7vw 10vh;z-index:1;animation:fade .4s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  .kicker{color:var(--purple-bright);font-family:var(--mono);font-weight:700;
+    letter-spacing:.2em;text-transform:uppercase;font-size:.8rem;margin-bottom:1.3rem}
+  .kicker::before{content:"// "}
+  h1{font-size:4rem;line-height:1.02;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:2.55rem;line-height:1.08;font-weight:800;letter-spacing:-.015em;margin-bottom:1.4rem;max-width:23ch}
+  h2.wide{max-width:28ch}
+  p{color:var(--muted);font-size:1.18rem;line-height:1.6}
+  .lead{font-size:1.5rem;color:#e3dfea;max-width:48ch;line-height:1.45}
+  strong{color:var(--ink)}
+  .u{color:var(--amber-bright)}
+  .up{color:var(--purple-bright)}
+
+  .rule{width:120px;height:4px;background:var(--purple);border-radius:2px;margin:1.5rem 0 1.1rem}
+  .closer{color:var(--purple-bright);font-weight:800;font-size:1.55rem;line-height:1.22;max-width:40ch;margin-top:auto}
+
+  .pills{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:2rem}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:.55rem 1.1rem;
+    font-size:.95rem;color:var(--muted);background:rgba(139,92,246,.06)}
+
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;margin-top:.2rem}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:1.4rem 1.5rem;background:var(--card)}
+  .card.cool{border-color:var(--purple)}
+  .card.hot{border-color:var(--amber)}
+  .card h3{font-family:var(--mono);font-size:.8rem;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:1rem;font-weight:700}
+  .card.cool h3{color:var(--purple-bright)}
+  .card.hot h3{color:var(--amber-bright)}
+  .card .best{font-size:.95rem;color:var(--muted);margin-bottom:.8rem;font-style:italic}
+  ul.arr{list-style:none}
+  ul.arr li{position:relative;padding-left:1.4rem;margin:.65rem 0;color:#d6d1e0;font-size:1.05rem;line-height:1.42}
+  ul.arr li::before{content:"›";position:absolute;left:0;top:-.05em;color:var(--purple-bright);font-weight:800;font-size:1.2rem}
+  .card.hot ul.arr li::before{color:var(--amber-bright)}
+  ul.arr li b{color:var(--ink)}
+
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:1.15rem;margin-top:.3rem}
+  .tcard{border:1px solid var(--line);border-radius:var(--radius);padding:1.25rem 1.3rem;background:var(--card)}
+  .tcard .t{font-weight:800;font-size:1.1rem;margin-bottom:.45rem}
+  .tcard p{font-size:.97rem;line-height:1.48}
+  .num{font-family:var(--mono);color:var(--purple-bright);font-size:1.6rem;font-weight:700}
+
+  .mono{font-family:var(--mono);color:var(--amber-bright);font-size:.9rem;
+    background:rgba(246,133,31,.1);padding:.12rem .45rem;border-radius:6px}
+
+  .callout{border-left:3px solid var(--purple);padding:.65rem 0 .65rem 1.2rem;margin-top:1.3rem;
+    color:#e3dfea;font-size:1.1rem;line-height:1.5;max-width:84ch}
+
+  .pipe{display:flex;align-items:stretch;gap:.35rem;flex-wrap:wrap;margin:.3rem 0 1.3rem}
+  .stage{flex:1;min-width:98px;border:1px solid var(--line);border-radius:12px;padding:.75rem .5rem;
+    text-align:center;background:var(--card)}
+  .stage .s{font-family:var(--mono);font-size:.62rem;color:var(--purple-bright);text-transform:uppercase;letter-spacing:.08em}
+  .stage .n{font-weight:800;font-size:.98rem;margin-top:.25rem}
+  .stage.done{border-color:var(--green)}
+  .stage.done .s{color:var(--green)}
+  .ar{align-self:center;color:var(--purple);font-weight:800;font-size:1.05rem}
+
+  .levels{display:grid;grid-template-columns:repeat(5,1fr);gap:.65rem;margin:.2rem 0 1.2rem}
+  .lvl{border:1px solid var(--line);border-radius:14px;padding:.9rem .75rem;background:var(--card)}
+  .lvl .ln{font-family:var(--mono);font-size:1.55rem;font-weight:700;color:var(--muted)}
+  .lvl h4{font-size:.9rem;margin:.3rem 0 .45rem}
+  .lvl p{font-size:.8rem;line-height:1.38}
+  .lvl.on{border-color:var(--purple);background:linear-gradient(180deg,#1a1430,#140f22)}
+  .lvl.on .ln{color:var(--purple-bright)}
+  .lvl.dim{opacity:.45}
+
+  .split{display:grid;grid-template-columns:1.05fr .95fr;gap:2.2rem;align-items:center;flex:1}
+  .demo-badge{display:inline-flex;align-items:center;gap:.5rem;background:rgba(74,222,128,.12);
+    border:1px solid rgba(74,222,128,.4);color:var(--green);border-radius:999px;
+    padding:.35rem .9rem;font-family:var(--mono);font-size:.8rem;font-weight:700;letter-spacing:.1em}
+  .blink{width:.6rem;height:.6rem;border-radius:50%;background:var(--green);animation:bl 1.2s infinite}
+  @keyframes bl{50%{opacity:.25}}
+
+  /* hardening table */
+  table.hard{width:100%;border-collapse:collapse;margin-top:.2rem;font-size:1rem}
+  table.hard th{font-family:var(--mono);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);text-align:left;padding:.5rem .8rem;border-bottom:1px solid var(--line)}
+  table.hard td{padding:.48rem .8rem;border-bottom:1px solid var(--line);color:#d6d1e0;vertical-align:top;font-size:.96rem}
+  table.hard td.area{font-weight:800;color:var(--ink);white-space:nowrap}
+  table.hard td.now{color:var(--muted)}
+  table.hard td.need{color:var(--amber-bright)}
+
+  /* ROI */
+  .roi{display:grid;grid-template-columns:1fr auto 1fr;gap:1.2rem;align-items:center;margin-top:.5rem}
+  .roi .box{border:1px solid var(--line);border-radius:var(--radius);padding:1.3rem 1.4rem;background:var(--card)}
+  .roi .box.after{border-color:var(--amber)}
+  .roi .lbl{font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.6rem}
+  .roi .after .lbl{color:var(--amber-bright)}
+  .roi .big{font-size:2.1rem;font-weight:800;margin:.3rem 0}
+  .roi .after .big{color:var(--amber-bright)}
+  .roi .sm{font-size:.9rem;color:var(--muted)}
+  .roi .eq{font-family:var(--mono);color:var(--purple-bright);font-weight:700;font-size:1.1rem;text-align:center}
+
+  table.price{width:100%;border-collapse:collapse;margin-top:.3rem;font-size:1.05rem}
+  table.price th{font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);text-align:left;padding:.6rem .8rem;border-bottom:1px solid var(--line)}
+  table.price td{padding:.8rem .8rem;border-bottom:1px solid var(--line);color:#d6d1e0;vertical-align:top}
+  table.price td .a{color:var(--amber-bright);font-weight:700}
+
+  .footer{position:absolute;bottom:3.2vh;left:7vw;right:7vw;display:flex;justify-content:space-between;
+    align-items:center;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);
+    padding-top:.85rem;z-index:2}
+  .brand{font-weight:800;color:var(--ink);letter-spacing:-.01em}
+  .brand .amp2{color:var(--purple-bright)}
+  .brand .x{color:var(--muted);font-weight:400;margin:0 .5rem}
+  .brand .ag{color:var(--amber-bright)}
+  .count{position:fixed;bottom:2.7vh;left:2vw;color:var(--muted);font-size:.85rem;z-index:10;font-family:var(--mono)}
+  .nav{position:fixed;bottom:2.3vh;right:2vw;display:flex;gap:.5rem;z-index:10}
+  .nav button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;
+    padding:.5rem .85rem;font-size:1rem;cursor:pointer}
+  .nav button:hover{border-color:var(--purple)}
+  .progress{position:fixed;top:0;left:0;height:4px;background:var(--purple);z-index:20;transition:width .3s}
+  .speaker{position:absolute;top:5.2vh;right:7vw;font-family:var(--mono);font-size:.76rem;
+    color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:.28rem .8rem;z-index:3}
+  .appx{position:absolute;top:5.2vh;left:7vw;font-family:var(--mono);font-size:.72rem;letter-spacing:.15em;
+    color:var(--amber-bright);z-index:3;text-transform:uppercase}
+  .title-wrap{flex:1;display:flex;flex-direction:column;justify-content:center}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 WHY WE ARE HERE -->
+  <section class="slide active">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="title-wrap">
+      <div class="kicker">A working session</div>
+      <h1>AgentFactory</h1>
+      <p class="lead" style="margin-top:1.4rem">You've seen AgentFactory and you're interested in collaboration. Today isn't only a product pitch — it's a working session on whether we should <strong>harden it for enterprise use in your environment, together.</strong></p>
+      <div class="pills">
+        <span class="pill">The problem</span>
+        <span class="pill">Live demo</span>
+        <span class="pill">What's different</span>
+        <span class="pill">Current maturity</span>
+        <span class="pill">How we'd collaborate</span>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>A working prototype — and an honest look at the gaps</span></div>
+  </section>
+
+  <!-- 2 THE PROBLEM -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">Why this matters</div>
+    <h2 class="wide">Getting an agent to write code is <span class="u">the easy part</span></h2>
+    <p style="max-width:74ch">The backlog grows — the team doesn't. Agent pilots impress in a demo but rarely reach production. The hard part isn't generating code. It's letting an agent touch <strong>real backlog, real repositories and a real delivery flow</strong> — safely, with clear ownership and review gates.</p>
+    <div class="rule"></div>
+    <p class="closer" style="margin-top:0">No quality gates, no audit, no clear ownership — that's where pilots stall. That's the gap this is built to close.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>The problem worth solving</span></div>
+  </section>
+
+  <!-- 3 LIVE DEMO -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin · live</span>
+    <div class="kicker">Live · the board is the control plane</div>
+    <h2 class="wide">This is real. <span class="u">Let's put one task through it.</span></h2>
+    <div class="split">
+      <div>
+        <ul class="arr">
+          <li><b>The live board</b> — real stations, your work moving left to right.</li>
+          <li><b>Take one task down the line</b> and watch a worker pick it up.</li>
+          <li><b>A different agent reviews</b> the work than the one that built it.</li>
+          <li><b>The delivery station</b> follows your deploy pipeline and updates the task in your source system when that integration is configured.</li>
+        </ul>
+      </div>
+      <div class="card cool">
+        <div class="demo-badge"><span class="blink"></span> LIVE DEMO</div>
+        <p style="margin-top:1.1rem;font-size:1.12rem;color:#e3dfea">"If it's not on the board, it didn't happen." The board is the control plane — not just a UI.</p>
+        <p style="margin-top:.9rem">The first reporting layer is the board itself — the same lifecycle that controls the work.</p>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>The live board is the proof</span></div>
+  </section>
+
+  <!-- 4 WHAT MAKES IT DIFFERENT -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">Stations, not a black box</div>
+    <h2>Process is built in — <span class="u">not promised afterward</span></h2>
+    <div class="cards">
+      <div class="card">
+        <h3>How AI is usually sold</h3>
+        <ul class="arr">
+          <li>Task → Solved</li>
+          <li>One black box in the middle</li>
+          <li>Quality = hope</li>
+        </ul>
+      </div>
+      <div class="card cool">
+        <h3>How AgentFactory runs</h3>
+        <ul class="arr">
+          <li><b>Understand → Spec → Build → Review → Deliver</b></li>
+          <li>Each station: a fixed instruction + a quality gate</li>
+          <li>An <b>isolated git worktree</b> per task; a reviewable diff against the merge-base</li>
+          <li>A different agent reviews; a human checkpoint before delivery</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">Quality lives in the stations, gates and review loop — not only in the model.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Agentic engineering needs process, not just models</span></div>
+  </section>
+
+  <!-- 5 CONTROL MODEL -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">The control model</div>
+    <h2 class="wide">Agents <span class="u">cannot approve their own work</span></h2>
+    <div class="pipe">
+      <div class="stage"><div class="s">start</div><div class="n">backlog</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">human</div><div class="n">queued</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">dispatcher</div><div class="n">in_progress</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">agent</div><div class="n">in_review</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">human ✓</div><div class="n">delivering</div></div>
+      <div class="ar">→</div>
+      <div class="stage done"><div class="s">watcher</div><div class="n">done</div></div>
+    </div>
+    <div class="three">
+      <div class="tcard"><div class="t">Enforced lifecycle</div><p>State changes are declared edges keyed by <span class="mono">(from, to, by)</span>. Agents can't invent tasks or skip steps.</p></div>
+      <div class="tcard"><div class="t">Human review gate</div><p>Approve, reopen, force-complete are <strong>human-only</strong>. An agent can never approve, force-complete or delete its own work.</p></div>
+      <div class="tcard"><div class="t">Verified delivery</div><p>A watcher confirms the PR is merged and CI is green — or it goes back to the queue. "Done" is not self-declared.</p></div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>The enterprise-relevant core</span></div>
+  </section>
+
+  <!-- 6 CURRENT MATURITY -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">Where it is today — honestly</div>
+    <h2 class="wide">A strong control model — <span class="u">not yet an enterprise platform</span></h2>
+    <div class="cards">
+      <div class="card cool">
+        <h3>Strong today</h3>
+        <ul class="arr">
+          <li>Local-first; simple single-file datastore for the current prototype</li>
+          <li>MCP interface; one isolated git worktree per task</li>
+          <li>Reviewer loop; enforced human review gate</li>
+          <li>Azure DevOps / GitHub delivery bridge</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>Not yet</h3>
+        <ul class="arr">
+          <li>Single-user / operator-controlled — no SSO or RBAC</li>
+          <li>No exportable audit log or retention policy</li>
+          <li>No enterprise database / deployment profile yet</li>
+          <li>Basic observability; no policy-by-risk</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">Everything shown today runs now; the enterprise hardening is exactly what we propose to scope together.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Honest maturity, not overselling</span></div>
+  </section>
+
+  <!-- 7 HARDENING BACKLOG -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">What we'd harden together</div>
+    <h2 style="margin-bottom:.8rem">The enterprise-readiness backlog</h2>
+    <table class="hard">
+      <thead><tr><th>Area</th><th>Current strength</th><th>Enterprise hardening needed</th></tr></thead>
+      <tbody>
+        <tr><td class="area">Identity</td><td class="now">Local / operator-controlled</td><td class="need">SSO/OIDC, RBAC, approval roles</td></tr>
+        <tr><td class="area">Audit</td><td class="now">Board history + task activity</td><td class="need">Exportable audit log, retention policy</td></tr>
+        <tr><td class="area">Security</td><td class="now">Worktree isolation, no direct agent↔task-source coupling</td><td class="need">Secrets vault, least-privilege tokens, threat model</td></tr>
+        <tr><td class="area">Deployment</td><td class="now">Local-first</td><td class="need">Docker / Kubernetes, backup, upgrade path</td></tr>
+        <tr><td class="area">Governance</td><td class="now">Human review gate</td><td class="need">Policy by task type, repo, risk level</td></tr>
+        <tr><td class="area">Model control</td><td class="now">Human-supervised use</td><td class="need">Approved model list, data-boundary policy, prompt/tool policy</td></tr>
+        <tr><td class="area">Observability</td><td class="now">Board + token metrics</td><td class="need">Enterprise logging, alerts, dashboards</td></tr>
+        <tr><td class="area">Compliance</td><td class="now">Human-supervised workflow</td><td class="need">DPA, data-flow docs, model/data policy</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">We're showing you the gaps on purpose. That honesty is the basis for a partnership — and the backlog for the pilot.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>The joint hardening roadmap</span></div>
+  </section>
+
+  <!-- 8 ALP vs FACTORY -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 / 🅿</span>
+    <div class="kicker">Portability · no lock-in</div>
+    <h2 class="wide">You own the process — <span class="u">even if we operate it</span></h2>
+    <div class="cards">
+      <div class="card cool">
+        <h3>ALP — the open protocol</h3>
+        <ul class="arr">
+          <li>Stations, lines and gates as an open protocol</li>
+          <li>Your station definitions in plain text — you own them</li>
+          <li>Audit history in git — portable</li>
+          <li>No lock-in, no migration; take your process with you</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>AgentFactory — the implementation</h3>
+        <ul class="arr">
+          <li>The running system, built on ALP</li>
+          <li>What you saw in the demo</li>
+          <li>Operated by us — or, after hardening, by you</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">Like git and GitHub: the protocol is portable; the operated service is optional.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Why it matters: portability and ownership</span></div>
+  </section>
+
+  <!-- 9 TWO WAYS TO COLLABORATE -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 + 🅿</span>
+    <div class="kicker">How we'd collaborate · same AgentFactory foundation</div>
+    <h2>Two ways to collaborate — <span class="u">same foundation</span></h2>
+    <div class="cards">
+      <div class="card cool">
+        <h3>Track A · Enterprise co-build pilot</h3>
+        <p class="best">Best if you want AgentFactory hardened for your environment.</p>
+        <ul class="arr">
+          <li>Six-month, fixed-scope pilot</li>
+          <li>One real backlog slice — or a greenfield product area</li>
+          <li>Harden together: SSO/RBAC, deployment, audit, security model, operating procedures</li>
+          <li>You own the requirements, process definitions and operational learning</li>
+          <li>At the end: continue together, operate it yourselves, or stop — no lock-in</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>Track B · Operated factory line <span style="opacity:.7">(optional)</span></h3>
+        <p class="best">Best if you want throughput while the platform matures.</p>
+        <ul class="arr">
+          <li>We set up and operate a line for selected tasks</li>
+          <li>You keep the approval gates and source-system ownership</li>
+          <li>We provide line management, monitoring and rework handling</li>
+          <li>Can run alongside the co-build pilot as a practical proof point</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">The question for today: which collaboration model is the safest first step for you?</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Co-build first · operate optionally</span></div>
+  </section>
+
+  <!-- 10 NEXT STEP -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 + 🅿</span>
+    <div class="kicker">Next step</div>
+    <h2>What we'd need to <span class="u">start</span></h2>
+    <div class="three">
+      <div class="tcard"><div class="t">🗂️ One backlog source</div><p>A real queue we can connect to — Jira, Azure DevOps or a backlog slice.</p></div>
+      <div class="tcard"><div class="t">✅ Three low-risk candidate tasks</div><p>Concrete first tasks to run the line end to end.</p></div>
+      <div class="tcard"><div class="t">🔐 One technical / security contact</div><p>To scope the hardening backlog against your controls.</p></div>
+    </div>
+    <div class="three" style="margin-top:1.1rem">
+      <div class="tcard"><div class="t">👤 One business sponsor</div><p>To own success criteria and the decision at six months.</p></div>
+      <div class="tcard"><div class="t">📐 Agree the pilot shape</div><p>Greenfield or backlog slice; scope and gates, with success measures: cycle time, clean pass rate, rework rate, human-override rate.</p></div>
+      <div class="tcard" style="border-color:var(--purple)"><div class="t">🤝 A shared decision point</div><p>At six months: continue, take it over, or stop — no lock-in.</p></div>
+    </div>
+    <p class="closer" style="font-size:1.35rem">A first controlled line can run quickly; enterprise hardening is the six-month collaboration.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>A concrete, low-risk first step</span></div>
+  </section>
+
+  <!-- 11 APPENDIX: ARCHITECTURE -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="appx">Appendix</span>
+    <span class="speaker">🅰 Alvin · if asked</span>
+    <div class="kicker">Architecture</div>
+    <h2 style="margin-top:.6rem">How it's <span class="up">built</span></h2>
+    <div class="three">
+      <div class="tcard"><div class="t">One DB owner</div><p>Six packages, npm workspaces, strict TypeScript. A single package owns the datastore and every lifecycle rule — the state machine lives in one place.</p></div>
+      <div class="tcard"><div class="t">Three supervisors</div><p><b>Dispatcher</b> spawns one fresh agent session per queued task. <b>Reviewer</b> posts an advisory second-agent verdict. <b>Watcher</b> verifies delivery on the git host over REST — no LLM.</p></div>
+      <div class="tcard"><div class="t">Local &amp; isolated</div><p>Task state is a local datastore; each task runs in its own git worktree. Nothing about the work has to leave your network.</p></div>
+    </div>
+    <div class="callout">For deep IT or compliance questions, we propose a separate technical review of the ALP spec and control model with your security team.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Technical deep-dive backup</span></div>
+  </section>
+
+  <!-- 12 APPENDIX: OPERATED LINE DETAIL -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="appx">Appendix</span>
+    <span class="speaker">🅿 Poul · if asked</span>
+    <div class="kicker">The operated line, in detail</div>
+    <h2 class="wide">Capacity you can dial — <span class="up">under your gates</span></h2>
+    <div class="split">
+      <div>
+        <ul class="arr">
+          <li>A <b>line-manager</b> watches the board, catches stuck tasks and handles rework, with a team behind them.</li>
+          <li>Capacity is one dial: add a line for more parallel throughput; pause and keep the backlog and definitions.</li>
+          <li>You keep the approval gates and own the source system throughout.</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>How we'd measure it</h3>
+        <p style="font-size:1.05rem">Agent work can continue asynchronously; <strong>approvals stay in your working hours and under your control.</strong></p>
+        <p style="margin-top:.8rem;font-size:1.05rem">We track <strong>clean pass rate, rework rate and human-override rate</strong> straight from the board — no separate report.</p>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Optional operating model</span></div>
+  </section>
+
+  <!-- 13 APPENDIX: AUTONOMY LEVELS -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="appx">Appendix</span>
+    <span class="speaker">🅰 / 🅿 · if time</span>
+    <div class="kicker">The transition · L1 → L5</div>
+    <h2 class="wide">You move up the levels by <span class="up">tightening or loosening a gate</span></h2>
+    <div class="levels">
+      <div class="lvl dim"><div class="ln">1</div><h4>Assisted</h4><p>Human writes; AI autocompletes.</p></div>
+      <div class="lvl dim"><div class="ln">2</div><h4>Copilot</h4><p>AI on a task under constant steering.</p></div>
+      <div class="lvl on"><div class="ln">3</div><h4>Bounded</h4><p>Whole tasks in guardrails; human approves each.</p></div>
+      <div class="lvl on"><div class="ln">4</div><h4>Orchestrated</h4><p>Many tasks in parallel; review by exception.</p></div>
+      <div class="lvl on"><div class="ln">5</div><h4>Self-delivering</h4><p>Queue → verified delivery, minimal human touch.</p></div>
+    </div>
+    <div class="callout">Autonomy is a property of the deployment, not the model. A pilot starts at <strong>L3</strong> — review everything — and earns its way toward L4/L5 as trust builds. Aligned to the Context&amp; AI Transition model.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Strategic framing — optional</span></div>
+  </section>
+
+  <!-- 14 APPENDIX: BUSINESS MODEL -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="appx">Appendix</span>
+    <span class="speaker">🅿 Poul · if asked</span>
+    <div class="kicker">Market thesis · from hours to factories</div>
+    <h2 class="wide">Why the delivery model is <span class="up">changing</span></h2>
+    <div class="split">
+      <div>
+        <p style="max-width:52ch">When AI accelerates the work itself, every task shrinks — and a business that sells <strong>hours × people</strong> shrinks with it. When delivery is no longer measured in time, the question changes: not how many hours, but <strong>what got delivered.</strong></p>
+      </div>
+      <div class="card hot">
+        <h3>The shift</h3>
+        <ul class="arr">
+          <li><b>From</b> estimate, staff, invoice time</li>
+          <li><b>To</b> fixed price on bounded deliveries</li>
+          <li><b>To</b> a subscription on running capacity</li>
+          <li>Scale up and down like cloud — not like hiring</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">Context for our commercial model — not the reason for today's meeting. Today is about co-building an enterprise-ready platform.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Our market thesis</span></div>
+  </section>
+
+  <!-- 15 APPENDIX: PRICING + ROI -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="appx">Appendix</span>
+    <span class="speaker">🅿 Poul · if asked</span>
+    <div class="kicker">Operated-line pricing · illustrative</div>
+    <h2 style="margin-top:.5rem;margin-bottom:.7rem">The operated line — indicative pricing</h2>
+    <table class="price">
+      <thead><tr><th>Capacity</th><th>List price (anchor)</th><th>What you get</th></tr></thead>
+      <tbody>
+        <tr><td><b>1 line</b></td><td><span class="a">from 40,000 kr/mo</span></td><td>Board, operation and a line-manager — plus architect / workshop / discovery hours</td></tr>
+        <tr><td>More lines</td><td>same anchor per line</td><td>Parallel capacity on the same board</td></tr>
+        <tr><td>Pause</td><td>small standby fee</td><td>Backlog, context and definitions preserved — restart is one click</td></tr>
+      </tbody>
+    </table>
+    <div class="roi" style="margin-top:1.1rem">
+      <div class="box"><div class="lbl">Illustrative · classic team</div><div class="big">≈ 3.0M kr</div><div class="sm">2,000 hours · classic hourly rate — customer carries estimate risk</div></div>
+      <div class="eq">↦ ÷2</div>
+      <div class="box after"><div class="lbl">Illustrative · on lines</div><div class="big">≈ 1.5M kr</div><div class="sm">Same calendar time · lines + architect hours</div></div>
+    </div>
+    <div class="callout">Round anchors, not a quote — and part of the <i>operated</i> track, not the co-build pilot. Method: classic estimate → halve → compose lines + add-ons.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span><span class="x">×</span><span class="ag">⟩agentics</span></span><span>Illustrative — your own estimate converts the same way</span></div>
+  </section>
+
+</div>
+
+<div class="count" id="count">01 / 15</div>
+<div class="nav">
+  <button onclick="go(-1)">‹</button>
+  <button onclick="go(1)">›</button>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function render(){
+    slides.forEach((s,n)=>s.classList.toggle('active',n===i));
+    const p=String(i+1).padStart(2,'0');
+    document.getElementById('count').textContent=p+' / '+String(slides.length).padStart(2,'0');
+    document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';
+  }
+  function go(d){i=Math.max(0,Math.min(slides.length-1,i+d));render();}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){go(1);e.preventDefault();}
+    if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){go(-1);e.preventDefault();}
+    if(e.key==='Home'){i=0;render();}
+    if(e.key==='End'){i=slides.length-1;render();}
+  });
+  render();
+</script>
+</body>
+</html>

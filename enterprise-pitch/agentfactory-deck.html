@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFactory — Enterprise Co-Development</title>
+<style>
+  :root{
+    --bg:#0b1020;
+    --bg2:#111830;
+    --panel:#161f3d;
+    --panel2:#1d2951;
+    --ink:#eef2ff;
+    --muted:#9fb0d8;
+    --line:#2b3862;
+    --accent:#4fd1c5;      /* teal */
+    --accent2:#7c9cff;     /* indigo */
+    --amber:#f5b34a;
+    --green:#4ade80;
+    --red:#f87171;
+    --radius:16px;
+    --font:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--font);
+    background:radial-gradient(1200px 800px at 80% -10%,#1a2547 0%,var(--bg) 55%);
+    color:var(--ink);
+    overflow:hidden;
+  }
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;
+    display:none;
+    flex-direction:column;
+    padding:6vh 7vw 9vh;
+    animation:fade .45s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+  .kicker{
+    color:var(--accent);
+    font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    font-size:.8rem;margin-bottom:1.1rem;
+  }
+  h1{font-size:3.4rem;line-height:1.05;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:2.25rem;line-height:1.1;font-weight:800;letter-spacing:-.01em;margin-bottom:1.6rem}
+  h2 .u{color:var(--accent)}
+  p{color:var(--muted);font-size:1.12rem;line-height:1.6}
+  .lead{font-size:1.35rem;color:#cdd9f7;max-width:60ch}
+  strong{color:var(--ink)}
+
+  .grid{display:grid;gap:1rem;margin-top:.4rem}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--bg2));
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:1.2rem 1.3rem;
+  }
+  .card h3{font-size:1.1rem;margin-bottom:.4rem;display:flex;align-items:center;gap:.5rem}
+  .card p{font-size:1rem}
+  .tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;padding:.25rem .6rem;border-radius:999px;
+    background:rgba(124,156,255,.14);color:var(--accent2);border:1px solid var(--line)}
+  .dot{width:.7rem;height:.7rem;border-radius:50%;display:inline-block}
+
+  ul.clean{list-style:none;margin-top:.5rem}
+  ul.clean li{position:relative;padding-left:1.6rem;margin:.55rem 0;color:var(--muted);font-size:1.1rem;line-height:1.5}
+  ul.clean li::before{content:"";position:absolute;left:0;top:.55em;width:.55rem;height:.55rem;
+    border-radius:50%;background:var(--accent)}
+  ul.clean li b{color:var(--ink)}
+
+  /* pipeline */
+  .pipe{display:flex;align-items:stretch;gap:.5rem;flex-wrap:wrap;margin-top:1rem}
+  .stage{flex:1;min-width:110px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:.85rem .7rem;text-align:center}
+  .stage .s{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .stage .n{font-weight:800;font-size:1.05rem;margin-top:.2rem}
+  .arrow{align-self:center;color:var(--accent2);font-size:1.3rem;font-weight:800}
+
+  /* levels */
+  .levels{display:grid;grid-template-columns:repeat(5,1fr);gap:.7rem;margin-top:.4rem}
+  .lvl{border:1px solid var(--line);border-radius:12px;padding:1rem .85rem;background:var(--panel)}
+  .lvl .num{font-size:1.9rem;font-weight:800;color:var(--muted)}
+  .lvl h4{font-size:.95rem;margin:.3rem 0 .5rem}
+  .lvl p{font-size:.82rem;line-height:1.4}
+  .lvl.on{background:linear-gradient(180deg,#1b2c52,#15213f);border-color:var(--accent)}
+  .lvl.on .num{color:var(--accent)}
+  .lvl.dim{opacity:.5}
+
+  .split{display:grid;grid-template-columns:1.05fr .95fr;gap:2rem;flex:1;align-items:center}
+  .stat{font-size:2.4rem;font-weight:800;color:var(--accent)}
+  .stat.small{font-size:1.6rem}
+
+  .footer{position:absolute;bottom:3.2vh;left:7vw;right:7vw;display:flex;
+    justify-content:space-between;align-items:center;color:var(--muted);font-size:.85rem;
+    border-top:1px solid var(--line);padding-top:.9rem}
+  .brand{display:flex;align-items:center;gap:.6rem;font-weight:700;color:var(--ink)}
+  .brand .mk{width:1.5rem;height:1.5rem;border-radius:6px;
+    background:conic-gradient(from 200deg,var(--accent),var(--accent2),var(--amber),var(--accent));}
+  .nav{position:fixed;bottom:2.4vh;right:2vw;display:flex;gap:.5rem;z-index:10}
+  .nav button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:10px;padding:.5rem .8rem;font-size:1rem;cursor:pointer}
+  .nav button:hover{border-color:var(--accent)}
+  .count{position:fixed;bottom:2.9vh;left:2vw;color:var(--muted);font-size:.85rem;z-index:10}
+  .progress{position:fixed;top:0;left:0;height:4px;background:var(--accent);z-index:20;transition:width .3s}
+
+  .title-wrap{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .pills{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.8rem}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;
+    padding:.5rem 1rem;font-size:.92rem;color:var(--muted)}
+  .mono{font-family:'Cascadia Code',Consolas,'SF Mono',monospace;font-size:.9rem;
+    color:var(--accent);background:rgba(79,209,197,.08);padding:.1rem .4rem;border-radius:6px}
+
+  .callout{border-left:3px solid var(--amber);padding:.6rem 0 .6rem 1rem;margin-top:1rem;
+    color:#e8d9b8;font-size:1.05rem}
+
+  /* arch diagram */
+  .arch{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:.5rem;align-items:stretch}
+  .arch .col{display:flex;flex-direction:column;gap:.7rem}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:.8rem .9rem}
+  .box .t{font-weight:700;font-size:1rem}
+  .box .d{font-size:.82rem;color:var(--muted);margin-top:.2rem}
+  .box.core{border-color:var(--accent);background:linear-gradient(180deg,#16294a,#141d38)}
+  .box.sup{border-color:var(--accent2)}
+  .colhead{font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);
+    text-align:center;margin-bottom:.1rem}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide active">
+    <div class="title-wrap">
+      <div class="kicker">Enterprise Co-Development Proposal</div>
+      <h1>AgentFactory</h1>
+      <p class="lead" style="margin-top:1.4rem">The governance and orchestration layer that turns autonomous coding agents into a <strong>controlled, auditable delivery pipeline</strong> — built for strict IT.</p>
+      <div class="pills">
+        <span class="pill">Self-hosted &amp; local-first</span>
+        <span class="pill">Human-gated lifecycle</span>
+        <span class="pill">CI/CD-native delivery</span>
+        <span class="pill">Full activity audit trail</span>
+      </div>
+    </div>
+    <div class="footer">
+      <div class="brand"><span class="mk"></span> AgentFactory</div>
+      <div>Technical deep-dive · IT &amp; Engineering</div>
+    </div>
+  </section>
+
+  <!-- 2 PROBLEM -->
+  <section class="slide">
+    <div class="kicker">The gap</div>
+    <h2>Agents can write code. <span class="u">Enterprises can't govern them.</span></h2>
+    <div class="grid g3">
+      <div class="card"><h3>🌀 No persistent state</h3><p>Chat-based agents forget everything between runs. No queue, no ownership, no history you can audit or resume.</p></div>
+      <div class="card"><h3>🚫 No control gates</h3><p>An agent that can merge, delete or approve its own work is a compliance non-starter for a regulated IT department.</p></div>
+      <div class="card"><h3>❓ No delivery guarantee</h3><p>"The agent said it's done" is not proof. Enterprises need PR-merged + pipeline-green as the definition of done.</p></div>
+    </div>
+    <div class="callout">AgentFactory separates <strong>the work</strong> (done by agents) from <strong>the control plane</strong> (owned by you) — so autonomy scales without giving up governance.</div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Why this exists</div></div>
+  </section>
+
+  <!-- 3 WHAT IT IS -->
+  <section class="slide">
+    <div class="kicker">What it is</div>
+    <h2>A persistent task board that is the <span class="u">state store &amp; control plane</span> for an external agent loop</h2>
+    <div class="split">
+      <div>
+        <ul class="clean">
+          <li><b>The board never runs an agent itself.</b> It owns lifecycle rules, state, and review.</li>
+          <li><b>Headless supervisors do the spawning.</b> They start fresh <span class="mono">claude -p</span> / <span class="mono">codex</span> sessions that talk to the board over <strong>MCP</strong>.</li>
+          <li><b>A separate watcher verifies delivery</b> over plain REST — PR merged &amp; pipeline green.</li>
+          <li><b>Single source of truth.</b> One local SQLite DB (WAL) holds every task, transition and comment.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <span class="tag">Design principle</span>
+        <p style="margin-top:.9rem;font-size:1.15rem;color:#cdd9f7">
+          The agents do the work.<br>
+          <strong>The board owns the truth.</strong>
+        </p>
+        <p style="margin-top:1rem">Because state lives in the board — not in a conversation — every action is inspectable, resumable, and replayable. That property is what makes enterprise governance possible.</p>
+      </div>
+    </div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Concept</div></div>
+  </section>
+
+  <!-- 4 ARCHITECTURE -->
+  <section class="slide">
+    <div class="kicker">Architecture</div>
+    <h2>Six packages. One DB owner. <span class="u">Three supervisors.</span></h2>
+    <div class="arch">
+      <div class="col">
+        <div class="colhead">Control plane</div>
+        <div class="box core"><div class="t">core</div><div class="d">Only package that touches the DB. node:sqlite (WAL) + all lifecycle rules &amp; the transition table.</div></div>
+        <div class="box"><div class="t">web</div><div class="d">Hono API + SSE server; React/Vite client. Cheap version-string polling drives live refresh.</div></div>
+        <div class="box"><div class="t">mcp</div><div class="d">stdio MCP server exposing board ops to agent loops: get_next_task, submit_result, report_progress…</div></div>
+      </div>
+      <div class="col">
+        <div class="colhead">Supervisors (headless)</div>
+        <div class="box sup"><div class="t">dispatcher</div><div class="d">Polls <b>queued</b>, spawns one fresh agent session per task, releases crashed/timed-out claims.</div></div>
+        <div class="box sup"><div class="t">reviewer</div><div class="d">Polls <b>in_review</b>, spawns a session to post an advisory <span class="mono">ai-review/v1</span> verdict.</div></div>
+        <div class="box sup"><div class="t">watcher</div><div class="d">Polls <b>delivering</b>, verifies PR/pipeline on GitHub / Azure DevOps over REST. No LLM, no spawn.</div></div>
+      </div>
+      <div class="col">
+        <div class="colhead">Properties</div>
+        <div class="box"><div class="t">Isolated processes</div><div class="d">Each service is its own process pointed at the same DB — scale or restart independently.</div></div>
+        <div class="box"><div class="t">Strict TypeScript</div><div class="d">noUncheckedIndexedAccess, exactOptionalPropertyTypes, project references across the workspace.</div></div>
+        <div class="box"><div class="t">Local-first</div><div class="d">Runs entirely on your infrastructure. No task data has to leave the network.</div></div>
+      </div>
+    </div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>How it's built</div></div>
+  </section>
+
+  <!-- 5 LIFECYCLE -->
+  <section class="slide">
+    <div class="kicker">The core invariant</div>
+    <h2>A task state machine where <span class="u">agents can never approve or delete</span></h2>
+    <div class="pipe">
+      <div class="stage"><div class="s">start</div><div class="n">backlog</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="s">human</div><div class="n">queued</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="s">dispatcher</div><div class="n">in_progress</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="s">agent</div><div class="n">in_review</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="s">human ✓</div><div class="n">delivering</div></div>
+      <div class="arrow">→</div>
+      <div class="stage" style="border-color:var(--green)"><div class="s">watcher</div><div class="n">done</div></div>
+    </div>
+    <div class="grid g3" style="margin-top:1.4rem">
+      <div class="card"><h3><span class="dot" style="background:var(--accent2)"></span> Every edge is declared</h3><p>Transitions live in one table keyed by <span class="mono">(from, to, by: human | agent)</span>. Any new state change goes there first; every op calls <span class="mono">assertTransition</span>.</p></div>
+      <div class="card"><h3><span class="dot" style="background:var(--amber)"></span> Humans hold the gates</h3><p>Approving a review, reopening, force-completing or pulling back a delivery are <strong>human-only</strong> edges. Agents can't delete or approve — by construction.</p></div>
+      <div class="card"><h3><span class="dot" style="background:var(--green)"></span> Delivery is machine-verified</h3><p>The watcher owns <span class="mono">delivering → done</span> only when the PR is merged and checks are green — otherwise back to <span class="mono">queued</span>.</p></div>
+    </div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Lifecycle &amp; guardrails</div></div>
+  </section>
+
+  <!-- 6 LEVELS -->
+  <section class="slide">
+    <div class="kicker">The transition · L1 → L5 autonomy</div>
+    <h2>AgentFactory is how you operate at <span class="u">Levels 3–5 safely</span></h2>
+    <div class="levels">
+      <div class="lvl dim"><div class="num">1</div><h4>Assisted</h4><p>Human writes code; AI autocompletes. No autonomy.</p></div>
+      <div class="lvl dim"><div class="num">2</div><h4>Task copilot</h4><p>AI handles a task under constant human steering, in the chat.</p></div>
+      <div class="lvl on"><div class="num">3</div><h4>Bounded autonomy</h4><p>Agent completes whole tasks inside guardrails; human approves each result.</p></div>
+      <div class="lvl on"><div class="num">4</div><h4>Orchestrated fleet</h4><p>Many tasks decomposed, queued &amp; run in parallel; humans review by exception.</p></div>
+      <div class="lvl on"><div class="num">5</div><h4>Self-delivering</h4><p>Queue → build → review → merge → verified delivery with minimal human touch.</p></div>
+    </div>
+    <div class="grid g2" style="margin-top:1.3rem">
+      <div class="card"><h3>Autonomy is a property of the deployment</h3><p>The same agent is safe or reckless depending on the controls around it. AgentFactory <strong>is</strong> those controls — so you can move up the levels without moving up the risk.</p></div>
+      <div class="card"><h3>Where the gates sit defines your level</h3><p>Loosen a human gate → move toward L5. Tighten it → drop to L3. The board makes that a <strong>configuration decision</strong>, task-by-task, not a rewrite.</p></div>
+    </div>
+    <p style="margin-top:1rem;font-size:.85rem;color:var(--muted)">Framing aligned to the Context&amp; AI Transition model (learn.contextand.com/cs/ai-transition) and the widely-used 5-level agent autonomy scale.</p>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>The strategic centerpiece</div></div>
+  </section>
+
+  <!-- 7 GOVERNANCE -->
+  <section class="slide">
+    <div class="kicker">Auditability &amp; governance</div>
+    <h2>Every decision is <span class="u">derived from an append-only log</span></h2>
+    <div class="split">
+      <div>
+        <ul class="clean">
+          <li><b>Activity log is the source of truth.</b> Metrics, analytics and review state are <b>derived</b> from it — so governance works retroactively, not just going forward.</li>
+          <li><b>AI review is walled off.</b> Verdicts ride in <span class="mono">ai-review/v1</span> comments; MCP payloads strip them so uncurated AI findings never reach the implementing agent.</li>
+          <li><b>Attribution on every action.</b> Each transition records who — <span class="mono">human</span> or <span class="mono">agent</span> — and when.</li>
+          <li><b>Nothing is silently mutated.</b> A version signal makes every change observable to the UI and to auditors.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <span class="tag">What an auditor gets</span>
+        <ul class="clean" style="margin-top:.6rem">
+          <li>Who queued the task</li>
+          <li>Which agent worked it, in which worktree/branch</li>
+          <li>What the human reviewer approved</li>
+          <li>Which PR delivered it &amp; that CI passed</li>
+        </ul>
+        <p style="margin-top:.7rem">A complete, replayable chain of custody — per task.</p>
+      </div>
+    </div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Governance</div></div>
+  </section>
+
+  <!-- 8 ENTERPRISE FIT -->
+  <section class="slide">
+    <div class="kicker">Enterprise fit</div>
+    <h2>Built to sit <span class="u">inside</span> your existing controls</h2>
+    <div class="grid g3">
+      <div class="card">
+        <h3>🔗 CI/CD-native</h3>
+        <p>PR-based flow by convention: branch <span class="mono">feature/&lt;key&gt;-&lt;title&gt;</span> pushed to origin <b>before</b> results are submitted. The watcher confirms delivery on <strong>GitHub</strong> or <strong>Azure DevOps</strong> via REST — merged + green, or it bounces back to the queue.</p>
+      </div>
+      <div class="card">
+        <h3>🛡️ Security &amp; data residency</h3>
+        <p>Self-hosted. State is a <strong>local SQLite DB</strong>; services run as your own processes on your own network. Git host auth via <span class="mono">GITHUB_TOKEN</span> / <span class="mono">AZDO_PAT</span> env — no secrets in the board. Untrusted refs validated against <span class="mono">SAFE_REF</span> before touching git.</p>
+      </div>
+      <div class="card">
+        <h3>🧩 Isolation by design</h3>
+        <p>Each task runs in its own git <strong>worktree</strong> under <span class="mono">.worktrees/&lt;key&gt;</span>. Fresh agent session per task — no shared, long-lived context to leak across work items.</p>
+      </div>
+    </div>
+    <div class="callout">Today it is single-user and local by design. The co-development work below is about taking these same guarantees to <strong>multi-user, SSO, and hardened deployment</strong> — without loosening any of them.</div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Fit with strict IT</div></div>
+  </section>
+
+  <!-- 9 CO-DEV PROPOSAL -->
+  <section class="slide">
+    <div class="kicker">The proposal</div>
+    <h2>What we build together to make it <span class="u">enterprise-grade</span></h2>
+    <div class="grid g4">
+      <div class="card"><h3>🔐 Identity</h3><p>Multi-user, RBAC and SSO/SAML on top of the human-gate model. Approvals become named, role-scoped actions.</p></div>
+      <div class="card"><h3>📦 Deployment</h3><p>Hardened, containerised, air-gap-friendly install. Postgres option for scale; backup &amp; DR runbooks.</p></div>
+      <div class="card"><h3>📋 Compliance</h3><p>Exportable audit reports, retention policy, and mapping of the activity log to your control framework.</p></div>
+      <div class="card"><h3>🔌 Integration</h3><p>Deeper Azure DevOps / GitHub Enterprise hooks, your CI gates, and connectors to your ticketing.</p></div>
+    </div>
+    <div class="grid g3" style="margin-top:1.2rem">
+      <div class="card"><span class="tag">Phase 1 · Pilot</span><p style="margin-top:.6rem">Deploy on your infra, one repo, live end-to-end run. Validate security &amp; audit posture.</p></div>
+      <div class="card"><span class="tag">Phase 2 · Harden</span><p style="margin-top:.6rem">SSO, RBAC, deployment &amp; compliance workstreams built jointly against your requirements.</p></div>
+      <div class="card"><span class="tag">Phase 3 · Scale</span><p style="margin-top:.6rem">Roll out across teams; move from L3 review-everything to L4/L5 review-by-exception.</p></div>
+    </div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Co-development roadmap</div></div>
+  </section>
+
+  <!-- 10 DEMO + ASK -->
+  <section class="slide">
+    <div class="kicker">Live demo &amp; next steps</div>
+    <h2>What you'll see in the next <span class="u">15 minutes</span></h2>
+    <div class="split">
+      <div>
+        <ul class="clean">
+          <li><b>Queue a real task</b> on the live board and watch the dispatcher claim it.</li>
+          <li><b>Agent works in an isolated worktree</b>, reports progress, pushes a branch, submits a result.</li>
+          <li><b>Human review gate</b> — approve it, and see the AI reviewer's advisory verdict alongside.</li>
+          <li><b>Watcher verifies delivery</b> — PR merged + pipeline green → the task moves itself to <span class="mono">done</span>.</li>
+          <li><b>The audit trail</b> for that exact task, end to end.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <span class="tag">The ask</span>
+        <p style="margin-top:.8rem;font-size:1.15rem;color:#cdd9f7">A joint <strong>Phase 1 pilot</strong> on your infrastructure — one repo, your CI, your security review.</p>
+        <p style="margin-top:1rem">Give us your strictest IT requirement. Let's design the control for it together and prove it in the pilot.</p>
+      </div>
+    </div>
+    <div class="footer"><div class="brand"><span class="mk"></span> AgentFactory</div><div>Let's build it together</div></div>
+  </section>
+
+</div>
+
+<div class="count" id="count">1 / 10</div>
+<div class="nav">
+  <button onclick="go(-1)">‹ Prev</button>
+  <button onclick="go(1)">Next ›</button>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function render(){
+    slides.forEach((s,n)=>s.classList.toggle('active',n===i));
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+    document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';
+  }
+  function go(d){i=Math.max(0,Math.min(slides.length-1,i+d));render();}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){go(1);e.preventDefault();}
+    if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){go(-1);e.preventDefault();}
+    if(e.key==='Home'){i=0;render();}
+    if(e.key==='End'){i=slides.length-1;render();}
+  });
+  render();
+</script>
+</body>
+</html>

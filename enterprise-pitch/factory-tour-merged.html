@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Factory Tour — AgentFactory · context&</title>
+<style>
+  :root{
+    --bg:#0a0812;
+    --ink:#f4f2fb;
+    --muted:#a99fc6;
+    --accent:#7c3aed;      /* electric purple */
+    --accent-bright:#8b5cf6;
+    --line:#2a2440;
+    --card:#120e1f;
+    --card2:#15101f;
+    --green:#4ade80;
+    --radius:18px;
+    --font:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    --mono:'Cascadia Code',Consolas,'SF Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--ink);overflow:hidden}
+  .deck{height:100vh;width:100vw;position:relative}
+
+  /* giant ampersand watermark */
+  .amp{position:absolute;top:-6vh;right:-2vw;font-size:52vh;line-height:1;font-weight:800;
+    color:#ffffff;opacity:.045;font-family:Georgia,'Times New Roman',serif;pointer-events:none;
+    user-select:none;z-index:0}
+
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;
+    padding:8vh 7vw 10vh;z-index:1;animation:fade .4s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  .kicker{color:var(--accent-bright);font-family:var(--mono);font-weight:700;
+    letter-spacing:.22em;text-transform:uppercase;font-size:.82rem;margin-bottom:1.4rem}
+  h1{font-size:4rem;line-height:1.02;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:2.7rem;line-height:1.08;font-weight:800;letter-spacing:-.015em;margin-bottom:1.5rem;max-width:20ch}
+  h2.wide{max-width:26ch}
+  p{color:var(--muted);font-size:1.2rem;line-height:1.6}
+  .lead{font-size:1.5rem;color:#d9d2ee;max-width:46ch;line-height:1.45}
+  strong{color:var(--ink)}
+  .u{color:var(--accent-bright)}
+
+  .rule{width:120px;height:4px;background:var(--accent);border-radius:2px;margin:1.6rem 0 1.2rem}
+  .closer{color:var(--accent-bright);font-weight:800;font-size:1.7rem;line-height:1.2;max-width:30ch;margin-top:auto}
+
+  .pills{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:2rem}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:.55rem 1.1rem;
+    font-size:.95rem;color:var(--muted);background:rgba(124,58,237,.06)}
+
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;margin-top:.3rem}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:1.5rem 1.6rem;background:var(--card)}
+  .card.hot{border-color:var(--accent)}
+  .card h3{font-family:var(--mono);font-size:.82rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:1.1rem;font-weight:700}
+  .card.hot h3{color:var(--accent-bright)}
+  ul.arr{list-style:none}
+  ul.arr li{position:relative;padding-left:1.5rem;margin:.75rem 0;color:#cfc7e4;font-size:1.12rem;line-height:1.45}
+  ul.arr li::before{content:"›";position:absolute;left:0;top:-.05em;color:var(--accent-bright);font-weight:800;font-size:1.25rem}
+  ul.arr li b{color:var(--ink)}
+
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem;margin-top:.4rem}
+  .tcard{border:1px solid var(--line);border-radius:var(--radius);padding:1.3rem 1.35rem;background:var(--card)}
+  .tcard .t{font-weight:800;font-size:1.15rem;margin-bottom:.5rem;display:flex;align-items:center;gap:.5rem}
+  .tcard p{font-size:1rem;line-height:1.5}
+  .num{font-family:var(--mono);color:var(--accent-bright);font-size:1.7rem;font-weight:700}
+
+  .mono{font-family:var(--mono);color:var(--accent-bright);font-size:.92rem;
+    background:rgba(124,58,237,.12);padding:.12rem .45rem;border-radius:6px}
+
+  .callout{border-left:3px solid var(--accent);padding:.7rem 0 .7rem 1.2rem;margin-top:1.4rem;
+    color:#d9d2ee;font-size:1.12rem;line-height:1.5;max-width:80ch}
+
+  /* pipeline strip */
+  .pipe{display:flex;align-items:stretch;gap:.4rem;flex-wrap:wrap;margin:.4rem 0 1.4rem}
+  .stage{flex:1;min-width:100px;border:1px solid var(--line);border-radius:12px;padding:.8rem .5rem;
+    text-align:center;background:var(--card)}
+  .stage .s{font-family:var(--mono);font-size:.65rem;color:var(--accent-bright);text-transform:uppercase;letter-spacing:.1em}
+  .stage .n{font-weight:800;font-size:1rem;margin-top:.25rem}
+  .stage.done{border-color:var(--green)}
+  .stage.done .s{color:var(--green)}
+  .ar{align-self:center;color:var(--accent);font-weight:800;font-size:1.1rem}
+
+  /* levels */
+  .levels{display:grid;grid-template-columns:repeat(5,1fr);gap:.7rem;margin:.3rem 0 1.3rem}
+  .lvl{border:1px solid var(--line);border-radius:14px;padding:1rem .8rem;background:var(--card)}
+  .lvl .ln{font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--muted)}
+  .lvl h4{font-size:.92rem;margin:.35rem 0 .5rem}
+  .lvl p{font-size:.82rem;line-height:1.4}
+  .lvl.on{border-color:var(--accent);background:linear-gradient(180deg,#1a1030,#140d22)}
+  .lvl.on .ln{color:var(--accent-bright)}
+  .lvl.dim{opacity:.45}
+
+  .split{display:grid;grid-template-columns:1.05fr .95fr;gap:2.4rem;align-items:center;flex:1}
+  .demo-badge{display:inline-flex;align-items:center;gap:.5rem;background:rgba(74,222,128,.12);
+    border:1px solid rgba(74,222,128,.4);color:var(--green);border-radius:999px;
+    padding:.35rem .9rem;font-family:var(--mono);font-size:.8rem;font-weight:700;letter-spacing:.1em}
+  .blink{width:.6rem;height:.6rem;border-radius:50%;background:var(--green);animation:bl 1.2s infinite}
+  @keyframes bl{50%{opacity:.25}}
+
+  .footer{position:absolute;bottom:3.4vh;left:7vw;right:7vw;display:flex;justify-content:space-between;
+    align-items:center;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);
+    padding-top:.9rem;z-index:2}
+  .brand{font-weight:800;color:var(--ink);letter-spacing:-.02em}
+  .brand .amp2{color:var(--accent-bright)}
+  .count{position:fixed;bottom:2.8vh;left:2vw;color:var(--muted);font-size:.85rem;z-index:10;font-family:var(--mono)}
+  .nav{position:fixed;bottom:2.4vh;right:2vw;display:flex;gap:.5rem;z-index:10}
+  .nav button{background:var(--card2);color:var(--ink);border:1px solid var(--line);border-radius:10px;
+    padding:.5rem .85rem;font-size:1rem;cursor:pointer}
+  .nav button:hover{border-color:var(--accent)}
+  .progress{position:fixed;top:0;left:0;height:4px;background:var(--accent);z-index:20;transition:width .3s}
+  .speaker{position:absolute;top:5.5vh;right:7vw;font-family:var(--mono);font-size:.78rem;
+    color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:.3rem .8rem;z-index:3}
+  .title-wrap{flex:1;display:flex;flex-direction:column;justify-content:center}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 -->
+  <section class="slide active">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 Poul</span>
+    <div class="title-wrap">
+      <div class="kicker">The Tour · context&amp;</div>
+      <h1>AgentFactory</h1>
+      <p class="lead" style="margin-top:1.4rem">A factory that's running <strong>now</strong>. This isn't another AI presentation — it's a tour. And you're not meeting a vendor; you're meeting the team that built it.</p>
+      <div class="pills">
+        <span class="pill">Stop 01 · The floor</span>
+        <span class="pill">Stop 02 · The stations</span>
+        <span class="pill">The offer</span>
+        <span class="pill">Get started</span>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Everything today is provable — nothing is roadmap</span></div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 Poul</span>
+    <div class="kicker">Before the tour</div>
+    <h2 class="wide">AI should have solved this. <span class="u">Why didn't it?</span></h2>
+    <p style="max-width:70ch">The backlog grows — the team doesn't. Everything waits on a human with a calendar. AI should have changed that, but most pilots never reach production: the demo impresses, yet nobody dares give a black-box agent access to real systems. No quality gates, no audit — and no one accountable when it's wrong.</p>
+    <div class="rule"></div>
+    <p class="closer" style="margin-top:0">The problem isn't the model. It's everything around it: process, access, quality and accountability.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Why this tour exists</span></div>
+  </section>
+
+  <!-- 3 DEMO -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin · live</span>
+    <div class="kicker">Stop 01 — The floor</div>
+    <h2 class="wide">This is the floor. <span class="u">Let's put a task on the line.</span></h2>
+    <div class="split">
+      <div>
+        <ul class="arr">
+          <li><b>The live board</b> — real stations, your work moving left to right.</li>
+          <li><b>Take a task down the line</b> and watch a worker pick it up.</li>
+          <li><b>The review station</b> — a <i>different</i> agent than the one that built it checks the work.</li>
+          <li><b>The delivery station</b> follows your deploy pipeline and closes the task in your source system itself.</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <div class="demo-badge"><span class="blink"></span> LIVE DEMO</div>
+        <p style="margin-top:1.1rem;font-size:1.15rem;color:#d9d2ee">The slide is just a prop. The board is the product.</p>
+        <p style="margin-top:1rem">"How do we measure it?" — the metrics <strong>are</strong> the board's columns. There is no separate reporting tool.</p>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Seeing is the pitch</span></div>
+  </section>
+
+  <!-- 4 STATIONS -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">Stop 02 — The stations</div>
+    <h2>From two boxes to <span class="u">quality stations</span></h2>
+    <div class="cards">
+      <div class="card">
+        <h3>How AI is usually sold</h3>
+        <ul class="arr">
+          <li>Task → Solved</li>
+          <li>One black box in the middle</li>
+          <li>Quality = hope</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>How a line actually runs</h3>
+        <ul class="arr">
+          <li><b>Understand → Spec → Build → Review → Deliver</b></li>
+          <li>Each station: a fixed instruction + a quality gate</li>
+          <li>Review: a <i>different</i> agent than the one that built it — plus your gates</li>
+          <li>The final station follows the deploy pipeline and closes the task in your system</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">Quality is built into the line — not promised afterward.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Trust lives in the stations, not the model</span></div>
+  </section>
+
+  <!-- 5 INVARIANT (proof) -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin · proof</span>
+    <div class="kicker">Under the floor</div>
+    <h2 class="wide">The one rule that makes it safe: <span class="u">agents can't approve or deliver</span></h2>
+    <div class="pipe">
+      <div class="stage"><div class="s">start</div><div class="n">backlog</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">human</div><div class="n">queued</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">dispatcher</div><div class="n">in_progress</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">agent</div><div class="n">in_review</div></div>
+      <div class="ar">→</div>
+      <div class="stage"><div class="s">human ✓</div><div class="n">delivering</div></div>
+      <div class="ar">→</div>
+      <div class="stage done"><div class="s">watcher</div><div class="n">done</div></div>
+    </div>
+    <div class="three">
+      <div class="tcard"><div class="t">Every edge is declared</div><p>State changes are keyed by <span class="mono">(from, to, by: human | agent)</span>. Nothing undeclared can happen.</p></div>
+      <div class="tcard"><div class="t">Humans hold the gates</div><p>Approve, reopen, force-complete are <strong>human-only</strong>. Agents can never delete or approve — by construction.</p></div>
+      <div class="tcard"><div class="t">Delivery is verified</div><p>A watcher confirms the PR is merged and CI is green — or the task goes back to the queue. No agent can fake "done."</p></div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>The governance proof</span></div>
+  </section>
+
+  <!-- 6 ALP vs FACTORY -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 / 🅿</span>
+    <div class="kicker">git vs. GitHub</div>
+    <h2 class="wide">ALP is the protocol. <span class="u">AgentFactory is the factory.</span></h2>
+    <div class="cards">
+      <div class="card">
+        <h3>ALP — the open standard</h3>
+        <ul class="arr">
+          <li>Stations, lines and gates as an open protocol</li>
+          <li>Station definitions in plain text</li>
+          <li>Audit history in git — portable</li>
+          <li>Your process can always move with you</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>AgentFactory — the factory in operation</h3>
+        <ul class="arr">
+          <li>Our running factory, built on ALP</li>
+          <li>Runs real customer tasks today: ticket → approved delivery</li>
+          <li>Built by the team in front of you</li>
+          <li>Set up, monitored and operated by us</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">Like git and GitHub: the standard is open — the value is the operated service.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Someone has to run the factory — that's us</span></div>
+  </section>
+
+  <!-- 7 LEVELS -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 / 🅰</span>
+    <div class="kicker">The transition · L1 → L5</div>
+    <h2 class="wide">You move up the levels by <span class="u">tightening or loosening a gate</span> — not by a rewrite</h2>
+    <div class="levels">
+      <div class="lvl dim"><div class="ln">1</div><h4>Assisted</h4><p>Human writes; AI autocompletes.</p></div>
+      <div class="lvl dim"><div class="ln">2</div><h4>Copilot</h4><p>AI on a task under constant steering.</p></div>
+      <div class="lvl on"><div class="ln">3</div><h4>Bounded</h4><p>Whole tasks in guardrails; human approves each.</p></div>
+      <div class="lvl on"><div class="ln">4</div><h4>Orchestrated</h4><p>Many tasks in parallel; review by exception.</p></div>
+      <div class="lvl on"><div class="ln">5</div><h4>Self-delivering</h4><p>Queue → verified delivery, minimal human touch.</p></div>
+    </div>
+    <div class="cards">
+      <div class="card"><h3>Autonomy is a property of the deployment</h3><p style="font-size:1.05rem">The same agent is safe or reckless depending on the controls around it. AgentFactory <strong>is</strong> those controls — so you climb the levels without climbing the risk.</p></div>
+      <div class="card"><h3>Where the gates sit defines your level</h3><p style="font-size:1.05rem">A pilot starts at <strong>L3</strong> — review everything — and earns its way to L4/L5. That's a configuration decision, task by task, not a leap of faith.</p></div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Aligned to the Context&amp; AI Transition model</span></div>
+  </section>
+
+  <!-- 8 GOVERNANCE / IT -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin</span>
+    <div class="kicker">For strict IT</div>
+    <h2>Built to sit <span class="u">inside your controls</span></h2>
+    <div class="three">
+      <div class="tcard"><div class="t">🔎 Auditable</div><p>Metrics, analytics and review state are all <i>derived</i> from an append-only activity log — a complete, replayable chain of custody per task. AI-review findings are walled off from the implementing agent.</p></div>
+      <div class="tcard"><div class="t">🛡️ Self-hosted &amp; resident</div><p>Runs on your infrastructure. State in a local database; git-host auth via env tokens — no secrets in the board. Each task runs in its own isolated git worktree.</p></div>
+      <div class="tcard"><div class="t">🔗 CI/CD-native</div><p>PR-based flow by convention. Delivery verified on GitHub or Azure DevOps: merged + green, or it bounces back to the queue.</p></div>
+    </div>
+    <div class="callout">It's single-user and local by design <strong>today</strong> — and that's exactly what the co-build track extends, without loosening any of these guarantees.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>The why-trust layer</span></div>
+  </section>
+
+  <!-- 9 BUY A LINE -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 Poul</span>
+    <div class="kicker">The offer</div>
+    <h2 class="wide">You're not buying a developer. <span class="u">You're buying a line.</span></h2>
+    <div class="split">
+      <div>
+        <p style="max-width:52ch">A line takes one task at a time through the stations — tested, reviewed, delivered back into your system. In the price: the people behind it. A <strong>line-manager</strong> watches the board, catches stuck tasks, puts questions back to you, and pushes work through. Behind them stands a team — delivery never depends on one person.</p>
+        <div class="rule"></div>
+        <p class="closer" style="margin-top:0;font-size:1.4rem">It doesn't all run by itself — that's why we're there.</p>
+      </div>
+      <div class="card hot">
+        <h3>Capacity is one dial</h3>
+        <p style="font-size:1.08rem">Five in the queue? Take one line and let them wait — or take two and double throughput.</p>
+        <p style="margin-top:.9rem;font-size:1.08rem">A queue isn't a problem. It means line #1 already proved its worth.</p>
+        <p style="margin-top:.9rem;font-size:1rem;color:var(--muted)">From operation: ~9 of 10 tasks go through clean — the tenth just goes back on the belt. That's what the line-manager is for.</p>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Capacity &amp; quality, on top of your team</span></div>
+  </section>
+
+  <!-- 10 NOW NOT VISION -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 Poul</span>
+    <div class="kicker">Now — not vision</div>
+    <h2>What you buy is <span class="u">what runs today</span></h2>
+    <div class="cards">
+      <div class="card">
+        <h3>What we don't sell</h3>
+        <ul class="arr">
+          <li>Future visions on the invoice</li>
+          <li>Full autonomy without humans</li>
+          <li>A replacement for your own people</li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>What runs now</h3>
+        <ul class="arr">
+          <li>A line in AgentFactory with stations and gates</li>
+          <li>A live board with your tasks</li>
+          <li>A line-manager and a team behind it</li>
+          <li>Capacity and quality — on top of your team</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">We haven't shown you anything today we can't deliver tomorrow.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>We sell what runs</span></div>
+  </section>
+
+  <!-- 11 TWO TRACKS -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 + 🅰</span>
+    <div class="kicker">The offer · layered</div>
+    <h2>Two ways to start — <span class="u">pick your track</span></h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Track A · Operated <span style="color:var(--accent-bright)">(default, fast)</span></h3>
+        <ul class="arr">
+          <li><b>Running in 14 days.</b></li>
+          <li>We set up, monitor and operate the factory for you</li>
+          <li>You buy lines and capacity</li>
+          <li>Best when you want throughput <i>now</i></li>
+        </ul>
+      </div>
+      <div class="card hot">
+        <h3>Track B · Co-build enterprise</h3>
+        <ul class="arr">
+          <li><b>A bounded ~6-month partnership</b> to harden AgentFactory for your IT</li>
+          <li>SSO/RBAC, hardened deployment, compliance mapping</li>
+          <li>Deeper Azure DevOps / GitHub Enterprise integration — on your infrastructure</li>
+          <li>Same guarantees underneath. You own more; we build it with you</li>
+        </ul>
+      </div>
+    </div>
+    <p class="closer">Open protocol, operated by us — or built together with you.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>The two tracks share one factory</span></div>
+  </section>
+
+  <!-- 12 GET STARTED -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅿 Poul · close</span>
+    <div class="kicker">Get started</div>
+    <h2>From tour to a <span class="u">running line</span></h2>
+    <div class="three">
+      <div class="tcard"><div class="num">01</div><div class="t" style="margin-top:.3rem">Day 1</div><p>We connect to your task source — Jira, Azure DevOps or email. One day's work, no migration.</p></div>
+      <div class="tcard"><div class="num">02</div><div class="t" style="margin-top:.3rem">Days 2–14</div><p>We define the stations together, in plain text, in the open protocol. You own the definitions.</p></div>
+      <div class="tcard"><div class="num">03</div><div class="t" style="margin-top:.3rem">First task</div><p>Onboarding ends when your first real task has run the line and been delivered back into your system.</p></div>
+    </div>
+    <div class="callout"><strong>The ask.</strong> Operated track — book a Day-1 date, name one task source and three candidate tasks. Co-build track — agree how you'd want to build this together, and scope a bounded pilot.</div>
+    <p class="closer" style="font-size:1.4rem">Limited slots after the summer — have the backlog ready.</p>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>A queue means the line proved its worth</span></div>
+  </section>
+
+  <!-- 13 APPENDIX -->
+  <section class="slide">
+    <div class="amp">&amp;</div>
+    <span class="speaker">🅰 Alvin · if asked</span>
+    <div class="kicker">Appendix — architecture</div>
+    <h2>How it's <span class="u">built</span></h2>
+    <div class="three">
+      <div class="tcard"><div class="t">One DB owner</div><p>Six packages, npm workspaces, strict TypeScript. A single package owns the database and every lifecycle rule — the state machine lives in one place.</p></div>
+      <div class="tcard"><div class="t">Three supervisors</div><p><b>Dispatcher</b> spawns one fresh agent session per queued task. <b>Reviewer</b> posts an advisory second-agent verdict. <b>Watcher</b> verifies delivery on the git host over REST — no LLM.</p></div>
+      <div class="tcard"><div class="t">Local &amp; isolated</div><p>Task state is a local database; each task runs in its own git worktree. Nothing about the work has to leave your network.</p></div>
+    </div>
+    <div class="callout">For deep IT or compliance questions, we offer a separate technical review of the ALP spec with your security team.</div>
+    <div class="footer"><span class="brand">context<span class="amp2">&amp;</span></span><span>Technical deep-dive backup</span></div>
+  </section>
+
+</div>
+
+<div class="count" id="count">01 / 13</div>
+<div class="nav">
+  <button onclick="go(-1)">‹</button>
+  <button onclick="go(1)">›</button>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function render(){
+    slides.forEach((s,n)=>s.classList.toggle('active',n===i));
+    const p=String(i+1).padStart(2,'0');
+    document.getElementById('count').textContent=p+' / '+String(slides.length).padStart(2,'0');
+    document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';
+  }
+  function go(d){i=Math.max(0,Math.min(slides.length-1,i+d));render();}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){go(1);e.preventDefault();}
+    if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){go(-1);e.preventDefault();}
+    if(e.key==='Home'){i=0;render();}
+    if(e.key==='End'){i=slides.length-1;render();}
+  });
+  render();
+</script>
+</body>
+</html>

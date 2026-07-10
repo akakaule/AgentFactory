@@ -23,3 +23,7 @@ logs/
 # agent / codex CLI tooling (skills + config — tooling state, not project code)
 .agents/
 .codex/
+
+# pitch-deck build scratch (QA slide screenshots / review shots)
+enterprise-pitch/_qa*/
+enterprise-pitch/_review*/
