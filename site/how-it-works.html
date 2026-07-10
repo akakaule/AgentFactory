@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentFactory — How it works</title>
+<style>
+  :root {
+    --bg:      #0E131A;
+    --bg-deep: #0A0E14;
+    --panel:   #141B24;
+    --panel-2: #19212C;
+    --line:    #27333F;
+    --line-2:  #33414F;
+    --ink:     #E9F0F6;
+    --ink-2:   #A7B6C4;
+    --ink-3:   #6B7A8A;
+    --brass:   #E8A23C;
+    --brass-2: #F2BE6C;
+    --brass-dim:#B27C2C;
+
+    /* lifecycle state hues — these encode real statuses, not decoration */
+    --s-backlog:  #8493A3;
+    --s-queued:   #40B7D6;
+    --s-progress: #E8A23C;   /* active work = the brand's amber */
+    --s-review:   #B08BE6;
+    --s-deliver:  #35C6A6;
+    --s-done:     #63C775;
+    --s-blocked:  #E06A5C;
+
+    --sans: system-ui, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+
+    --maxw: 1120px;
+    --r: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 620px at 78% -8%, rgba(232,162,60,.10), transparent 60%),
+      radial-gradient(900px 700px at -10% 10%, rgba(64,183,214,.06), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* faint schematic dot-grid over the whole sheet */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(120,140,160,.055) 1px, transparent 1.4px);
+    background-size: 26px 26px;
+    mask-image: linear-gradient(180deg, #000 0%, #000 82%, transparent 100%);
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  a { color: var(--brass-2); }
+
+  /* back to the site index */
+  .backlink {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .04em;
+    color: var(--ink-3); text-decoration: none; margin: 22px 0 -8px;
+  }
+  .backlink:hover { color: var(--brass-2); }
+
+  /* ---------- shared type ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin: 0 0 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--brass-dim); display: inline-block; }
+
+  h2.sect {
+    font-size: clamp(1.5rem, 3vw, 2.15rem);
+    font-weight: 750;
+    letter-spacing: -.02em;
+    line-height: 1.12;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .sect-lead { color: var(--ink-2); max-width: 62ch; margin: 0 0 30px; font-size: 1.02rem; }
+
+  section { padding: 62px 0; border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: 0; }
+
+  .tag {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .04em;
+    padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-2);
+    color: var(--ink-2); white-space: nowrap;
+  }
+
+  /* ============ HERO ============ */
+  .hero { padding: 74px 0 58px; position: relative; }
+  .hero .frame {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(25,33,44,.55), rgba(14,19,26,.2));
+    padding: clamp(30px, 5vw, 60px);
+    overflow: hidden;
+  }
+  /* registration ticks — engineering-drawing corner marks */
+  .hero .frame::before, .hero .frame::after {
+    content: ""; position: absolute; width: 16px; height: 16px; pointer-events: none;
+  }
+  .hero .frame::before { top: 14px; left: 14px; border-top: 2px solid var(--brass-dim); border-left: 2px solid var(--brass-dim); }
+  .hero .frame::after  { bottom: 14px; right: 14px; border-bottom: 2px solid var(--brass-dim); border-right: 2px solid var(--brass-dim); }
+
+  .hero .kicker {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .26em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 22px;
+  }
+  .hero h1 {
+    font-size: clamp(2.7rem, 8vw, 5.3rem);
+    line-height: .98; letter-spacing: -.035em; font-weight: 800; margin: 0;
+  }
+  .hero h1 .fac { color: var(--brass); }
+  .hero .thesis {
+    font-size: clamp(1.12rem, 2.3vw, 1.5rem);
+    color: var(--ink); max-width: 30ch; margin: 24px 0 0; font-weight: 550; line-height: 1.32;
+    text-wrap: balance;
+  }
+  .hero .thesis b { color: var(--brass-2); font-weight: 700; }
+  .hero .sub { color: var(--ink-2); max-width: 60ch; margin: 16px 0 0; }
+
+  .specstrip {
+    display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 30px;
+    font-family: var(--mono); font-size: .74rem;
+  }
+  .specstrip span {
+    padding: 6px 11px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg-deep); color: var(--ink-2);
+  }
+  .specstrip span b { color: var(--ink); font-weight: 600; }
+
+  /* ============ two-column: board vs agents ============ */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .card {
+    border: 1px solid var(--line); border-radius: var(--r);
+    background: var(--panel); padding: 26px;
+  }
+  .card .hd { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .card .hd h3 { margin: 0; font-size: 1.18rem; letter-spacing: -.01em; }
+  .card .hd .mono { font-family: var(--mono); font-size: .72rem; color: var(--ink-3); letter-spacing: .05em; }
+  .lst { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .lst li { display: grid; grid-template-columns: 18px 1fr; gap: 11px; color: var(--ink-2); font-size: .96rem; }
+  .lst li b { color: var(--ink); font-weight: 600; }
+  .lst .mk { color: var(--brass); font-family: var(--mono); font-size: .85rem; line-height: 1.7; }
+  .board-card { border-color: color-mix(in srgb, var(--brass) 34%, var(--line)); }
+  .board-card .mk { color: var(--brass); }
+  .agent-card .mk { color: var(--s-queued); }
+  .agent-card .hd .dot, .board-card .hd .dot { width: 9px; height: 9px; border-radius: 3px; align-self: center; }
+
+  .pull {
+    grid-column: 1 / -1; text-align: center; margin-top: 4px;
+    font-size: clamp(1.05rem, 2.4vw, 1.4rem); color: var(--ink); font-weight: 600;
+  }
+  .pull span { color: var(--brass); }
+
+  /* ============ LIFECYCLE pipeline ============ */
+  .pipe-scroll { overflow-x: auto; padding-bottom: 8px; margin: 0 -4px; scrollbar-width: thin; }
+  .pipe {
+    display: flex; align-items: stretch; gap: 0; min-width: 720px; padding: 6px 4px 4px;
+  }
+  .node {
+    flex: 1 1 0; min-width: 118px; position: relative;
+    border: 1px solid var(--nc, var(--line)); border-radius: 11px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--nc) 14%, var(--panel)), var(--panel));
+    padding: 15px 13px 14px; text-align: center;
+  }
+  .node .snum { font-family: var(--mono); font-size: .62rem; color: var(--ink-3); letter-spacing: .1em; }
+  .node .sname { font-family: var(--mono); font-weight: 700; font-size: .82rem; color: var(--nc); margin-top: 5px; letter-spacing: .02em; }
+  .node .sdesc { font-size: .72rem; color: var(--ink-2); margin-top: 7px; line-height: 1.4; }
+  .node .sdot { position: absolute; top: 11px; right: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--nc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nc) 22%, transparent); }
+
+  /* connector between nodes */
+  .conn {
+    flex: 0 0 46px; align-self: center; position: relative; height: 26px;
+  }
+  .conn .rail {
+    position: absolute; top: 50%; left: 0; right: 8px; height: 2px; transform: translateY(-50%);
+    background: repeating-linear-gradient(90deg, var(--line-2) 0 7px, transparent 7px 13px);
+    background-size: 26px 2px;
+    animation: flow 1.1s linear infinite;
+  }
+  .conn::after {
+    content: ""; position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+    border-left: 7px solid var(--line-2); border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  }
+  .conn .who {
+    position: absolute; left: 50%; top: -16px; transform: translateX(-50%);
+    font-family: var(--mono); font-size: .58rem; letter-spacing: .04em; white-space: nowrap;
+    color: var(--ink-2); background: var(--bg); padding: 0 4px; border-radius: 4px;
+  }
+  .conn .who.human { color: var(--brass); }
+  .conn .who.agent { color: var(--s-queued); }
+  .conn .who.watch { color: var(--s-deliver); }
+  @keyframes flow { to { background-position: 26px 0; } }
+  @media (prefers-reduced-motion: reduce) { .conn .rail { animation: none; } }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 16px 22px; margin-top: 26px; }
+  .legend .item { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: .72rem; color: var(--ink-2); }
+  .legend .sw { width: 12px; height: 12px; border-radius: 4px; }
+
+  .edges {
+    margin-top: 26px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+  }
+  .edge {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--bg-deep);
+    padding: 13px 15px; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start;
+  }
+  .edge .badge {
+    font-family: var(--mono); font-size: .62rem; padding: 4px 7px; border-radius: 6px;
+    border: 1px solid currentColor; white-space: nowrap; align-self: center;
+  }
+  .edge .badge.human { color: var(--brass); }
+  .edge .badge.watch { color: var(--s-deliver); }
+  .edge .badge.agent { color: var(--s-queued); }
+  .edge p { margin: 0; font-size: .86rem; color: var(--ink-2); }
+  .edge p b { color: var(--ink); font-weight: 600; }
+  .edge code { font-family: var(--mono); font-size: .8rem; color: var(--ink); }
+
+  /* ============ SUPERVISORS ============ */
+  .sups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .sup {
+    border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+    padding: 24px 22px; position: relative; overflow: hidden;
+  }
+  .sup::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--sc); }
+  .sup .name { font-family: var(--mono); font-weight: 700; font-size: 1.02rem; color: var(--sc); letter-spacing: .01em; }
+  .sup .role { font-size: .82rem; color: var(--ink-3); margin: 2px 0 18px; font-family: var(--mono); }
+  .spec { display: grid; gap: 11px; }
+  .spec .row { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: baseline; }
+  .spec .k { font-family: var(--mono); font-size: .64rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .spec .v { font-size: .88rem; color: var(--ink-2); }
+  .spec .v b { color: var(--ink); font-weight: 600; }
+  .spec .v code, .v code { font-family: var(--mono); font-size: .82rem; color: var(--brass-2); }
+  .sup-note {
+    margin-top: 22px; font-size: .8rem; color: var(--ink-3); font-family: var(--mono);
+    border-top: 1px dashed var(--line); padding-top: 14px; line-height: 1.5;
+  }
+
+  /* ============ JOURNEY ============ */
+  .journey { display: grid; gap: 0; }
+  .step {
+    display: grid; grid-template-columns: 54px 1fr; gap: 20px; padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .step:last-child { border-bottom: 0; }
+  .step .idx {
+    font-family: var(--mono); font-size: 1.05rem; font-weight: 700; color: var(--brass);
+    border: 1px solid var(--line-2); border-radius: 9px; height: 44px; width: 44px;
+    display: grid; place-items: center; background: var(--bg-deep);
+  }
+  .step .body h4 { margin: 4px 0 4px; font-size: 1.02rem; letter-spacing: -.01em; }
+  .step .body p { margin: 0; color: var(--ink-2); font-size: .92rem; }
+  .step .body code { font-family: var(--mono); font-size: .84rem; color: var(--brass-2); }
+  .step .actor {
+    font-family: var(--mono); font-size: .62rem; letter-spacing: .05em; padding: 3px 8px;
+    border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); margin-left: 8px; white-space: nowrap;
+  }
+
+  /* ============ ARCHITECTURE ============ */
+  .stack { display: grid; gap: 12px; }
+  .layer {
+    border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+    padding: 18px 20px;
+  }
+  .layer .lh { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .layer .lh .lt { font-weight: 700; font-size: 1rem; letter-spacing: -.01em; }
+  .layer .lh .ln { font-family: var(--mono); font-size: .68rem; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; }
+  .layer .ld { color: var(--ink-2); font-size: .88rem; margin: 0; }
+  .pkgs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .pkg {
+    border: 1px solid var(--line-2); border-radius: 9px; background: var(--bg-deep);
+    padding: 11px 14px; min-width: 150px; flex: 1 1 150px;
+  }
+  .pkg .pn { font-family: var(--mono); font-weight: 700; font-size: .84rem; color: var(--ink); }
+  .pkg .pr { font-size: .75rem; color: var(--ink-3); margin-top: 3px; }
+  .layer.core-layer { border-color: color-mix(in srgb, var(--brass) 36%, var(--line)); background: linear-gradient(180deg, rgba(232,162,60,.06), var(--panel)); }
+  .layer.base { border-style: dashed; background: var(--bg-deep); }
+  .layer.base .lt { font-family: var(--mono); color: var(--ink-2); }
+
+  /* ============ PRINCIPLES ============ */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .prin { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 22px; }
+  .prin .pi { font-family: var(--mono); font-size: .66rem; letter-spacing: .12em; color: var(--brass); text-transform: uppercase; }
+  .prin h4 { margin: 12px 0 8px; font-size: 1.05rem; letter-spacing: -.01em; }
+  .prin p { margin: 0; color: var(--ink-2); font-size: .9rem; }
+  .prin p code { font-family: var(--mono); font-size: .8rem; color: var(--brass-2); }
+
+  /* ============ FOOTER ============ */
+  footer { border-top: 1px solid var(--line); padding: 34px 0 60px; }
+  footer .fr { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+  footer .fw { font-weight: 800; letter-spacing: -.02em; font-size: 1.1rem; }
+  footer .fw span { color: var(--brass); }
+  footer .fm { font-family: var(--mono); font-size: .74rem; color: var(--ink-3); }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 860px) {
+    .split, .sups, .grid3, .edges { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    section { padding: 46px 0; }
+    .step { grid-template-columns: 42px 1fr; gap: 14px; }
+    .step .idx { height: 38px; width: 38px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <a class="backlink" href="index.html">← AgentFactory index</a>
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="frame">
+      <p class="kicker">Local-first agent orchestration · single operator</p>
+      <h1>Agent<span class="fac">Factory</span></h1>
+      <p class="thesis">A task board that is the <b>state, memory, and control room</b> for a fleet of AI coding agents. The board conducts — the agents build.</p>
+      <p class="sub">The board never runs an agent itself. It owns the rules, the lifecycle, and the review gates. Headless supervisor processes spawn fresh <code>claude&nbsp;-p</code> / <code>codex</code> sessions that claim work, write code in isolated git worktrees, and hand results back over MCP.</p>
+      <div class="specstrip">
+        <span><b>6</b> packages</span>
+        <span>SQLite <b>WAL</b></span>
+        <span>MCP + REST</span>
+        <span><b>1</b> fresh session / task</span>
+        <span>derive from the <b>activity log</b></span>
+        <span>Node <b>≥ 26</b></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ CORE IDEA ============ -->
+  <section>
+    <p class="eyebrow">The core split</p>
+    <h2 class="sect">Two responsibilities, kept apart</h2>
+    <p class="sect-lead">Everything in the design flows from one boundary: the board is the source of truth and the authority; the agents are stateless workers that come and go. Neither reaches into the other's job.</p>
+
+    <div class="split">
+      <div class="card board-card">
+        <div class="hd"><span class="dot" style="background:var(--brass)"></span><h3>The board owns</h3><span class="mono">state · rules · review</span></div>
+        <ul class="lst">
+          <li><span class="mk">▸</span><span><b>The lifecycle.</b> A tiny transition table keyed by <i>(from, to, actor)</i> — the one place any new state edge is added.</span></li>
+          <li><span class="mk">▸</span><span><b>Persistent state.</b> The only component that touches the database; tasks, activity, metrics, workspaces.</span></li>
+          <li><span class="mk">▸</span><span><b>Review & authority.</b> Human-only gates: approve, delete, reopen, restart. Agents can never approve or delete.</span></li>
+          <li><span class="mk">▸</span><span><b>Attribution.</b> Analytics and AI-review verdicts are <i>derived</i> from the log, so they work retroactively.</span></li>
+        </ul>
+      </div>
+      <div class="card agent-card">
+        <div class="hd"><span class="dot" style="background:var(--s-queued)"></span><h3>The agents do</h3><span class="mono">claim · code · submit</span></div>
+        <ul class="lst">
+          <li><span class="mk">▸</span><span><b>Claim one task.</b> A session claims a queued task — the dispatcher spawns, the agent claims.</span></li>
+          <li><span class="mk">▸</span><span><b>Work in isolation.</b> A per-task git worktree at <code>.worktrees/&lt;key&gt;</code> on branch <code>feature/&lt;key&gt;-…</code></span></li>
+          <li><span class="mk">▸</span><span><b>Push, then hand off.</b> The branch is pushed to origin <i>before</i> the result is submitted for review.</span></li>
+          <li><span class="mk">▸</span><span><b>Talk over a protocol.</b> Board ops arrive as MCP tools — <code>get_next_task</code>, <code>submit_result</code>, <code>report_progress</code>.</span></li>
+        </ul>
+      </div>
+      <p class="pull">The board is the <span>persistent state store + UI</span> for an external agent loop.</p>
+    </div>
+  </section>
+
+  <!-- ============ LIFECYCLE ============ -->
+  <section>
+    <p class="eyebrow">The lifecycle · the core invariant</p>
+    <h2 class="sect">A task moves down one pipeline</h2>
+    <p class="sect-lead">Every task walks a small state machine. Each edge is owned by exactly one actor — a human, an agent, or the delivery watcher — and the board refuses any move that isn't in the table.</p>
+
+    <div class="pipe-scroll" role="img" aria-label="Task lifecycle: backlog to queued to in progress to in review to delivering to done">
+      <div class="pipe">
+        <div class="node" style="--nc:var(--s-backlog)">
+          <div class="snum">S · 00</div><div class="sname">backlog</div><div class="sdot"></div>
+          <div class="sdesc">Drafted, not yet released</div>
+        </div>
+        <div class="conn"><span class="who human">human · queue</span><span class="rail"></span></div>
+        <div class="node" style="--nc:var(--s-queued)">
+          <div class="snum">S · 01</div><div class="sname">queued</div><div class="sdot"></div>
+          <div class="sdesc">Waiting for a worker</div>
+        </div>
+        <div class="conn"><span class="who agent">agent · claim</span><span class="rail"></span></div>
+        <div class="node" style="--nc:var(--s-progress)">
+          <div class="snum">S · 02</div><div class="sname">in_progress</div><div class="sdot"></div>
+          <div class="sdesc">Agent coding in a worktree</div>
+        </div>
+        <div class="conn"><span class="who agent">agent · submit</span><span class="rail"></span></div>
+        <div class="node" style="--nc:var(--s-review)">
+          <div class="snum">S · 03</div><div class="sname">in_review</div><div class="sdot"></div>
+          <div class="sdesc">AI first-pass + human gate</div>
+        </div>
+        <div class="conn"><span class="who human">human · approve</span><span class="rail"></span></div>
+        <div class="node" style="--nc:var(--s-deliver)">
+          <div class="snum">S · 04</div><div class="sname">delivering</div><div class="sdot"></div>
+          <div class="sdesc">PR open, CI running</div>
+        </div>
+        <div class="conn"><span class="who watch">watcher · verify</span><span class="rail"></span></div>
+        <div class="node" style="--nc:var(--s-done)">
+          <div class="snum">S · 05</div><div class="sname">done</div><div class="sdot"></div>
+          <div class="sdesc">Merged + pipeline green</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="item"><span class="sw" style="background:var(--brass)"></span>human edge</span>
+      <span class="item"><span class="sw" style="background:var(--s-queued)"></span>agent edge</span>
+      <span class="item"><span class="sw" style="background:var(--s-deliver)"></span>watcher edge (no LLM)</span>
+      <span class="item"><span class="sw" style="background:var(--s-blocked)"></span>blocked — waiting on you</span>
+    </div>
+
+    <div class="edges">
+      <div class="edge"><span class="badge agent">agent</span><p><b>blocked</b> is a spur, not a stage. A stuck session sets <code>blocked</code> with a one-line reason; a human unblocks it back to <code>queued</code>.</p></div>
+      <div class="edge"><span class="badge watch">watcher</span><p>Delivery can <b>bounce back</b>: CI failed or the PR closed unmerged sends the task to <code>queued</code> with a <code>failure/v1</code> note.</p></div>
+      <div class="edge"><span class="badge human">human</span><p><b>Request changes</b> from review returns the task to <code>queued</code> with feedback the next session reads.</p></div>
+      <div class="edge"><span class="badge human">human</span><p>Recovery edges are yours alone: release a stranded claim, reopen a done task, force-complete or pull back a delivering one, <b>restart</b> a skip-listed one.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ SUPERVISORS ============ -->
+  <section>
+    <p class="eyebrow">The engine room · three processes</p>
+    <h2 class="sect">Supervisors watch the board and act</h2>
+    <p class="sect-lead">The board is passive — it never spawns anything. Three headless processes poll it and drive the pipeline forward. They run as separate processes: one Ctrl-C stops all three, and a crash in one leaves the others running.</p>
+
+    <div class="sups">
+      <div class="sup" style="--sc:var(--s-queued)">
+        <div class="name">dispatcher</div>
+        <div class="role">worker supervisor</div>
+        <div class="spec">
+          <div class="row"><span class="k">polls</span><span class="v"><code>queued</code> tasks</span></div>
+          <div class="row"><span class="k">spawns</span><span class="v">one fresh <b>claude&nbsp;-p</b> session <b>per task</b></span></div>
+          <div class="row"><span class="k">recovers</span><span class="v">releases crashed / timed-out claims back to the queue</span></div>
+        </div>
+        <div class="sup-note">A session claims — the dispatcher never claims for it. Talks to the board over MCP.</div>
+      </div>
+
+      <div class="sup" style="--sc:var(--s-review)">
+        <div class="name">reviewer</div>
+        <div class="role">AI-review supervisor</div>
+        <div class="spec">
+          <div class="row"><span class="k">polls</span><span class="v"><code>in_review</code> tasks</span></div>
+          <div class="row"><span class="k">spawns</span><span class="v">a <b>codex / claude</b> session per task</span></div>
+          <div class="row"><span class="k">posts</span><span class="v">an advisory <code>ai-review/v1</code> verdict</span></div>
+        </div>
+        <div class="sup-note">Advisory only — the human still owns approval. Findings are stripped from the worker's payload.</div>
+      </div>
+
+      <div class="sup" style="--sc:var(--s-deliver)">
+        <div class="name">watcher</div>
+        <div class="role">delivery verifier</div>
+        <div class="spec">
+          <div class="row"><span class="k">polls</span><span class="v"><code>delivering</code> tasks</span></div>
+          <div class="row"><span class="k">checks</span><span class="v">PR merged <b>+</b> pipeline green, over plain REST</span></div>
+          <div class="row"><span class="k">decides</span><span class="v">→ <b>done</b>, or bounce → <b>queued</b></span></div>
+        </div>
+        <div class="sup-note">No LLM, no spawn. GitHub / Azure DevOps REST only. The sole agent-actor path into done.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ JOURNEY ============ -->
+  <section>
+    <p class="eyebrow">End to end · one task</p>
+    <h2 class="sect">The path of a single work item</h2>
+    <p class="sect-lead">From an idea you type to a merged, CI-green change — here is the full handoff between you, the fleet, and the git host.</p>
+
+    <div class="journey">
+      <div class="step"><div class="idx">1</div><div class="body"><h4>You create &amp; queue it<span class="actor">human</span></h4><p>A task is born in <code>backlog</code>; you move it to <code>queued</code> when it's ready for the fleet.</p></div></div>
+      <div class="step"><div class="idx">2</div><div class="body"><h4>Dispatched &amp; claimed<span class="actor">dispatcher → agent</span></h4><p>The dispatcher spawns a fresh session; it claims the task and enters <code>in_progress</code>.</p></div></div>
+      <div class="step"><div class="idx">3</div><div class="body"><h4>Coded in a worktree<span class="actor">agent</span></h4><p>The agent works in <code>.worktrees/&lt;key&gt;</code>, commits to <code>feature/&lt;key&gt;-…</code>, and pushes to origin.</p></div></div>
+      <div class="step"><div class="idx">4</div><div class="body"><h4>Submitted for review<span class="actor">agent</span></h4><p><code>submit_result</code> verifies the branch is on origin, then moves the task to <code>in_review</code>.</p></div></div>
+      <div class="step"><div class="idx">5</div><div class="body"><h4>AI first pass<span class="actor">reviewer</span></h4><p>A codex/claude session posts an advisory <code>ai-review/v1</code> verdict beside the diff.</p></div></div>
+      <div class="step"><div class="idx">6</div><div class="body"><h4>You approve<span class="actor">human</span></h4><p>Approval routes to <code>delivering</code> when the workspace origin is a recognizable git host.</p></div></div>
+      <div class="step"><div class="idx">7</div><div class="body"><h4>Delivery verified<span class="actor">watcher</span></h4><p>The watcher polls the PR &amp; pipeline until both are green — or bounces it back with a reason.</p></div></div>
+      <div class="step"><div class="idx">8</div><div class="body"><h4>Done<span class="actor">system</span></h4><p>Merged and green ⇒ <code>done</code>. Metrics and cost are derived from the trail it left behind.</p></div></div>
+    </div>
+  </section>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section>
+    <p class="eyebrow">Architecture · six packages, one core</p>
+    <h2 class="sect">Everything is an adapter over the core</h2>
+    <p class="sect-lead">TypeScript workspaces with project references. One package owns the database and the rules; every other package is a thin adapter that binds its operations to a single DB handle.</p>
+
+    <div class="stack">
+      <div class="layer">
+        <div class="lh"><span class="lt">Supervisors — poll &amp; act</span><span class="ln">separate processes</span></div>
+        <div class="pkgs">
+          <div class="pkg"><div class="pn">dispatcher</div><div class="pr">spawns one worker per queued task</div></div>
+          <div class="pkg"><div class="pn">reviewer</div><div class="pr">advisory AI review of in_review</div></div>
+          <div class="pkg"><div class="pn">watcher</div><div class="pr">verifies delivery over REST</div></div>
+        </div>
+      </div>
+
+      <div class="layer">
+        <div class="lh"><span class="lt">Adapters — the board's surfaces</span><span class="ln">talk to callers</span></div>
+        <div class="pkgs">
+          <div class="pkg"><div class="pn">mcp</div><div class="pr">stdio MCP server — board ops as tools for agent loops</div></div>
+          <div class="pkg"><div class="pn">web</div><div class="pr">Hono API + SSE server · React / Vite board UI</div></div>
+        </div>
+      </div>
+
+      <div class="layer core-layer">
+        <div class="lh"><span class="lt">core — the only package that touches the DB</span><span class="ln">rules live here</span></div>
+        <p class="ld">Lifecycle transitions, one op per file, raw SQL in the repo layer. <code style="font-family:var(--mono);color:var(--brass-2);font-size:.82rem">createCore(db)</code> binds every operation to a single handle — everything above consumes that surface.</p>
+      </div>
+
+      <div class="layer base">
+        <div class="lh"><span class="lt">node:sqlite (WAL) · agentfactory.db</span><span class="ln">built-in, Node ≥ 26</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PRINCIPLES ============ -->
+  <section>
+    <p class="eyebrow">Why it holds together</p>
+    <h2 class="sect">Design principles worth stealing</h2>
+    <p class="sect-lead">A handful of decisions keep the system small, honest, and resilient to agents that crash, time out, or wander off.</p>
+
+    <div class="grid3">
+      <div class="prin"><div class="pi">Derive, don't store</div><h4>The activity log is the truth</h4><p>Metrics, AI-review state, and failures are <i>derived</i> from the log — never denormalized — so they work retroactively and can't drift.</p></div>
+      <div class="prin"><div class="pi">Convention over column</div><h4>Markers ride in comments</h4><p><code>ai-review/v1</code>, <code>failure/v1</code>, <code>restart/v1</code> are parsed from comment bodies — one format, one place, no schema churn.</p></div>
+      <div class="prin"><div class="pi">Stateless workers</div><h4>One fresh session per task</h4><p>No long-lived agent memory to corrupt. A crash just releases the claim; a retry starts clean from the pushed branch.</p></div>
+      <div class="prin"><div class="pi">Isolation</div><h4>A worktree per task</h4><p>Each task gets its own <code>.worktrees/&lt;key&gt;</code> and branch, so parallel agents never collide in the working tree.</p></div>
+      <div class="prin"><div class="pi">Cheap change signal</div><h4>Poll a version string</h4><p><code>getVersion()</code> returns <code>maxTimestamp#count</code>. The UI and MCP diff it to refetch only when something actually moved.</p></div>
+      <div class="prin"><div class="pi">Authority</div><h4>Humans hold the gates</h4><p>Agents advance and submit; they can never approve or delete. Delivery to <code>done</code> is verified by machine, not asserted by the worker.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="fr">
+      <div class="fw">Agent<span>Factory</span></div>
+      <div class="fm">the board conducts · the agents build · you approve</div>
+    </div>
+  </footer>
+
+</div>
+
+</body>
+</html>

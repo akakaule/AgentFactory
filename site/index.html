@@ -62,6 +62,10 @@
   .pcard.draft { border-style:dashed; }
   .pcard.draft .pt::after { content:"draft mockup"; font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--active-2);
            background:color-mix(in srgb,var(--active) 18%,transparent); border-radius:999px; padding:2px 8px; margin-left:10px; vertical-align:2px; }
+  .pcard.feature { grid-column:1 / -1; border-color:color-mix(in srgb,var(--accent) 45%,var(--line-soft));
+           background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 8%,var(--card)),var(--card)); }
+  .pcard.feature .pt::after { content:"start here"; font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--accent-2);
+           background:color-mix(in srgb,var(--accent) 20%,transparent); border-radius:999px; padding:2px 8px; margin-left:10px; vertical-align:2px; }
 
   /* loop strip */
   .loop { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px; padding:20px 22px; }
@@ -509,6 +513,13 @@
 
 <h2 class="sl">Explore</h2>
 <div class="pages">
+  <a class="pcard feature" href="how-it-works.html">
+    <span class="pt">How it works — the whole system on one page <span class="mono">how-it-works.html</span></span>
+    <p>The single-page explainer: the board/agent split, the full task lifecycle through <b>delivering → done</b>, the
+       three supervisors (dispatcher · reviewer · watcher), one task's end-to-end journey, and the six-package
+       architecture. The fastest way to the mental model.</p>
+    <span class="read">read for the whole picture →</span>
+  </a>
   <a class="pcard" href="getting-started.html">
     <span class="pt">Getting started <span class="mono">getting-started.html</span></span>
     <p>Zero to a working agent loop in six click-through steps: start the board, create a workspace, queue a task,
@@ -550,7 +561,8 @@
     <li><span class="n g">3</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide. Progress is narrated with <span class="mono">add_comment</span>, live on the board via SSE.</span></li>
     <li><span class="n g">4</span><span><b>Finish protocol</b> — commit → <span class="mono">git push -u origin</span> → remove the worktree. The pushed branch is the durable record.</span></li>
     <li><span class="n a">5</span><span><b>submit_result</b> — guardrails verify the branch is on origin, fully pushed, and the worktree is gone — <em>then</em> the task lands <b>In Review</b> with summary, branch link, and token metrics. Unpushed work is refused with the commands to fix it.</span></li>
-    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board, starting from the <b>AI first-pass verdict</b> when one is posted (<span class="mono">ai-review/v1</span> chip + findings checklist). Approve → done (past open findings = logged override); Request changes → re-queued with your curated feedback, next claim continues on the <em>same</em> branch. PR opens from the branch; CI fails → comment + Reopen.</span></li>
+    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board, starting from the <b>AI first-pass verdict</b> when one is posted (<span class="mono">ai-review/v1</span> chip + findings checklist). Approve → <span class="mono">delivering</span> (past open findings = logged override); Request changes → re-queued with your curated feedback, next claim continues on the <em>same</em> branch.</span></li>
+    <li><span class="n g">7</span><span><b>Delivery verified — no human needed</b> — approval opens/reuses the PR and moves the task to <span class="mono">delivering</span>; the <b>watcher</b> polls the git host over plain REST until the PR is <b>merged and CI is green</b> → <span class="mono">done</span>. A red build or an unmerged close <b>bounces it back</b> to <span class="mono">queued</span> with a <span class="mono">failure/v1</span> note carrying the real build errors, so the next session fixes the actual failure.</span></li>
   </ol>
 </div>
 
@@ -589,6 +601,13 @@
   </div>
   <div class="box">
     <h3>Recently shipped</h3>
+    <div class="new"><span class="d">2026-07-06</span><span><b>Delivering watcher — done means merged + green</b> — a new <span class="mono">delivering</span> stage and a third supervisor: after you approve, the task rolls to <span class="mono">delivering</span> and the <b>watcher</b> verifies the PR is <b>merged and CI is green</b> over plain GitHub / Azure DevOps REST (no LLM, no spawn) before → <span class="mono">done</span>. A red build or an unmerged close bounces it back to <span class="mono">queued</span> with a <span class="mono">failure/v1</span> note that now carries the real build errors.</span></div>
+    <div class="new"><span class="d">2026-07-05</span><span><b>Serve-all workspaces, self-healing supervisors</b> — the dispatcher/reviewer/watcher now serve <b>every workspace</b> in the DB by default (opt-out list; new workspaces auto-picked-up), with per-workspace watcher credentials. Plus a <b>stale-claim reaper</b> that auto-releases orphaned <span class="mono">in_progress</span> claims, and a <b>Restart task</b> action that resets a maxed-out task's attempt budget without bouncing the dispatcher.</span></div>
+    <div class="new"><span class="d">2026-07-02</span><span><b>PR-review tasks</b> — review a teammate's <b>GitHub or Azure DevOps</b> PR as a first-class board task: it's born in <span class="mono">in_review</span>, and <b>Mark reviewed</b> closes it. Provider-agnostic producers on both hosts feed them onto the board.</span></div>
+    <div class="new"><span class="d">2026-06-30</span><span><b>Per-task change visualization</b> — a self-contained HTML change-overview (Mermaid flow + new/modified file map) attached to a task and shown next to the diff, so the human reviewer sees the shape of a change before reading it.</span></div>
+    <div class="new"><span class="d">2026-06-28</span><span><b>Agent transcript</b> — every task keeps a <b>live-tailing transcript</b> of its agent session plus a persisted artifact you can reopen after the run — the full trail behind each diff.</span></div>
+    <div class="new"><span class="d">2026-06-27</span><span><b>Workspace policy + verify gate</b> — per-workspace engineering-discipline prompts injected into the worker &amp; reviewer, and a <b>verify-command gate</b> that <span class="mono">submit_result</span> must pass before a task can leave <span class="mono">in_progress</span>.</span></div>
+    <div class="new"><span class="d">2026-06-25</span><span><b>Task priority</b> — a human-only priority (Urgent … Low); <span class="mono">get_next_task</span> hands out the highest-priority queued task first, then FIFO within a priority.</span></div>
     <div class="new"><span class="d">2026-06-16</span><span><b>Live telemetry feed</b> — an AF-hosted OTLP <span class="mono">/v1/logs</span> receiver captures per-task token usage from Claude &amp; Codex; the <b>Telemetry</b> view streams a live rolling feed and analytics break cost down by model and workspace.</span></div>
     <div class="new"><span class="d">2026-06-16</span><span><b>Worktree off latest <span class="mono">origin/main</span></b> — a task's first claim branches its worktree from freshly-fetched <span class="mono">origin/main</span>, so every agent starts from current trunk.</span></div>
     <div class="new"><span class="d">2026-06-14</span><span><b>Live agent status</b> — the <b>Live</b> view and each in-progress task's drawer show the running agent's current phase, a rolling milestone feed, and so-far token counts, fed by a new <span class="mono">report_progress</span> MCP tool (the seventh).</span></div>
@@ -606,6 +625,6 @@
 </div>
 
 </div>
-<footer>AgentFactory · index · updated 2026-06-16</footer>
+<footer>AgentFactory · index · updated 2026-07-06</footer>
 </body>
 </html>
