@@ -4,7 +4,7 @@
   "engine": "codex",
   "pollSeconds": 60,
   "maxConcurrent": 1,
-  "reviewMinutes": 10,
+  "reviewMinutes": 20,
   "maxDiffChars": 120000,
   "maxAttempts": 2
 }

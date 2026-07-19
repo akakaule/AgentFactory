@@ -9,7 +9,7 @@ export type ReviewEngine = (typeof REVIEW_ENGINES)[number];
 
 /**
  * `reviewer.config.json` schema. Defaults match the design: Codex engine, a 60 s poll,
- * one review at a time, a 10 min per-review cap, 120k diff chars, two attempts.
+ * one review at a time, a 20 min per-review cap, 120k diff chars, two attempts.
  */
 export const configSchema = z.object({
   /** Path to the agentfactory sqlite DB (read for in_review tasks, written via add_comment). */
@@ -33,7 +33,7 @@ export const configSchema = z.object({
   /** Max concurrent review sessions per workspace. */
   maxConcurrent: z.number().int().positive().default(1),
   /** Hard wall-clock cap per review before the supervisor kills it. */
-  reviewMinutes: z.number().positive().default(10),
+  reviewMinutes: z.number().positive().default(20),
   /** The diff is truncated to this many chars before going into the prompt (0 = no limit). */
   maxDiffChars: z.number().int().nonnegative().default(120000),
   /** Attempts a task gets before it is skip-listed (left for a human). */

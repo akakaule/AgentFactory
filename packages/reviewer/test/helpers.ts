@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { openCore, type Core, type Stage, type BranchDiff } from '@agentfactory/core';
 import type { ReviewerConfig } from '../src/config.js';
-import type { ReviewerDeps, LogWriter, SpawnFn, SpawnRequest } from '../src/types.js';
+import type { ReviewerDeps, LogWriter, SpawnFn, SpawnRequest, SpawnedChild } from '../src/types.js';
 
 /** A fake engine child the test drives: push stdout/stderr, then exit or fail. */
 export class FakeChild extends EventEmitter {
@@ -145,7 +145,7 @@ export function makeConfig(overrides: Partial<ReviewerConfig> = {}): ReviewerCon
     engine: 'codex',
     pollSeconds: 60,
     maxConcurrent: 1,
-    reviewMinutes: 10,
+    reviewMinutes: 20,
     maxDiffChars: 120000,
     maxAttempts: 2,
     ...overrides,
@@ -157,6 +157,8 @@ export interface DepsOverrides {
   console?: FakeConsole;
   computeDiff?: (repoPath: string, branch: string) => Promise<BranchDiff>;
   readOutput?: (path: string) => string;
+  clearOutput?: (path: string) => void;
+  terminateProcessTree?: (child: SpawnedChild, signal: NodeJS.Signals) => void;
 }
 
 export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = {}): ReviewerDeps {
@@ -168,6 +170,8 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
       overrides.computeDiff ?? (async () => ({ baseRef: 'main', diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1 })),
     openLog: () => noopLog(),
     readOutput: overrides.readOutput ?? (() => ''),
+    clearOutput: overrides.clearOutput ?? (() => {}),
+    terminateProcessTree: overrides.terminateProcessTree ?? ((child, signal) => void child.kill(signal)),
     logDir: '/logs',
     now: overrides.now ?? (() => 0),
     baseEnv: {},

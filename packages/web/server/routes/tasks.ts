@@ -121,8 +121,8 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/unarchive', (c) => c.json(core.unarchiveTask(c.req.param('key'))));
 
-  // Restart a stuck (skip-listed) queued task: reset its attempt budget so the dispatcher retries
-  // it — no supervisor bounce. Posts a restart/v1 marker that clears the derived failure chip.
+  // Restart a current skip-listed dispatcher/reviewer task without changing its lifecycle status.
+  // The restart/v1 marker clears the derived failure and resets the owning supervisor's budget.
   r.post('/:key/restart', (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c))));
 
   r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));

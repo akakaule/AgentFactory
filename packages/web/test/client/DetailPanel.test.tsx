@@ -23,6 +23,7 @@ vi.mock('../../client/src/api.js', () => ({
     addAttachment: vi.fn().mockResolvedValue({}),
     archive: vi.fn().mockResolvedValue({}),
     unarchive: vi.fn().mockResolvedValue({}),
+    restart: vi.fn().mockResolvedValue({}),
     listAgents: vi.fn().mockResolvedValue([]),
   },
   eventsUrl: () => '/events',
@@ -152,6 +153,7 @@ async function getApiMock() {
     updateTask: ReturnType<typeof vi.fn>;
     addTaskDependency: ReturnType<typeof vi.fn>;
     removeTaskDependency: ReturnType<typeof vi.fn>;
+    restart: ReturnType<typeof vi.fn>;
     getDiff: ReturnType<typeof vi.fn>;
     deleteTask: ReturnType<typeof vi.fn>;
   };
@@ -358,6 +360,29 @@ describe('DetailPanel', () => {
 
     await screen.findByText('Reopened prerequisite');
     expect(screen.queryByText('Waiting on 1 dependency')).not.toBeInTheDocument();
+  });
+
+  it('shows a restart failure instead of making the button appear inert', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask,
+      failure: {
+        reason: 'review_failed',
+        detail: 'timed out after 10m',
+        source: 'reviewer',
+        attempt: 2,
+        maxAttempts: 2,
+        skipListed: true,
+        at: '2024-01-01T01:00:00Z',
+      },
+    });
+    mocked.restart.mockRejectedValue(new Error('restart rejected'));
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-11" tasks={[]} onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Restart task' }));
+    expect(await screen.findByText('restart rejected')).toBeInTheDocument();
   });
 
   it('lets a backlog task be moved to another workspace while editing', async () => {

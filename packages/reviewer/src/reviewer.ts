@@ -71,11 +71,7 @@ export class Reviewer {
       this.timer = null;
     }
     for (const session of this.running.values()) {
-      try {
-        session.child.kill('SIGTERM');
-      } catch {
-        /* best-effort */
-      }
+      this.deps.terminateProcessTree(session.child, 'SIGTERM');
     }
   }
 
@@ -144,13 +140,19 @@ export class Reviewer {
     for (const session of this.running.values()) {
       if (session.timedOut || session.settled) continue;
       if (now - session.startedAtMs > capMs) {
+        // Codex writes --output-last-message only after completing its final answer. If that
+        // artifact is already present at the polling boundary, keep the completed review and
+        // merely terminate a wrapper/descendant that has not exited cleanly yet. Claude stdout
+        // is streaming and may be partial, so it is intentionally not recovered this way.
+        if (session.outputFile && this.readVerdict(session).trim()) {
+          this.appendLog(session, `\n[reviewer] completed verdict found at timeout boundary; accepting and cleaning up process tree\n`);
+          this.reap(session, 0);
+          this.deps.terminateProcessTree(session.child, 'SIGKILL');
+          continue;
+        }
         session.timedOut = true;
         this.appendLog(session, `\n[reviewer] review exceeded reviewMinutes (${this.config.reviewMinutes}m); killing\n`);
-        try {
-          session.child.kill('SIGKILL');
-        } catch {
-          /* the exit handler still runs the failure path */
-        }
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
       }
     }
   }
@@ -183,6 +185,7 @@ export class Reviewer {
     let slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
     const inReview = this.deps.core.listTasks({ status: 'in_review', workspace });
+    this.clearRestarted(inReview);
     for (const task of inReview) {
       if (slots <= 0) break;
       if (this.skipped.has(task.key)) continue;
@@ -195,12 +198,24 @@ export class Reviewer {
     // delivering task — critically evaluate it and post a feedback-eval/v1 verdict.
     slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
-    for (const task of this.deps.core.listTasks({ status: 'delivering', workspace })) {
+    const delivering = this.deps.core.listTasks({ status: 'delivering', workspace });
+    this.clearRestarted(delivering);
+    for (const task of delivering) {
       if (slots <= 0) break;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue;
       if (!this.needsEval(this.deps.core.getTask(task.key))) continue;
       if (await this.startReview(workspace, task.key, 'feedback-eval')) slots -= 1;
+    }
+  }
+
+  /** A restart/v1 marker clears the derived failure; forgive the matching in-memory budget. */
+  private clearRestarted(tasks: Task[]): void {
+    for (const task of tasks) {
+      if (!this.skipped.has(task.key) || task.failure !== null) continue;
+      this.skipped.delete(task.key);
+      this.attempts.delete(task.key);
+      this.console.log(`[reviewer] ${task.key} restarted by operator — attempt budget reset`);
     }
   }
 
@@ -298,6 +313,7 @@ export class Reviewer {
     const label = `${workspace}#${key}-r${attempt}`;
     const logPath = `${this.deps.logDir}/${key}-review-${attempt}.log`;
     const outputFile = engine === 'codex' ? `${this.deps.logDir}/${key}-review-${attempt}.out` : null;
+    if (outputFile) this.deps.clearOutput(outputFile);
     const logWriter = this.deps.openLog(logPath);
     const args = buildEngineArgs({ engine, model: this.config.model, outputFile: outputFile ?? '' });
     const env: NodeJS.ProcessEnv = { ...(this.deps.baseEnv ?? {}) };
@@ -353,16 +369,21 @@ export class Reviewer {
     this.running.delete(session.label);
     session.logWriter.end();
 
-    if (session.timedOut) {
+    const verdict = this.readVerdict(session);
+    const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
+    if (session.timedOut && !completedCodexVerdict) {
       this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
       return;
     }
 
-    const verdict = this.readVerdict(session);
     if (!verdict.trim()) {
       const reason = code === 0 ? 'engine produced no verdict' : `engine exited code ${code ?? 'null'} with no verdict`;
       this.burnAttempt(session.key, session.attempt, reason);
       return;
+    }
+
+    if (session.timedOut) {
+      this.console.log(`[reviewer] accepting completed verdict for ${session.key} found while terminating timed-out process tree`);
     }
 
     const body = session.mode === 'feedback-eval' ? ensureFeedbackEvalMarker(verdict) : ensureMarker(verdict, session.engine);

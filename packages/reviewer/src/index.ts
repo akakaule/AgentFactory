@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from 'node:child_process';
-import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { openCore, branchDiff, fetchRemoteRef } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Reviewer } from './reviewer.js';
 import { resolveEngineCommand, pickFromWhich } from './engine.js';
+import { terminateProcessTree } from './processTree.js';
 import type { ReviewerDeps, LogWriter, SpawnFn } from './types.js';
 
 // All diagnostics go to stderr/stdout via console; this is a long-running supervisor.
@@ -67,6 +68,8 @@ const readOutput = (path: string): string => {
   }
 };
 
+const clearOutput = (path: string): void => rmSync(path, { force: true });
+
 /** PATH lookup for an engine shim via `where` (Windows) / `which` (POSIX). */
 function lookupEngine(name: string): string | null {
   const finder = process.platform === 'win32' ? 'where' : 'which';
@@ -85,6 +88,8 @@ const deps: ReviewerDeps = {
   fetchRef: (repoPath, ref) => fetchRemoteRef(repoPath, ref),
   openLog,
   readOutput,
+  clearOutput,
+  terminateProcessTree,
   logDir,
   now: () => Date.now(),
   baseEnv: process.env,

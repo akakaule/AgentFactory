@@ -267,6 +267,22 @@ describe('failure paths', () => {
   const failureNote = (t: { activity: { type: string; body: string }[] }) =>
     t.activity.some((a) => a.type === 'comment' && a.body.startsWith('failure/v1'));
 
+  it('clears a prior Codex output file before starting a reused attempt number', async () => {
+    const core = makeCore();
+    seedInReview(core, 'ws', 'Fresh output', 'implementation');
+    const { spawn } = makeFakeSpawn();
+    const cleared: string[] = [];
+    const deps = {
+      ...makeDeps(core, spawn),
+      clearOutput: (path: string) => void cleared.push(path),
+    };
+    const r = new Reviewer(makeConfig(), deps);
+
+    await r.tick();
+
+    expect(cleared).toEqual(['/logs/AF-1-review-1.out']);
+  });
+
   it('an empty verdict posts a failure note, burns an attempt, and skip-lists at maxAttempts', async () => {
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Empties', 'implementation');
@@ -298,30 +314,117 @@ describe('failure paths', () => {
     expect(calls.length).toBe(2);
   });
 
-  it('a review past reviewMinutes is killed, posts a failure note, and burns an attempt', async () => {
+  it('accepts a completed Codex verdict visible at the timeout boundary', async () => {
     let nowMs = 0;
     const core = makeCore();
-    const key = seedInReview(core, 'ws', 'Hangs', 'implementation');
+    const key = seedInReview(core, 'ws', 'Finished at the boundary', 'implementation');
     const { spawn, calls } = makeFakeSpawn();
     const log = makeFakeConsole();
+    const terminated: unknown[] = [];
+    const deps = {
+      ...makeDeps(core, spawn, { now: () => nowMs, readOutput: () => aiReviewBody(0), console: log }),
+      terminateProcessTree: (child: unknown) => {
+        terminated.push(child);
+        calls[0]!.child.kill('SIGKILL');
+      },
+    };
     const r = new Reviewer(
       makeConfig({ reviewMinutes: 10 }),
-      makeDeps(core, spawn, { now: () => nowMs, readOutput: () => aiReviewBody(0), console: log }),
+      deps,
     );
 
     await r.tick(); // spawn at t=0
     expect(calls.length).toBe(1);
 
     nowMs = 11 * 60_000; // past the 10-minute cap
-    await r.tick(); // enforceTimeouts → kill → reap (timed out)
+    await r.tick();
 
-    expect(calls[0]!.child.killed).toBe(true);
+    expect(terminated).toEqual([calls[0]!.child]);
+    expect(core.getTask(key).aiReview?.verdict).toBe('clean');
+    expect(core.getTask(key).failure).toBeNull();
+    expect(r.isSkipListed(key)).toBe(false);
+  });
+
+  it('a true timeout terminates the process tree, posts a failure note, and burns an attempt', async () => {
+    let nowMs = 0;
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Hangs', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const terminated: unknown[] = [];
+    const deps = {
+      ...makeDeps(core, spawn, { now: () => nowMs, readOutput: () => '', console: log }),
+      terminateProcessTree: (child: unknown) => {
+        terminated.push(child);
+        calls[0]!.child.kill('SIGKILL');
+      },
+    };
+    const r = new Reviewer(makeConfig({ reviewMinutes: 10 }), deps);
+
+    await r.tick();
+    nowMs = 11 * 60_000;
+    await r.tick();
+
+    expect(terminated).toEqual([calls[0]!.child]);
     const t = core.getTask(key);
-    expect(failureNote(t)).toBe(true); // timeout posts a failure/v1 note
+    expect(failureNote(t)).toBe(true);
     expect(t.failure?.reason).toBe('review_failed');
     expect(t.status).toBe('in_review');
-    expect(r.isSkipListed(key)).toBe(false); // only one attempt burned (maxAttempts 2)
+    expect(r.isSkipListed(key)).toBe(false);
     expect(log.warnings.some((w) => w.includes('timed out'))).toBe(true);
+  });
+
+  it('accepts a Codex verdict that appears while the timed-out process tree is terminating', async () => {
+    let nowMs = 0;
+    let verdict = '';
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Finishes while terminating', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const deps = {
+      ...makeDeps(core, spawn, { now: () => nowMs, readOutput: () => verdict, console: makeFakeConsole() }),
+      terminateProcessTree: () => {
+        verdict = aiReviewBody(0);
+        calls[0]!.child.kill('SIGKILL');
+      },
+    };
+    const r = new Reviewer(makeConfig({ reviewMinutes: 10 }), deps);
+
+    await r.tick();
+    nowMs = 11 * 60_000;
+    await r.tick();
+
+    expect(core.getTask(key).aiReview?.verdict).toBe('clean');
+    expect(core.getTask(key).failure).toBeNull();
+    expect(r.isSkipListed(key)).toBe(false);
+  });
+
+  it('an operator restart clears a reviewer skip-list and retries from attempt one', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Retry review', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    let verdict = '';
+    const r = new Reviewer(
+      makeConfig({ maxAttempts: 2 }),
+      makeDeps(core, spawn, { readOutput: () => verdict, console: makeFakeConsole() }),
+    );
+
+    await r.tick();
+    calls[0]!.child.exit(0);
+    await r.tick();
+    calls[1]!.child.exit(0);
+    expect(r.isSkipListed(key)).toBe(true);
+    expect(core.getTask(key).failure?.skipListed).toBe(true);
+
+    core.restartTask(key);
+    await r.tick();
+
+    expect(r.isSkipListed(key)).toBe(false);
+    expect(calls.length).toBe(3);
+    expect(calls[2]!.req.args).toContain('/logs/AF-1-review-1.out');
+    verdict = aiReviewBody(0);
+    calls[2]!.child.exit(0);
+    expect(core.getTask(key).aiReview?.verdict).toBe('clean');
+    expect(core.getTask(key).failure).toBeNull();
   });
 
   it('a later successful review supersedes the failure note (failure cleared)', async () => {

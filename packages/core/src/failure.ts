@@ -19,8 +19,8 @@ const MARKER = /^failure\/v1\b/i;
  * The `restart/v1` marker convention — an operator "restart" note. Posted (human actor) when a
  * skip-listed task is restarted from the board: it supersedes the task's latest `failure/v1`
  * note the same way a fresh result does, so the derived FailureSummary clears (the board drops
- * the skip-list chip) and the dispatcher — which follows the derived failure state — forgets the
- * task's burned attempts and retries it with a fresh budget, without a supervisor bounce.
+ * the skip-list chip) and the owning supervisor — which follows the derived failure state —
+ * forgets the task's burned attempts and retries it with a fresh budget, without a bounce.
  */
 const RESTART_MARKER = /^restart\/v1\b/i;
 

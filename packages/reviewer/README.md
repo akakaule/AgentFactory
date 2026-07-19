@@ -58,7 +58,7 @@ reviews them) and the web server, all pointed at the same DB.
 | `model` | — (optional) | Model override (codex `-m`, claude `--model`). |
 | `pollSeconds` | `60` | Queue poll interval. |
 | `maxConcurrent` | `1` | Max concurrent reviews **per workspace**. |
-| `reviewMinutes` | `10` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |
+| `reviewMinutes` | `20` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |
 | `maxDiffChars` | `120000` | The diff is truncated to this many chars before the prompt (0 = no limit). |
 | `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left for a human reviewer. |
 
@@ -87,8 +87,10 @@ server's `/v1/logs` receiver with `task.key` set — see [`docs/token-telemetry.
 - **Reaps** each exit: reads the verdict (codex output file / claude stdout), ensures the
   `ai-review/v1` marker, and posts it via `add_comment` (actor `agent`). A clean doc-stage
   verdict auto-advances; everything else stays `in_review`.
-- **Fails quietly** (advisory): a timeout, crash, or empty verdict posts **nothing**, burns an
-  attempt, and skip-lists after `maxAttempts` — the task simply waits for a human reviewer.
+- **Fails visibly** (advisory): a timeout, crash, or empty verdict posts a `failure/v1` note,
+  burns an attempt, and skip-lists after `maxAttempts`. Restart resets that budget in place.
+- **Cleans up the full process tree** on timeout/shutdown, including Windows CLI shims. A completed
+  Codex final-message artifact found at the timeout boundary is posted instead of discarded.
 - **Logs** every review to `logs/<key>-review-<n>.log` (engine stdout + stderr); codex's
   captured verdict also lands in `logs/<key>-review-<n>.out`.
 

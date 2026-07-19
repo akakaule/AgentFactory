@@ -260,7 +260,15 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
                   failure={task.failure}
                   activity={task.activity}
                   {...(task.failure.skipListed
-                    ? { onRestart: () => { void api.restart(task.key).then(afterMutation).catch(() => {}); } }
+                    ? { onRestart: () => {
+                      const requestedKey = task.key;
+                      setError(null);
+                      void api.restart(requestedKey)
+                        .then(afterMutation)
+                        .catch((e: Error) => {
+                          if (currentTaskKey.current === requestedKey) setError(e.message);
+                        });
+                    } }
                     : {})}
                 />
               )}

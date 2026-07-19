@@ -443,7 +443,25 @@ describe('tasks REST API', () => {
       expect(body.failure).toBeNull(); // the restart/v1 marker superseded the failure note
     });
 
-    it('restarting a non-queued task → 409', async () => {
+    it('restarts a skip-listed in-review reviewer task → 200, status preserved', async () => {
+      const task = core.createTask({ title: 'Review stuck', spec: 'Spec', acceptanceCriteria: 'AC' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(task.key, { summary: 'Done!' });
+      core.addComment(task.key, {
+        actor: 'agent',
+        body: 'failure/v1 — timed out after 10m (attempt 2/2)\n\n```json\n{"reason":"review_failed","detail":"timed out after 10m","source":"reviewer","attempt":2,"maxAttempts":2}\n```',
+      });
+
+      const res = await post(app, `/api/tasks/${task.key}/restart`, {});
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; failure: unknown };
+      expect(body.status).toBe('in_review');
+      expect(body.failure).toBeNull();
+    });
+
+    it('restarting a task without a supervisor retry state → 409', async () => {
       await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' }); // backlog AF-1
       const res = await post(app, '/api/tasks/AF-1/restart', {});
       expect(res.status).toBe(409);

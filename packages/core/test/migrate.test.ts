@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 21 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 21 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +117,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 21 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -264,6 +264,29 @@ describe('runMigrations', () => {
 
     db.prepare('DELETE FROM task WHERE id=?').run(first);
     expect(db.prepare('SELECT count(*) c FROM task_dependency').get()).toMatchObject({ c: 0 });
+  });
+
+  it('migration #22 reconciles a version-21 database that is missing task_dependency', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+
+    // Simulate a deployed database that consumed migration slot #21 on a divergent branch. Its
+    // unknown column must survive, while the missing dependency schema is restored in the next
+    // positional migration slot.
+    db.exec('DROP TABLE task_dependency');
+    db.exec('ALTER TABLE task ADD COLUMN auto_review_enabled INTEGER');
+    db.exec('PRAGMA user_version = 21');
+
+    runMigrations(db);
+
+    expect(tables(db)).toContain('task_dependency');
+    const taskColumns = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((column) => column.name);
+    expect(taskColumns).toContain('auto_review_enabled');
+    const indexes = (db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
+    ).all() as Array<{ name: string }>).map((row) => row.name);
+    expect(indexes).toContain('idx_task_dependency_reverse');
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 });
   });
 
   it('enforces the stage CHECK constraint', () => {

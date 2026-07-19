@@ -66,6 +66,10 @@ export interface ReviewerDeps {
   openLog: (path: string) => LogWriter;
   /** Reads an engine's captured final message (codex `--output-last-message` file); '' if absent. */
   readOutput: (path: string) => string;
+  /** Removes a prior Codex final-message file before an attempt number is reused. */
+  clearOutput: (path: string) => void;
+  /** Terminates the spawned engine and all descendants (important for Windows cmd shims). */
+  terminateProcessTree: (child: SpawnedChild, signal: NodeJS.Signals) => void;
   /** Directory for per-review log + engine output files. */
   logDir: string;
   /** Epoch milliseconds — injected so review timeouts are testable without real time. */

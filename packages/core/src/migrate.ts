@@ -120,6 +120,10 @@ const MIGRATIONS: Migration[] = [
     if (!cols.includes('prompt_overrides')) db.exec(MIGRATION_20_SQL);
   },
   (db) => db.exec(MIGRATION_21_SQL),
+  // #22 reconciles databases where a divergent branch already consumed positional slot #21.
+  // MIGRATION_21_SQL uses CREATE TABLE/INDEX IF NOT EXISTS, so this creates the dependency schema
+  // only when missing and is a no-op for fresh or correctly migrated databases.
+  (db) => db.exec(MIGRATION_21_SQL),
 ];
 
 export function runMigrations(db: DB): void {
