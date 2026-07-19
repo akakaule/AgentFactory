@@ -11,6 +11,7 @@ import { parseFailureComment, summarizeFailure } from '../failure.js';
 import { deliveryByTaskIds } from './delivery.js';
 import { tokenAggregateFor } from './metrics.js';
 import { nowIso } from '../time.js';
+import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
@@ -20,12 +21,19 @@ export interface TaskRow {
   claimed_by: string | null; claimed_at: string | null; branch: string | null; plan: string | null;
   archived_at: string | null;
   original_spec: string | null; original_acceptance_criteria: string | null;
+  unmet_dependency_count: number;
 }
 
 // every Task/TaskDetail payload carries the workspace slug (and repoPath + discipline on detail),
 // so all task SELECTs go through this JOIN
 const SELECT_TASK =
-  'SELECT task.*, w.name AS workspace_name, w.repo_path AS workspace_repo_path, w.policy AS workspace_policy, w.verify_command AS workspace_verify_command FROM task JOIN workspace w ON w.id = task.workspace_id';
+  `SELECT task.*, w.name AS workspace_name, w.repo_path AS workspace_repo_path,
+          w.policy AS workspace_policy, w.verify_command AS workspace_verify_command,
+          (SELECT COUNT(*)
+           FROM task_dependency dependency
+           JOIN task prerequisite ON prerequisite.id = dependency.depends_on_task_id
+           WHERE dependency.task_id = task.id AND prerequisite.status != 'done') AS unmet_dependency_count
+   FROM task JOIN workspace w ON w.id = task.workspace_id`;
 
 // aiReview + failure are derived (latest ai-review / failure comment) and layered on by the
 // DB-aware paths below; toTask itself is pure and defaults both to null.
@@ -33,6 +41,7 @@ export function toTask(r: TaskRow): Task {
   return {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
+    unmetDependencyCount: r.unmet_dependency_count,
     claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null, delivery: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
@@ -112,6 +121,8 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
     links: linksFor(db, r.id),
     attachments: attachmentsMeta(db, r.id),
+    dependencies: dependenciesFor(db, r.id),
+    dependents: dependentsFor(db, r.id),
     metrics: {
       ...deriveTaskMetrics(activitySteps(db, r.id), nowIso()),
       ...tokenAggregateFor(db, r.id),
@@ -199,8 +210,17 @@ export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefin
   // hold unconditionally rather than by inference. The kind guard is defense in depth:
   // a pr-review task is reviewed, never implemented (updateStatus blocks it from ever
   // reaching 'queued'), so a worker must never claim one even if one is stranded there.
+  const eligible = `task.status='queued'
+    AND task.kind != 'pr-review'
+    AND task.archived_at IS NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM task_dependency dependency
+      JOIN task prerequisite ON prerequisite.id = dependency.depends_on_task_id
+      WHERE dependency.task_id = task.id AND prerequisite.status != 'done'
+    )`;
   return (workspaceId === undefined
-    ? db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.kind != 'pr-review' AND task.archived_at IS NULL ORDER BY task.seq ASC LIMIT 1`).get()
-    : db.prepare(`${SELECT_TASK} WHERE task.status='queued' AND task.kind != 'pr-review' AND task.archived_at IS NULL AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
+    ? db.prepare(`${SELECT_TASK} WHERE ${eligible} ORDER BY task.seq ASC LIMIT 1`).get()
+    : db.prepare(`${SELECT_TASK} WHERE ${eligible} AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
   ) as TaskRow | undefined;
 }

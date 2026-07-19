@@ -58,6 +58,14 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
       {task.spec && <div className="af-card-spec">{task.spec}</div>}
       <div className="af-card-meta">
         <span className="af-chip" style={{ color: STAGE_COLORS[task.stage] }}>{STAGE_LABELS[task.stage]}</span>
+        {(task.status === 'backlog' || task.status === 'queued') && task.unmetDependencyCount > 0 && (
+          <span
+            className="af-dep-wait-chip"
+            title={`This task cannot start until ${task.unmetDependencyCount} ${task.unmetDependencyCount === 1 ? 'dependency is' : 'dependencies are'} done.`}
+          >
+            {I.link({})} Waiting on {task.unmetDependencyCount}
+          </span>
+        )}
         {/* branch exists by convention once a worker claims the task — but only at the
             implementation stage; doc-stage claims never touch the repo */}
         {task.claimedAt && task.stage === 'implementation' && <span className="af-chip">{I.branch({})}<span className="tx">{taskBranch(task.key, task.title)}</span></span>}

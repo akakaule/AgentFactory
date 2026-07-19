@@ -25,6 +25,18 @@ export function taskRoutes(core: Core) {
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
 
+  r.put('/:dependentKey/dependencies/:dependencyKey', (c) =>
+    c.json(core.addTaskDependency(
+      c.req.param('dependentKey'),
+      c.req.param('dependencyKey'),
+    )));
+
+  r.delete('/:dependentKey/dependencies/:dependencyKey', (c) =>
+    c.json(core.removeTaskDependency(
+      c.req.param('dependentKey'),
+      c.req.param('dependencyKey'),
+    )));
+
   r.get('/:key/diff', async (c) => {
     const task = core.getTask(c.req.param('key'));
     const branchLink = task.links.filter((l) => l.kind === 'branch').at(-1);

@@ -323,3 +323,18 @@ ALTER TABLE workspace ADD COLUMN pat TEXT;
 export const MIGRATION_20_SQL = `
 ALTER TABLE workspace ADD COLUMN prompt_overrides TEXT;
 `;
+
+// Migration #21 — directed task dependencies. A row (task_id, depends_on_task_id) means the
+// first task cannot be claimed until the second task is done. The graph and lifecycle rules are
+// enforced by the core operation; the table itself provides endpoint integrity, uniqueness,
+// self-link defense in depth, and automatic cleanup when either task is deleted.
+export const MIGRATION_21_SQL = `
+CREATE TABLE IF NOT EXISTS task_dependency (
+  task_id            INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  depends_on_task_id INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  created_at         TEXT NOT NULL,
+  PRIMARY KEY (task_id, depends_on_task_id),
+  CHECK (task_id <> depends_on_task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_dependency_reverse ON task_dependency(depends_on_task_id);
+`;

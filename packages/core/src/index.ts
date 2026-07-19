@@ -9,6 +9,7 @@ export { deleteTask } from './ops/deleteTask.js';
 export { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
 export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
+export { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
@@ -61,6 +62,7 @@ import { deleteTask } from './ops/deleteTask.js';
 import { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
 import { listTasks } from './ops/listTasks.js';
 import { getTask } from './ops/getTask.js';
+import { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.js';
 import { claimNextTask, type ClaimOptions } from './ops/claimNextTask.js';
 import { addComment } from './ops/addComment.js';
 import { submitResult } from './ops/submitResult.js';
@@ -115,6 +117,8 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     archiveDoneTasks: (opts: { workspace?: string | undefined } = {}) => archiveDoneTasks(db, opts),
     listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined; archived?: boolean | undefined } = {}) => listTasks(db, opts),
     getTask: (key: string) => getTask(db, key),
+    addTaskDependency: (dependentKey: string, dependencyKey: string) => addTaskDependency(db, dependentKey, dependencyKey),
+    removeTaskDependency: (dependentKey: string, dependencyKey: string) => removeTaskDependency(db, dependentKey, dependencyKey),
     claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),

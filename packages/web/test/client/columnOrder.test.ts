@@ -4,9 +4,10 @@ import type { Task } from '../../client/src/types.js';
 
 const t = (over: Partial<Task> = {}): Task => ({
   id: 1, key: 'AF-1', title: 'T', spec: '', acceptanceCriteria: '',
-  status: 'done', stage: 'implementation', resultSummary: null, seq: 1,
+  status: 'done', stage: 'implementation', kind: 'code', resultSummary: null, seq: 1,
   workspace: 'default', claimedBy: null, claimedAt: null, archivedAt: null,
-  aiReview: null, failure: null, createdAt: '2026-01-01T00:00:00.000Z',
+  aiReview: null, failure: null, delivery: null, unmetDependencyCount: 0,
+  createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z', ...over,
 });
 

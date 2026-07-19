@@ -6,8 +6,10 @@ import type { Task } from '../../client/src/types.js';
 
 function makeTask(key: string, title: string, status: Task['status'], workspace = 'default'): Task {
   return {
-    id: Math.random(), key, title, status, stage: 'implementation', spec: 'spec', acceptanceCriteria: 'ac',
+    id: Math.random(), key, title, status, stage: 'implementation', kind: 'code', spec: 'spec', acceptanceCriteria: 'ac',
     resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null, archivedAt: null, aiReview: null, failure: null,
+    unmetDependencyCount: 0,
+    delivery: null,
     createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
   };
 }
@@ -32,6 +34,28 @@ describe('ListView', () => {
     expect(screen.getByText('In Progress')).toBeInTheDocument();
     expect(screen.getByText('worker-1')).toBeInTheDocument();
     expect(screen.getByText('you')).toBeInTheDocument();
+  });
+
+  it('shows when a row is waiting on unmet dependencies', () => {
+    render(
+      <ListView
+        tasks={[{ ...makeTask('AF-2', 'Waiting task', 'queued'), unmetDependencyCount: 1 }]}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Waiting on 1')).toBeInTheDocument();
+  });
+
+  it('does not show waiting on a row after the task has started', () => {
+    render(
+      <ListView
+        tasks={[{ ...makeTask('AF-2', 'Active task', 'in_progress'), unmetDependencyCount: 1 }]}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('Waiting on 1')).not.toBeInTheDocument();
   });
 
   it('calls onOpen with the task key when a row is clicked', async () => {

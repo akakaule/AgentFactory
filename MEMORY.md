@@ -1,3 +1,6 @@
 # AgentFactory Memory
 
 - Delivery watcher pattern: when a git-host PR is open but cannot be completed for a host-reported reason such as merge conflicts, do not leave the task in `delivering` and do not hide it under generic CI failure. Add a specific `failure/v1` reason, bounce to `queued`, and include same-branch repair instructions so the dispatcher reclaims the persisted branch and updates the existing PR.
+- Dependency waiting is claim-readiness, not a universal task state: only Backlog/Queued dependents should display "Waiting on N". If a prerequisite is reopened after its dependent starts, the unmet count may rise but must not imply that active or completed work was interrupted.
+- A successful Vite production build does not typecheck the React client. When a required `Task`/`TaskDetail` field is added, run `npm -w packages/web run typecheck:client` and update every typed fixture; preserve `exactOptionalPropertyTypes` by omitting optional props instead of passing explicit `undefined`.
+- When a drawer navigates between entity keys without unmounting, guard async detail responses by both the current key and a request generation. Otherwise an older request can resolve last and pair the new header with stale body/actions.

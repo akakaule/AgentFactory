@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailPanel } from '../../client/src/components/DetailPanel.js';
 import type { TaskDetail } from '../../client/src/types.js';
@@ -10,6 +10,8 @@ vi.mock('../../client/src/api.js', () => ({
     getTask: vi.fn(),
     createTask: vi.fn(),
     updateTask: vi.fn().mockResolvedValue({}),
+    addTaskDependency: vi.fn().mockResolvedValue({}),
+    removeTaskDependency: vi.fn().mockResolvedValue({}),
     setStatus: vi.fn().mockResolvedValue({}),
     approve: vi.fn().mockResolvedValue({}),
     requestChanges: vi.fn().mockResolvedValue({}),
@@ -44,12 +46,20 @@ const noMetrics: TaskDetail['metrics'] = {
   model: null, tokensIn: null, tokensOut: null, costUsd: null,
 };
 
-const backlogTask: TaskDetail = {
+type DependencySummary = Pick<TaskDetail, 'key' | 'title' | 'status' | 'workspace'>;
+type DependencyAwareTaskDetail = TaskDetail & {
+  dependencies: DependencySummary[];
+  dependents: DependencySummary[];
+  unmetDependencyCount: number;
+};
+
+const backlogTask: DependencyAwareTaskDetail = {
   id: 1,
   key: 'AF-10',
   title: 'My backlog task',
   status: 'backlog',
   stage: 'implementation',
+  kind: 'code',
   branch: null,
   plan: null,
   spec: 'This is the spec',
@@ -63,10 +73,16 @@ const backlogTask: TaskDetail = {
   archivedAt: null,
   aiReview: null,
   failure: null,
+  delivery: null,
+  unmetDependencyCount: 0,
+  dependencies: [],
+  dependents: [],
   originalSpec: null,
   originalAcceptanceCriteria: null,
   policy: null,
   verifyCommand: null,
+  hasVisualization: false,
+  visualizationGeneratedAt: null,
   metrics: noMetrics,
   attachments: [],
   createdAt: '2024-01-01T00:00:00Z',
@@ -134,6 +150,8 @@ async function getApiMock() {
     requestChanges: ReturnType<typeof vi.fn>;
     addComment: ReturnType<typeof vi.fn>;
     updateTask: ReturnType<typeof vi.fn>;
+    addTaskDependency: ReturnType<typeof vi.fn>;
+    removeTaskDependency: ReturnType<typeof vi.fn>;
     getDiff: ReturnType<typeof vi.fn>;
     deleteTask: ReturnType<typeof vi.fn>;
   };
@@ -150,6 +168,196 @@ describe('DetailPanel', () => {
     expect(screen.getByText('These are the acceptance criteria')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'PR #42' })).toHaveAttribute('href', 'https://example.com/pr/42');
     expect(screen.getByText('A comment here')).toBeInTheDocument();
+  });
+
+  it('shows both dependency directions and navigates to a linked task', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      dependencies: [
+        { key: 'AF-1', title: 'Foundation API', status: 'done', workspace: 'repo-a' },
+      ],
+      dependents: [
+        { key: 'AF-12', title: 'Consumer UI', status: 'queued', workspace: 'repo-b' },
+      ],
+    });
+    const onOpenTask = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <DetailPanel
+        taskKey="AF-10"
+        tasks={[]}
+        onOpenTask={onOpenTask}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Depends on')).toBeInTheDocument();
+    expect(screen.getByText('Blocks')).toBeInTheDocument();
+    expect(screen.getByText('Foundation API')).toBeInTheDocument();
+    expect(screen.getByText('Consumer UI')).toBeInTheDocument();
+    expect(screen.getByText('repo-b')).toBeInTheDocument();
+    expect(screen.getByText('Done')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /AF-1.*Foundation API/i }));
+    expect(onOpenTask).toHaveBeenCalledWith('AF-1');
+  });
+
+  it('ignores an older detail response after navigating to another task', async () => {
+    const mocked = await getApiMock();
+    let resolveOld!: (task: TaskDetail) => void;
+    let resolveNew!: (task: TaskDetail) => void;
+    const oldRequest = new Promise<TaskDetail>((resolve) => { resolveOld = resolve; });
+    const newRequest = new Promise<TaskDetail>((resolve) => { resolveNew = resolve; });
+    mocked.getTask.mockImplementation((key: string) => key === 'AF-10' ? oldRequest : newRequest);
+
+    const props = { tasks: [], onOpenTask: vi.fn(), onClose: vi.fn(), onChanged: vi.fn() };
+    const { rerender } = render(<DetailPanel taskKey="AF-10" {...props} />);
+    rerender(<DetailPanel taskKey="AF-11" {...props} />);
+
+    await act(async () => {
+      resolveNew({ ...backlogTask, id: 2, key: 'AF-11', title: 'New task' });
+      await newRequest;
+    });
+    expect(screen.getByRole('heading', { name: 'New task' })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOld({ ...backlogTask, title: 'Old task' });
+      await oldRequest;
+    });
+    expect(screen.getByRole('heading', { name: 'New task' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Old task' })).not.toBeInTheDocument();
+  });
+
+  it('searches all active tasks across workspaces and excludes self and existing dependencies', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      dependencies: [
+        { key: 'AF-1', title: 'Existing prerequisite', status: 'backlog', workspace: 'repo-a' },
+      ],
+    });
+    mocked.addTaskDependency.mockClear();
+    mocked.addTaskDependency.mockResolvedValue({});
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    const tasks = [
+      { ...backlogTask, key: 'AF-10', title: 'Current task' },
+      { ...backlogTask, key: 'AF-1', title: 'Existing prerequisite' },
+      { ...backlogTask, id: 2, key: 'AF-2', title: 'Shared API', workspace: 'repo-b' },
+    ];
+
+    render(
+      <DetailPanel
+        taskKey="AF-10"
+        tasks={tasks}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onChanged={onChanged}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Add dependency' }));
+    await user.type(screen.getByLabelText('Search tasks to depend on'), 'repo-b');
+
+    expect(screen.queryByRole('button', { name: /Add AF-10/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add AF-1 /i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Add AF-2.*Shared API/i }));
+
+    expect(mocked.addTaskDependency).toHaveBeenCalledWith('AF-10', 'AF-2');
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('removes links in dependent-first order from either relationship direction', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      dependencies: [
+        { key: 'AF-1', title: 'Foundation API', status: 'in_review', workspace: 'repo-a' },
+      ],
+      dependents: [
+        { key: 'AF-12', title: 'Consumer UI', status: 'queued', workspace: 'repo-b' },
+        { key: 'AF-13', title: 'Already running', status: 'in_progress', workspace: 'repo-b' },
+      ],
+    });
+    mocked.removeTaskDependency.mockClear();
+    mocked.removeTaskDependency.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(
+      <DetailPanel
+        taskKey="AF-10"
+        tasks={[]}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Remove dependency AF-1' }));
+    await user.click(screen.getByRole('button', { name: 'Remove dependent AF-12' }));
+
+    expect(mocked.removeTaskDependency).toHaveBeenNthCalledWith(1, 'AF-10', 'AF-1');
+    expect(mocked.removeTaskDependency).toHaveBeenNthCalledWith(2, 'AF-12', 'AF-10');
+    expect(screen.queryByRole('button', { name: 'Remove dependent AF-13' })).not.toBeInTheDocument();
+  });
+
+  it('keeps dependency mutation errors visible and the picker usable', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(backlogTask);
+    mocked.addTaskDependency.mockClear();
+    mocked.addTaskDependency.mockRejectedValue(new Error('dependency would create a cycle'));
+    const user = userEvent.setup();
+
+    render(
+      <DetailPanel
+        taskKey="AF-10"
+        tasks={[{ ...backlogTask, id: 2, key: 'AF-2', title: 'Other task', workspace: 'repo-b' }]}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Add dependency' }));
+    await user.type(screen.getByLabelText('Search tasks to depend on'), 'AF-2');
+    await user.click(screen.getByRole('button', { name: /Add AF-2/i }));
+
+    expect(await screen.findByText('dependency would create a cycle')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search tasks to depend on')).toBeInTheDocument();
+  });
+
+  it('keeps Queue task enabled while explaining unmet dependencies', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      unmetDependencyCount: 1,
+      dependencies: [
+        { key: 'AF-1', title: 'Foundation API', status: 'in_progress', workspace: 'repo-a' },
+      ],
+    });
+
+    render(<DetailPanel taskKey="AF-10" tasks={[]} onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByText('Waiting on 1 dependency')).toBeInTheDocument();
+    expect(screen.getByText(/can be queued now and starts automatically/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Queue task' })).toBeEnabled();
+  });
+
+  it('does not describe already-started work as waiting when a prerequisite is reopened', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...inProgressTask,
+      unmetDependencyCount: 1,
+      dependencies: [
+        { key: 'AF-1', title: 'Reopened prerequisite', status: 'queued', workspace: 'repo-a' },
+      ],
+    });
+
+    render(<DetailPanel taskKey="AF-12" tasks={[]} onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await screen.findByText('Reopened prerequisite');
+    expect(screen.queryByText('Waiting on 1 dependency')).not.toBeInTheDocument();
   });
 
   it('lets a backlog task be moved to another workspace while editing', async () => {

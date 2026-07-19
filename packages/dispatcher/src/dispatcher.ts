@@ -306,6 +306,7 @@ export class Dispatcher {
     let spawned = 0;
     for (const task of queued) {
       if (spawned >= slots) break;
+      if (task.unmetDependencyCount > 0) continue;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
       const attempt = (this.attempts.get(task.key) ?? 0) + 1;

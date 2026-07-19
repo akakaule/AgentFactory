@@ -234,7 +234,7 @@ machine's config (accepted for a trusted team); WAN tick latency (dwarfed by the
 *Independent of Phase 2 (different packages) — run in parallel. Phase 3 must land before the second
 human gets a token; Phase 2 before the second machine.*
 
-**Migration #21:**
+**Migration #22** (after task dependencies in migration #21):
 
 - `app_user.role TEXT NOT NULL DEFAULT 'contributor' CHECK (role IN ('admin','reviewer','contributor'))`;
   backfill existing rows to `'admin'`.
@@ -317,8 +317,8 @@ opens — same seam, nothing wasted.
 |---|---|---|---|
 | 1 | **AUTH_MODE safety flip** | Refuse to bind a non-loopback interface with `mode:'none'` (`packages/web/server/index.ts`); document `token` as the default for any exposed deployment. | S |
 | 2 | **Board reachability guidance** | Docs: tailscale recommended (board stays private, workers join the tailnet; `/events?access_token=` already works) vs cloudflared. No code. | S |
-| 3 | **Worker fleet visibility** | Migration #22: `host`/`profile` on `agent_session` + supervisor heartbeats (`os.hostname()`, execution profile) → "which machine ran what" in Agents/Supervisors views. | S |
-| 4 | **Token expiry + last-used** | Ships with migration #21; enforcement in `authenticateToken`. | S |
+| 3 | **Worker fleet visibility** | Migration #23: `host`/`profile` on `agent_session` + supervisor heartbeats (`os.hostname()`, execution profile) → "which machine ran what" in Agents/Supervisors views. | S |
+| 4 | **Token expiry + last-used** | Ships with migration #22; enforcement in `authenticateToken`. | S |
 | 5 | **Queue routing / capability tags** | `task.pool` (or workspace default) + `ClaimOptions.pool` in `claimNextTask` + dispatcher `pools: [...]` — pin heavy tasks to beefy machines, cloud-only workspaces to crabbox. | M |
 | 6 | **Secrets hardening** | AES-GCM-encrypt workspace PATs at rest with a key from `AGENTFACTORY_SECRET_KEY` (currently plaintext in SQLite); write-only API stays. Not a vault. | M |
 | 7 | **SSE wake for remote dispatchers** | Subscribe to `/events` to cut claim latency below the poll; poll stays as fallback. | S |

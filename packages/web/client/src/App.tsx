@@ -160,7 +160,9 @@ export function App() {
       {selectedKey && (
         <DetailPanel
           taskKey={selectedKey}
+          tasks={tasks}
           workspaces={workspaces.map((w) => w.name)}
+          onOpenTask={setSelectedKey}
           onClose={() => setSelectedKey(null)}
           onChanged={refetch}
         />

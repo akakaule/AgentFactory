@@ -31,3 +31,36 @@ describe('api request timeout', () => {
     await expect(api.createTask({ title: 'T', spec: 'S' })).resolves.toMatchObject({ key: 'AF-1' });
   });
 });
+
+describe('task dependency API', () => {
+  beforeEach(() => {
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      key: 'AF-2',
+      dependencies: [],
+      dependents: [],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as unknown as typeof fetch;
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('adds a dependency with both task keys URL-encoded', async () => {
+    await api.addTaskDependency('AF 2/α', 'AF/1 ?');
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/tasks/AF%202%2F%CE%B1/dependencies/AF%2F1%20%3F',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+  });
+
+  it('removes a dependency with both task keys URL-encoded', async () => {
+    await api.removeTaskDependency('AF 2/α', 'AF/1 ?');
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/tasks/AF%202%2F%CE%B1/dependencies/AF%2F1%20%3F',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+});

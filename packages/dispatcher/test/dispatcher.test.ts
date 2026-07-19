@@ -79,6 +79,21 @@ describe('spawn gating', () => {
     await d.tick(); // task still queued (session hasn't claimed yet), but already being served
     expect(calls.length).toBe(1);
   });
+
+  it('does not spawn a worker for a queued task with unmet dependencies', async () => {
+    const core = makeCore();
+    const prerequisite = core.createTask({
+      title: 'Prerequisite', spec: 'spec', acceptanceCriteria: 'criteria', workspace: 'ws',
+    });
+    const waiting = seedQueued(core, 'ws', 'Waiting');
+    core.addTaskDependency(waiting, prerequisite.key);
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await d.tick();
+
+    expect(calls).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

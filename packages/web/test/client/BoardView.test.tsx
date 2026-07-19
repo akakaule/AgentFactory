@@ -11,6 +11,7 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     title,
     status,
     stage: 'implementation',
+    kind: 'code',
     spec: 'spec',
     acceptanceCriteria: 'ac',
     resultSummary: null,
@@ -21,6 +22,8 @@ function makeTask(key: string, title: string, status: Task['status']): Task {
     archivedAt: null,
     aiReview: null,
     failure: null,
+    delivery: null,
+    unmetDependencyCount: 0,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
   };
@@ -103,6 +106,28 @@ describe('BoardView', () => {
     expect(screen.getByText('Backlog task')).toBeInTheDocument();
     expect(screen.getByText('Queued task')).toBeInTheDocument();
     expect(screen.getByText('Done task')).toBeInTheDocument();
+  });
+
+  it('shows when a task is waiting on unmet dependencies', () => {
+    render(
+      <BoardView
+        tasks={[{ ...makeTask('AF-2', 'Waiting task', 'queued'), unmetDependencyCount: 2 }]}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Waiting on 2')).toBeInTheDocument();
+  });
+
+  it('does not call already-started work waiting when a prerequisite is reopened', () => {
+    render(
+      <BoardView
+        tasks={[{ ...makeTask('AF-2', 'Active task', 'in_progress'), unmetDependencyCount: 1 }]}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('Waiting on 1')).not.toBeInTheDocument();
   });
 
   it('shows an Archive all button on a populated Done column and fires the callback', async () => {

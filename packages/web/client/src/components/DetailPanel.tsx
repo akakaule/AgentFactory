@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, type ReactElement } from 'react';
-import type { TaskDetail, Activity, LinkKind } from '../types.js';
+import { useState, useCallback, useEffect, useRef, type ReactElement } from 'react';
+import type { Task, TaskDetail, Activity, LinkKind } from '../types.js';
 import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { api, attachmentUrl } from '../api.js';
 import { timeAgo, shortTime } from '../time.js';
@@ -20,11 +20,14 @@ import { StatusTrail } from './StatusTrail.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
 import { TaskMetrics } from './TaskMetrics.js';
+import { TaskDependencies } from './TaskDependencies.js';
 import { I } from '../icons.js';
 
 interface Props {
   taskKey: string;
+  tasks?: readonly Task[];
   workspaces?: string[];
+  onOpenTask?: (key: string) => void;
   onClose: () => void;
   onChanged: () => void;
 }
@@ -63,17 +66,29 @@ function ActivityItem({ entry }: { entry: Activity }) {
   );
 }
 
-export function DetailPanel({ taskKey, workspaces = [], onClose, onChanged }: Props) {
+export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, onClose, onChanged }: Props) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const currentTaskKey = useRef(taskKey);
+  const requestGeneration = useRef(0);
+  currentTaskKey.current = taskKey;
 
   const refetch = useCallback(() => {
-    api.getTask(taskKey)
-      .then((t) => { setTask(t); setError(null); })
-      .catch((e: Error) => setError(e.message));
+    const requestedKey = taskKey;
+    const generation = ++requestGeneration.current;
+    api.getTask(requestedKey)
+      .then((t) => {
+        if (currentTaskKey.current !== requestedKey || requestGeneration.current !== generation) return;
+        setTask(t);
+        setError(null);
+      })
+      .catch((e: Error) => {
+        if (currentTaskKey.current !== requestedKey || requestGeneration.current !== generation) return;
+        setError(e.message);
+      });
   }, [taskKey]);
 
   useEffect(() => {
@@ -224,6 +239,15 @@ export function DetailPanel({ taskKey, workspaces = [], onClose, onChanged }: Pr
                 )}
               </div>
 
+              <div className="af-sl">Dependencies</div>
+              <TaskDependencies
+                key={task.key}
+                task={task}
+                tasks={tasks}
+                onOpenTask={onOpenTask}
+                onMutated={afterMutation}
+              />
+
               {task.status === 'blocked' && (
                 <BlockedBanner
                   activity={task.activity}
@@ -235,11 +259,9 @@ export function DetailPanel({ taskKey, workspaces = [], onClose, onChanged }: Pr
                 <FailureBanner
                   failure={task.failure}
                   activity={task.activity}
-                  onRestart={
-                    task.failure.skipListed
-                      ? () => api.restart(task.key).then(afterMutation).catch(() => {})
-                      : undefined
-                  }
+                  {...(task.failure.skipListed
+                    ? { onRestart: () => { void api.restart(task.key).then(afterMutation).catch(() => {}); } }
+                    : {})}
                 />
               )}
 

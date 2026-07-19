@@ -35,7 +35,17 @@ export function ListView({ tasks, multiWs, onOpen }: Props) {
             {rows.map((t) => (
               <tr key={t.key} onClick={() => onOpen(t.key)}>
                 <td className="k">{t.key}</td>
-                <td className="ti">{t.title}</td>
+                <td className="ti">
+                  {t.title}
+                  {(t.status === 'backlog' || t.status === 'queued') && t.unmetDependencyCount > 0 && (
+                    <span
+                      className="af-dep-wait-chip"
+                      title={`This task cannot start until ${t.unmetDependencyCount} ${t.unmetDependencyCount === 1 ? 'dependency is' : 'dependencies are'} done.`}
+                    >
+                      Waiting on {t.unmetDependencyCount}
+                    </span>
+                  )}
+                </td>
                 {multiWs && <td className="k">{t.workspace}</td>}
                 <td>
                   <span className="st" style={{ color: STATUS_COLORS[t.status] }}>

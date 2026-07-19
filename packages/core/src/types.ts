@@ -107,6 +107,7 @@ export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
   status: Status; stage: Stage; kind: TaskKind; resultSummary: string | null; seq: number;
   workspace: string; // workspace slug
+  unmetDependencyCount: number; // queued tasks with a non-zero count are waiting and cannot be claimed
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
@@ -128,6 +129,11 @@ export interface ActivityFeedRow {
   type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
 }
 export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
+
+/** Compact task identity used for the two directions of the dependency graph in TaskDetail. */
+export interface TaskReference {
+  key: string; title: string; status: Status; workspace: string;
+}
 
 /** One agent-reported milestone in a live session's small rolling feed. */
 export interface AgentMilestone { msg: string; at: string; }
@@ -209,6 +215,8 @@ export interface TaskMetricsView {
 
 export interface TaskDetail extends Task {
   activity: Activity[]; links: Link[]; attachments: Attachment[];
+  dependencies: TaskReference[]; // prerequisites this task waits for
+  dependents: TaskReference[]; // tasks blocked by this task
   repoPath: string;
   branch: string | null; // server-named feature branch, set on the first implementation-stage claim; null before then
   plan: string | null; // the plan stage's deliverable; null until that stage submits

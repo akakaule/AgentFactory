@@ -103,6 +103,10 @@ export const api = {
   updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string> }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  addTaskDependency: (dependentKey: string, dependencyKey: string) =>
+    req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'PUT' }),
+  removeTaskDependency: (dependentKey: string, dependencyKey: string) =>
+    req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'DELETE' }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
   setStatus: (key: string, status: Status, note?: string) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note })),

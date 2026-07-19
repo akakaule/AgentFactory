@@ -9,13 +9,26 @@ vi.mock('../../client/src/api.js', () => ({
     listTasks: vi.fn().mockResolvedValue([]),
     getTask: vi.fn().mockResolvedValue({
       id: 1, key: 'AF-1', title: 'Test task', status: 'backlog', stage: 'implementation',
+      kind: 'code', branch: null, plan: null,
       spec: 'spec', acceptanceCriteria: 'ac', resultSummary: null,
       seq: 1, workspace: 'default', repoPath: '.',
+      unmetDependencyCount: 0, claimedBy: null, claimedAt: null, archivedAt: null,
+      aiReview: null, failure: null, delivery: null,
+      originalSpec: null, originalAcceptanceCriteria: null, policy: null, verifyCommand: null,
+      hasVisualization: false, visualizationGeneratedAt: null,
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
-      activity: [], links: [],
+      activity: [], links: [], attachments: [], dependencies: [], dependents: [],
+      metrics: {
+        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, rounds: 0,
+        reopened: false, claimCount: 0, doneAt: null, model: null,
+        tokensIn: null, tokensOut: null, costUsd: null,
+      },
     }),
+    getTranscript: vi.fn().mockResolvedValue({ state: 'none', engine: null, attempt: null, bytes: null, blocks: [] }),
     createTask: vi.fn().mockResolvedValue({}),
     updateTask: vi.fn().mockResolvedValue({}),
+    addTaskDependency: vi.fn().mockResolvedValue({}),
+    removeTaskDependency: vi.fn().mockResolvedValue({}),
     setStatus: vi.fn().mockResolvedValue({}),
     approve: vi.fn().mockResolvedValue({}),
     requestChanges: vi.fn().mockResolvedValue({}),
@@ -31,9 +44,13 @@ vi.mock('../../client/src/api.js', () => ({
 import { api } from '../../client/src/api.js';
 
 const ws = (id: number, name: string, repoPath: string) =>
-  ({ id, name, repoPath, policy: null, verifyCommand: null, createdAt: '2024-01-01T00:00:00Z' });
+  ({
+    id, name, repoPath, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {},
+    createdAt: '2024-01-01T00:00:00Z',
+  });
 
 beforeEach(() => {
+  vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.')]);
   // Set up no-op EventSource for App (uses useTasks → useEventStream)
   globalThis.EventSource = vi.fn().mockImplementation(() => ({
@@ -121,8 +138,9 @@ describe('App', () => {
   it('filters the board to the selected workspace', async () => {
     vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
     const mkTask = (key: string, title: string, workspace: string) => ({
-      id: Math.random(), key, title, status: 'backlog' as const, stage: 'implementation' as const, spec: 's', acceptanceCriteria: 'a',
+      id: Math.random(), key, title, status: 'backlog' as const, stage: 'implementation' as const, kind: 'code' as const, spec: 's', acceptanceCriteria: 'a',
       resultSummary: null, seq: 1, workspace, claimedBy: null, claimedAt: null, archivedAt: null, aiReview: null, failure: null,
+      delivery: null, unmetDependencyCount: 0,
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
     });
     vi.mocked(api.listTasks).mockResolvedValue([mkTask('AF-1', 'Default task', 'default'), mkTask('AF-2', 'Repo-a task', 'repo-a')]);
@@ -163,5 +181,46 @@ describe('App', () => {
 
     // the editor is open with repo-a's repo path as an editable field (value '/a')
     expect(screen.getByDisplayValue('/a')).toBeInTheDocument();
+  });
+
+  it('offers dependency candidates outside the current workspace filter', async () => {
+    vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.'), ws(2, 'repo-a', '/a')]);
+    const mkTask = (key: string, title: string, workspace: string) => ({
+      id: Number(key.slice(3)), key, title, status: 'backlog' as const, stage: 'implementation' as const,
+      kind: 'code' as const, spec: 's', acceptanceCriteria: 'a', resultSummary: null, seq: Number(key.slice(3)),
+      workspace, unmetDependencyCount: 0, claimedBy: null, claimedAt: null, archivedAt: null,
+      aiReview: null, failure: null, delivery: null,
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    });
+    vi.mocked(api.listTasks).mockResolvedValue([
+      mkTask('AF-1', 'Default task', 'default'),
+      mkTask('AF-2', 'Repo-a task', 'repo-a'),
+    ]);
+    vi.mocked(api.getTask).mockResolvedValue({
+      id: 2, key: 'AF-2', title: 'Repo-a task', status: 'backlog', stage: 'implementation', kind: 'code',
+      spec: 's', acceptanceCriteria: 'a', resultSummary: null, seq: 2, workspace: 'repo-a', repoPath: '/a',
+      unmetDependencyCount: 0, claimedBy: null, claimedAt: null, archivedAt: null, aiReview: null,
+      failure: null, delivery: null, branch: null, plan: null, originalSpec: null,
+      originalAcceptanceCriteria: null, policy: null, verifyCommand: null, hasVisualization: false,
+      visualizationGeneratedAt: null, attachments: [], activity: [], links: [], dependencies: [], dependents: [],
+      metrics: {
+        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, rounds: 0, reopened: false,
+        claimCount: 0, doneAt: null, model: null, tokensIn: null, tokensOut: null, costUsd: null,
+      },
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    });
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText('Repo-a task')).toBeInTheDocument();
+    await user.click(screen.getByLabelText('Workspace filter'));
+    await user.click(screen.getByRole('menu').querySelector('.af-ws-optrow:nth-child(3) .af-ws-opt')!);
+    expect(screen.queryByText('Default task')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('Repo-a task'));
+    await user.click(await screen.findByRole('button', { name: 'Add dependency' }));
+    await user.type(screen.getByLabelText('Search tasks to depend on'), 'Default task');
+
+    expect(screen.getByRole('button', { name: /Add AF-1.*Default task/i })).toBeInTheDocument();
   });
 });
