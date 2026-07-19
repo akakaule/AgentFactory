@@ -62,7 +62,7 @@ export const updateWorkspaceSchema = z
     'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides)',
   );
 export const updateTaskSchema = z
-  .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional() })
+  .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional(), workspace: workspaceSlug.optional() })
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');
 export const submitResultSchema = z.object({
   summary: nonEmpty,

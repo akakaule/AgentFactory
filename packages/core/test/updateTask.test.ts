@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
+import { createWorkspace } from '../src/ops/createWorkspace.js';
 import { updateTask } from '../src/ops/updateTask.js';
 import { ValidationError, NotFoundError, InvalidTransitionError } from '../src/errors.js';
 
@@ -35,6 +36,40 @@ describe('updateTask', () => {
     expect(updated.title).toBe('New Title');
     expect(updated.spec).toBe('New Spec');
     expect(updated.acceptanceCriteria).toBe('New AC');
+  });
+
+  it('moves a backlog task to another workspace', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-b', repoPath: '/repo-b' });
+    const original = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+
+    const updated = updateTask(db, original.key, { workspace: 'repo-b' }, fixedNow);
+
+    expect(updated.workspace).toBe('repo-b');
+    expect(updated.updatedAt).toBe(FIXED_NOW);
+    expect(updated.title).toBe(original.title);
+    expect(updated.spec).toBe(original.spec);
+    expect(updated.acceptanceCriteria).toBe(original.acceptanceCriteria);
+  });
+
+  it('rejects an unknown target workspace without moving the task', () => {
+    const db = makeTestDb();
+    const original = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    const before = db.prepare('SELECT title, workspace_id, updated_at FROM task WHERE id = ?').get(original.id);
+
+    expect(() => updateTask(db, original.key, { title: 'Must not stick', workspace: 'missing' })).toThrow(NotFoundError);
+    expect(db.prepare('SELECT title, workspace_id, updated_at FROM task WHERE id = ?').get(original.id)).toEqual(before);
+  });
+
+  it('rejects moving a task after it leaves the backlog', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-b', repoPath: '/repo-b' });
+    const original = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status = 'queued' WHERE id = ?").run(original.id);
+
+    expect(() => updateTask(db, original.key, { workspace: 'repo-b' })).toThrow(InvalidTransitionError);
+    const row = db.prepare('SELECT workspace_id FROM task WHERE id = ?').get(original.id) as { workspace_id: number };
+    expect(row.workspace_id).toBe(1);
   });
 
   it('bumps updatedAt but createdAt is unchanged', () => {

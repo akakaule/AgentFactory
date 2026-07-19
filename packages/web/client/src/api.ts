@@ -102,7 +102,7 @@ export const api = {
   setAgentPrompts: (b: Record<string, string>) => req<AgentPrompts>('/api/agent-prompts', { method: 'PUT', body: JSON.stringify(b) }),
   updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string> }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
-  updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
   setStatus: (key: string, status: Status, note?: string) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note })),

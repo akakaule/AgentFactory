@@ -28,7 +28,12 @@ export const createBody = z.object({
   links: z.array(z.object({ kind: LinkKindEnum, label: z.string().min(1), url: z.string().min(1) })).optional(),
   workspace: z.string().min(1).optional(),
 });
-export const updateBody = z.object({ title: z.string().min(1).optional(), spec: z.string().min(1).optional(), acceptanceCriteria: z.string().min(1).optional() });
+export const updateBody = z.object({
+  title: z.string().min(1).optional(),
+  spec: z.string().min(1).optional(),
+  acceptanceCriteria: z.string().min(1).optional(),
+  workspace: workspaceSlug.optional(),
+});
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum, note: z.string().optional() });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });

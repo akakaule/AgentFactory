@@ -245,7 +245,7 @@ export interface UpdateWorkspaceInput {
   // replaces the stored map. Present-but-empty ({}) clears all overrides.
   promptOverrides?: Record<string, string> | undefined;
 }
-export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; }
+export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
   summary: string;

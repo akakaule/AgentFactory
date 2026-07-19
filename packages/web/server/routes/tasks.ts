@@ -76,6 +76,7 @@ export function taskRoutes(core: Core) {
     if (b.title !== undefined) fields.title = b.title;
     if (b.spec !== undefined) fields.spec = b.spec;
     if (b.acceptanceCriteria !== undefined) fields.acceptanceCriteria = b.acceptanceCriteria;
+    if (b.workspace !== undefined) fields.workspace = b.workspace;
     return c.json(core.updateTask(c.req.param('key'), fields));
   });
 

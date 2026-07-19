@@ -152,6 +152,29 @@ describe('DetailPanel', () => {
     expect(screen.getByText('A comment here')).toBeInTheDocument();
   });
 
+  it('lets a backlog task be moved to another workspace while editing', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(backlogTask);
+    mocked.updateTask.mockClear();
+    const user = userEvent.setup();
+
+    render(
+      <DetailPanel
+        taskKey="AF-10"
+        workspaces={['default', 'repo-a', 'repo-b']}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+    expect(screen.getByLabelText('Workspace')).toHaveValue('repo-a');
+    await user.selectOptions(screen.getByLabelText('Workspace'), 'repo-b');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mocked.updateTask).toHaveBeenCalledWith('AF-10', expect.objectContaining({ workspace: 'repo-b' })));
+  });
+
   it('deduplicates repeated links by kind and URL in the drawer', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue({

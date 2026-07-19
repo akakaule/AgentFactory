@@ -34,7 +34,7 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const showWorkspacePicker = mode === 'create' && (workspaces?.length ?? 0) > 1;
+  const showWorkspacePicker = (workspaces?.length ?? 0) > 1;
   const pipeline = mode === 'create' && stage === 'description'; // AC optional — that stage writes them
   const existing = (initial?.attachments ?? []).filter((a) => !removedIds.includes(a.id));
 

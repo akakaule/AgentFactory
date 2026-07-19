@@ -24,6 +24,7 @@ import { I } from '../icons.js';
 
 interface Props {
   taskKey: string;
+  workspaces?: string[];
   onClose: () => void;
   onChanged: () => void;
 }
@@ -62,7 +63,7 @@ function ActivityItem({ entry }: { entry: Activity }) {
   );
 }
 
-export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
+export function DetailPanel({ taskKey, workspaces = [], onClose, onChanged }: Props) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -311,6 +312,8 @@ export function DetailPanel({ taskKey, onClose, onChanged }: Props) {
                 <TaskForm
                   mode="edit"
                   initial={task}
+                  workspaces={workspaces}
+                  initialWorkspace={task.workspace}
                   onSubmit={(fields, images, removedIds) =>
                     api.updateTask(task.key, fields)
                       .then(async () => {

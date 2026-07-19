@@ -203,6 +203,54 @@ describe('tasks REST API', () => {
       expect(body.title).toBe('Updated Title');
     });
 
+    it('moves a backlog task to another workspace', async () => {
+      core.createWorkspace({ name: 'repo-b', repoPath: '/repo-b' });
+      const created = await (await post(app, '/api/tasks', {
+        title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC',
+      })).json() as { key: string };
+
+      const res = await patch(app, `/api/tasks/${created.key}`, { workspace: 'repo-b' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ key: created.key, workspace: 'repo-b' });
+      expect(core.getTask(created.key)).toMatchObject({ workspace: 'repo-b', repoPath: '/repo-b' });
+    });
+
+    it('rejects an unknown target workspace with 404', async () => {
+      const created = await (await post(app, '/api/tasks', {
+        title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC',
+      })).json() as { key: string };
+
+      const res = await patch(app, `/api/tasks/${created.key}`, { workspace: 'missing' });
+
+      expect(res.status).toBe(404);
+      expect(core.getTask(created.key).workspace).toBe('default');
+    });
+
+    it('rejects a malformed workspace slug with 400', async () => {
+      const created = await (await post(app, '/api/tasks', {
+        title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC',
+      })).json() as { key: string };
+
+      const res = await patch(app, `/api/tasks/${created.key}`, { workspace: 'Repo B' });
+
+      expect(res.status).toBe(400);
+      expect(core.getTask(created.key).workspace).toBe('default');
+    });
+
+    it('rejects moving a non-backlog task with 409', async () => {
+      core.createWorkspace({ name: 'repo-b', repoPath: '/repo-b' });
+      const created = await (await post(app, '/api/tasks', {
+        title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC',
+      })).json() as { key: string };
+      await post(app, `/api/tasks/${created.key}/status`, { status: 'queued' });
+
+      const res = await patch(app, `/api/tasks/${created.key}`, { workspace: 'repo-b' });
+
+      expect(res.status).toBe(409);
+      expect(core.getTask(created.key).workspace).toBe('default');
+    });
+
     it('editing a non-backlog task → 409', async () => {
       const r = await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });
       const created = await r.json() as { key: string };

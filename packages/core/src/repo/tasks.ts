@@ -151,13 +151,14 @@ export function deleteRowById(db: DB, id: number): void {
 export function touch(db: DB, id: number, ts: string): void {
   db.prepare('UPDATE task SET updated_at = ? WHERE id = ?').run(ts, id);
 }
-export function applyEdit(db: DB, id: number, fields: UpdateTaskInput, ts: string): void {
+export function applyEdit(db: DB, id: number, fields: UpdateTaskInput, ts: string, workspaceId?: number): void {
   const sets: string[] = [];
   // Cast to (string | number)[] — SQLInputValue includes both; spread is valid at runtime.
   const vals: (string | number)[] = [];
   if (fields.title !== undefined) { sets.push('title = ?'); vals.push(fields.title); }
   if (fields.spec !== undefined) { sets.push('spec = ?'); vals.push(fields.spec); }
   if (fields.acceptanceCriteria !== undefined) { sets.push('acceptance_criteria = ?'); vals.push(fields.acceptanceCriteria); }
+  if (workspaceId !== undefined) { sets.push('workspace_id = ?'); vals.push(workspaceId); }
   sets.push('updated_at = ?'); vals.push(ts);
   vals.push(id);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

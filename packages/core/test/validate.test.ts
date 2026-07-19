@@ -13,6 +13,8 @@ describe('validate', () => {
   it('updateTask requires at least one field', () => {
     expect(() => parse(updateTaskSchema, {})).toThrow(ValidationError);
     expect(parse(updateTaskSchema, { title: 'X' })).toEqual({ title: 'X' });
+    expect(parse(updateTaskSchema, { workspace: 'repo-b' })).toEqual({ workspace: 'repo-b' });
+    expect(() => parse(updateTaskSchema, { workspace: 'Repo B' })).toThrow(ValidationError);
   });
   it('submitResult defaults links to []', () => {
     expect(parse(submitResultSchema, { summary: 'done' })).toEqual({ summary: 'done', links: [] });

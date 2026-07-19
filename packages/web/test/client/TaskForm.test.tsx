@@ -187,6 +187,28 @@ describe('TaskForm (edit mode)', () => {
       acceptanceCriteria: 'Old AC',
     }, [], []);
   });
+
+  it('preselects the current workspace and submits a different one', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TaskForm
+        mode="edit"
+        initial={{ title: 'T', spec: 'S', acceptanceCriteria: 'A' }}
+        workspaces={['default', 'repo-a', 'repo-b']}
+        initialWorkspace="repo-a"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(screen.getByLabelText('Workspace')).toHaveValue('repo-a');
+    await user.selectOptions(screen.getByLabelText('Workspace'), 'repo-b');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      title: 'T', spec: 'S', acceptanceCriteria: 'A', workspace: 'repo-b',
+    }, [], []);
+  });
 });
 
 describe('TaskForm submit failure feedback', () => {
