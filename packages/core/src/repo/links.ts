@@ -1,9 +1,14 @@
 import type { DB } from '../db.js';
 import type { Link, LinkInput } from '../types.js';
 
+/** Insert links, skipping exact (kind, label, url) duplicates — every re-submission resends the
+ *  same branch/pr links, and the identical rows accumulated forever (the drawer had to dedupe). */
 export function insertLinks(db: DB, taskId: number, links: LinkInput[]): void {
-  const stmt = db.prepare('INSERT INTO link(task_id,kind,label,url) VALUES (?,?,?,?)');
-  for (const l of links) stmt.run(taskId, l.kind, l.label, l.url);
+  const stmt = db.prepare(
+    `INSERT INTO link(task_id,kind,label,url) SELECT ?,?,?,?
+     WHERE NOT EXISTS (SELECT 1 FROM link WHERE task_id=? AND kind=? AND label=? AND url=?)`
+  );
+  for (const l of links) stmt.run(taskId, l.kind, l.label, l.url, taskId, l.kind, l.label, l.url);
 }
 /** The newest 'pr'-kind link's URL (the finish protocol attaches one on submit), or null. */
 export function latestPrLinkUrl(db: DB, taskId: number): string | null {

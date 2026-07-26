@@ -39,6 +39,25 @@ describe('submitResult', () => {
     expect(row.updated_at).toBe(FIXED_TS);
   });
 
+  it('re-submission does not duplicate identical links (but new links still land)', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    const branchLink = { kind: 'branch' as const, label: 'feature/x', url: 'http://x/tree/feature/x' };
+
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    submitResult(db, task.key, { summary: 'round 1', links: [branchLink] }, fixedNow);
+    // request-changes round-trip, then the finish protocol resends the same branch link + a new PR
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    submitResult(db, task.key, {
+      summary: 'round 2',
+      links: [branchLink, { kind: 'pr', label: 'PR #1', url: 'http://x/pull/1' }],
+    }, fixedNow);
+
+    const links = linksFor(db, task.id);
+    expect(links).toHaveLength(2);
+    expect(links.map((l) => l.kind).sort()).toEqual(['branch', 'pr']);
+  });
+
   it('appends both result and status_change activities; both present in returned activity', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
