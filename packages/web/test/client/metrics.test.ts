@@ -9,7 +9,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
   seq += 1;
   return {
     key: `AF-${seq}`, workspace: 'demo', status: 'done', doneAt: daysAgo(1),
-    queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
+    queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0, deliveringMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
     stageTokens: { implementation: 12000 },
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,
@@ -80,7 +80,7 @@ describe('computeAnalytics', () => {
   it('reports stage medians and the dominant stage', () => {
     const a = computeAnalytics(data([
       doneRow({ queueMin: 10, workMin: 30, reviewMin: 100, blockedMin: 0 }),
-      doneRow({ queueMin: 20, workMin: 50, reviewMin: 140, blockedMin: 10 }),
+      doneRow({ queueMin: 20, workMin: 50, reviewMin: 140, blockedMin: 10, deliveringMin: 0 }),
     ]), 'all', 7, NOW);
     const byKey = Object.fromEntries(a.stages.map((s) => [s.key, s.val]));
     expect(byKey).toMatchObject({ queue: 15, work: 40, review: 120, blocked: 5 });

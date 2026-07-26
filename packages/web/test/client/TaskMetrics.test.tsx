@@ -4,7 +4,7 @@ import { TaskMetrics } from '../../client/src/components/TaskMetrics.js';
 import type { TaskMetricsView } from '../../client/src/types.js';
 
 const base: TaskMetricsView = {
-  queueMin: 12, workMin: 38, reviewMin: 66, blockedMin: 0,
+  queueMin: 12, workMin: 38, reviewMin: 66, blockedMin: 0, deliveringMin: 0,
   rounds: 0, reopened: false, claimCount: 1, doneAt: '2026-06-11T10:00:00.000Z',
   model: null, tokensIn: null, tokensOut: null, costUsd: null,
 };
@@ -29,6 +29,12 @@ describe('TaskMetrics', () => {
     render(<TaskMetrics metrics={base} />);
     expect(screen.getByText('tokens n/a')).toBeInTheDocument();
     expect(screen.getByText('cost n/a · not reported')).toBeInTheDocument();
+  });
+
+  it('renders the delivering segment when the task waited on PR merge + CI', () => {
+    render(<TaskMetrics metrics={{ ...base, deliveringMin: 120 }} />);
+    expect(screen.getByText('delivering')).toBeInTheDocument();
+    expect(screen.getByText('2h')).toBeInTheDocument();
   });
 
   it('counts review rounds in the quality chip', () => {

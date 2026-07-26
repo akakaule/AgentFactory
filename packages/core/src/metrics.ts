@@ -14,27 +14,29 @@ export interface DerivedTaskMetrics {
   workMin: number;
   reviewMin: number;
   blockedMin: number;
+  deliveringMin: number; // waiting on PR merge + green checks (migration #18 flow)
   rounds: number;       // feedback rows (request-changes round-trips)
   reopened: boolean;    // any done → queued transition
   claimCount: number;   // queued → in_progress transitions
   doneAt: string | null; // last transition into done; null while not done
 }
 
-const BUCKET: Partial<Record<Status, 'queueMin' | 'workMin' | 'reviewMin' | 'blockedMin'>> = {
+const BUCKET: Partial<Record<Status, 'queueMin' | 'workMin' | 'reviewMin' | 'blockedMin' | 'deliveringMin'>> = {
   queued: 'queueMin',
   in_progress: 'workMin',
   in_review: 'reviewMin',
   blocked: 'blockedMin',
+  delivering: 'deliveringMin',
 };
 
 /**
  * Stage walk over a task's full status history. Backlog and done time are not
- * bucketed (cycle = queue + work + review + blocked); the open segment of a
- * non-done task accrues to `now`.
+ * bucketed (cycle = queue + work + review + blocked + delivering); the open
+ * segment of a non-done task accrues to `now`.
  */
 export function deriveTaskMetrics(activity: ActivityStep[], now: string): DerivedTaskMetrics {
   const m: DerivedTaskMetrics = {
-    queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0,
+    queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, deliveringMin: 0,
     rounds: 0, reopened: false, claimCount: 0, doneAt: null,
   };
   let current: Status | null = null;

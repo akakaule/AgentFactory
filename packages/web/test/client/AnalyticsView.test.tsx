@@ -29,7 +29,7 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
   seq += 1;
   return {
     key: `AF-${seq}`, workspace: 'default', status: 'done', doneAt: new Date(Date.now() - 3600000).toISOString(),
-    queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0,
+    queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0, deliveringMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
     stageTokens: { implementation: 12000 },
     model: 'claude-fable-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.5,

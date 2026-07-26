@@ -208,7 +208,7 @@ export interface SupervisorView {
 
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
-  queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
+  queueMin: number; workMin: number; reviewMin: number; blockedMin: number; deliveringMin: number;
   rounds: number; reopened: boolean; claimCount: number; doneAt: string | null;
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
 }

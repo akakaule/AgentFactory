@@ -41,6 +41,30 @@ describe('deriveTaskMetrics', () => {
     });
   });
 
+  it('buckets delivering time (PR merge + CI wait) on a delivery-routed flow', () => {
+    const m = deriveTaskMetrics([
+      move('backlog', 'queued', 0),
+      move('queued', 'in_progress', 10),
+      move('in_progress', 'in_review', 40),
+      move('in_review', 'delivering', 60),
+      move('delivering', 'done', 180),
+    ], iso(999));
+    expect(m).toMatchObject({
+      queueMin: 10, workMin: 30, reviewMin: 20, deliveringMin: 120, blockedMin: 0, doneAt: iso(180),
+    });
+  });
+
+  it('accrues the open delivering segment of a still-delivering task to now', () => {
+    const m = deriveTaskMetrics([
+      move('backlog', 'queued', 0),
+      move('queued', 'in_progress', 10),
+      move('in_progress', 'in_review', 40),
+      move('in_review', 'delivering', 60),
+    ], iso(90));
+    expect(m.deliveringMin).toBe(30);
+    expect(m.doneAt).toBeNull();
+  });
+
   it('tracks a blocked detour', () => {
     const m = deriveTaskMetrics([
       move('backlog', 'queued', 0),

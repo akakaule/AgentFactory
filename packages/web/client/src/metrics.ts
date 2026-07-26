@@ -4,6 +4,7 @@
 export interface AnalyticsTaskRow {
   key: string; workspace: string; status: string; doneAt: string | null;
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
+  deliveringMin?: number; // optional: a stale server build omits it (pre-delivering-bucket)
   rounds: number; reopened: boolean; claimCount: number; worker: string | null;
   branch: string | null; // server-named feature branch; null before the first implementation claim / legacy
   stageTokens: Record<string, number>; // tokens (in+out) per stage they were reported in
@@ -21,7 +22,7 @@ export const FAILURE_LABELS: Record<string, string> = {
   pr_closed: 'PR closed', merge_conflict: 'Merge conflict',
 };
 
-export type StageKey = 'queue' | 'work' | 'review' | 'blocked';
+export type StageKey = 'queue' | 'work' | 'review' | 'blocked' | 'delivering';
 export interface Stage { key: StageKey; label: string; hue: string; val: number; }
 export interface WorkerStats {
   name: string; ws: string; claims: number; done: number;
@@ -54,10 +55,11 @@ export const STAGES: Array<{ key: StageKey; field: keyof AnalyticsTaskRow; label
   { key: 'work', field: 'workMin', label: 'Work', hue: 'var(--st-progress)' },
   { key: 'review', field: 'reviewMin', label: 'Review wait', hue: 'var(--st-review)' },
   { key: 'blocked', field: 'blockedMin', label: 'Blocked', hue: 'var(--st-blocked)' },
+  { key: 'delivering', field: 'deliveringMin', label: 'Delivery wait', hue: 'var(--st-delivering)' },
 ];
 
 const UNLABELED = '(unlabeled)';
-const cycleOf = (t: AnalyticsTaskRow) => t.queueMin + t.workMin + t.reviewMin + t.blockedMin;
+const cycleOf = (t: AnalyticsTaskRow) => t.queueMin + t.workMin + t.reviewMin + t.blockedMin + (t.deliveringMin ?? 0);
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
 export function median(arr: Array<number | null | undefined>): number | null {

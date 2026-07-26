@@ -42,7 +42,7 @@ beforeEach(() => {
 });
 
 const noMetrics: TaskDetail['metrics'] = {
-  queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0,
+  queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, deliveringMin: 0,
   rounds: 0, reopened: false, claimCount: 0, doneAt: null,
   model: null, tokensIn: null, tokensOut: null, costUsd: null,
 };

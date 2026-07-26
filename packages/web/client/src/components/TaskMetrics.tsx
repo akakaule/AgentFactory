@@ -6,6 +6,7 @@ const SEGS: Array<{ label: string; hue: string; get: (m: TaskMetricsView) => num
   { label: 'work', hue: 'var(--st-progress)', get: (m) => m.workMin },
   { label: 'review', hue: 'var(--st-review)', get: (m) => m.reviewMin },
   { label: 'blocked', hue: 'var(--st-blocked)', get: (m) => m.blockedMin },
+  { label: 'delivering', hue: 'var(--st-delivering)', get: (m) => m.deliveringMin ?? 0 }, // ?? 0: stale server build
 ];
 
 export function TaskMetrics({ metrics }: { metrics: TaskMetricsView }) {

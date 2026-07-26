@@ -22,6 +22,7 @@
   --st-progress:#F59E0B;
   --st-review:  #A78BFA;
   --st-blocked: #F87171;
+  --st-delivering: #2DD4BF; /* teal — waiting on PR merge + green checks */
   --st-done:    #4ADE80;
 
   --r-card: 12px;

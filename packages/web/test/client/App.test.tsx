@@ -19,7 +19,7 @@ vi.mock('../../client/src/api.js', () => ({
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
       activity: [], links: [], attachments: [], dependencies: [], dependents: [],
       metrics: {
-        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, rounds: 0,
+        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, deliveringMin: 0, rounds: 0,
         reopened: false, claimCount: 0, doneAt: null, model: null,
         tokensIn: null, tokensOut: null, costUsd: null,
       },
@@ -204,7 +204,7 @@ describe('App', () => {
       originalAcceptanceCriteria: null, policy: null, verifyCommand: null, hasVisualization: false,
       visualizationGeneratedAt: null, attachments: [], activity: [], links: [], dependencies: [], dependents: [],
       metrics: {
-        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, rounds: 0, reopened: false,
+        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, deliveringMin: 0, rounds: 0, reopened: false,
         claimCount: 0, doneAt: null, model: null, tokensIn: null, tokensOut: null, costUsd: null,
       },
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
