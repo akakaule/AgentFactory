@@ -230,6 +230,25 @@ describe('ai-review activity strip', () => {
     expect(detail.activity.some((a: any) => a.type === 'comment' && a.body.startsWith('ai-review/v1'))).toBe(false);
   });
 
+  it('get_task nulls the derived aiReview summary — the findings must not ride the detail either', async () => {
+    const { client, core } = await makeClient();
+    const t = reviewedTask(core);
+
+    expect(core.getTask(t.key).aiReview?.verdict).toBe('findings'); // board sees it
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect(detail.aiReview).toBeNull(); // agent does not
+  });
+
+  it('get_next_task nulls aiReview on reclaim', async () => {
+    const { client, core } = await makeClient();
+    const t = reviewedTask(core);
+    core.reviewRequestChanges(t.key, { feedback: 'fix the loop' });
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.key).toBe(t.key);
+    expect(payload.aiReview).toBeNull();
+  });
+
   it('get_task also hides the delivering-feedback markers (pr-feedback/v1, feedback-eval/v1)', async () => {
     const { client, core } = await makeClient();
     const t = core.createTask(makeTaskInput('Delivered'));

@@ -17,11 +17,12 @@ type Block =
  * comment) + `feedback-eval/v1` (the evaluator's verdict). Only the human-endorsed `feedback`
  * activity (from request-changes / applyFeedbackFix) rides the re-claim. (Marker presence alone
  * strips, so a malformed one can't slip through.) The board UI keeps them; this filter is MCP-only.
+ * The derived `aiReview` summary is nulled for the same reason — its `items` carry every finding.
  */
 export function detailContent(core: Core, task: TaskDetail, extra?: Record<string, unknown>): Block[] {
   const stripped = (b: string) => isAiReviewMarker(b) || isPrFeedbackMarker(b) || isFeedbackEvalMarker(b);
   const activity = task.activity.filter((a) => !(a.type === 'comment' && stripped(a.body)));
-  const detail: TaskDetail = { ...task, activity };
+  const detail: TaskDetail = { ...task, activity, aiReview: null };
   const payload = extra ? { ...detail, ...extra } : detail;
   const blocks: Block[] = [{ type: 'text', text: JSON.stringify(payload, null, 2) }];
   for (const a of task.attachments) {
