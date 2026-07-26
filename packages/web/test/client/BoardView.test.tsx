@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BoardView } from '../../client/src/views/BoardView.js';
+import { BoardView, canDropTask } from '../../client/src/views/BoardView.js';
 import type { Task } from '../../client/src/types.js';
 
 function makeTask(key: string, title: string, status: Task['status']): Task {
@@ -144,6 +144,35 @@ describe('BoardView', () => {
     render(<BoardView tasks={noDone} onSelect={vi.fn()} onArchiveAll={vi.fn()} />);
 
     expect(screen.queryByRole('button', { name: /archive all/i })).not.toBeInTheDocument();
+  });
+
+  describe('canDropTask (drag map)', () => {
+    it('never allows dragging an in-review task to Done — approve is the drawer action', () => {
+      // core allows human in_review → done, but a drag would bypass reviewApprove's
+      // delivering routing and the override audit trail
+      expect(canDropTask(makeTask('AF-1', 'T', 'in_review'), 'done')).toBe(false);
+    });
+
+    it('still allows sending an in-review task back to the queue', () => {
+      expect(canDropTask(makeTask('AF-1', 'T', 'in_review'), 'queued')).toBe(true);
+    });
+
+    it('keeps the delivering overrides draggable (force-complete / pull-back)', () => {
+      expect(canDropTask(makeTask('AF-1', 'T', 'delivering'), 'done')).toBe(true);
+      expect(canDropTask(makeTask('AF-1', 'T', 'delivering'), 'queued')).toBe(true);
+    });
+
+    it('lets a pr-review task be dragged straight into review (park/rescue/reopen)', () => {
+      for (const from of ['backlog', 'queued', 'done'] as const) {
+        expect(canDropTask({ ...makeTask('AF-1', 'T', from), kind: 'pr-review' }, 'in_review')).toBe(true);
+      }
+    });
+
+    it('never lets a code task skip into review or a pr-review task enter the queue', () => {
+      expect(canDropTask(makeTask('AF-1', 'T', 'queued'), 'in_review')).toBe(false);
+      expect(canDropTask(makeTask('AF-1', 'T', 'done'), 'in_review')).toBe(false);
+      expect(canDropTask({ ...makeTask('AF-1', 'T', 'backlog'), kind: 'pr-review' }, 'queued')).toBe(false);
+    });
   });
 
   it('calls onSelect with the task key on click', async () => {
