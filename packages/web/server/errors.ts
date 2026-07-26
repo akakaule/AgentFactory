@@ -11,5 +11,8 @@ export function mapError(err: unknown): HTTPException {
   if (err instanceof InvalidTransitionError) return jsonError(409, err.message);
   if (err instanceof ValidationError) return jsonError(400, err.message);
   if (err instanceof GitError) return jsonError(422, err.message);
+  // Unknown = a genuine bug, and this server usually runs unattended — without this line
+  // a crashing op is completely invisible (the client only ever sees 'Internal error').
+  console.error('[api] unhandled error:', err);
   return jsonError(500, 'Internal error');
 }

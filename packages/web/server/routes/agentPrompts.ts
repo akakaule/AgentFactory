@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
+import { validated } from '../validate.js';
 import type { Core } from '../types.js';
 import { agentPromptsBody } from '../schemas.js';
 
@@ -12,7 +12,7 @@ export function agentPromptRoutes(core: Core) {
 
   // PUT merges the posted keys into the global set (a blank value clears that key); unknown keys are
   // ignored by core. Returns the resulting set.
-  r.put('/', zValidator('json', agentPromptsBody), (c) => c.json(core.setGlobalPrompts(c.req.valid('json'))));
+  r.put('/', validated('json', agentPromptsBody), (c) => c.json(core.setGlobalPrompts(c.req.valid('json'))));
 
   return r;
 }

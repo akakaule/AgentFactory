@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
+import { validated } from '../validate.js';
 import { z } from 'zod';
 import type { Core } from '../types.js';
 
@@ -19,7 +19,7 @@ export function agentRoutes(core: Core): Hono {
   // every currently-running agent (fleet view + per-task drawer poll this)
   r.get('/', (c) => c.json(core.listLiveAgents()));
 
-  r.post('/heartbeat', zValidator('json', heartbeatBody), (c) => {
+  r.post('/heartbeat', validated('json', heartbeatBody), (c) => {
     const b = c.req.valid('json');
     if (b.message !== undefined) {
       const input: { message: string; tokensIn?: number; tokensOut?: number } = { message: b.message };

@@ -57,6 +57,14 @@ describe('workspaces REST API', () => {
       expect(res.status).toBe(400);
     });
 
+    it('invalid slug → the schema message reaches the client as { message }', async () => {
+      // zod rejections must flow through mapError like core ValidationErrors do —
+      // the raw @hono/zod-validator body has no `message` key and rendered as "400"
+      const res = await post(app, '/api/workspaces', { name: 'My Repo', repoPath: '/x' });
+      const body = (await res.json()) as { message?: string };
+      expect(body.message).toMatch(/lowercase slug/);
+    });
+
     it('missing repoPath → 400', async () => {
       const res = await post(app, '/api/workspaces', { name: 'ok' });
       expect(res.status).toBe(400);

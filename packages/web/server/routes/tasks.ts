@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
+import { validated } from '../validate.js';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
@@ -14,13 +14,13 @@ const MAX_VISUALIZATION_BYTES = 4 * 1024 * 1024;
 export function taskRoutes(core: Core) {
   const r = new Hono();
 
-  r.get('/', zValidator('query', listQuery), (c) => {
+  r.get('/', validated('query', listQuery), (c) => {
     const { status, workspace, archived } = c.req.valid('query');
     return c.json(core.listTasks({ status, workspace, archived: archived === 'true' ? true : undefined }));
   });
 
   // registered before the /:key routes so the static segment is never read as a task key
-  r.post('/archive-done', zValidator('json', archiveAllBody), (c) =>
+  r.post('/archive-done', validated('json', archiveAllBody), (c) =>
     c.json(core.archiveDoneTasks({ workspace: c.req.valid('json').workspace })));
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
@@ -80,9 +80,9 @@ export function taskRoutes(core: Core) {
     return c.json({ ok: true, bytes: meta.bytes }, 201);
   });
 
-  r.post('/', zValidator('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
+  r.post('/', validated('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
 
-  r.patch('/:key', zValidator('json', updateBody), (c) => {
+  r.patch('/:key', validated('json', updateBody), (c) => {
     const b = c.req.valid('json');
     const fields: UpdateTaskInput = {};            // build explicitly to satisfy exactOptionalPropertyTypes
     if (b.title !== undefined) fields.title = b.title;
@@ -97,13 +97,13 @@ export function taskRoutes(core: Core) {
     return c.body(null, 204);
   });
 
-  r.post('/:key/comment', zValidator('json', commentBody), (c) =>
+  r.post('/:key/comment', validated('json', commentBody), (c) =>
     c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
-  r.post('/:key/status', zValidator('json', statusBody), (c) =>
+  r.post('/:key/status', validated('json', statusBody), (c) =>
     c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c), c.req.valid('json').note)));
 
-  r.post('/:key/metrics', zValidator('json', metricsBody), (c) => {
+  r.post('/:key/metrics', validated('json', metricsBody), (c) => {
     const b = c.req.valid('json');
     const input: AddTaskMetricsInput = {};         // explicit build for exactOptionalPropertyTypes
     if (b.model !== undefined) input.model = b.model;
@@ -114,7 +114,7 @@ export function taskRoutes(core: Core) {
     return c.json(core.addTaskMetrics(c.req.param('key'), input), 201);
   });
 
-  r.post('/:key/attachments', zValidator('json', attachmentBody), (c) =>
+  r.post('/:key/attachments', validated('json', attachmentBody), (c) =>
     c.json(core.addAttachment(c.req.param('key'), c.req.valid('json')), 201));
 
   r.post('/:key/archive', (c) => c.json(core.archiveTask(c.req.param('key'))));
@@ -127,15 +127,15 @@ export function taskRoutes(core: Core) {
 
   r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));
 
-  r.post('/:key/request-changes', zValidator('json', feedbackBody), (c) =>
+  r.post('/:key/request-changes', validated('json', feedbackBody), (c) =>
     c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
 
   // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
-  r.post('/:key/pr-reviewed', zValidator('json', prReviewedBody), (c) =>
+  r.post('/:key/pr-reviewed', validated('json', prReviewedBody), (c) =>
     c.json(core.reviewPrReviewed(c.req.param('key'), { review: c.req.valid('json').review, actorUserId: actorUserIdOf(c) })));
 
   // Delivering-feedback loop: forward a PR-review comment for evaluation, and apply a warranted verdict.
-  r.post('/:key/pr-feedback', zValidator('json', prFeedbackBody), (c) => {
+  r.post('/:key/pr-feedback', validated('json', prFeedbackBody), (c) => {
     const b = c.req.valid('json');
     return c.json(core.addPrFeedback(c.req.param('key'), { feedback: b.feedback, author: b.author ?? null, url: b.url ?? null, actorUserId: actorUserIdOf(c) }), 201);
   });
