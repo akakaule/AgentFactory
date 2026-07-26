@@ -36,9 +36,12 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     const isImplementation = row.stage === 'implementation';
     const branchCreated = isImplementation && row.branch === null;
     const branch = isImplementation ? row.branch ?? featureBranch(row.key, row.title) : row.branch;
-    db.prepare(
+    const updated = db.prepare(
       "UPDATE task SET status='in_progress', claimed_by=?, claimed_at=?, branch=?, updated_at=? WHERE id=? AND status='queued'"
     ).run(claimedBy, ts, branch, ts, row.id);
+    // The status guard can miss if another process claimed the row between our snapshot and
+    // this write. Never report a claim the DB did not make — no activity, no session, no detail.
+    if (updated.changes === 0) return null;
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor: 'agent',
       fromStatus: 'queued', toStatus: 'in_progress', createdAt: ts,
