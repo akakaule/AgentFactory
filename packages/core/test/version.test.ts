@@ -4,6 +4,7 @@ import { getVersion } from '../src/version.js';
 import { createTask } from '../src/ops/createTask.js';
 import { addComment } from '../src/ops/addComment.js';
 import { deleteTask } from '../src/ops/deleteTask.js';
+import { updateWorkspace } from '../src/ops/updateWorkspace.js';
 import { appendLiveBuf, saveFinal } from '../src/repo/transcripts.js';
 
 // version format: "<max timestamp>#<task count>" — the count makes deletions visible
@@ -60,6 +61,17 @@ describe('getVersion', () => {
     expect(getVersion(db)).toBe(before);
     saveFinal(db, { taskId: id, attempt: 1, sessionId: 's', engine: 'claude', raw: '{"a":1}\n', now: '2027-02-01T00:00:00.000Z' });
     expect(getVersion(db)).toBe(before);
+  });
+
+  it('advances when a workspace is edited (policy, verify command, prompts are board-visible)', () => {
+    const db = makeTestDb();
+    createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => '2026-01-01T00:00:00.000Z');
+    const before = getVersion(db);
+
+    updateWorkspace(db, 'default', { policy: 'tests first' }, () => '2026-03-01T00:00:00.000Z');
+
+    expect(getVersion(db)).toBe('2026-03-01T00:00:00.000Z#1');
+    expect(getVersion(db)).not.toBe(before);
   });
 
   it('changes when a task that is NOT the newest row is deleted', () => {

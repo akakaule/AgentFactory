@@ -5,6 +5,7 @@ import { NotFoundError } from '../errors.js';
 
 export interface WorkspaceRow {
   id: number; name: string; repo_path: string; created_at: string;
+  updated_at: string | null; // stamped on every field edit (#23); null only pre-migration in-flight
   policy: string | null; verify_command: string | null;
   pat: string | null; // the git-host credential — SECRET; never leaves core (masked to hasPat below)
   prompt_overrides: string | null; // JSON map of per-workspace agent system-prompt overrides (#20)
@@ -47,7 +48,8 @@ export function insertWorkspace(db: DB, name: string, repoPath: string, ts: stri
 
 /** Patch a workspace's editable fields: repoPath (defining, non-null), the discipline fields
  *  (policy / verify_command), the git PAT (null clears it), and/or the agent prompt overrides
- *  (a cleaned map — empty ⇒ stored NULL). Only keys present in `fields` are written. */
+ *  (a cleaned map — empty ⇒ stored NULL). Only keys present in `fields` are written.
+ *  Every write stamps updated_at (#23) — getVersion() folds it in, so edits reach open clients. */
 export function updateWorkspaceFields(
   db: DB,
   id: number,
@@ -55,9 +57,10 @@ export function updateWorkspaceFields(
     repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined;
     pat?: string | null | undefined; promptOverrides?: AgentPrompts | undefined;
   },
+  ts: string,
 ): void {
   const sets: string[] = [];
-  const vals: (string | null)[] = [];
+  const vals: (string | number | null)[] = [];
   if ('repoPath' in fields && fields.repoPath !== undefined) { sets.push('repo_path = ?'); vals.push(fields.repoPath); }
   if ('policy' in fields) { sets.push('policy = ?'); vals.push(fields.policy ?? null); }
   if ('verifyCommand' in fields) { sets.push('verify_command = ?'); vals.push(fields.verifyCommand ?? null); }
@@ -67,7 +70,8 @@ export function updateWorkspaceFields(
     sets.push('prompt_overrides = ?'); vals.push(Object.keys(o).length > 0 ? JSON.stringify(o) : null);
   }
   if (sets.length === 0) return;
-  vals.push(String(id));
+  sets.push('updated_at = ?'); vals.push(ts);
+  vals.push(id);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (db.prepare(`UPDATE workspace SET ${sets.join(', ')} WHERE id = ?`).run as (...a: any[]) => unknown)(...vals);
 }

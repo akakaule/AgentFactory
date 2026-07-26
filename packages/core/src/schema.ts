@@ -338,3 +338,13 @@ CREATE TABLE IF NOT EXISTS task_dependency (
 );
 CREATE INDEX IF NOT EXISTS idx_task_dependency_reverse ON task_dependency(depends_on_task_id);
 `;
+
+// Migration #23 — workspace.updated_at. The mutable workspace fields (repo_path, policy,
+// verify_command, pat, prompt_overrides) left no timestamp trail, so getVersion() could not see
+// workspace edits and open clients kept stale settings until an unrelated task mutation bumped
+// the signal. Backfill = created_at, so the 1970-seeded default workspace stays out of the
+// change signal until first edited.
+export const MIGRATION_23_SQL = `
+ALTER TABLE workspace ADD COLUMN updated_at TEXT;
+UPDATE workspace SET updated_at = created_at;
+`;
