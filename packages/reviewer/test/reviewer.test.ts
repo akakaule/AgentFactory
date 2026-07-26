@@ -51,6 +51,28 @@ describe('poll + spawn', () => {
     expect(calls.length).toBe(0);
   });
 
+  it('a tick overlapping a slow diff does not double-spawn the same review', async () => {
+    const core = makeCore();
+    seedInReview(core, 'ws', 'Slow diff', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    // computeDiff slower than the poll interval — the second safeTick fires mid-diff,
+    // before the first tick has registered the session in `running`
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    const computeDiff = async () => {
+      await gate;
+      return { baseRef: 'main', diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1 };
+    };
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole(), computeDiff }));
+
+    const first = r.safeTick();
+    const second = r.safeTick(); // must be a no-op, not a duplicate review
+    release();
+    await Promise.all([first, second]);
+
+    expect(calls.length).toBe(1);
+  });
+
   it('spawns a codex review with the prompt on stdin and the diff in the prompt', async () => {
     const core = makeCore();
     seedInReview(core, 'ws', 'Build it', 'implementation');

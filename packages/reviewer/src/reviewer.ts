@@ -47,6 +47,7 @@ export class Reviewer {
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
+  private ticking = false; // re-entrancy guard (same shape as the watcher's)
 
   constructor(
     private readonly config: ReviewerConfig,
@@ -75,11 +76,19 @@ export class Reviewer {
     }
   }
 
-  private async safeTick(): Promise<void> {
+  /** One tick; never overlaps itself and never lets an error kill the interval. Without the
+   *  guard, a `computeDiff`/`fetchRef` slower than pollSeconds let the next tick pass
+   *  `hasRunningFor` (the session registers in `running` only after the diff) and spawn a
+   *  duplicate review engine for the same task. */
+  async safeTick(): Promise<void> {
+    if (this.ticking) return;
+    this.ticking = true;
     try {
       await this.tick();
     } catch (err) {
       this.console.error(`[reviewer] tick failed: ${(err as Error).message}`);
+    } finally {
+      this.ticking = false;
     }
   }
 
