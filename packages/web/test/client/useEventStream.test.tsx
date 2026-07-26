@@ -127,6 +127,26 @@ describe('useEventStream', () => {
     expect(lastES.closeSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('shares ONE connection across all subscribers (no per-hook socket)', () => {
+    const ESMock = globalThis.EventSource as unknown as ReturnType<typeof vi.fn>;
+    const bumpA = vi.fn();
+    const bumpB = vi.fn();
+    const a = renderHook(() => useEventStream(bumpA));
+    const b = renderHook(() => useEventStream(bumpB));
+
+    expect(ESMock).toHaveBeenCalledTimes(1); // one socket, two subscribers
+
+    act(() => { lastES.emit('version'); });
+    expect(bumpA).toHaveBeenCalledTimes(1); // both fan out from the shared stream
+    expect(bumpB).toHaveBeenCalledTimes(1);
+
+    a.unmount();
+    expect(lastES.closeSpy).not.toHaveBeenCalled(); // still one subscriber left
+
+    b.unmount();
+    expect(lastES.closeSpy).toHaveBeenCalledTimes(1); // last one out closes the stream
+  });
+
   it('releases the SSE connection while the tab is hidden and reopens on return', () => {
     const onBump = vi.fn();
     renderHook(() => useEventStream(onBump));
