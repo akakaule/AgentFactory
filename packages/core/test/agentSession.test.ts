@@ -56,6 +56,20 @@ describe('agent_session live tracking', () => {
     expect(live.tokensOut).toBe(400);
   });
 
+  it('a corrupt recent blob degrades to an empty feed instead of taking down the live view', () => {
+    const db = makeTestDb();
+    queued(db);
+    claimNextTask(db, { claimedBy: 'worker-1' });
+    db.prepare("UPDATE agent_session SET recent = '{not json' WHERE ended_at IS NULL").run();
+
+    const live = listLiveAgents(db);
+    expect(live).toHaveLength(1);
+    expect(live[0]!.recent).toEqual([]);
+    // and progress keeps working on top of the corrupt blob (starts a fresh feed)
+    reportProgress(db, live[0]!.key, { message: 'recovered' });
+    expect(listLiveAgents(db)[0]!.recent.map((m) => m.msg)).toEqual(['recovered']);
+  });
+
   it('submit ends the session (drops it from the live view)', () => {
     const db = makeTestDb();
     const t = queued(db);

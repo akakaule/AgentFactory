@@ -4,6 +4,13 @@ import type { AgentSessionView, AgentMilestone, Stage, Status } from '../types.j
 // Rolling milestone feed cap — keeps the live row small and bounded.
 const RECENT_CAP = 10;
 
+/** Parse the stored milestone feed; a corrupt blob degrades to [] instead of throwing —
+ *  one bad row must never take down the Live view (same posture as workspaces/delivery). */
+function parseRecent(raw: string | null): AgentMilestone[] {
+  if (!raw) return [];
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? (v as AgentMilestone[]) : []; } catch { return []; }
+}
+
 /**
  * Repo primitives for the `agent_session` live table. These run INSIDE a caller's
  * transaction (claimNextTask/submitResult) or one opened by ops/agentSession.ts — they
@@ -40,7 +47,7 @@ export function updateProgress(
   const row = db.prepare('SELECT recent FROM agent_session WHERE task_id = ? AND ended_at IS NULL')
     .get(p.taskId) as { recent: string | null } | undefined;
   if (!row) return;
-  const recent: AgentMilestone[] = row.recent ? (JSON.parse(row.recent) as AgentMilestone[]) : [];
+  const recent: AgentMilestone[] = parseRecent(row.recent);
   recent.push({ msg: p.message, at: p.now });
   db.prepare(
     `UPDATE agent_session
@@ -75,7 +82,7 @@ export function listLiveSessions(db: DB): AgentSessionView[] {
   return rows.map((r) => ({
     key: r.key, title: r.title, status: r.status, workspace: r.workspace, stage: r.stage,
     label: r.label, phase: r.phase, phaseAt: r.phase_at,
-    recent: r.recent ? (JSON.parse(r.recent) as AgentMilestone[]) : [],
+    recent: parseRecent(r.recent),
     tokensIn: r.metric_in ?? r.tokens_in, tokensOut: r.metric_out ?? r.tokens_out,
     startedAt: r.started_at, heartbeatAt: r.heartbeat_at,
   }));
