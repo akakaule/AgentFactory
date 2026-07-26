@@ -80,7 +80,7 @@ export class Dispatcher {
     }
     for (const session of this.running.values()) {
       try {
-        session.child.kill('SIGTERM');
+        this.deps.terminateProcessTree(session.child, 'SIGTERM');
       } catch {
         /* best-effort */
       }
@@ -158,7 +158,9 @@ export class Dispatcher {
         session.timedOut = true;
         this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m); killing\n`);
         try {
-          session.child.kill('SIGKILL');
+          // kill the TREE: on Windows the tracked child is a cmd.exe shim — killing only it
+          // would leave the actual claude/codex worker running against a re-queued task
+          this.deps.terminateProcessTree(session.child, 'SIGKILL');
         } catch {
           /* the exit handler still runs the crash path */
         }

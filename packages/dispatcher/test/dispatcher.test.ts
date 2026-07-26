@@ -588,6 +588,29 @@ describe('session timeout', () => {
     expect(calls.length).toBe(2);
     expect(workerLabel(calls[1]!.req.env)).toContain('-a2');
   });
+
+  it('kills through the process-TREE hook — a bare child.kill would orphan the worker behind a cmd shim', async () => {
+    let nowMs = 0;
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Slow');
+    const { spawn, calls } = makeFakeSpawn();
+    const treeKills: Array<{ pid: number | undefined; signal: NodeJS.Signals }> = [];
+    const d = new Dispatcher(
+      makeConfig({ maxSessionMinutes: 10 }),
+      makeDeps(core, spawn, {
+        now: () => nowMs,
+        console: makeFakeConsole(),
+        terminateProcessTree: (child, signal) => { treeKills.push({ pid: child.pid, signal }); child.kill(signal); },
+      }),
+    );
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    nowMs = 11 * 60_000;
+    await d.tick();
+
+    expect(treeKills).toEqual([{ pid: calls[0]!.child.pid, signal: 'SIGKILL' }]);
+  });
 });
 
 // ---------------------------------------------------------------------------

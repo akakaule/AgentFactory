@@ -125,6 +125,7 @@ export interface DepsOverrides {
   findTranscript?: (cwd: string, sessionId: string) => string | null;
   tailFile?: (path: string, offset: number) => { chunk: string; offset: number } | null;
   readFile?: (path: string) => string | null;
+  terminateProcessTree?: DispatcherDeps['terminateProcessTree'];
 }
 
 export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = {}): DispatcherDeps {
@@ -140,6 +141,8 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
     baseEnv: {},
     console: overrides.console,
     // transcript capture: off by default (no file) so existing tests are unaffected
+    // default mirrors the pre-tree behavior so kill assertions on the fake child keep working
+    terminateProcessTree: overrides.terminateProcessTree ?? ((child, signal) => void child.kill(signal)),
     uuid: overrides.uuid ?? (() => 'sess-test'),
     findTranscript: overrides.findTranscript ?? (() => null),
     tailFile: overrides.tailFile ?? (() => null),

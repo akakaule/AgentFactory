@@ -9,6 +9,7 @@ import { openCore } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
+import { terminateProcessTree } from './processTree.js';
 import { encodeProjectDir } from './transcript.js';
 import type { DispatcherDeps, LogWriter, McpServerSpec, SpawnFn } from './types.js';
 
@@ -150,6 +151,7 @@ const deps: DispatcherDeps = {
   logDir,
   now: () => Date.now(),
   baseEnv: process.env,
+  terminateProcessTree,
   console,
   uuid: () => randomUUID(),
   findTranscript,

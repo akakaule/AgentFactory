@@ -83,6 +83,9 @@ export interface DispatcherDeps {
   now: () => number;
   /** Base environment merged into each spawned session (production: `process.env`). */
   baseEnv?: NodeJS.ProcessEnv | undefined;
+  /** Terminates a session and its descendants — on Windows the tracked child may be a cmd.exe
+   *  shim, so a bare kill() would orphan the actual worker (see processTree.ts). */
+  terminateProcessTree: (child: SpawnedChild, signal: NodeJS.Signals) => void;
   /** Console sink (injectable so tests can assert skip-list warnings). */
   console?: Pick<Console, 'log' | 'warn' | 'error'> | undefined;
   /** Fresh session id (UUID) per spawn — forced via `--session-id` to pin the transcript path. */
