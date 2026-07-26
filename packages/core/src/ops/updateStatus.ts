@@ -28,6 +28,10 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   // done) are pr-review-only — a 'code' task can never skip implementation by jumping to review.
   if (status === 'in_review' && row.kind !== 'pr-review' && (row.status === 'backlog' || row.status === 'queued' || row.status === 'done'))
     throw new ValidationError(`only a pr-review task moves straight to review (got kind '${row.kind}')`);
+  // The agent in_review → queued edge exists solely for the doc-stage auto-approve
+  // (ops/approval.ts) — as a raw status move it would let an agent dodge its own review.
+  if (row.status === 'in_review' && status === 'queued' && actor === 'agent')
+    throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
     const ts = now();

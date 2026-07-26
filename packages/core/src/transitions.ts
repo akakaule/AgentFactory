@@ -17,6 +17,9 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'blocked',     to: 'queued',      by: 'human' },
   { from: 'in_review',   to: 'done',        by: 'human' },
   { from: 'in_review',   to: 'queued',      by: 'human' },
+  // doc-stage auto-approve: a clean AI review advances the stage and re-queues (ops/approval.ts).
+  // Gated out of ops/updateStatus.ts — an agent can never use it as a raw status move.
+  { from: 'in_review',   to: 'queued',      by: 'agent' },
   { from: 'done',        to: 'queued',      by: 'human' }, // reopen (e.g. CI failed on the PR)
   // pr-review-only straight-to-review edges (kind-gated in ops/updateStatus.ts): rescue a
   // pr-review task wrongly parked in the queue, and reopen a closed review to re-review.

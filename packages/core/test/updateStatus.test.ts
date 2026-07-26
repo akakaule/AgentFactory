@@ -174,6 +174,17 @@ describe('updateStatus', () => {
     expect(row.status).toBe('done');
   });
 
+  it('in_review → queued with actor agent: InvalidTransitionError (edge is reserved for the auto-approve path)', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+
+    expect(() => updateStatus(db, task.key, 'queued', 'agent', fixedNow)).toThrow(InvalidTransitionError);
+
+    const row = findRowByKey(db, task.key)!;
+    expect(row.status).toBe('in_review');
+  });
+
   it('in_review → done with actor agent: InvalidTransitionError', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });

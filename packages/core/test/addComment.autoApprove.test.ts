@@ -5,6 +5,7 @@ import { createTask } from '../src/ops/createTask.js';
 import { addComment } from '../src/ops/addComment.js';
 import { findRowByKey } from '../src/repo/tasks.js';
 import { recentActivity } from '../src/repo/activity.js';
+import { isValidTransition } from '../src/transitions.js';
 import type { Stage } from '../src/types.js';
 
 const FIXED_TS = '2030-10-01T10:00:00.000Z';
@@ -44,6 +45,8 @@ describe('addComment — auto-approve clean doc-stage reviews', () => {
     expect(advance!.fromStatus).toBe('in_review');
     expect(advance!.body).toContain('auto-approved: clean AI review');
     expect(advance!.body).toContain('description → plan');
+    // the logged edge must be one the transition table accepts — derived consumers replay it
+    expect(isValidTransition(advance!.fromStatus!, advance!.toStatus!, advance!.actor)).toBe(true);
   });
 
   it('a clean review on an in-review plan stage advances to implementation', () => {

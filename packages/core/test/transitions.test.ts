@@ -7,6 +7,7 @@ const VALID: [string, string, string][] = [
   ['in_progress','queued','human'], // release a stranded claim
   ['blocked','in_progress','agent'], ['blocked','queued','human'],
   ['in_review','done','human'], ['in_review','queued','human'],
+  ['in_review','queued','agent'], // doc-stage auto-approve (gated out of updateStatus)
   ['done','queued','human'], // reopen (e.g. CI failed on the PR)
   ['queued','in_review','human'], ['done','in_review','human'], // pr-review rescue / reopen (kind-gated in updateStatus)
   ['in_review','delivering','human'], // approve with a recognizable git-host origin

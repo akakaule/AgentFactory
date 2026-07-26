@@ -6,6 +6,7 @@ import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { upsertDelivery } from '../repo/delivery.js';
 import { latestPrLinkUrl } from '../repo/links.js';
+import { assertTransition } from '../transitions.js';
 import { InvalidTransitionError } from '../errors.js';
 
 /** Approve-time routing decision: non-null ⇒ the implementation approve enters 'delivering'
@@ -42,6 +43,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
   if (row.stage === 'implementation') {
     if (actor !== 'human') throw new InvalidTransitionError('the implementation review is approved by a human, never auto-approved');
     const to: Status = delivery ? 'delivering' : 'done';
+    assertTransition('in_review', to, actor);
     setStatus(db, row.id, to, ts);
     // seed (or reset, on a re-approval) the delivery row inside the same transaction — the
     // watcher must never find a delivering task it can't attribute to a provider/branch
@@ -53,6 +55,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     return;
   }
   const next = STAGE_ORDER[STAGE_ORDER.indexOf(row.stage) + 1]!;
+  assertTransition('in_review', 'queued', actor);
   setStage(db, row.id, next, ts);
   setStatus(db, row.id, 'queued', ts); // clears the claimant — the next stage is anyone's claim
   appendActivity(db, {
