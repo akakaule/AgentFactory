@@ -3,7 +3,7 @@ import type { TaskDetail } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
-import { appendActivity } from '../repo/activity.js';
+import { appendActivity, markerCommentsDesc } from '../repo/activity.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { parsePrFeedbackComment, parseFeedbackEvalComment, type ParsedPrFeedback, type ParsedFeedbackEval } from '../prFeedback.js';
 import { nowIso } from '../time.js';
@@ -39,10 +39,13 @@ export function applyFeedbackFix(db: DB, key: string, actorUserId: number | null
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   if (row.status !== 'delivering') throw new ValidationError(`apply feedback requires a delivering task (got ${row.status})`);
 
-  const activity = toDetail(db, row).activity.filter((a) => a.type === 'comment');
-  const feedback = [...activity].reverse().map((a) => parsePrFeedbackComment(a.body)).find((p): p is ParsedPrFeedback => p !== null);
+  // SQL marker lookup over the FULL history — the recentActivity window (50 rows) let a chatty
+  // delivering task scroll its pr-feedback marker out of sight and fail with "no PR feedback".
+  const feedback = markerCommentsDesc(db, row.id, 'pr-feedback/v1')
+    .map(parsePrFeedbackComment).find((p): p is ParsedPrFeedback => p !== null);
   if (!feedback) throw new ValidationError('no PR feedback to apply — add feedback and evaluate it first');
-  const evalv = [...activity].reverse().map((a) => parseFeedbackEvalComment(a.body)).find((p): p is ParsedFeedbackEval => p !== null) ?? null;
+  const evalv = markerCommentsDesc(db, row.id, 'feedback-eval/v1')
+    .map(parseFeedbackEvalComment).find((p): p is ParsedFeedbackEval => p !== null) ?? null;
 
   return transaction(db, () => {
     const ts = now();

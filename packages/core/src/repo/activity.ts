@@ -59,6 +59,19 @@ export function latestFailureComments(db: DB, taskIds: number[]): Map<number, { 
 }
 
 /**
+ * All comment bodies starting with `prefix` for one task, newest first — the FULL history,
+ * not the recentActivity window (a chatty delivering task scrolls markers past that cap).
+ * The SQL pre-filters on the marker prefix; the caller's parser stays the authority on
+ * well-formedness (callers take the first parseable body).
+ */
+export function markerCommentsDesc(db: DB, taskId: number, prefix: string): string[] {
+  const rows = db.prepare(
+    `SELECT body FROM activity WHERE task_id = ? AND type = 'comment' AND lower(body) LIKE ? ORDER BY id DESC`
+  ).all(taskId, `${prefix.toLowerCase()}%`) as Array<{ body: string }>;
+  return rows.map((r) => r.body);
+}
+
+/**
  * Latest `restart/v1` marker id per task id (one query for the whole list). An operator restart
  * newer than the latest failure note supersedes it (like a fresh result) ⇒ the failure clears.
  * Mirrors latestResultIds — the SQL pre-filters on the marker prefix; only the id is needed.

@@ -59,6 +59,21 @@ describe('applyFeedbackFix', () => {
     expect(fb.body).toContain('add a max-attempts guard');
   });
 
+  it('finds the feedback even when later chatter scrolls it past the recent-activity window', () => {
+    const db = makeTestDb();
+    const key = deliveringTask(db);
+    addPrFeedback(db, key, { feedback: 'the retry loop can spin forever' });
+    addComment(db, key, { actor: 'agent', body: buildFeedbackEvalComment({ disposition: 'warranted', reasoning: 'unbounded loop', suggestedChange: 'add a guard' }) });
+    // 60 newer comments — more than TaskDetail.activity's 50-row cap
+    for (let i = 0; i < 60; i++) addComment(db, key, { actor: 'agent', body: `watcher note ${i}` });
+
+    const detail = applyFeedbackFix(db, key, null);
+    expect(detail.status).toBe('queued');
+    const fb = detail.activity.filter((a) => a.type === 'feedback').at(-1)!;
+    expect(fb.body).toContain('the retry loop can spin forever');
+    expect(fb.body).toContain('add a guard');
+  });
+
   it('refuses when no feedback was forwarded, and on a non-delivering task', () => {
     const db = makeTestDb();
     const key = deliveringTask(db);
