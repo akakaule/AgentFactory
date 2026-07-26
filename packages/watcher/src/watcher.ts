@@ -95,7 +95,14 @@ export class Watcher {
     if (this.deps.now() < this.pausedUntil) return; // provider rate limit — sit out this tick
     for (const t of tasks) {
       if (this.deps.now() < this.pausedUntil) return;
-      await this.checkTask(t.key);
+      // Per-task isolation: checkTask handles provider/transition errors itself, but a core
+      // throw (e.g. the task was deleted between listTasks and here) must not abort the
+      // remaining delivering tasks' checks for this tick.
+      try {
+        await this.checkTask(t.key);
+      } catch (err) {
+        console.error(`[watcher] ${t.key}: check failed:`, err);
+      }
     }
   }
 

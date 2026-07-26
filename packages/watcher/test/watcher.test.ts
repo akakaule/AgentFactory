@@ -25,6 +25,29 @@ describe('watcher tick', () => {
     expect(close.body).toContain('PR #42 merged');
   });
 
+  it('one throwing task does not stall the rest of the tick', async () => {
+    const core = makeCore();
+    const k1 = deliverTask(core, 'Poisoned');
+    const k2 = deliverTask(core, 'Healthy');
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
+      ['/check-runs', { body: green }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    // simulate the listTasks → checkTask race (task deleted / non-transition core error):
+    // getTask on the first key throws something that is NOT an InvalidTransitionError
+    const errors: unknown[][] = [];
+    const deps = makeDeps(
+      { ...core, getTask: (key: string) => { if (key === k1) throw new Error('boom'); return core.getTask(key); } } as typeof core,
+      fetchJson,
+      { console: { log: () => {}, warn: () => {}, error: (...a: unknown[]) => errors.push(a) } },
+    );
+    const w = new Watcher(makeConfig(), deps);
+    await w.tick();
+    expect(core.getTask(k2).status).toBe('done'); // the healthy task still completed
+    expect(errors.length).toBeGreaterThan(0); // and the poisoned one was logged, not swallowed
+  });
+
   it('failing checks → queued with exactly one parseable failure/v1 ci_failed comment', async () => {
     const core = makeCore();
     const key = deliverTask(core);
