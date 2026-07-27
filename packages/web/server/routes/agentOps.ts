@@ -50,6 +50,14 @@ export function agentOpsRoutes(core: Core): Hono {
   const r = new Hono();
   r.use('*', requireService);
 
+  // ── identity probe ─────────────────────────────────────────────────────────
+  // Lets a remote supervisor fail fast at STARTUP when its token lacks the supervisor
+  // capability, instead of surfacing as a 403 mid-tick on release-claim/delivery (#46).
+  r.get('/whoami', (c) => {
+    const p = principalOf(c); // requireService guarantees kind === 'service'
+    return c.json({ label: p.kind === 'service' ? p.label : '', supervisor: p.kind === 'service' && p.supervisor });
+  });
+
   const body = async <T = Record<string, unknown>>(c: { req: { json(): Promise<unknown> } }): Promise<T> => {
     try {
       return (await c.req.json()) as T;

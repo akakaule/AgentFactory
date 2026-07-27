@@ -17,7 +17,15 @@ type Asyncified<T> = {
   [K in keyof T]: T[K] extends (...a: infer A) => infer R ? (...a: A) => Promise<Awaited<R>> : T[K];
 };
 
-/** Every op a remote MCP server or supervisor drives over HTTP (the §3.5 cut, verified per consumer). */
+/** The authenticated caller's own identity, as the board sees it (GET /api/agent/whoami). */
+export interface BoardIdentity {
+  label: string;
+  supervisor: boolean;
+}
+
+/** Every op a remote MCP server or supervisor drives over HTTP (the §3.5 cut, verified per consumer).
+ *  `whoami` is the one member with no sync-core counterpart — it reads the token's Principal, which
+ *  only exists on the wire — hence the intersection rather than a wider Pick. */
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
   | 'claimNextTask' | 'submitResult' | 'createTask'
@@ -27,7 +35,9 @@ export type HttpCore = Pick<
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment'
->;
+> & {
+  whoami(): Promise<BoardIdentity>;
+};
 
 export interface HttpCoreOptions {
   /** Injectable fetch (tests point it at an in-process Hono `app.request`). */
@@ -77,6 +87,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
   const enc = encodeURIComponent;
 
   return {
+    // ── identity ─────────────────────────────────────────────────────────────
+    whoami: async () => (await req('GET', '/api/agent/whoami')) as BoardIdentity,
+
     // ── claim / deliver ──────────────────────────────────────────────────────
     claimNextTask: async (o = {}) => (await req('POST', '/api/agent/claim', o)) as never,
     submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, input)) as never,

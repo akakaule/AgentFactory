@@ -100,4 +100,23 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     const detail = core.getTask(t.key);
     expect(detail.metrics.tokensIn).toBe(100);
   });
+
+  it('whoami reports the token identity and supervisor capability', async () => {
+    expect(await http.whoami()).toEqual({ label: 'remote-supervisor', supervisor: true });
+
+    const plain = core.createApiToken({ label: 'plain-worker', isService: true }).token;
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const asPlain = createHttpCore('http://board', plain, {
+      fetchImpl: ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch,
+    });
+    expect(await asPlain.whoami()).toEqual({ label: 'plain-worker', supervisor: false });
+  });
+
+  it('whoami refuses user tokens (service-only surface)', async () => {
+    const u = core.createUser({ email: 'h@x', displayName: 'H' });
+    const userToken = core.createApiToken({ userId: u.id, label: 'human' }).token;
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const res = await app.request('/api/agent/whoami', { headers: { authorization: `Bearer ${userToken}` } });
+    expect(res.status).toBe(403);
+  });
 });

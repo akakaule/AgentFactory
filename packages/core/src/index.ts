@@ -28,7 +28,7 @@ export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { releaseClaim } from './ops/releaseClaim.js';
-export { createHttpCore, type HttpCore, type HttpCoreOptions } from './httpCore.js';
+export { createHttpCore, type HttpCore, type HttpCoreOptions, type BoardIdentity } from './httpCore.js';
 export { restartTask } from './ops/restartTask.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
