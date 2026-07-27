@@ -26,7 +26,7 @@ export type HttpCore = Pick<
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
-  | 'listTasks' | 'getTask' | 'listWorkspaces'
+  | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment'
 >;
 
 export interface HttpCoreOptions {
@@ -111,6 +111,23 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     recordDeliveryCheck: async (key, obs) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check`, obs)) as never,
     completeDelivery: async (key, note) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note })) as never,
     failDelivery: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/fail`, input)) as never,
+
+    // spec images ride the claim payload as MCP image blocks — the one binary read.
+    // Row metadata comes back in headers; bytes are the body.
+    getAttachment: async (id) => {
+      const res = await fetchImpl(`${base}/api/attachments/${id}`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) throw errorFrom(res.status, String(res.status));
+      return {
+        id,
+        taskId: Number(res.headers.get('x-attachment-task-id') ?? -1),
+        filename: decodeURIComponent(res.headers.get('x-attachment-filename') ?? ''),
+        mime: res.headers.get('content-type') ?? 'application/octet-stream',
+        bytes: new Uint8Array(await res.arrayBuffer()),
+      };
+    },
 
     // ── reads (existing board routes, same guard) ────────────────────────────
     listTasks: async (o = {}) => {

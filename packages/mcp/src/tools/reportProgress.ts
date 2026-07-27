@@ -1,10 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Core } from '../types.js';
+import type { McpCore } from '../types.js';
 import { taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 
-export function registerReportProgress(server: McpServer, core: Core): void {
+export function registerReportProgress(server: McpServer, core: McpCore): void {
   server.registerTool(
     'report_progress',
     {
@@ -24,7 +24,7 @@ export function registerReportProgress(server: McpServer, core: Core): void {
         const input: { message: string; tokensIn?: number; tokensOut?: number } = { message };
         if (tokensIn !== undefined) input.tokensIn = tokensIn;
         if (tokensOut !== undefined) input.tokensOut = tokensOut;
-        core.reportProgress(key, input);
+        await core.reportProgress(key, input);
         return { content: [{ type: 'text', text: 'ok' }] };
       } catch (err) {
         return toToolError(err);

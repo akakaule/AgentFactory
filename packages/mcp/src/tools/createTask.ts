@@ -1,13 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Core } from '../types.js';
+import type { McpCore } from '../types.js';
 import type { CreateTaskInput } from '@agentfactory/core';
 import type { ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
 
 const stageSchema = z.enum(['description', 'plan', 'implementation']);
 
-export function registerCreateTask(server: McpServer, core: Core, opts: ServerOptions = {}): void {
+export function registerCreateTask(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'create_task',
     {
@@ -36,7 +36,7 @@ export function registerCreateTask(server: McpServer, core: Core, opts: ServerOp
         if (stage !== undefined) input.stage = stage;
         const ws = workspace ?? opts.defaultWorkspace; // pin to the server's workspace by default
         if (ws !== undefined) input.workspace = ws;
-        const task = core.createTask(input);
+        const task = await core.createTask(input);
         return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
       } catch (err) {
         return toToolError(err);

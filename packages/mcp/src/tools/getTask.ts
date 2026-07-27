@@ -1,11 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Core } from '../types.js';
+import type { McpCore } from '../types.js';
 import { taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 import { detailContent } from '../content.js';
 
-export function registerGetTask(server: McpServer, core: Core): void {
+export function registerGetTask(server: McpServer, core: McpCore): void {
   server.registerTool(
     'get_task',
     {
@@ -16,8 +16,8 @@ export function registerGetTask(server: McpServer, core: Core): void {
     },
     async ({ key }) => {
       try {
-        const task = core.getTask(key);
-        return { content: detailContent(core, task) };
+        const task = await core.getTask(key);
+        return { content: await detailContent(core, task) };
       } catch (err) {
         return toToolError(err);
       }

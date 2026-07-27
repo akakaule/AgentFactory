@@ -1,10 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Core } from '../types.js';
+import type { McpCore } from '../types.js';
 import { taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 
-export function registerAddComment(server: McpServer, core: Core): void {
+export function registerAddComment(server: McpServer, core: McpCore): void {
   server.registerTool(
     'add_comment',
     {
@@ -15,7 +15,7 @@ export function registerAddComment(server: McpServer, core: Core): void {
     },
     async ({ key, body }) => {
       try {
-        const activity = core.addComment(key, { actor: 'agent', body });
+        const activity = await core.addComment(key, { actor: 'agent', body });
         return { content: [{ type: 'text', text: JSON.stringify(activity, null, 2) }] };
       } catch (err) {
         return toToolError(err);
