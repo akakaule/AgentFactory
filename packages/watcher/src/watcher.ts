@@ -106,6 +106,12 @@ export class Watcher {
     }
   }
 
+  /** The machine-local clone for a task's workspace (#46 remote watch) — the board-central
+   *  repoPath otherwise. `git remote get-url` must run against a repo on THIS machine. */
+  private repoFor(detail: { workspace: string; repoPath: string }): string {
+    return this.config.repoPathOverrides?.[detail.workspace] ?? detail.repoPath;
+  }
+
   private remoteFor(repoPath: string): RemoteRef | null {
     if (!this.remoteCache.has(repoPath)) {
       this.remoteCache.set(repoPath, parseRemoteUrl(this.deps.resolveOrigin(repoPath) ?? ''));
@@ -130,7 +136,7 @@ export class Watcher {
     // bypasses it. Needs a branch and a recognizable origin; otherwise the task sits visibly
     // in Delivering with no chip and the human's Mark-done/Re-queue buttons stay the way out.
     if (!delivery) {
-      const remote = this.remoteFor(detail.repoPath);
+      const remote = this.remoteFor(this.repoFor(detail));
       if (!detail.branch || !remote) {
         this.warnOnce(key, `[watcher] ${key} is delivering but has ${detail.branch ? 'no recognizable origin' : 'no branch'} — a human must Mark done or Re-queue`);
         return;
@@ -140,7 +146,7 @@ export class Watcher {
       console.log(`[watcher] ${key}: seeded delivery row (${remote.provider}, ${detail.branch})`);
     }
 
-    const remote = this.remoteFor(detail.repoPath);
+    const remote = this.remoteFor(this.repoFor(detail));
     if (!remote || remote.provider !== delivery.provider) {
       this.warnOnce(key, `[watcher] ${key}: workspace origin no longer matches its delivery provider (${delivery.provider}) — a human must Mark done or Re-queue`);
       return;

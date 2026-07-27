@@ -17,6 +17,14 @@ describe('watcher config', () => {
     expect(() => parseConfig({ workspaces: ['a'] })).toThrow(); // missing db
     expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow(); // present but empty
   });
+  it('db/board XOR: accepts board-only, rejects both, rejects neither (#46)', () => {
+    expect(parseConfig({ board: { url: 'http://board:8787', tokenEnv: 'AF_WATCHER' } }).board?.url).toBe('http://board:8787');
+    expect(() => parseConfig({ db: 'x', board: { url: 'http://b' } })).toThrow(/exactly one/);
+    expect(() => parseConfig({})).toThrow(/exactly one/);
+  });
+  it('accepts repoPathOverrides', () => {
+    expect(parseConfig({ board: { url: 'http://b' }, repoPathOverrides: { default: '/clones/x' } }).repoPathOverrides).toEqual({ default: '/clones/x' });
+  });
   it('allows omitting workspaces (opt-out: serve all) and defaults excludeWorkspaces to []', () => {
     const c = parseConfig({ db: 'x' });
     expect(c.workspaces).toBeUndefined();

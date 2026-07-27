@@ -1,13 +1,20 @@
 import { z } from 'zod';
+import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
 
 /**
  * `watcher.config.json` schema. The watcher is a pure REST poller (no LLM, no spawn):
  * it watches every `delivering` task's PR + pipeline and closes or bounces it. Defaults:
  * one poll a minute, pre-merge checks semantics, 15-minute error-backoff cap.
  */
-export const configSchema = z.object({
-  /** Path to the agentfactory sqlite DB (read for delivering tasks, written on close/bounce). */
-  db: z.string().min(1),
+export const baseConfigSchema = z.object({
+  /** Path to the agentfactory sqlite DB (read for delivering tasks, written on close/bounce).
+   *  XOR with `board`. */
+  db: z.string().min(1).optional(),
+  /** Remote board (#46): url + SUPERVISOR token (inline or via tokenEnv) — the watcher drives
+   *  the delivery ops and reads workspace PATs, both supervisor-gated. XOR with `db`. */
+  board: boardSchema.optional(),
+  /** workspace name → absolute machine-local clone path (origin resolution runs against it). */
+  repoPathOverrides: repoPathOverridesSchema.optional(),
   /** Stable supervisor identity for the health view (one heartbeat row per name). */
   name: z.string().min(1).default('watcher'),
   /**
@@ -64,7 +71,11 @@ export const configSchema = z.object({
     .default({}),
 });
 
-export type WatcherConfig = z.infer<typeof configSchema>;
+/** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be
+ *  `.extend`ed — sibling branches extend `baseConfigSchema` and re-apply `xorDbBoard`. */
+export const configSchema = baseConfigSchema.superRefine(xorDbBoard);
+
+export type WatcherConfig = z.infer<typeof baseConfigSchema>;
 
 /** Validate a parsed config object, applying defaults. Throws a ZodError on bad input. */
 export function parseConfig(raw: unknown): WatcherConfig {

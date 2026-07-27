@@ -294,6 +294,30 @@ describe('watcher tick', () => {
     expect(fetchJson.calls).toHaveLength(0);
   });
 
+  it('repoPathOverrides: origin resolution runs against the machine-local clone (#46)', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const local = process.platform === 'win32' ? 'C:\\clones\\default' : '/clones/default';
+    const originArgs: string[] = [];
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [] }], // no PR yet — the tick ends after origin resolution
+    ]);
+    const w = new Watcher(
+      makeConfig({ repoPathOverrides: { default: local } }),
+      makeDeps(core, fetchJson, {
+        resolveOrigin: (repoPath: string) => {
+          originArgs.push(repoPath);
+          return GH_ORIGIN;
+        },
+      }),
+    );
+
+    await w.tick();
+    expect(core.getTask(key).status).toBe('delivering'); // still watching — that's fine
+    expect(originArgs.length).toBeGreaterThan(0);
+    expect(new Set(originArgs)).toEqual(new Set([local])); // never the board path
+  });
+
   it('losing a race to a human move is settled, not an error', async () => {
     const core = makeCore();
     const key = deliverTask(core);
