@@ -72,6 +72,29 @@ Most analytics/metrics/AI-review state is **derived from the activity log** (`sr
 
 Tasks belong to a **workspace** (a named git repo path). A fresh DB has a single `default` workspace (`repoPath: "."`). Agents create a per-task worktree at `<repoPath>/.worktrees/<key>`. The convention for a task's branch is `feature/<key>-<kebab-title>` (`src/branch.ts`); the finish protocol pushes that branch to `origin` **before** `submit_result`, and the diff view computes against the merge-base with the default branch (`src/git.ts: branchDiff`/`resolveBaseRef`).
 
+### Board mode: supervisors over HTTP (#46)
+
+Each supervisor config takes **exactly one of** `db` (local SQLite, the historical mode) or `board` (the #45 agent-ops surface over authenticated HTTP) — the XOR lives in `packages/core/src/boardConfig.ts`, consumed by each package's `config.ts`. Board mode lets a supervisor run on any machine pointed at the board's URL, and ends N-writers-on-one-SQLite-file when used against localhost.
+
+```jsonc
+// dispatcher.config.json (board mode)
+{
+  "board": {
+    "url": "http://boardhost:8787",
+    "tokenEnv": "AF_DISPATCHER_TOKEN",   // or "token": "..." inline; default env: AGENTFACTORY_TOKEN
+    "workerTokenEnv": "AF_WORKER_TOKEN"  // PLAIN service token injected into workers' MCP env
+  },
+  "repoPathOverrides": { "myworkspace": "C:\\clones\\myworkspace" }
+}
+```
+
+- **Tokens** (`packages/web/server/mintToken.ts`): dispatcher + watcher need `npm run token -- --supervisor` (releaseClaim / delivery ops / PAT read are supervisor-gated); reviewer and the dispatcher's `workerToken` take a plain service token. Every supervisor `whoami`s at startup and fails fast on a wrong-capability token.
+- **`repoPathOverrides`** maps a workspace to THIS machine's clone (absolute paths; asserted at startup). The dispatcher spawns workers there and forwards it to worker MCP servers as `AGENTFACTORY_REPO_PATH` (applies to the pinned workspace only); the reviewer diffs and the watcher resolves origins against it. Remote clones must use the **same HTTPS origin URL** as the board's clone — `resolveGitAuth`'s extraheader is computed board-side from the board's origin, and a mismatched origin silently falls back to ambient git credentials.
+- **Worker MCP env**: the dispatcher writes all backend keys deterministically (`AGENTFACTORY_BOARD_URL`/`AGENTFACTORY_TOKEN` in board mode, `AGENTFACTORY_DB` in db mode, the unused ones as `''` — the MCP entry treats blank as unset, so inherited shell exports can't flip a worker's backend).
+- **OTel**: point `otel.endpoint` at the board's `/v1/logs` so remote workers' token usage lands on the board.
+- The reviewer's diff/fetch and the worker's push use the machine's **ambient git credentials** when no workspace PAT resolves — a remote machine needs its own credential for private origins.
+- Board mode never runs migrations (`openCore` does; `createHttpCore` can't) — the board machine owns schema. The committed root configs stay db-mode.
+
 ## Testing notes
 
 Vitest 2.x with a **workspace file** (`vitest.workspace.ts`) — each package has its own `vitest.config.ts` so the `node:sqlite` shim (core/mcp/web) and the jsdom env (web client) apply per project. Core/mcp/web configs resolve `node:sqlite` to a virtual module re-exporting the native builtin via CJS `require` (Vite misclassifies the prefixed builtin) — production code imports `node:sqlite` directly. Tests open in-memory/temp DBs via `test/helpers.ts`.
