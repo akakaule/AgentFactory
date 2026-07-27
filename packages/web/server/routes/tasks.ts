@@ -5,7 +5,7 @@ import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetri
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
-import { actorUserIdOf, rejectService } from '../auth.js';
+import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
 
 // Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
 // is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
@@ -19,8 +19,9 @@ export function taskRoutes(core: Core) {
     return c.json(core.listTasks({ status, workspace, archived: archived === 'true' ? true : undefined }));
   });
 
-  // registered before the /:key routes so the static segment is never read as a task key
-  r.post('/archive-done', validated('json', archiveAllBody), (c) =>
+  // registered before the /:key routes so the static segment is never read as a task key.
+  // rejectService: the bulk variant of archive is as human-only as the per-task one.
+  r.post('/archive-done', rejectService, validated('json', archiveAllBody), (c) =>
     c.json(core.archiveDoneTasks({ workspace: c.req.valid('json').workspace })));
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
@@ -80,7 +81,10 @@ export function taskRoutes(core: Core) {
     return c.json({ ok: true, bytes: meta.bytes }, 201);
   });
 
-  r.post('/', validated('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
+  // Producer bridges (service tokens) legitimately create tasks here — but the seed activity
+  // must be attributed to the actor the token implies, not blanket-recorded as human.
+  r.post('/', validated('json', createBody), (c) =>
+    c.json(core.createTask({ ...c.req.valid('json'), actor: actorOf(c) }), 201));
 
   r.patch('/:key', validated('json', updateBody), (c) => {
     const b = c.req.valid('json');
@@ -98,7 +102,9 @@ export function taskRoutes(core: Core) {
   });
 
   r.post('/:key/comment', validated('json', commentBody), (c) =>
-    c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
+    // actorOf, not a hardcoded 'human': a producer bridge's service token commenting here must
+    // not masquerade as a human in the activity log (the agent surface is the preferred route).
+    c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
   r.post('/:key/status', rejectService, validated('json', statusBody), (c) =>
     c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c), c.req.valid('json').note)));

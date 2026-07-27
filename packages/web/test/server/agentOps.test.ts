@@ -179,11 +179,51 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect((await get(app, '/api/agent/live-agents', service)).status).toBe(200);
   });
 
-  it('a malformed JSON body is a 400 with a message, not a 500', async () => {
+  it('a malformed body on a core-unvalidated op is a 400, not a 500', async () => {
+    // recordSupervisorHeartbeat has no core-side validation — the route schema must catch it
+    const res = await post(app, '/api/agent/supervisors/heartbeat', {}, service);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toBeTruthy();
+    // progress with a wrong-typed field
+    const t = queuedTask(core);
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { message: 42 }, service)).status).toBe(400);
+  });
+
+  it('service tokens cannot bulk-archive, and create/comment attribute as agent', async () => {
+    const t = queuedTask(core);
+    core.claimNextTask({ claimedBy: 'w1' });
+    core.submitResult(t.key, { summary: 'done' });
+    core.reviewApprove(t.key);
+
+    expect((await post(app, '/api/tasks/archive-done', {}, service)).status).toBe(403);
+
+    // legacy create/comment routes stay open to producer bridges but attribute honestly
+    const created = await post(app, '/api/tasks', { title: 'Bridge task', spec: 'S', acceptanceCriteria: 'A' }, service);
+    expect(created.status).toBe(201);
+    const key = ((await created.json()) as { key: string }).key;
+    await post(app, `/api/tasks/${key}/comment`, { body: 'from the bridge' }, service);
+    const detail = core.getTask(key);
+    expect(detail.activity.find((a) => a.type === 'comment')!.actor).toBe('agent');
+  });
+
+  it('an oversized attachment filename is truncated in the header, not a connection error', async () => {
+    const t = core.createTask({ title: 'Backlog with image', spec: 'S', acceptanceCriteria: 'A' }); // attachments attach in backlog
+    const a = core.addAttachment(t.key, {
+      filename: 'x'.repeat(20_004) + '.png', mime: 'image/png',
+      dataBase64: Buffer.from('89504e47', 'hex').toString('base64'),
+    });
+    const res = await get(app, `/api/attachments/${a.id}`, service);
+    expect(res.status).toBe(200);
+    const header = res.headers.get('x-attachment-filename')!;
+    expect(header.length).toBeLessThan(1000);
+    expect(decodeURIComponent(header).startsWith('xxx')).toBe(true); // still decodable
+  });
+
+  it('a malformed JSON body is a 400, not a 500', async () => {
     const res = await app.request('/api/agent/claim', {
       method: 'POST', body: 'not json', headers: { 'content-type': 'application/json', authorization: `Bearer ${service}` },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { message: string }).message).toMatch(/JSON body/);
+    expect(await res.text()).toMatch(/malformed/i); // hono's JSON-parse rejection
   });
 });
