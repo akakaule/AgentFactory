@@ -4,8 +4,9 @@ import type { McpCore } from '../types.js';
 import { taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 import { detailContent } from '../content.js';
+import { localizeRepo, type ServerOptions } from '../server.js';
 
-export function registerGetTask(server: McpServer, core: McpCore): void {
+export function registerGetTask(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'get_task',
     {
@@ -16,7 +17,7 @@ export function registerGetTask(server: McpServer, core: McpCore): void {
     },
     async ({ key }) => {
       try {
-        const task = await core.getTask(key);
+        const task = localizeRepo(await core.getTask(key), opts);
         return { content: await detailContent(core, task) };
       } catch (err) {
         return toToolError(err);

@@ -5,8 +5,9 @@ import type { AddTaskMetricsInput, SubmitResultInput } from '@agentfactory/core'
 import { LinkSchema, MetricsSchema, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 import { checkSubmission } from '../git.js';
+import { localizeRepo, type ServerOptions } from '../server.js';
 
-export function registerSubmitResult(server: McpServer, core: McpCore): void {
+export function registerSubmitResult(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'submit_result',
     {
@@ -33,8 +34,10 @@ export function registerSubmitResult(server: McpServer, core: McpCore): void {
     async ({ key, summary, spec, acceptanceCriteria, plan, verification, links, metrics }) => {
       try {
         // Verify the finish protocol ran before core flips the status (git stays out of
-        // core). Doc stages never touch the repo — nothing to verify.
-        const detail = await core.getTask(key);
+        // core). Doc stages never touch the repo — nothing to verify. The repoPath override
+        // matters here: a remote worker's guard must inspect the LOCAL clone, not the
+        // board's path (which doesn't exist on this machine and would degrade to skip).
+        const detail = localizeRepo(await core.getTask(key), opts);
         const guard =
           detail.stage === 'implementation'
             ? await checkSubmission({ repoPath: detail.repoPath, branch: detail.branch, key, auth: await core.resolveGitAuth(detail.workspace) })

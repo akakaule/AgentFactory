@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpCore } from '../types.js';
-import type { ServerOptions } from '../server.js';
+import { localizeRepo, type ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
 import { detailContent } from '../content.js';
 import { buildProtocol } from '../protocol.js';
@@ -36,7 +36,7 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
         }
         // branchCreated is the create-vs-reuse signal for the protocol; it must not
         // ride along in the serialized task detail.
-        const { branchCreated, ...task } = claimed;
+        const { branchCreated, ...task } = localizeRepo(claimed, opts);
         // Doc stages always get a protocol (no branch involved); the implementation
         // stage keeps the legacy guard for pre-branch-feature rows left NULL.
         let protocol;
