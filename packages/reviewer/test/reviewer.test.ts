@@ -25,7 +25,7 @@ describe('delivering-feedback evaluation', () => {
     expect(calls[0]!.req.stdin).toContain('the null check is missing'); // the eval prompt carries the feedback
     expect(calls[0]!.req.stdin).toContain('feedback-eval/v1 - <disposition>'); // the eval output contract
 
-    calls[0]!.child.exit(0); // the engine finishes → reviewer reaps + posts the verdict
+    await calls[0]!.child.exit(0); // the engine finishes → reviewer reaps + posts the verdict
     const comments = core.getTask(key).activity.filter((a) => a.type === 'comment');
     expect(comments.some((a) => a.body.startsWith('feedback-eval/v1 - warranted'))).toBe(true);
 
@@ -211,7 +211,7 @@ describe('posting verdicts', () => {
 
     await r.tick();
     expect(calls[0]!.req.stdin).toContain('=== SPEC (the deliverable under review) ===');
-    calls[0]!.child.exit(0); // codex finished; its output file holds a clean verdict
+    await calls[0]!.child.exit(0); // codex finished; its output file holds a clean verdict
 
     const t = core.getTask(key);
     expect(t.status).toBe('queued'); // advanced off in_review by the add_comment hook
@@ -225,7 +225,7 @@ describe('posting verdicts', () => {
     const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { readOutput: () => aiReviewBody(0), console: makeFakeConsole() }));
 
     await r.tick();
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     expect(t.status).toBe('in_review'); // implementation never auto-advances
@@ -239,7 +239,7 @@ describe('posting verdicts', () => {
     const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { readOutput: () => aiReviewBody(2), console: makeFakeConsole() }));
 
     await r.tick();
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     expect(t.status).toBe('in_review'); // findings escalate to a human
@@ -255,7 +255,7 @@ describe('posting verdicts', () => {
     const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { readOutput: () => raw, console: makeFakeConsole() }));
 
     await r.tick();
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     const comment = t.activity.find((a) => a.type === 'comment');
@@ -276,7 +276,7 @@ describe('posting verdicts', () => {
     expect(req.stdin).toContain('ai-review/v1');
 
     calls[0]!.child.emitStdout(aiReviewBody(0, 'claude')); // claude streams the verdict on stdout
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
     expect(core.getTask(key).aiReview?.verdict).toBe('clean');
   });
 });
@@ -313,7 +313,7 @@ describe('failure paths', () => {
     const r = new Reviewer(makeConfig({ maxAttempts: 2 }), makeDeps(core, spawn, { readOutput: () => '', console: log }));
 
     await r.tick(); // attempt 1 — engine exits 0 but wrote nothing
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
     let t = core.getTask(key);
     expect(failureNote(t)).toBe(true); // failure/v1 note posted
     expect(t.failure?.reason).toBe('review_failed'); // surfaces as the task's current failure
@@ -326,7 +326,7 @@ describe('failure paths', () => {
     await r.tick(); // attempt 2 — same, burns the last attempt
     expect(calls.length).toBe(2);
     expect(calls[1]!.req.args).toContain('exec'); // a fresh codex review
-    calls[1]!.child.exit(0);
+    await calls[1]!.child.exit(0);
     t = core.getTask(key);
     expect(t.failure?.skipListed).toBe(true); // out of attempts ⇒ needs a human
     expect(r.isSkipListed(key)).toBe(true);
@@ -431,9 +431,9 @@ describe('failure paths', () => {
     );
 
     await r.tick();
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
     await r.tick();
-    calls[1]!.child.exit(0);
+    await calls[1]!.child.exit(0);
     expect(r.isSkipListed(key)).toBe(true);
     expect(core.getTask(key).failure?.skipListed).toBe(true);
 
@@ -444,7 +444,7 @@ describe('failure paths', () => {
     expect(calls.length).toBe(3);
     expect(calls[2]!.req.args).toContain('/logs/AF-1-review-1.out');
     verdict = aiReviewBody(0);
-    calls[2]!.child.exit(0);
+    await calls[2]!.child.exit(0);
     expect(core.getTask(key).aiReview?.verdict).toBe('clean');
     expect(core.getTask(key).failure).toBeNull();
   });
@@ -457,11 +457,11 @@ describe('failure paths', () => {
     const r = new Reviewer(makeConfig({ maxAttempts: 3 }), makeDeps(core, spawn, { readOutput: () => (reviewN++ === 0 ? '' : aiReviewBody(0)) }));
 
     await r.tick(); // attempt 1 — empty verdict → failure note
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
     expect(core.getTask(key).failure?.reason).toBe('review_failed');
 
     await r.tick(); // attempt 2 — a clean verdict this time
-    calls[1]!.child.exit(0);
+    await calls[1]!.child.exit(0);
     const t = core.getTask(key);
     expect(t.aiReview?.verdict).toBe('clean');
     expect(t.failure).toBeNull(); // the successful review cleared the prior failure note

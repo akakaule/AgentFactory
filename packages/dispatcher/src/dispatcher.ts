@@ -46,6 +46,9 @@ export class Dispatcher {
   private readonly running = new Map<string, Session>(); // label -> session
   private readonly attempts = new Map<string, number>(); // task key -> attempts used
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
+  /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
+   *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
+  private readonly settling = new Set<Promise<void>>();
   private readonly prompt = buildWorkerPrompt();
   private claudeCommand: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -95,15 +98,27 @@ export class Dispatcher {
     }
   }
 
-  /** One poll cycle: enforce session timeouts, then spawn for each workspace's free slots. */
+  /** One poll cycle: settle pending reaps, enforce session timeouts, then spawn for each
+   *  workspace's free slots. */
   async tick(): Promise<void> {
+    await Promise.all([...this.settling]); // exits since the last tick finish reaping first
     this.enforceTimeouts();
-    this.touchLiveSessions();
-    this.tailTranscripts();
-    const served = this.servedWorkspaces();
-    this.recordHeartbeat(served);
-    this.reapStaleClaims(served);
-    for (const workspace of served) this.pollWorkspace(workspace);
+    await this.touchLiveSessions();
+    await this.tailTranscripts();
+    const served = await this.servedWorkspaces();
+    await this.recordHeartbeat(served);
+    await this.reapStaleClaims(served);
+    for (const workspace of served) await this.pollWorkspace(workspace);
+    await Promise.all([...this.settling]); // exits fired during this tick (fast sessions) too
+  }
+
+  /** Run a child-exit reap in the background, tracked so tick() can await stragglers. */
+  private trackReap(session: Session, code: number | null): void {
+    const p = this.reap(session, code).catch((err) => {
+      this.console.error(`[dispatcher] reap of ${session.label} failed: ${(err as Error).message}`);
+    });
+    this.settling.add(p);
+    void p.finally(() => this.settling.delete(p));
   }
 
   /**
@@ -111,17 +126,17 @@ export class Dispatcher {
    * workspace in the DB, minus `excludeWorkspaces`. Re-read each tick so a newly-created workspace
    * is dispatched automatically (opt-out model).
    */
-  servedWorkspaces(): string[] {
+  async servedWorkspaces(): Promise<string[]> {
     return resolveServedWorkspaces(
-      this.deps.core.listWorkspaces().map((w) => w.name),
+      (await this.deps.core.listWorkspaces()).map((w) => w.name),
       { workspaces: this.config.workspaces, exclude: this.config.excludeWorkspaces },
     );
   }
 
   /** Report a heartbeat so the board's health view knows this supervisor is alive. Best-effort. */
-  private recordHeartbeat(served: string[]): void {
+  private async recordHeartbeat(served: string[]): Promise<void> {
     try {
-      this.deps.core.recordSupervisorHeartbeat({
+      await this.deps.core.recordSupervisorHeartbeat({
         name: this.config.name,
         kind: 'dispatcher',
         workspaces: served,
@@ -178,7 +193,7 @@ export class Dispatcher {
    * (governed by enforceTimeouts, kept warm by touchLiveSessions). Runs each tick before
    * pollWorkspace so a freed task is re-served in the same cycle.
    */
-  private reapStaleClaims(served: string[]): void {
+  private async reapStaleClaims(served: string[]): Promise<void> {
     if (this.config.staleClaimMinutes <= 0) return;
     const thresholdMs = this.config.staleClaimMinutes * 60_000;
     const now = this.deps.now();
@@ -186,14 +201,14 @@ export class Dispatcher {
     // task key -> last live heartbeat. Best-effort: an observability read must never break the tick.
     const heartbeats = new Map<string, string>();
     try {
-      for (const a of this.deps.core.listLiveAgents()) heartbeats.set(a.key, a.heartbeatAt);
+      for (const a of await this.deps.core.listLiveAgents()) heartbeats.set(a.key, a.heartbeatAt);
     } catch (err) {
       this.console.error(`[dispatcher] stale-claim scan skipped: listLiveAgents failed: ${(err as Error).message}`);
       return;
     }
 
     for (const workspace of served) {
-      for (const task of this.deps.core.listTasks({ status: 'in_progress', workspace })) {
+      for (const task of await this.deps.core.listTasks({ status: 'in_progress', workspace })) {
         if (task.claimedBy !== null && this.running.has(task.claimedBy)) continue; // our own live child
         if (this.hasRunningFor(task.key)) continue; // a session we just spawned, not yet claimed
 
@@ -206,13 +221,13 @@ export class Dispatcher {
         // human edges, so a raced release against a just-advanced task would SILENTLY succeed and
         // yank it back. Abort unless it is still the same in_progress claim we scanned; the release
         // itself also catches InvalidTransitionError for the residual cross-process window.
-        const fresh = this.tryGetTask(task.key);
+        const fresh = await this.tryGetTask(task.key);
         if (!fresh || fresh.status !== 'in_progress' || fresh.claimedBy !== task.claimedBy) continue;
 
         const ageMinutes = Math.round((now - seenMs) / 60_000);
         const label = task.claimedBy ?? 'unknown';
         this.console.log(`[dispatcher] reaping stale claim ${task.key} (claimed by ${label}, no heartbeat for ${ageMinutes}m)`);
-        this.releaseClaim(task.key, {
+        await this.releaseClaim(task.key, {
           reason: 'stale',
           detail: `claim by \`${label}\` looks abandoned — no heartbeat for ${ageMinutes}m (staleClaimMinutes ${this.config.staleClaimMinutes})`,
           body:
@@ -225,9 +240,9 @@ export class Dispatcher {
   }
 
   /** getTask that swallows a NotFound race (the task vanished under us), returning null. */
-  private tryGetTask(key: string): TaskDetail | null {
+  private async tryGetTask(key: string): Promise<TaskDetail | null> {
     try {
-      return this.deps.core.getTask(key);
+      return await this.deps.core.getTask(key);
     } catch {
       return null;
     }
@@ -245,11 +260,11 @@ export class Dispatcher {
   // -- liveness --------------------------------------------------------------
 
   /** Keep each running session's live row warm between agent milestones (best-effort liveness). */
-  private touchLiveSessions(): void {
+  private async touchLiveSessions(): Promise<void> {
     for (const s of this.running.values()) {
       if (s.settled) continue;
       try {
-        this.deps.core.touchAgentSession(s.predictedKey);
+        await this.deps.core.touchAgentSession(s.predictedKey);
       } catch {
         /* best-effort — a missing live row (not yet claimed / already ended) is fine */
       }
@@ -262,12 +277,12 @@ export class Dispatcher {
    * we wait until the session has claimed; the small pre-claim portion is caught up from offset 0
    * once we resolve the file. Wholly best-effort — capture must never break the poll loop.
    */
-  private tailTranscripts(): void {
+  private async tailTranscripts(): Promise<void> {
     for (const s of this.running.values()) {
       if (s.settled) continue;
       try {
         if (s.transcriptKey === null) {
-          const claimed = this.findClaimed(s);
+          const claimed = await this.findClaimed(s);
           if (!claimed) continue; // not claimed yet — attach once we know the task
           s.transcriptKey = claimed.key;
         }
@@ -277,7 +292,7 @@ export class Dispatcher {
         }
         const slice = this.deps.tailFile(s.transcriptPath, s.transcriptOffset);
         if (slice && slice.chunk) {
-          this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId });
+          await this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId });
           s.transcriptOffset = slice.offset;
         }
       } catch {
@@ -287,12 +302,12 @@ export class Dispatcher {
   }
 
   /** Persist a session's full transcript at exit so it survives worktree prune + ~/.claude GC. */
-  private persistTranscript(session: Session, key: string): void {
+  private async persistTranscript(session: Session, key: string): Promise<void> {
     try {
       const path = session.transcriptPath ?? this.deps.findTranscript(session.cwd, session.sessionId);
       if (!path) return;
       const raw = this.deps.readFile(path);
-      if (raw && raw.trim()) this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId });
+      if (raw && raw.trim()) await this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId });
     } catch {
       /* best-effort */
     }
@@ -300,8 +315,8 @@ export class Dispatcher {
 
   // -- spawning --------------------------------------------------------------
 
-  private pollWorkspace(workspace: string): void {
-    const queued = this.deps.core.listTasks({ status: 'queued', workspace });
+  private async pollWorkspace(workspace: string): Promise<void> {
+    const queued = await this.deps.core.listTasks({ status: 'queued', workspace });
     this.clearRestarted(queued); // an operator restart forgives a task's burned attempts before we decide to skip it
     const slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
@@ -316,7 +331,7 @@ export class Dispatcher {
         this.skipList(task.key);
         continue;
       }
-      if (this.spawnSession(workspace, task.key, task.stage, attempt)) spawned += 1;
+      if (await this.spawnSession(workspace, task.key, task.stage, attempt)) spawned += 1;
     }
   }
 
@@ -345,8 +360,8 @@ export class Dispatcher {
     return false;
   }
 
-  private repoPath(workspace: string): string | undefined {
-    return this.deps.core.listWorkspaces().find((w) => w.name === workspace)?.repoPath;
+  private async repoPath(workspace: string): Promise<string | undefined> {
+    return (await this.deps.core.listWorkspaces()).find((w) => w.name === workspace)?.repoPath;
   }
 
   private resolveCommand(): string {
@@ -360,8 +375,8 @@ export class Dispatcher {
   }
 
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
-  private spawnSession(workspace: string, key: string, stage: Stage, attempt: number): boolean {
-    const cwd = this.repoPath(workspace);
+  private async spawnSession(workspace: string, key: string, stage: Stage, attempt: number): Promise<boolean> {
+    const cwd = await this.repoPath(workspace);
     if (!cwd) {
       this.console.warn(`[dispatcher] workspace '${workspace}' has no repoPath; cannot spawn for ${key}`);
       return false;
@@ -387,7 +402,7 @@ export class Dispatcher {
       claudeArgs: this.stageClaudeArgs(stage),
       sessionId,
       // the effective worker system prompt for this stage/workspace (override → global → '')
-      appendSystemPrompt: this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace),
+      appendSystemPrompt: await this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace),
     });
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.baseEnv ?? {}),
@@ -409,7 +424,7 @@ export class Dispatcher {
     // credential embedded in the on-disk origin URL) via GIT_CONFIG_* — so the worker authenticates
     // with the managed credential without the secret ever touching the claim payload or `.git/config`.
     // Null (no PAT anywhere) injects nothing — the worker uses ambient git credentials.
-    const auth = this.deps.core.resolveGitAuth(workspace);
+    const auth = await this.deps.core.resolveGitAuth(workspace);
     if (auth) {
       const pairs = gitAuthConfigPairs(auth);
       const n = Number(env['GIT_CONFIG_COUNT'] ?? '0') || 0;
@@ -449,9 +464,9 @@ export class Dispatcher {
     child.stderr?.on('data', (chunk) => this.appendLog(session, chunk.toString()));
     child.on('error', (err) => {
       this.appendLog(session, `\n[dispatcher] spawn error: ${err.message}\n`);
-      this.reap(session, null);
+      this.trackReap(session, null);
     });
-    child.on('exit', (code) => this.reap(session, code));
+    child.on('exit', (code) => this.trackReap(session, code));
 
     this.console.log(`[dispatcher] spawned ${label} (cwd ${cwd}, log ${logPath})`);
     return true;
@@ -465,18 +480,18 @@ export class Dispatcher {
   // -- reaping ---------------------------------------------------------------
 
   /** Handle a session exit: record metrics, then either confirm success or release + retry. */
-  private reap(session: Session, code: number | null): void {
+  private async reap(session: Session, code: number | null): Promise<void> {
     if (session.settled) return;
     session.settled = true;
     this.running.delete(session.label);
     session.logWriter.end();
 
-    const claimed = this.findClaimed(session);
+    const claimed = await this.findClaimed(session);
     const metrics = parseCliMetrics(session.stdout);
 
     // Persist the whole transcript before anything else — covers success, crash, timeout, and the
     // unclaimed-denial path equally, so a stranded/failed task stays reviewable post-mortem.
-    this.persistTranscript(session, claimed?.key ?? session.predictedKey);
+    await this.persistTranscript(session, claimed?.key ?? session.predictedKey);
 
     if (!claimed) {
       // The session never claimed: empty queue, a lost race, a permission denial,
@@ -484,7 +499,7 @@ export class Dispatcher {
       // burn a session per poll forever, so it consumes an attempt like a crash.
       const denials = parsePermissionDenials(session.stdout);
       if (denials.length > 0) {
-        this.recordDenial(session, denials);
+        await this.recordDenial(session, denials);
       } else if (code !== 0) {
         this.console.warn(`[dispatcher] ${session.label} exited (code ${code ?? 'null'}) without claiming a task`);
       } else {
@@ -494,18 +509,18 @@ export class Dispatcher {
     }
 
     // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
-    if (!this.config.otel && hasMetrics(metrics)) this.recordMetrics(claimed.key, session.label, metrics);
+    if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(claimed.key, session.label, metrics);
 
     // the process exited: end its live session. submit_result already ended it on success;
     // this also clears a crashed in_progress session the agent never got to end before dying.
     try {
-      this.deps.core.endAgentSession(claimed.key);
+      await this.deps.core.endAgentSession(claimed.key);
     } catch {
       /* best-effort */
     }
 
     if (claimed.status === 'in_progress') {
-      this.releaseAndRetry(session, claimed.key, code);
+      await this.releaseAndRetry(session, claimed.key, code);
     } else {
       const note = code === 0 ? '' : ` (exited code ${code ?? 'null'} after advancing)`;
       this.console.log(`[dispatcher] ${session.label} finished ${claimed.key} -> ${claimed.status}${note}`);
@@ -513,27 +528,27 @@ export class Dispatcher {
   }
 
   /** The task this session claimed — matched on the worker label persisted as claimed_by. */
-  private findClaimed(session: Session): { key: string; status: string } | undefined {
-    const all = this.deps.core.listTasks({ workspace: session.workspace });
+  private async findClaimed(session: Session): Promise<{ key: string; status: string } | undefined> {
+    const all = await this.deps.core.listTasks({ workspace: session.workspace });
     const row = all.find((t) => t.claimedBy === session.label);
     return row ? { key: row.key, status: row.status } : undefined;
   }
 
-  private recordMetrics(key: string, label: string, m: ParsedMetrics): void {
+  private async recordMetrics(key: string, label: string, m: ParsedMetrics): Promise<void> {
     const input: AddTaskMetricsInput = { reportedBy: label };
     if (m.model !== undefined) input.model = m.model;
     if (m.tokensIn !== undefined) input.tokensIn = m.tokensIn;
     if (m.tokensOut !== undefined) input.tokensOut = m.tokensOut;
     if (m.costUsd !== undefined) input.costUsd = m.costUsd;
     try {
-      this.deps.core.addTaskMetrics(key, input);
+      await this.deps.core.addTaskMetrics(key, input);
     } catch (err) {
       this.console.warn(`[dispatcher] failed to record metrics for ${key}: ${(err as Error).message}`);
     }
   }
 
   /** An unclaimed session was permission-denied: warn, surface it on the task, burn an attempt. */
-  private recordDenial(session: Session, denials: string[]): void {
+  private async recordDenial(session: Session, denials: string[]): Promise<void> {
     const key = session.predictedKey;
     const attempt = session.attempt;
     this.attempts.set(key, attempt);
@@ -542,7 +557,7 @@ export class Dispatcher {
         `check --allowedTools / permission settings`,
     );
     try {
-      this.deps.core.addComment(key, {
+      await this.deps.core.addComment(key, {
         actor: 'agent',
         body: buildFailureComment({
           reason: 'permission_denied',
@@ -567,13 +582,13 @@ export class Dispatcher {
   }
 
   /** A dead session's claim: build the crash/timeout note and release it through releaseClaim. */
-  private releaseAndRetry(session: Session, key: string, code: number | null): void {
+  private async releaseAndRetry(session: Session, key: string, code: number | null): Promise<void> {
     const reasonCode: FailureReason = session.timedOut ? 'timeout' : 'crashed';
     const detail = session.timedOut
       ? `session \`${session.label}\` timed out after ${this.config.maxSessionMinutes}m with the task still in progress`
       : `session \`${session.label}\` exited with code ${code ?? 'null'} with the task still in progress`;
     const tail = this.commentTail(session.logTail);
-    this.releaseClaim(key, {
+    await this.releaseClaim(key, {
       reason: reasonCode,
       detail,
       body: `Releasing the claim for retry.\n\nLog tail:\n\`\`\`\n${tail}\n\`\`\``,
@@ -590,12 +605,12 @@ export class Dispatcher {
    * is supplied (a dispatcher-labelled claim) the retry budget is bookkept and the task is
    * skip-listed at `maxAttempts`; a foreign/interactive claim (no attempt) just returns to the queue.
    */
-  private releaseClaim(
+  private async releaseClaim(
     key: string,
     opts: { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined },
-  ): void {
+  ): Promise<void> {
     try {
-      this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
+      await this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         this.console.log(`[dispatcher] release of ${key} raced a concurrent move; leaving as-is`);
@@ -608,7 +623,7 @@ export class Dispatcher {
     const attempt = opts.attempt;
     const maxAttempts = attempt !== undefined ? this.config.maxAttempts : undefined;
     try {
-      this.deps.core.addComment(key, {
+      await this.deps.core.addComment(key, {
         actor: 'agent',
         body: buildFailureComment({ reason: opts.reason, detail: opts.detail, source: 'dispatcher', attempt, maxAttempts, body: opts.body }),
       });
@@ -624,7 +639,7 @@ export class Dispatcher {
         `[dispatcher] ${key} reached maxAttempts (${this.config.maxAttempts}); skip-listing — left queued for a human`,
       );
       try {
-        this.deps.core.addComment(key, {
+        await this.deps.core.addComment(key, {
           actor: 'agent',
           body: buildFailureComment({
             reason: 'max_attempts',

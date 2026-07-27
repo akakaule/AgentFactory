@@ -239,7 +239,7 @@ describe('success path', () => {
         modelUsage: { 'claude-opus-4-8': {} },
       }),
     );
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     expect(t.status).toBe('in_review');
@@ -266,7 +266,7 @@ describe('live agent session', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     expect(core.listLiveAgents().map((a) => a.key)).toContain(key); // live while working
 
-    calls[0]!.child.exit(1); // crash without submitting → release + retry
+    await calls[0]!.child.exit(1); // crash without submitting → release + retry
     expect(core.getTask(key).status).toBe('queued');
     expect(core.listLiveAgents()).toHaveLength(0); // ended by the reap safety-net
   });
@@ -282,7 +282,7 @@ describe('live agent session', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     core.submitResult(key, { summary: 'done' }); // submit ends it
     expect(core.listLiveAgents()).toHaveLength(0);
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
     expect(core.listLiveAgents()).toHaveLength(0); // reap end is idempotent
   });
 });
@@ -316,7 +316,7 @@ describe('otel token capture', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     core.submitResult(key, { summary: 'done' });
     calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', total_cost_usd: 0.5, usage: { input_tokens: 1200, output_tokens: 300 } }));
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     expect(core.getTask(key).metrics.tokensIn).toBeNull(); // dispatcher skipped the stdout parse
   });
@@ -420,7 +420,7 @@ describe('crash path', () => {
     const label1 = workerLabel(calls[0]!.req.env);
     core.claimNextTask({ workspace: 'ws', claimedBy: label1 });
     calls[0]!.child.emitStdout('TypeError: boom\n  at worker.ts:42\n');
-    calls[0]!.child.exit(1);
+    await calls[0]!.child.exit(1);
 
     let t = core.getTask(key);
     expect(t.status).toBe('queued'); // released within the reap
@@ -436,7 +436,7 @@ describe('crash path', () => {
     const label2 = workerLabel(calls[1]!.req.env);
     expect(label2).toContain('-a2');
     core.claimNextTask({ workspace: 'ws', claimedBy: label2 });
-    calls[1]!.child.exit(1);
+    await calls[1]!.child.exit(1);
 
     t = core.getTask(key);
     expect(t.status).toBe('queued');
@@ -458,10 +458,10 @@ describe('crash path', () => {
     // burn both attempts → skip-listed
     await d.tick();
     core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
-    calls[0]!.child.exit(1);
+    await calls[0]!.child.exit(1);
     await d.tick();
     core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[1]!.req.env) });
-    calls[1]!.child.exit(1);
+    await calls[1]!.child.exit(1);
     expect(d.isSkipListed(key)).toBe(true);
     expect(core.getTask(key).failure).toMatchObject({ skipListed: true });
 
@@ -489,7 +489,7 @@ describe('crash path', () => {
     await d.tick();
     // the session lost the race — a different worker holds the task.
     core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' });
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     expect(t.status).toBe('in_progress'); // untouched
@@ -520,7 +520,7 @@ describe('permission-denied path', () => {
     // attempt 1 — the session never claims: its MCP tool call is permission-denied
     await d.tick();
     calls[0]!.child.emitStdout(denialEnvelope);
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     expect(log.warnings.some((w) => w.includes('permission denied') && w.includes('mcp__agentfactory__get_next_task'))).toBe(true);
     expect(d.isSkipListed(key)).toBe(false);
@@ -532,7 +532,7 @@ describe('permission-denied path', () => {
     await d.tick();
     expect(calls.length).toBe(2);
     calls[1]!.child.emitStdout(denialEnvelope);
-    calls[1]!.child.exit(0);
+    await calls[1]!.child.exit(0);
 
     expect(d.isSkipListed(key)).toBe(true);
     expect(log.warnings.some((w) => w.includes('maxAttempts'))).toBe(true);
@@ -552,7 +552,7 @@ describe('permission-denied path', () => {
     await d.tick();
     core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' }); // lost race
     calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', subtype: 'success', permission_denials: [] }));
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     expect(log.logs.some((l) => l.includes('claimed nothing'))).toBe(true);
     expect(log.warnings).toEqual([]);
@@ -847,7 +847,7 @@ describe('transcript capture', () => {
 
     state.content += userLine('u2', 'world') + '\n';
     core.submitResult(key, { summary: 'done' });
-    calls[0]!.child.exit(0); // reap → persistTranscript
+    await calls[0]!.child.exit(0); // reap → persistTranscript
 
     tr = core.getTranscript(key);
     expect(tr.state).toBe('final');
