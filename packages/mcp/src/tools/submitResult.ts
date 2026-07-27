@@ -48,15 +48,22 @@ export function registerSubmitResult(server: McpServer, core: McpCore): void {
         if (plan !== undefined) input.plan = plan;
         if (verification !== undefined) input.verification = verification;
         let task = await core.submitResult(key, input);
+        let metricsNote = '';
         if (metrics && Object.keys(metrics).length > 0) {
           const input: AddTaskMetricsInput = {};       // explicit build for exactOptionalPropertyTypes
           if (metrics.model !== undefined) input.model = metrics.model;
           if (metrics.tokensIn !== undefined) input.tokensIn = metrics.tokensIn;
           if (metrics.tokensOut !== undefined) input.tokensOut = metrics.tokensOut;
           if (metrics.costUsd !== undefined) input.costUsd = metrics.costUsd;
-          task = await core.addTaskMetrics(key, input);
+          // Best-effort: the submit is already committed — a transient metrics failure must not
+          // report the whole call as an error (the task is in_review; a retry would be rejected).
+          try {
+            task = await core.addTaskMetrics(key, input);
+          } catch (err) {
+            metricsNote = `\n\n(note: the submit SUCCEEDED — the task is in review — but recording metrics failed: ${(err as Error).message}. Do not resubmit.)`;
+          }
         }
-        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) + metricsNote }] };
       } catch (err) {
         return toToolError(err);
       }

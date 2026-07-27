@@ -19,10 +19,15 @@ let backend: string;
 if (boardUrl && boardToken) {
   core = createHttpCore(boardUrl, boardToken);
   backend = `board: ${boardUrl}`;
+} else if (boardUrl || boardToken) {
+  // Fail FAST: a half-configured remote worker silently falling back to a local (empty/wrong)
+  // SQLite file would "work" against the wrong board. Refuse to start instead.
+  console.error(
+    `[agentfactory-mcp] AGENTFACTORY_BOARD_URL and AGENTFACTORY_TOKEN must be set together ` +
+      `(got ${boardUrl ? 'URL without TOKEN' : 'TOKEN without URL'}) — refusing to fall back to a local DB`,
+  );
+  process.exit(1);
 } else {
-  if (boardUrl || boardToken) {
-    console.error('[agentfactory-mcp] AGENTFACTORY_BOARD_URL and AGENTFACTORY_TOKEN must be set together; falling back to the local DB');
-  }
   core = openCore(dbPath);
   backend = `db: ${dbPath}`;
 }

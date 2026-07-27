@@ -26,8 +26,15 @@ export async function detailContent(core: McpCore, task: TaskDetail, extra?: Rec
   const payload = extra ? { ...detail, ...extra } : detail;
   const blocks: Block[] = [{ type: 'text', text: JSON.stringify(payload, null, 2) }];
   for (const a of task.attachments) {
-    const { bytes, mime } = await core.getAttachment(a.id);
-    blocks.push({ type: 'image', data: Buffer.from(bytes).toString('base64'), mimeType: mime });
+    // Best-effort: the claim is already committed by the time images hydrate, so a transient
+    // attachment failure (e.g. a board 503 over HTTP) must degrade to text-only — failing the
+    // whole tool call here stranded the claim and made the agent's retry grab a SECOND task.
+    try {
+      const { bytes, mime } = await core.getAttachment(a.id);
+      blocks.push({ type: 'image', data: Buffer.from(bytes).toString('base64'), mimeType: mime });
+    } catch {
+      blocks.push({ type: 'text', text: `[attachment ${a.id} (${a.filename}) could not be fetched — refer to the spec text]` });
+    }
   }
   return blocks;
 }

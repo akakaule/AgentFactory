@@ -3,7 +3,7 @@ import type { TaskDetail } from '../types.js';
 import { transaction } from '../transaction.js';
 import { appendActivity } from '../repo/activity.js';
 import { startSession } from '../repo/agentSessions.js';
-import { oldestQueuedRow, toDetail } from '../repo/tasks.js';
+import { oldestQueuedRow, heldClaimRow, toDetail } from '../repo/tasks.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { featureBranch } from '../branch.js';
 import { nowIso } from '../time.js';
@@ -24,6 +24,15 @@ export interface ClaimResult extends TaskDetail { branchCreated: boolean; }
 export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string = nowIso): ClaimResult | null {
   return transaction(db, () => {
     const workspaceId = opts.workspace === undefined ? undefined : requireWorkspaceByName(db, opts.workspace).id;
+    // Reconciliation: a worker that already holds a live claim gets it back instead of a second
+    // task — so a claim whose response was lost in transit (remote HTTP worker) is retried
+    // idempotently, and an interrupted session resumes what it holds. branchCreated=false: the
+    // branch was named by the original claim; the reclaim protocol handles a branch that was
+    // never actually created.
+    if (opts.claimedBy !== undefined) {
+      const held = heldClaimRow(db, opts.claimedBy, workspaceId);
+      if (held) return { ...toDetail(db, held), branchCreated: false };
+    }
     const row = oldestQueuedRow(db, workspaceId);
     if (!row) return null;
     const ts = now();

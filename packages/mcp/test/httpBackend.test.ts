@@ -11,13 +11,14 @@ import { textOf } from './harness.js';
  * buildApp(core) with a service token, behaves like the direct-DB backend. This is the exact
  * wiring a remote worker session runs (AGENTFACTORY_BOARD_URL + AGENTFACTORY_TOKEN).
  */
-async function makeHttpBackedClient(opts: ServerOptions = {}) {
+async function makeHttpBackedClient(opts: ServerOptions = {}, wrap?: (c: ReturnType<typeof createHttpCore>) => ReturnType<typeof createHttpCore>) {
   const core = openCore(':memory:');
   const app = buildApp(core, { auth: { mode: 'token' } });
   const token = core.createApiToken({ label: 'remote-worker', isService: true }).token;
-  const httpCore = createHttpCore('http://board', token, {
+  let httpCore = createHttpCore('http://board', token, {
     fetchImpl: ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch,
   });
+  if (wrap) httpCore = wrap(httpCore);
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   const server = buildServer(httpCore, opts);
   const client = new Client({ name: 'test', version: '0' });
@@ -73,6 +74,42 @@ describe('MCP over createHttpCore (remote-worker wiring)', () => {
     const { client } = await makeHttpBackedClient();
     const res = await client.callTool({ name: 'get_next_task', arguments: {} });
     expect(JSON.parse(textOf(res)).task).toBeNull();
+  });
+
+  it('a failing attachment fetch degrades the claim to text — never a lost claim', async () => {
+    const { client, core } = await makeHttpBackedClient({}, (c) => ({
+      ...c,
+      getAttachment: async () => { throw new Error('board 503'); },
+    }));
+    const t = core.createTask({ title: 'With image', spec: 'S', acceptanceCriteria: 'A' });
+    core.addAttachment(t.key, { filename: 'shot.png', mime: 'image/png', dataBase64: Buffer.from('89504e47', 'hex').toString('base64') });
+    core.updateStatus(t.key, 'queued', 'human');
+
+    const res = (await client.callTool({ name: 'get_next_task', arguments: {} })) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
+    expect(res.isError).toBeFalsy(); // the committed claim is returned, not an error
+    expect(JSON.parse(res.content[0]!.text!).key).toBe(t.key);
+    expect(res.content.some((b) => b.type === 'text' && b.text?.includes('could not be fetched'))).toBe(true);
+    // and a retry would reconcile to the SAME task, not claim a second one
+    const retry = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(retry.key ?? retry.task).not.toBeUndefined();
+  });
+
+  it('a failing metrics write after submit reports success with a warning, not an error', async () => {
+    const { client, core } = await makeHttpBackedClient({}, (c) => ({
+      ...c,
+      addTaskMetrics: async () => { throw new Error('board 503'); },
+    }));
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'plan' });
+    core.updateStatus(t.key, 'queued', 'human');
+    await client.callTool({ name: 'get_next_task', arguments: {} });
+
+    const res = (await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'planned', plan: 'the plan', metrics: { tokensIn: 10 } },
+    })) as { isError?: boolean };
+    expect(res.isError).toBeFalsy(); // the submit committed — an error would provoke a doomed retry
+    expect(textOf(res)).toContain('Do not resubmit');
+    expect(core.getTask(t.key).status).toBe('in_review');
   });
 
   it('typed core errors survive the HTTP hop into tool errors', async () => {
