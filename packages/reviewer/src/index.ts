@@ -2,7 +2,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { openCore, branchDiff, fetchRemoteRef } from '@agentfactory/core';
+import { openCore, createHttpCore, branchDiff, fetchRemoteRef, resolveBoardToken, assertAbsoluteOverrides, NotFoundError } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Reviewer } from './reviewer.js';
 import { resolveEngineCommand, pickFromWhich } from './engine.js';
@@ -13,10 +13,34 @@ import type { ReviewerDeps, LogWriter, SpawnFn } from './types.js';
 const configPath = resolve(process.argv[2] ?? 'reviewer.config.json');
 const config = loadConfig(configPath, (p) => readFileSync(p, 'utf8'));
 
-// Absolutise the DB path (relative to the config file) so the reviewer's poller opens the
-// SAME DB the dispatcher and web server use.
-config.db = resolve(dirname(configPath), config.db);
-const core = openCore(config.db);
+// Backend branch (#46): a board URL + plain service token over HTTP — or the local SQLite
+// file as always. The config schema guarantees exactly one of the two is set.
+let core: import('./types.js').ReviewerCore;
+if (config.board) {
+  const token = resolveBoardToken(config.board, process.env, 'reviewer board token');
+  assertAbsoluteOverrides(config.repoPathOverrides, 'reviewer');
+  const http = createHttpCore(config.board.url, token);
+  try {
+    const id = await http.whoami();
+    // A plain service token is all the reviewer needs; flag an over-privileged credential
+    // (supervisor can release claims / drive delivery) but keep running.
+    if (id.supervisor) console.warn(`[reviewer] board token '${id.label}' has the supervisor capability it does not need — prefer a plain service token`);
+    console.log(`[reviewer] board ${config.board.url} as '${id.label}'`);
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      console.error(`[reviewer] board ${config.board.url} does not expose /api/agent/whoami — deploy a board build with #46`);
+      process.exit(1);
+    }
+    throw err; // unreachable board / bad credentials — the raw error says which
+  }
+  core = http;
+} else {
+  // Absolutise the DB path (relative to the config file) so the reviewer's poller opens the
+  // SAME DB the dispatcher and web server use. openCore also runs migrations — board mode
+  // must never touch schema, which is why it lives on this branch only.
+  config.db = resolve(dirname(configPath), config.db!);
+  core = openCore(config.db);
+}
 
 const logDir = resolve(dirname(configPath), 'logs');
 mkdirSync(logDir, { recursive: true });
@@ -102,7 +126,7 @@ const wsDesc = config.workspaces
   ? `[${config.workspaces.join(', ')}]`
   : `all${config.excludeWorkspaces.length ? ` except [${config.excludeWorkspaces.join(', ')}]` : ''}`;
 console.log(
-  `[reviewer] starting — db ${config.db}, workspaces ${wsDesc}, ` +
+  `[reviewer] starting — ${config.board ? `board ${config.board.url}` : `db ${config.db}`}, workspaces ${wsDesc}, ` +
     `engine ${config.engine}${config.model ? ` (${config.model})` : ''}, ` +
     `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s`,
 );

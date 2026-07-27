@@ -272,6 +272,12 @@ export class Reviewer {
     }
   }
 
+  /** The machine-local clone for a task's workspace (#46 remote review) — the board-central
+   *  repoPath otherwise. Diffs and fetches always run against local git. */
+  private repoFor(detail: { workspace: string; repoPath: string }): string {
+    return this.config.repoPathOverrides?.[detail.workspace] ?? detail.repoPath;
+  }
+
   /** Branch to diff: the last branch-kind link (as the board's diff view uses), else the named branch. */
   private resolveBranch(detail: TaskDetail): string | null {
     const link = detail.links.filter((l) => l.kind === 'branch').at(-1);
@@ -304,7 +310,7 @@ export class Reviewer {
         const feedback = [...detail.activity.filter((a) => a.type === 'comment')].reverse()
           .map((a) => parsePrFeedbackComment(a.body)).find((p) => p !== null);
         if (!feedback) throw new Error('no pr-feedback to evaluate');
-        const diff = await this.deps.computeDiff(detail.repoPath, branch);
+        const diff = await this.deps.computeDiff(this.repoFor(detail), branch);
         prompt = buildFeedbackEvalPrompt({ task: detail, engine, feedback: feedback.feedback, branch, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
       } else {
         // the configured reviewer system prompt (workspace override → global default → ''), inlined
@@ -317,10 +323,10 @@ export class Reviewer {
           // diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
           let diffRef = branch;
           if (detail.kind === 'pr-review') {
-            await this.deps.fetchRef(detail.repoPath, branch);
+            await this.deps.fetchRef(this.repoFor(detail), branch);
             diffRef = `origin/${branch}`;
           }
-          const diff = await this.deps.computeDiff(detail.repoPath, diffRef);
+          const diff = await this.deps.computeDiff(this.repoFor(detail), diffRef);
           prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         } else {
           prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });

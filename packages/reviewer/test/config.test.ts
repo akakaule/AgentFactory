@@ -19,6 +19,16 @@ describe('reviewer config', () => {
     expect(() => parseConfig({ db: './x.db', workspaces: [] })).toThrow();
   });
 
+  it('db/board XOR: accepts board-only, rejects both, rejects neither (#46)', () => {
+    expect(parseConfig({ board: { url: 'http://board:8787', tokenEnv: 'AF_REVIEWER' } }).board?.url).toBe('http://board:8787');
+    expect(() => parseConfig({ db: './x.db', board: { url: 'http://b' } })).toThrow(/exactly one/);
+    expect(() => parseConfig({})).toThrow(/exactly one/);
+  });
+
+  it('accepts repoPathOverrides', () => {
+    expect(parseConfig({ board: { url: 'http://b' }, repoPathOverrides: { ws: '/clones/ws' } }).repoPathOverrides).toEqual({ ws: '/clones/ws' });
+  });
+
   it('allows omitting workspaces (opt-out: watch all) and defaults excludeWorkspaces to []', () => {
     const c = parseConfig({ db: './x.db' });
     expect(c.workspaces).toBeUndefined();

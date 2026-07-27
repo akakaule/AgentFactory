@@ -36,6 +36,46 @@ describe('delivering-feedback evaluation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// repoPath overrides (#46 remote review)
+// ---------------------------------------------------------------------------
+describe('repoPathOverrides', () => {
+  const LOCAL = process.platform === 'win32' ? 'C:\\clones\\ws' : '/clones/ws';
+
+  it('computeDiff runs against the machine-local clone when an override is set', async () => {
+    const core = makeCore('ws', '/board-machine/ws');
+    seedInReview(core, 'ws', 'Remote diff', 'implementation');
+    const { spawn } = makeFakeSpawn();
+    const diffRepos: string[] = [];
+    const computeDiff = async (repoPath: string, _branch: string) => {
+      diffRepos.push(repoPath);
+      return { baseRef: 'main', diff: 'diff --git a/a b/a\n+x', commits: 1 };
+    };
+    const r = new Reviewer(
+      makeConfig({ db: undefined, board: { url: 'http://b' }, repoPathOverrides: { ws: LOCAL } }),
+      makeDeps(core, spawn, { computeDiff, console: makeFakeConsole() }),
+    );
+
+    await r.tick();
+    expect(diffRepos).toEqual([LOCAL]);
+  });
+
+  it('without an override the board path is used, as before', async () => {
+    const core = makeCore('ws', '/board-machine/ws');
+    seedInReview(core, 'ws', 'Local diff', 'implementation');
+    const { spawn } = makeFakeSpawn();
+    const diffRepos: string[] = [];
+    const computeDiff = async (repoPath: string, _branch: string) => {
+      diffRepos.push(repoPath);
+      return { baseRef: 'main', diff: 'diff --git a/a b/a\n+x', commits: 1 };
+    };
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { computeDiff, console: makeFakeConsole() }));
+
+    await r.tick();
+    expect(diffRepos).toEqual(['/board-machine/ws']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // poll + spawn + dedup
 // ---------------------------------------------------------------------------
 describe('poll + spawn', () => {
