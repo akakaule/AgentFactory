@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { ValidationError } from '@agentfactory/core';
 import type { Core } from '../types.js';
-import { requireService, principalOf } from '../auth.js';
+import { requireService, requireSupervisor, principalOf } from '../auth.js';
 
 /**
  * The agent-ops surface (#45): every board operation a worker MCP session or a remote supervisor
@@ -85,7 +85,7 @@ export function agentOpsRoutes(core: Core): Hono {
 
   // ── supervisor surface ─────────────────────────────────────────────────────
   // the system recovery edge (reaper) — NOT an agent in_progress→queued transition
-  r.post('/tasks/:key/release-claim', (c) => c.json(core.releaseClaim(c.req.param('key'))));
+  r.post('/tasks/:key/release-claim', requireSupervisor, (c) => c.json(core.releaseClaim(c.req.param('key'))));
 
   r.post('/supervisors/heartbeat', async (c) => {
     core.recordSupervisorHeartbeat(await body<Parameters<Core['recordSupervisorHeartbeat']>[0]>(c));
@@ -115,22 +115,22 @@ export function agentOpsRoutes(core: Core): Hono {
     return c.json(core.resolveGitAuth(name)); // GitAuth | null
   });
 
-  r.get('/workspaces/:name/pat', (c) => {
+  r.get('/workspaces/:name/pat', requireSupervisor, (c) => {
     const name = c.req.param('name');
     audit(c, 'workspace PAT', name);
     return c.json({ pat: core.getWorkspacePat(name) });
   });
 
   // ── delivery (watcher) ─────────────────────────────────────────────────────
-  r.post('/tasks/:key/delivery/begin', async (c) =>
+  r.post('/tasks/:key/delivery/begin', requireSupervisor, async (c) =>
     c.json(core.beginDelivery(c.req.param('key'), await body<Parameters<Core['beginDelivery']>[1]>(c))));
-  r.post('/tasks/:key/delivery/check', async (c) =>
+  r.post('/tasks/:key/delivery/check', requireSupervisor, async (c) =>
     c.json(core.recordDeliveryCheck(c.req.param('key'), await body<Parameters<Core['recordDeliveryCheck']>[1]>(c))));
-  r.post('/tasks/:key/delivery/complete', async (c) => {
+  r.post('/tasks/:key/delivery/complete', requireSupervisor, async (c) => {
     const b = await body<{ note: string }>(c);
     return c.json(core.completeDelivery(c.req.param('key'), b.note));
   });
-  r.post('/tasks/:key/delivery/fail', async (c) =>
+  r.post('/tasks/:key/delivery/fail', requireSupervisor, async (c) =>
     c.json(core.failDelivery(c.req.param('key'), await body<Parameters<Core['failDelivery']>[1]>(c))));
 
   return r;

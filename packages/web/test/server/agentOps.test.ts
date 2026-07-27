@@ -26,14 +26,33 @@ describe('agent ops — authorization boundary', () => {
   let core: Core;
   let app: App;
   let service: string;
+  let supervisor: string;
   let user: string;
 
   beforeEach(() => {
     core = openCore(':memory:');
     app = buildApp(core, { auth: { mode: 'token' } });
-    service = core.createApiToken({ label: 'dispatcher-1', isService: true }).token;
+    service = core.createApiToken({ label: 'worker-1', isService: true }).token;
+    supervisor = core.createApiToken({ label: 'dispatcher-1', isService: true, isSupervisor: true }).token;
     const u = core.createUser({ email: 'ann@example.com', displayName: 'Ann' });
     user = core.createApiToken({ label: 'ann-cli', userId: u.id }).token;
+  });
+
+  it('a token that is neither a user nor a declared service token is rejected outright', async () => {
+    const malformed = core.createApiToken({ label: 'oops', isService: false }).token; // no user, no flag
+    expect((await post(app, '/api/agent/claim', {}, malformed)).status).toBe(401);
+    expect((await app.request('/api/tasks', { headers: { authorization: `Bearer ${malformed}` } })).status).toBe(401);
+  });
+
+  it('supervisor-only ops reject a plain worker service token', async () => {
+    const t = queuedTask(core);
+    core.claimNextTask({ claimedBy: 'w1' });
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, service)).status).toBe(403);
+    expect((await post(app, `/api/agent/tasks/${t.key}/delivery/complete`, { note: 'x' }, service)).status).toBe(403);
+    expect((await get(app, '/api/agent/workspaces/default/pat', service)).status).toBe(403);
+    // the supervisor token passes the guard
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor)).status).toBe(200);
   });
 
   it('agent routes require a service token: user → 403, missing → 401, service → 200', async () => {
@@ -87,11 +106,13 @@ describe('agent ops — the worked loop over HTTP', () => {
   let core: Core;
   let app: App;
   let service: string;
+  let supervisor: string;
 
   beforeEach(() => {
     core = openCore(':memory:');
     app = buildApp(core, { auth: { mode: 'token' } });
-    service = core.createApiToken({ label: 'dispatcher-1', isService: true }).token;
+    service = core.createApiToken({ label: 'worker-1', isService: true }).token;
+    supervisor = core.createApiToken({ label: 'dispatcher-1', isService: true, isSupervisor: true }).token;
   });
 
   it('claim → progress → submit lands the task in review with a live-session trail', async () => {
@@ -119,7 +140,7 @@ describe('agent ops — the worked loop over HTTP', () => {
     const t = queuedTask(core);
     core.claimNextTask({ claimedBy: 'w1' });
 
-    const res = await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, service);
+    const res = await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor);
     expect(res.status).toBe(200);
     const detail = core.getTask(t.key);
     expect(detail.status).toBe('queued');
@@ -140,7 +161,7 @@ describe('agent ops — the worked loop over HTTP', () => {
     const auth = await get(app, '/api/agent/workspaces/shop/git-auth', service);
     expect(auth.status).toBe(200); // GitAuth | null — null is fine when no origin resolves
 
-    const pat = await get(app, '/api/agent/workspaces/shop/pat', service);
+    const pat = await get(app, '/api/agent/workspaces/shop/pat', supervisor);
     expect(((await pat.json()) as { pat: string | null }).pat).toBe('sekret-pat');
 
     expect((await get(app, '/api/agent/workspaces/shop/pat')).status).toBe(401);

@@ -17,7 +17,8 @@ describe('createHttpCore ⇄ buildApp contract', () => {
   beforeEach(() => {
     core = openCore(':memory:');
     const app = buildApp(core, { auth: { mode: 'token' } });
-    const token = core.createApiToken({ label: 'remote-worker', isService: true }).token;
+    // supervisor-scoped: the contract covers the full HttpCore surface incl. release/PAT ops
+    const token = core.createApiToken({ label: 'remote-supervisor', isService: true, isSupervisor: true }).token;
     http = createHttpCore('http://board', token, {
       fetchImpl: ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch,
     });
