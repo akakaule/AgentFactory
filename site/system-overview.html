@@ -54,7 +54,8 @@
   <h1>AgentFactory <span>· system overview</span></h1>
   <p>Azure DevOps backlogs feed the board through per-workspace <a href="producer-flow.html" style="color:var(--accent-2);text-decoration:none"><b>ado-bridge</b></a> loops — <span class="mono" style="color:var(--accent-2)">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono" style="color:var(--accent-2)">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono" style="color:var(--accent-2)">Run-ReviewerLoop.ps1</span> posts the AI first-pass verdict; pinned agents claim over MCP, work in
      isolated worktrees inside each workspace's git repo, and push <span class="mono" style="color:var(--accent-2)">feature/&lt;key&gt;-&lt;title&gt;</span> branches
-     back to origin. The board is the human checkpoint — and the only shared state is one SQLite file.</p>
+     back to origin with the PR opened automatically. After the human approves, the <b>watcher</b> supervisor verifies delivery — done means the PR merged and the
+     pipeline came up green. The board is the human checkpoint — and the only shared state is one SQLite file.</p>
 </header>
 <main>
 <svg viewBox="0 0 1560 1030" role="img" aria-label="AgentFactory system diagram">
@@ -92,9 +93,9 @@
   <text x="60" y="446" class="mono" font-size="11" fill="#4ADE80">feature/AF-12-barcode-scanner…  ⇡</text>
   <text x="60" y="464" class="mono" font-size="11" fill="#4ADE80">feature/AF-15-nightly-sync…    ⇡</text>
   <rect x="58" y="478" width="246" height="64" rx="7" fill="#0B1222" stroke="#1E2940"/>
-  <text x="70" y="497" font-size="11.5" fill="#E8EDF6">Pull Request <tspan fill="#64748B">(opened by the human)</tspan></text>
+  <text x="70" y="497" font-size="11.5" fill="#E8EDF6">Pull Request <tspan fill="#64748B">(auto-opened at finish)</tspan></text>
   <text x="70" y="514" font-size="11" fill="#97A5BE">CI pipeline runs on the PR</text>
-  <text x="70" y="531" font-size="11" fill="#97A5BE">✓ merge · ✗ comment + Reopen task ↩</text>
+  <text x="70" y="531" font-size="11" fill="#97A5BE">watcher: ✓ merged+green → done · ✗ re-queue ↩</text>
   <text x="60" y="566" font-size="11" fill="#64748B">push lands here when origin is ADO —</text>
   <text x="60" y="582" font-size="11" fill="#64748B">GitHub or any remote works the same</text>
   <text x="60" y="626" class="mono" font-size="10.5" fill="#64748B">delete branch on merge: ON</text>
@@ -155,10 +156,11 @@
   <rect x="730" y="554" width="314" height="3" rx="2" fill="#F59E0B"/>
   <text x="744" y="578" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">MCP server <tspan class="mono" font-size="10.5" fill="#64748B">stdio · one per agent session</tspan></text>
   <text x="744" y="598" class="mono" font-size="10.5" fill="#97A5BE">get_next_task · get_task · list_tasks</text>
-  <text x="744" y="614" class="mono" font-size="10.5" fill="#97A5BE">add_comment · update_status · submit_result</text>
-  <text x="744" y="636" font-size="11" fill="#64748B">pinned: AGENTFACTORY_WORKSPACE</text>
-  <text x="744" y="652" font-size="11" fill="#64748B">labeled: AGENTFACTORY_WORKER</text>
-  <text x="744" y="674" font-size="11" fill="#64748B">claims carry the protocol · submits are verified</text>
+  <text x="744" y="613" class="mono" font-size="10.5" fill="#97A5BE">add_comment · report_progress · update_status</text>
+  <text x="744" y="628" class="mono" font-size="10.5" fill="#97A5BE">submit_result · create_task (backlog-only)</text>
+  <text x="744" y="650" font-size="11" fill="#64748B">pinned: AGENTFACTORY_WORKSPACE</text>
+  <text x="744" y="666" font-size="11" fill="#64748B">labeled: AGENTFACTORY_WORKER</text>
+  <text x="744" y="688" font-size="11" fill="#64748B">claims carry the protocol · submits are verified</text>
 
   <!-- ════════════ AGENTS ════════════ -->
   <rect x="1130" y="56" width="200" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
@@ -202,6 +204,17 @@
   <text x="1146" y="700" font-size="11" fill="#97A5BE">reads in_review diffs, posts</text>
   <text x="1146" y="716" class="mono" font-size="10.5" fill="#A78BFA">ai-review/v1 → chip + findings</text>
   <text x="1146" y="734" class="mono" font-size="10.5" fill="#97A5BE">in-repo: npm run reviewer</text>
+
+  <!-- watcher supervisor (delivery verification) -->
+  <rect x="1130" y="782" width="200" height="140" rx="12" fill="#1E293B" stroke="#2C3A55"/>
+  <rect x="1130" y="782" width="200" height="3" rx="2" fill="#4ADE80"/>
+  <circle cx="1148" cy="810" r="5" fill="#4ADE80"><animate attributeName="opacity" values="1;0.3;1" dur="2.3s" repeatCount="indefinite"/></circle>
+  <text x="1160" y="814" class="grotesk" font-size="13" font-weight="600" fill="#E8EDF6">watcher</text>
+  <text x="1146" y="834" class="mono" font-size="10.5" fill="#64748B">npm run watcher · REST, no LLM</text>
+  <text x="1146" y="854" font-size="11" fill="#97A5BE">polls delivering tasks:</text>
+  <text x="1146" y="870" font-size="11" fill="#4ADE80">PR merged + checks green → done</text>
+  <text x="1146" y="886" font-size="11" fill="#97A5BE">red CI → re-queue + build errors</text>
+  <text x="1146" y="906" class="mono" font-size="10.5" fill="#64748B">npm run supervisors = all three</text>
 
   <!-- ════════════ REPOS ════════════ -->
   <rect x="1370" y="56" width="166" height="190" rx="12" fill="#1E293B" stroke="#2C3A55"/>
@@ -293,15 +306,17 @@
       <li><span class="n g">5</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide.</span></li>
       <li><span class="n g">6</span><span><b>Finish protocol</b> — commit → <span class="mono">push -u origin</span> → remove worktree. The pushed branch is the durable record.</span></li>
       <li><span class="n a">7</span><span><b>submit_result</b> — guardrails verify pushed &amp; clean (git <em>reads</em> only), then summary + branch link + token metrics → task lands <b>In Review</b>; unpushed work is refused.</span></li>
-      <li><span class="n r">8</span><span><b>Human checkpoint</b> — diff view on the board; Approve → done, or Request changes (feedback rides the next claim, same branch).</span></li>
-      <li><span class="n b">9</span><span><b>Bridge closes the circle</b> — posts the result summary to AB#123 and closes it. The human opens the PR from the pushed branch; CI fails → comment + <b>Reopen</b> ↩.</span></li>
+      <li><span class="n r">8</span><span><b>Human checkpoint</b> — diff view on the board (the PR is already open — the finish protocol opened it); Approve → <span class="mono">delivering</span>, or Request changes (feedback rides the next claim, same branch).</span></li>
+      <li><span class="n g">9</span><span><b>Watcher verifies delivery</b> — PR merged + checks green ⇒ <span class="mono">done</span>; red CI or a PR closed unmerged ⇒ re-queued with the failing checks and captured build errors ↩. <b>Done means delivered.</b></span></li>
+      <li><span class="n b">10</span><span><b>Bridge closes the circle</b> — sees the task done, posts the result summary to AB#123 and closes it.</span></li>
     </ol>
   </div>
   <div class="loops">
     <h2>Loops &amp; invariants</h2>
-    <div class="lp"><i>⟳</i><span><b>Three ado-bridge loops, one per role</b> — <span class="mono">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono">Run-ReviewerLoop.ps1 -Reviewer claude|codex</span> posts <span class="mono">ai-review/v1</span>. Stateless minute-cadence siblings; each repo runs its own set. The consume + review roles also run <b>in-repo</b> as the <span class="mono">dispatcher</span> and <span class="mono">reviewer</span> packages (<span class="mono">npm run dispatcher</span> / <span class="mono">npm run reviewer</span>) — same DB, no ado-bridge needed for a local setup.</span></div>
+    <div class="lp"><i>⟳</i><span><b>Three in-repo supervisors, one per role</b> — the <span class="mono">dispatcher</span> consumes (one fresh session per task), the <span class="mono">reviewer</span> posts <span class="mono">ai-review/v1</span>, and the <span class="mono">watcher</span> verifies delivery (<span class="mono">npm run supervisors</span> starts all three; by default they serve <em>every</em> workspace, new ones auto-picked-up). The ado-bridge siblings — <span class="mono">Run-AdoBridgeLoop.ps1</span> / <span class="mono">Run-AgentFactoryLoop.ps1</span> / <span class="mono">Run-ReviewerLoop.ps1</span> — cover the producer + consume + review roles where ADO is the source.</span></div>
     <div class="lp"><i>↩</i><span><b>Request changes</b> — <span class="mono">in_review → queued</span> with feedback; the next claim continues on the <em>same</em> branch, so pushes update the same PR.</span></div>
-    <div class="lp"><i>↩</i><span><b>Reopen</b> — <span class="mono">done → queued</span> when the PR build fails; paste the CI log as a comment first. Same branch, same PR.</span></div>
+    <div class="lp"><i>↩</i><span><b>Red CI heals itself</b> — the watcher bounces <span class="mono">delivering → queued</span> with the failing checks <em>and the captured build errors</em> in the note; the next worker fixes on the same branch, same PR. Manual <b>Reopen</b> (<span class="mono">done → queued</span>) stays for everything else.</span></div>
+    <div class="lp"><i>💬</i><span><b>Delivering feedback</b> — paste a PR review comment onto a delivering task; an evaluator agent judges it critically, and one click re-queues the task with composed, human-endorsed feedback.</span></div>
     <div class="lp"><i>⚑</i><span><b>Release claim</b> — a dead worker's <span class="mono">in_progress</span> task is re-queued by the human; full history survives for the next claimant.</span></div>
     <div class="lp"><i>◎</i><span><b>One SQLite file is the only shared state</b> — bridges (HTTP), agents (MCP), and the UI all converge on it; SSE fans changes out live. The board never runs agents and never writes to a repo.</span></div>
     <div class="lp"><i>⇄</i><span><b>Scale by adding pairs</b> — each new repo = one workspace + one pinned bridge + one pinned worker. Queues never leak across workspaces; analytics splits per worker/workspace.</span></div>
@@ -315,6 +330,6 @@
   </div>
 </div>
 </main>
-<footer>AgentFactory · system overview · updated 2026-06-16</footer>
+<footer>AgentFactory · system overview · updated 2026-07-27</footer>
 </body>
 </html>

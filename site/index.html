@@ -103,12 +103,14 @@
   <p>A local task board where <b>humans create and review</b> work in a web UI and <b>agents claim and deliver</b> it
      over MCP — Claude Code or any MCP client. The two sides never talk directly: one SQLite file is the only shared
      state. Every task is worked in an <b>isolated git worktree</b> on a <b>server-named feature branch</b>, pushed to
-     origin before submission, and lands back on the board as a reviewable diff. Tasks can also arrive through
-     <b>producer agents</b> that import real backlogs — Azure DevOps today via ado-bridge — and reflect every status
-     change back to the source. The board is the human checkpoint; it never runs agents and never writes to a repo.</p>
+     origin (with the <b>PR opened automatically</b>) before submission, and lands back on the board as a reviewable
+     diff. Approving it hands off to a <b>delivery watcher</b>: <b>done means the PR merged and the pipeline came up
+     green</b>. Tasks can also arrive through <b>producer agents</b> that import real backlogs — Azure DevOps today via
+     ado-bridge — and reflect every status change back to the source. The board is the human checkpoint; it never runs
+     agents and never writes to a repo.</p>
   <div class="pills">
     <span class="pill"><b>Board</b> · React + Hono + SSE on :8787</span>
-    <span class="pill"><b>Agents</b> · MCP stdio, seven tools</span>
+    <span class="pill"><b>Agents</b> · MCP stdio, eight tools</span>
     <span class="pill"><b>State</b> · agentfactory.db</span>
     <span class="pill"><b>Isolation</b> · .worktrees/&lt;key&gt; · feature/&lt;key&gt;-&lt;title&gt;</span>
     <span class="pill"><b>Contract</b> · protocol payload + submit guardrails</span>
@@ -502,7 +504,9 @@
 <p class="df-note"><b>Where AgentFactory actually sits:</b> deliberately one step short of lights-out. The
    <span class="mono">ai-review/v1</span> first-pass review is the <b>evaluator earning trust</b> on the easy,
    low-blast-radius work — dependency bumps, routine fixes — so the human gate can <em>dim</em> there first while
-   staying lit where stakes are high. The booth above is dark; on our board it's still lit, and that's the point of
+   staying lit where stakes are high. The <span class="mono">delivering</span> stage is the same move on the delivery
+   side: after the human approves, a <b>watcher</b> — not a person — confirms the PR merged and the pipeline came up
+   green. The booth above is dark; on our board it's still lit, and that's the point of
    the override-rate KPI: it measures how often the human still overrules the machine. Pattern background:
    <a href="https://hackernoon.com/the-dark-factory-pattern-moving-from-ai-assisted-to-fully-autonomous-coding">The
    Dark Factory Pattern</a> (HackerNoon).</p>
@@ -518,7 +522,7 @@
   <a class="pcard" href="agent-flow.html">
     <span class="pt">How the agent loop works <span class="mono">agent-flow.html</span></span>
     <p>Interactive walkthrough: the architecture strip, the task lifecycle state machine, a step-by-step simulation
-       of one task's full journey, and the seven MCP tools.</p>
+       of one task's full journey, and the eight MCP tools.</p>
     <span class="read">read to understand the mechanics →</span>
   </a>
   <a class="pcard" href="producer-flow.html">
@@ -536,8 +540,8 @@
   <a class="pcard draft" href="analytics-mockup.html">
     <span class="pt">Analytics <span class="mono">analytics-mockup.html</span></span>
     <p>Design mockup of the analytics view — KPI cards, stage-time bars, throughput, per-worker and per-workspace
-       splits. The real view has shipped in the web UI and has since grown an AI override-rate KPI and a
-       tokens by model/workspace toggle.</p>
+       splits. The real view has shipped in the web UI and has since grown an AI override-rate KPI, tokens by
+       model/workspace/stage, a "why tasks fail" panel, and a delivery-wait stage in cycle time.</p>
     <span class="read">read for the metrics vocabulary →</span>
   </a>
 </div>
@@ -550,7 +554,8 @@
     <li><span class="n g">3</span><span><b>Isolated worktree</b> — <span class="mono">.worktrees/&lt;key&gt;</span> on <span class="mono">feature/&lt;key&gt;-&lt;kebab-title&gt;</span>; parallel agents never collide. Progress is narrated with <span class="mono">add_comment</span>, live on the board via SSE.</span></li>
     <li><span class="n g">4</span><span><b>Finish protocol</b> — commit → <span class="mono">git push -u origin</span> → remove the worktree. The pushed branch is the durable record.</span></li>
     <li><span class="n a">5</span><span><b>submit_result</b> — guardrails verify the branch is on origin, fully pushed, and the worktree is gone — <em>then</em> the task lands <b>In Review</b> with summary, branch link, and token metrics. Unpushed work is refused with the commands to fix it.</span></li>
-    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board, starting from the <b>AI first-pass verdict</b> when one is posted (<span class="mono">ai-review/v1</span> chip + findings checklist). Approve → done (past open findings = logged override); Request changes → re-queued with your curated feedback, next claim continues on the <em>same</em> branch. PR opens from the branch; CI fails → comment + Reopen.</span></li>
+    <li><span class="n h">6</span><span><b>Human checkpoint</b> — review the diff on the board, starting from the <b>AI first-pass verdict</b> when one is posted (<span class="mono">ai-review/v1</span> chip + findings checklist). Approve → the task enters <span class="mono">delivering</span> (the GitHub PR is already open — the finish protocol opened it; approving past open findings = logged override); Request changes → re-queued with your curated feedback, next claim continues on the <em>same</em> branch.</span></li>
+    <li><span class="n g">7</span><span><b>Delivery verified</b> — the <b>watcher</b> supervisor polls the PR + pipeline on the git host (GitHub / Azure DevOps): merged + green checks ⇒ <span class="mono">done</span>; red CI, merge conflict, or a PR closed unmerged ⇒ bounced back to <span class="mono">queued</span> with the failing checks <em>and the captured build errors</em> in the note — the next worker fixes with the concrete error in hand.</span></li>
   </ol>
 </div>
 
@@ -583,29 +588,31 @@
     <div class="gx"><i>◎</i><span><b>One SQLite file is the only shared state</b> — UI (HTTP), agents (MCP), and bridges all converge on it; SSE fans changes out live.</span></div>
     <div class="gx"><i>⚙</i><span><b>Transitions are enforced in core</b> — agents can never approve, reopen, or invent tasks; humans own every gate. Atomic claims: no double-claiming, ever.</span></div>
     <div class="gx"><i>⛓</i><span><b>Convention is contract</b> — the server names the branch at claim time and refuses submission until the work is pushed and the worktree cleaned. All checks are git <em>reads</em>: the board never writes to a repo.</span></div>
-    <div class="gx"><i>↩</i><span><b>Every dead end has a rescue loop</b> — Request changes (<span class="mono">in_review → queued</span>), Reopen (<span class="mono">done → queued</span>), Release claim (<span class="mono">in_progress → queued</span>). History survives every round-trip.</span></div>
+    <div class="gx"><i>✔</i><span><b>Done means delivered</b> — with a GitHub/ADO origin, approve routes to <span class="mono">delivering</span> and the watcher closes the task only when the PR merged and the checks came up green. No CI configured? Force-complete stays one click away.</span></div>
+    <div class="gx"><i>↩</i><span><b>Every dead end has a rescue loop</b> — Request changes (<span class="mono">in_review → queued</span>), Reopen (<span class="mono">done → queued</span>), Release claim (<span class="mono">in_progress → queued</span>), pull a delivering task back for rework. History survives every round-trip.</span></div>
     <div class="gx"><i>✂</i><span><b>Uncurated AI findings never reach the agent</b> — MCP payloads strip <span class="mono">ai-review/v1</span> comments; only the human-curated feedback rides the re-claim.</span></div>
     <div class="gx"><i>⇄</i><span><b>Scale by adding pairs</b> — each repo = one workspace + one pinned worker. Queues never leak across workspaces.</span></div>
   </div>
   <div class="box">
     <h3>Recently shipped</h3>
-    <div class="new"><span class="d">2026-06-16</span><span><b>Live telemetry feed</b> — an AF-hosted OTLP <span class="mono">/v1/logs</span> receiver captures per-task token usage from Claude &amp; Codex; the <b>Telemetry</b> view streams a live rolling feed and analytics break cost down by model and workspace.</span></div>
-    <div class="new"><span class="d">2026-06-16</span><span><b>Worktree off latest <span class="mono">origin/main</span></b> — a task's first claim branches its worktree from freshly-fetched <span class="mono">origin/main</span>, so every agent starts from current trunk.</span></div>
-    <div class="new"><span class="d">2026-06-14</span><span><b>Live agent status</b> — the <b>Live</b> view and each in-progress task's drawer show the running agent's current phase, a rolling milestone feed, and so-far token counts, fed by a new <span class="mono">report_progress</span> MCP tool (the seventh).</span></div>
-    <div class="new"><span class="d">2026-06-14</span><span><b>Token telemetry (OpenTelemetry)</b> — per-task token + cost capture from Claude and Codex, wired through the dispatcher/reviewer and surfaced as tokens-by-model/workspace.</span></div>
-    <div class="new"><span class="d">2026-06-13</span><span><b>Archive + auth + mobile</b> — archive done tasks out of the default board; optional token auth with a token sign-in; a responsive mobile board / PWA for review on the go.</span></div>
-    <div class="new"><span class="d">2026-06-15</span><span><b>In-repo reviewer</b> — <span class="mono">npm run reviewer</span>, a dispatcher-style supervisor (default <span class="mono">codex</span>, or claude) that reviews <span class="mono">in_review</span> tasks and posts <span class="mono">ai-review/v1</span> verdicts. Advisory: a clean doc-stage verdict auto-advances; findings &amp; implementation hold for the human.</span></div>
-    <div class="new"><span class="d">2026-06-13</span><span><b>Per-stage models</b> — the dispatcher can staff each pipeline stage with a different model via <span class="mono">stageArgs</span>: a fast model for the description/plan write-ups, your strongest for implementation.</span></div>
-    <div class="new"><span class="d">2026-06-12</span><span><b>Dispatcher</b> — one fresh headless <span class="mono">claude -p</span> session per queued task: staleness immunity, measured per-task cost, crash containment (AF-16).</span></div>
-    <div class="new"><span class="d">2026-06-12</span><span><b>AI first-pass review tier</b> — <span class="mono">ai-review/v1</span> verdict chip, findings checklist with curated feedback, override-rate KPI; tokens by model/workspace toggle (AF-13, AF-17).</span></div>
-    <div class="new"><span class="d">2026-06-12</span><span><b>Claim-time protocol + submit guardrails</b> — the protocol rides the claim payload; <span class="mono">submit_result</span> verifies pushed &amp; clean before accepting (AF-15).</span></div>
-    <div class="new"><span class="d">2026-06-11</span><span><b>Push-and-clean finish protocol + Reopen</b> — branches pushed at submit; <span class="mono">done → queued</span> closes the CI loop.</span></div>
-    <div class="new"><span class="d">2026-06-11</span><span><b>Images in specs · diff view · analytics · claim recovery</b> — paste screenshots into specs; review branches on the board; release stranded claims.</span></div>
-    <div class="new"><span class="d">2026-06-12</span><span><b>Reviewer loop</b> — <span class="mono">Run-ReviewerLoop.ps1</span> (<span class="mono">-Reviewer claude|codex</span>) posts the <span class="mono">ai-review/v1</span> verdicts the board renders; it joins <span class="mono">Run-AdoBridgeLoop.ps1</span> and <span class="mono">Run-AgentFactoryLoop.ps1</span> as the third ado-bridge loop.</span></div>
+    <div class="new"><span class="d">2026-07-26</span><span><b>Hardening pass</b> — a full-codebase review landed 14 verified fixes: watcher request timeouts, dispatcher process-tree kills, one shared SSE connection, delivering time in cycle metrics, and more.</span></div>
+    <div class="new"><span class="d">2026-07-19</span><span><b>Task dependencies</b> — enforced prerequisite links between tasks: a queued task with unmet dependencies can't be claimed until the tasks it waits on are done.</span></div>
+    <div class="new"><span class="d">2026-07-06</span><span><b>Agent prompts + delivering-feedback loop</b> — configurable per-agent system prompts (global defaults + per-workspace overrides); paste a PR comment onto a delivering task, an evaluator agent judges it critically, one click bounces the task back with composed feedback.</span></div>
+    <div class="new"><span class="d">2026-07-06</span><span><b>Per-workspace git PAT + split diff</b> — set a git-host credential per workspace in the UI (masked, write-only); side-by-side diff view with a Unified toggle.</span></div>
+    <div class="new"><span class="d">2026-07-05</span><span><b>Watcher captures CI errors · task restart</b> — a red PR build bounces with the <em>actual</em> build errors embedded in the note; a board "Restart" forgives a skip-listed task's attempt budget without bouncing the dispatcher.</span></div>
+    <div class="new"><span class="d">2026-07-03</span><span><b>Opt-out workspaces + stale-claim reaper</b> — supervisors serve every DB workspace by default (new ones auto-picked-up); the dispatcher auto-releases orphaned <span class="mono">in_progress</span> claims.</span></div>
+    <div class="new"><span class="d">2026-07-02</span><span><b>Delivering + the watcher</b> — a third supervisor closes the loop the approval started: <span class="mono">done</span> now means the PR merged and the pipeline came up green (GitHub/ADO REST, no LLM). <span class="mono">npm run supervisors</span> starts all three.</span></div>
+    <div class="new"><span class="d">2026-06-30</span><span><b>PR-review tasks + change visualization</b> — review a teammate's GitHub/ADO PR as a board task (copy the verdict back as clean markdown); attach a self-contained HTML change-overview next to the diff.</span></div>
+    <div class="new"><span class="d">2026-06-27</span><span><b>Per-task agent transcript</b> — live tail while the agent works, persisted artifact after; expandable drawer ⇆ full-screen task detail.</span></div>
+    <div class="new"><span class="d">2026-06-25</span><span><b>Auto-open the PR</b> — the finish protocol opens (or reuses) the GitHub PR right after the push, before <span class="mono">submit_result</span>.</span></div>
+    <div class="new"><span class="d">2026-06-24</span><span><b><span class="mono">create_task</span> (the eighth tool)</b> — agents can file follow-up work they discover, but only into <b>backlog</b>: nothing runs until a human triages and queues it.</span></div>
+    <div class="new"><span class="d">2026-06-18</span><span><b>Failure reasons + supervisor health</b> — structured <span class="mono">failure/v1</span> notes (timeout/crash/denial), a "why tasks fail" analytics panel, supervisor heartbeats + <span class="mono">/health</span>, webhook notifications.</span></div>
+    <div class="new"><span class="d">2026-06-17</span><span><b>Workspace policy + verify gate</b> — per-workspace engineering discipline injected into worker and reviewer prompts; a verify command the implementation must run and pass before handoff.</span></div>
+    <div class="new"><span class="d">2026-06-16</span><span><b>Live telemetry feed</b> — an AF-hosted OTLP <span class="mono">/v1/logs</span> receiver captures per-task token usage from Claude &amp; Codex; analytics break cost down by model, workspace and stage.</span></div>
   </div>
 </div>
 
 </div>
-<footer>AgentFactory · index · updated 2026-06-16</footer>
+<footer>AgentFactory · index · updated 2026-07-27</footer>
 </body>
 </html>

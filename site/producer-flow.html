@@ -181,7 +181,7 @@ Run-ReviewerLoop -Reviewer claude  # C: reviewer (or codex)
     <div class="inv" style="margin-top:12px"><i>1.</i><span><b>Stable dedup key</b> in the task title (<code>AB#123:</code>, <code>GH#456:</code>, <code>JIRA-789:</code> …) so passes are idempotent.</span></div>
     <div class="inv"><i>2.</i><span><b>A design pass</b> — raw items become implementable briefs (spec + acceptance criteria) before they're queued; the producer is an agent, so this is where it earns its keep.</span></div>
     <div class="inv"><i>3.</i><span><b>Queued task via the HTTP API</b> — the board stays the single human checkpoint regardless of where work originates.</span></div>
-    <div class="inv"><i>4.</i><span><b>Status reflected back</b> — review and done flow to the source (comment + close in ADO today). The natural next outbound step: <b>opening the PR</b> from the pushed branch automatically — submit guardrails already guarantee the branch is on origin.</span></div>
+    <div class="inv"><i>4.</i><span><b>Status reflected back</b> — review and done flow to the source (comment + close in ADO today). The PR itself needs no producer step: the worker's <b>finish protocol opens it automatically</b> from the pushed branch, and the board's <b>watcher</b> closes the task when it merges with green checks.</span></div>
     <div class="srcs">
       <span class="src live">Azure DevOps Boards · shipped</span>
       <span class="src">GitHub Issues</span>
@@ -190,6 +190,7 @@ Run-ReviewerLoop -Reviewer claude  # C: reviewer (or codex)
       <span class="src">support mailbox</span>
       <span class="src">monitoring alerts</span>
     </div>
+    <p style="margin:0 0 6px; color:var(--muted); font-size:13px">The board also accepts a second intake shape today: <b style="color:var(--text)">pr-review tasks</b> — a teammate's GitHub or Azure DevOps pull request imported as a task that is <em>reviewed, never implemented</em> (born straight into In Review; "Mark reviewed" closes it and copies your verdict as clean markdown for the PR).</p>
     <p style="margin:0; color:var(--muted); font-size:13px">Same board, same review gate, same worker loop — only the intake adapter changes.
     See the <a href="system-overview.html">system overview</a> for how multiple bridges and workspaces compose.</p>
   </div>
@@ -233,10 +234,10 @@ const STEPS = [
     log:"AB#123 → Resolved (only because the bridge set Active itself)",
     comps:["p-bridge","p-ado","p-board"] },
 
-  { actor:"h", who:"You · the board", title:"Human checkpoint",
-    desc:"You review the diff on the board — the branch is already on origin, so CI may already be running, and an <b>AI first-pass verdict</b> (<code>ai-review/v1</code>) posted by <code>Run-ReviewerLoop</code> — the third ado-bridge loop — may already sit on the card. <b>Approve</b> → done. <b>Request changes</b> → re-queued with your curated feedback; the next claim continues on the same branch. You open the PR from the pushed branch (automating this is the next outbound step).",
-    cfg:"AF-12 · In Review · AI review: 2 findings\n  diff: feature/AF-12-… vs main · 19 files +724/−20\n  [ Approve ]   [ Request changes… ]",
-    log:"AF-12: in_review → done ✓",
+  { actor:"h", who:"You · the board", title:"Human checkpoint → delivering",
+    desc:"You review the diff on the board — the branch is on origin, the <b>PR is already open</b> (the finish protocol opened it), CI may already be running, and an <b>AI first-pass verdict</b> (<code>ai-review/v1</code>) may already sit on the card. <b>Approve</b> → the task enters <b>delivering</b>; the board's <b>watcher</b> supervisor closes it when the PR merges with green checks, and bounces a red build back to queued with the errors captured. <b>Request changes</b> → re-queued with your curated feedback; the next claim continues on the same branch.",
+    cfg:"AF-12 · In Review · AI review: 2 findings\n  diff: feature/AF-12-… vs main · 19 files +724/−20\n  PR !8968 open · checks running\n  [ Approve ]   [ Request changes… ]",
+    log:"AF-12: in_review → delivering → done ✓ (PR merged · checks green)",
     comps:["p-board"] },
 
   { actor:"b", who:"Bridge · outbound pass", title:"The circle closes",

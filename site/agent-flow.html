@@ -120,7 +120,7 @@
       <div class="link"><span class="ar">⇄</span><span>core</span></div>
       <div class="comp side-d" id="c-db"><span class="ico">🗄️</span><span class="nm">agentfactory.db</span><div class="dt">SQLite · single<br>source of truth</div></div>
       <div class="link"><span class="ar">⇄</span><span>core</span></div>
-      <div class="comp side-a" id="c-mcp"><span class="ico">🛰️</span><span class="nm">MCP server</span><div class="dt">stdio · 7 tools<br>packages/mcp</div></div>
+      <div class="comp side-a" id="c-mcp"><span class="ico">🛰️</span><span class="nm">MCP server</span><div class="dt">stdio · 8 tools<br>packages/mcp</div></div>
       <div class="link"><span class="ar">⇄</span><span>MCP / stdio</span></div>
       <div class="comp side-a" id="c-agent"><span class="ico">🤖</span><span class="nm">Agent</span><div class="dt">Claude Code or any<br>MCP client</div></div>
     </div>
@@ -141,35 +141,40 @@
         </defs>
 
         <!-- edges -->
-        <path id="e-bq" class="edge h" d="M 120 80 L 162 80" marker-end="url(#mh)"/>
-        <path id="e-qi" class="edge a" d="M 265 80 L 327 80" marker-end="url(#ma)"/>
-        <path id="e-ir" class="edge a" d="M 450 80 L 517 80" marker-end="url(#ma)"/>
-        <path id="e-id" class="edge h" d="M 630 80 L 687 80" marker-end="url(#mh)"/>
-        <path id="e-rw" class="edge h" d="M 560 58 C 500 8, 290 8, 232 56" marker-end="url(#mh)"/>
-        <path id="e-ib" class="edge a" d="M 375 102 L 375 177" marker-end="url(#ma)"/>
-        <path id="e-bi" class="edge a" d="M 405 178 L 405 103" marker-end="url(#ma)"/>
-        <path id="e-bq2" class="edge h" d="M 340 192 C 268 178, 232 142, 219 104" marker-end="url(#mh)"/>
+        <path id="e-bq" class="edge h" d="M 110 80 L 138 80" marker-end="url(#mh)"/>
+        <path id="e-qi" class="edge a" d="M 230 80 L 258 80" marker-end="url(#ma)"/>
+        <path id="e-ir" class="edge a" d="M 370 80 L 398 80" marker-end="url(#ma)"/>
+        <path id="e-id" class="edge h" d="M 500 80 L 528 80" marker-end="url(#mh)"/>
+        <path id="e-dd" class="edge a" d="M 635 80 L 663 80" marker-end="url(#ma)"/>
+        <path id="e-rw" class="edge h" d="M 450 58 C 400 8, 245 8, 195 56" marker-end="url(#mh)"/>
+        <path id="e-dq" class="edge a" d="M 570 102 C 570 285, 205 285, 195 104" marker-end="url(#ma)"/>
+        <path id="e-ib" class="edge a" d="M 315 102 L 315 177" marker-end="url(#ma)"/>
+        <path id="e-bi" class="edge a" d="M 345 178 L 345 103" marker-end="url(#ma)"/>
+        <path id="e-bq2" class="edge h" d="M 292 192 C 235 180, 210 145, 197 104" marker-end="url(#mh)"/>
 
-        <text class="elabel" x="122" y="70">human</text>
-        <text class="elabel" x="278" y="70">agent</text>
-        <text class="elabel" x="462" y="70">agent</text>
-        <text class="elabel" x="638" y="70">human</text>
-        <text class="elabel" x="352" y="22">human · request changes (rework)</text>
-        <text class="elabel" x="312" y="145">agent</text>
-        <text class="elabel" x="412" y="145">agent</text>
-        <text class="elabel" x="216" y="160">human</text>
+        <text class="elabel" x="106" y="70">human</text>
+        <text class="elabel" x="228" y="70">agent</text>
+        <text class="elabel" x="366" y="70">agent</text>
+        <text class="elabel" x="488" y="70">approve</text>
+        <text class="elabel" x="626" y="70">watcher</text>
+        <text class="elabel" x="255" y="22">human · request changes (rework)</text>
+        <text class="elabel" x="330" y="258">watcher · CI failed / PR closed → re-queued</text>
+        <text class="elabel" x="276" y="145">agent</text>
+        <text class="elabel" x="352" y="145">agent</text>
+        <text class="elabel" x="200" y="160">human</text>
 
         <!-- nodes -->
-        <g class="node" id="n-backlog"><rect x="20" y="60" width="100" height="40"/><text x="70" y="85" text-anchor="middle">backlog</text></g>
-        <g class="node" id="n-queued"><rect x="165" y="60" width="100" height="40"/><text x="215" y="85" text-anchor="middle">queued</text></g>
-        <g class="node" id="n-in_progress"><rect x="330" y="60" width="120" height="40"/><text x="390" y="85" text-anchor="middle">in_progress</text></g>
-        <g class="node" id="n-in_review"><rect x="520" y="60" width="110" height="40"/><text x="575" y="85" text-anchor="middle">in_review</text></g>
-        <g class="node" id="n-done"><rect x="690" y="60" width="80" height="40"/><text x="730" y="85" text-anchor="middle">done ✓</text></g>
-        <g class="node" id="n-blocked"><rect x="340" y="180" width="100" height="40"/><text x="390" y="205" text-anchor="middle">blocked</text></g>
+        <g class="node" id="n-backlog"><rect x="20" y="60" width="90" height="40"/><text x="65" y="85" text-anchor="middle">backlog</text></g>
+        <g class="node" id="n-queued"><rect x="140" y="60" width="90" height="40"/><text x="185" y="85" text-anchor="middle">queued</text></g>
+        <g class="node" id="n-in_progress"><rect x="260" y="60" width="110" height="40"/><text x="315" y="85" text-anchor="middle">in_progress</text></g>
+        <g class="node" id="n-in_review"><rect x="400" y="60" width="100" height="40"/><text x="450" y="85" text-anchor="middle">in_review</text></g>
+        <g class="node" id="n-delivering"><rect x="530" y="60" width="105" height="40"/><text x="582" y="85" text-anchor="middle">delivering</text></g>
+        <g class="node" id="n-done"><rect x="665" y="60" width="75" height="40"/><text x="702" y="85" text-anchor="middle">done ✓</text></g>
+        <g class="node" id="n-blocked"><rect x="290" y="180" width="100" height="40"/><text x="340" y="205" text-anchor="middle">blocked</text></g>
       </svg>
       <div class="legend">
         <span><span class="chip" style="background:var(--human)"></span>human-only transition</span>
-        <span><span class="chip" style="background:var(--agent)"></span>agent transition</span>
+        <span><span class="chip" style="background:var(--agent)"></span>agent transition (the watcher acts as an agent)</span>
         <span style="margin-left:auto">enforced by <code>core/transitions.ts</code> — anything else is rejected</span>
       </div>
       <div class="stepdesc" id="stepdesc"></div>
@@ -186,7 +191,7 @@
     </div>
   </div>
 
-  <h2>3 · The 7 MCP tools the agent gets</h2>
+  <h2>3 · The 8 MCP tools the agent gets</h2>
   <div class="panel">
     <table>
       <tr><th>Tool</th><th>What it does</th><th>Loop role</th></tr>
@@ -197,8 +202,9 @@
       <tr><td><code>report_progress</code></td><td>Post a short, live progress milestone (and optional so-far token counts) for the task you're working on</td><td>live status on the Live view (ephemeral; distinct from add_comment)</td></tr>
       <tr><td><code>submit_result</code></td><td>Verify the finish protocol ran (branch pushed to origin, worktree removed), then store summary + links and move the task to <code>in_review</code></td><td>deliver the work</td></tr>
       <tr><td><code>update_status</code></td><td>Transition the task (only agent-legal moves allowed)</td><td>flag blocked / resume work</td></tr>
+      <tr><td><code>create_task</code></td><td>File follow-up work the agent discovers (a bug, a refactor) — into <b>backlog only</b>, never queued</td><td>propose, don't self-assign</td></tr>
     </table>
-    <p style="color:var(--muted); font-size:13.5px; margin-bottom:0">Task <b>creation</b> is deliberately missing — only humans create work, via the web UI. The agent can never invent tasks for itself.</p>
+    <p style="color:var(--muted); font-size:13.5px; margin-bottom:0">Agents can <b>propose</b> work with <code>create_task</code>, but everything lands in <b>backlog</b>: nothing runs until a human triages and queues it. Agents still can never approve, and only the watcher's verified delivery (or a human) reaches <code>done</code>.</p>
   </div>
 
   <h2>4 · Wiring it up</h2>
@@ -233,7 +239,7 @@ const STEPS = [
     comps:["c-agent","c-mcp","c-db"], status:"in_progress", edge:"e-qi",
     log:"get_next_task(workspace) → AF-7 · protocol: feature/AF-7-… · worktree .worktrees/AF-7" },
   { actor:"agent", title:"Agent works &amp; narrates",
-    desc:"While coding, the agent posts progress with <code>add_comment</code>. The web server pushes every activity over <b>SSE</b> &mdash; the human watches live in the browser.",
+    desc:"While coding, the agent posts progress with <code>add_comment</code> and live milestones with <code>report_progress</code> (the Live view shows the current phase and so-far token counts). The web server pushes every activity over <b>SSE</b> &mdash; the human watches live in the browser.",
     comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_progress", edge:null,
     log:"add_comment ×3 → SSE → browser (live)" },
   { actor:"agent", title:"Stuck &rarr; blocked",
@@ -244,18 +250,22 @@ const STEPS = [
     desc:"The human answers in a comment; the agent resumes: <code>blocked &rarr; in_progress</code>. (Alternatively the human re-queues it: <code>blocked &rarr; queued</code>.)",
     comps:["c-human","c-web","c-api","c-db","c-mcp","c-agent"], status:"in_progress", edge:"e-bi",
     log:"human comment → blocked → in_progress (agent)" },
-  { actor:"agent", title:"Finish protocol: push &amp; clean",
-    desc:"Work done: the agent commits everything in the worktree, pushes the branch &mdash; <code>git push -u origin feature/AF-7-…</code> &mdash; and removes the worktree. The pushed branch is the durable record; the board&rsquo;s diff view reads it directly.",
+  { actor:"agent", title:"Finish protocol: push, open the PR &amp; clean",
+    desc:"Work done: the agent commits everything in the worktree, pushes the branch &mdash; <code>git push -u origin feature/AF-7-…</code> &mdash; <b>opens (or reuses) the GitHub PR</b>, and removes the worktree. The pushed branch is the durable record; the board&rsquo;s diff view reads it directly.",
     comps:["c-agent"], status:"in_progress", edge:null,
-    log:"git push -u origin feature/AF-7-… · worktree removed" },
+    log:"git push -u origin feature/AF-7-… · PR #12 opened · worktree removed" },
   { actor:"agent", title:"Agent submits &rarr; review",
     desc:"<code>submit_result</code> delivers the summary + links and moves the task <code>in_progress &rarr; in_review</code> &mdash; after <b>guardrails</b> verify the branch exists on origin, is fully pushed, and the worktree is gone. Unpushed work is refused with the exact commands to fix it. The agent&rsquo;s job ends here &mdash; only a human can move the task further.",
     comps:["c-agent","c-mcp","c-db","c-api","c-web","c-human"], status:"in_review", edge:"e-ir",
     log:"submit_result · guardrails: pushed ✓ clean ✓ → in_review" },
-  { actor:"human", title:"Human reviews &rarr; done (or rework)",
-    desc:"The human checks the result in the UI &mdash; an <b>AI first-pass review</b> may already have posted its verdict (<code>ai-review/v1</code> chip + findings checklist), produced by the in-repo <b>reviewer</b> supervisor (<code>npm run reviewer</code>, default codex); uncurated findings never reach the agent. Approve: <code>in_review &rarr; done</code> ✓ (past open findings = logged override). Request changes: <code>in_review &rarr; queued</code> with curated feedback &mdash; and the loop restarts at step 3.",
-    comps:["c-human","c-web","c-api","c-db"], status:"done", edge:"e-id", altEdge:"e-rw",
-    log:"review approved → done ✓" },
+  { actor:"human", title:"Human reviews &rarr; delivering (or rework)",
+    desc:"The human checks the result in the UI &mdash; an <b>AI first-pass review</b> may already have posted its verdict (<code>ai-review/v1</code> chip + findings checklist), produced by the in-repo <b>reviewer</b> supervisor (<code>npm run reviewer</code>, default codex); uncurated findings never reach the agent. Approve: with a GitHub/ADO origin the task routes to <code>delivering</code> &mdash; the PR is already open (past open findings = logged override; no recognizable git host &rarr; straight to done). Request changes: <code>in_review &rarr; queued</code> with curated feedback &mdash; and the loop restarts at step 3.",
+    comps:["c-human","c-web","c-api","c-db"], status:"delivering", edge:"e-id", altEdge:"e-rw",
+    log:"review approved → delivering (PR #12 open, checks running)" },
+  { actor:"agent", title:"Watcher verifies delivery &rarr; done",
+    desc:"The <b>watcher</b> supervisor (<code>npm run watcher</code> &mdash; or <code>npm run supervisors</code> for all three) polls the PR and pipeline over plain REST &mdash; no LLM. Merged + green checks: <code>delivering &rarr; done</code> ✓ &mdash; <b>done means delivered</b>. Red CI, merge conflict, or PR closed unmerged: bounced back to <code>queued</code> with a <code>failure/v1</code> note carrying the failing checks <em>and the captured build errors</em>, so the next worker fixes with the concrete error in hand. Humans keep overrides: force-complete or pull back for rework.",
+    comps:["c-db","c-api","c-web"], status:"done", edge:"e-dd", altEdge:"e-dq",
+    log:"watcher: PR #12 merged · checks green → done ✓" },
 ];
 
 let cur = -1, timer = null;
