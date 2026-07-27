@@ -18,7 +18,6 @@ export interface DispatcherCore {
   resolveGitAuth(workspace: string): Awaitable<GitAuth | null>;
   // the effective agent system prompt (workspace override → global default → '') for this role.
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
-  updateStatus(key: string, status: Status, actor: Actor): Awaitable<TaskDetail>;
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string): Awaitable<TaskDetail>;
