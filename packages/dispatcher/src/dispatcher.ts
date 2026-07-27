@@ -595,7 +595,7 @@ export class Dispatcher {
     opts: { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined },
   ): void {
     try {
-      this.deps.core.updateStatus(key, 'queued', 'human'); // automate the human claim-recovery release
+      this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         this.console.log(`[dispatcher] release of ${key} raced a concurrent move; leaving as-is`);

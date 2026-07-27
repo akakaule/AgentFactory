@@ -707,10 +707,10 @@ describe('stale-claim reaper', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
     const { spawn } = makeFakeSpawn();
     const log = makeFakeConsole();
-    // updateStatus throws as if a human settled the task in the gap before release
+    // releaseClaim throws as if a human settled the task in the gap before release
     const racy = new Proxy(core, {
       get(target, prop, receiver) {
-        if (prop === 'updateStatus') return () => { throw new InvalidTransitionError('in_progress -> queued raced'); };
+        if (prop === 'releaseClaim') return () => { throw new InvalidTransitionError('in_progress -> queued raced'); };
         const v = Reflect.get(target, prop, receiver);
         return typeof v === 'function' ? v.bind(target) : v;
       },

@@ -15,6 +15,9 @@ export interface DispatcherCore {
   // the effective agent system prompt (workspace override → global default → '') for this role.
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): string;
   updateStatus(key: string, status: Status, actor: Actor): TaskDetail;
+  // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
+  // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
+  releaseClaim(key: string): TaskDetail;
   addComment(key: string, input: { actor: Actor; body: string }): Activity;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): TaskDetail;
   // live agent status: keep a running session warm, and end it when the process exits

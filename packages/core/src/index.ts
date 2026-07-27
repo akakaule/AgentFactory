@@ -27,6 +27,7 @@ export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
+export { releaseClaim } from './ops/releaseClaim.js';
 export { restartTask } from './ops/restartTask.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
@@ -67,6 +68,7 @@ import { claimNextTask, type ClaimOptions } from './ops/claimNextTask.js';
 import { addComment } from './ops/addComment.js';
 import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
+import { releaseClaim } from './ops/releaseClaim.js';
 import { restartTask } from './ops/restartTask.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
@@ -154,6 +156,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
+    releaseClaim: (key: string) => releaseClaim(db, key),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     /** Delivering-feedback loop: attach a human's PR-review comment (trigger for the evaluator),
      *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
