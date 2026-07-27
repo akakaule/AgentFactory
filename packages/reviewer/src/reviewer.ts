@@ -384,11 +384,21 @@ export class Reviewer {
 
   // -- reaping ---------------------------------------------------------------
 
-  /** Handle a review exit: read the verdict and post it, or burn an attempt on failure. */
+  /** Handle a review exit: read the verdict and post it, or burn an attempt on failure.
+   *  The session HOLDS its `running` slot (and its hasRunningFor guard) until the reap fully
+   *  settles — freeing it at entry let pollWorkspace start a same-attempt duplicate review
+   *  while the verdict/failure writes were still in flight. */
   private async reap(session: ReviewSession, code: number | null): Promise<void> {
     if (session.settled) return;
     session.settled = true;
-    this.running.delete(session.label);
+    try {
+      await this.reapSettled(session, code);
+    } finally {
+      this.running.delete(session.label);
+    }
+  }
+
+  private async reapSettled(session: ReviewSession, code: number | null): Promise<void> {
     session.logWriter.end();
 
     const verdict = this.readVerdict(session);

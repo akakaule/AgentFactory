@@ -35,6 +35,11 @@ interface Session {
 
 const LOG_TAIL_CHARS = 4000;
 const COMMENT_TAIL_LINES = 40;
+/** Attempts (incl. the first) to land a claim release before deferring to the stale reaper. */
+const RELEASE_RETRIES = 5;
+
+/** What a release posts to the board alongside the recovery edge. */
+interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; }
 
 /**
  * The supervisor. Polls the queue read-only and spawns one fresh headless `claude`
@@ -49,6 +54,10 @@ export class Dispatcher {
   /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
    *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
   private readonly settling = new Set<Promise<void>>();
+  private ticking = false; // re-entrancy guard (same shape as the reviewer's/watcher's)
+  /** Releases that failed transiently (e.g. a board 503) — retried at the top of each tick so a
+   *  claim is never stranded until the stale reaper's horizon just because one write failed. */
+  private readonly pendingReleases: Array<{ key: string; opts: ReleaseOpts; tries: number }> = [];
   private readonly prompt = buildWorkerPrompt();
   private claudeCommand: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -90,11 +99,18 @@ export class Dispatcher {
     }
   }
 
-  private async safeTick(): Promise<void> {
+  /** One tick; never overlaps itself (over HTTP a slow board call outlives the poll interval —
+   *  two interleaved ticks each saw a free slot and double-spawned) and never lets an error
+   *  kill the interval. */
+  async safeTick(): Promise<void> {
+    if (this.ticking) return;
+    this.ticking = true;
     try {
       await this.tick();
     } catch (err) {
       this.console.error(`[dispatcher] tick failed: ${(err as Error).message}`);
+    } finally {
+      this.ticking = false;
     }
   }
 
@@ -102,6 +118,7 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.drainPendingReleases();
     this.enforceTimeouts();
     await this.touchLiveSessions();
     await this.tailTranscripts();
@@ -110,6 +127,12 @@ export class Dispatcher {
     await this.reapStaleClaims(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
     await Promise.all([...this.settling]); // exits fired during this tick (fast sessions) too
+  }
+
+  /** Retry releases that failed transiently on a previous tick (bounded per entry). */
+  private async drainPendingReleases(): Promise<void> {
+    const pending = this.pendingReleases.splice(0);
+    for (const p of pending) await this.releaseClaim(p.key, p.opts, p.tries);
   }
 
   /** Run a child-exit reap in the background, tracked so tick() can await stragglers. */
@@ -479,11 +502,21 @@ export class Dispatcher {
 
   // -- reaping ---------------------------------------------------------------
 
-  /** Handle a session exit: record metrics, then either confirm success or release + retry. */
+  /** Handle a session exit: record metrics, then either confirm success or release + retry.
+   *  The session HOLDS its `running` slot (and its hasRunningFor guard) until the reap fully
+   *  settles — freeing it at entry let pollWorkspace spawn a same-attempt duplicate while the
+   *  release/comment writes were still in flight. */
   private async reap(session: Session, code: number | null): Promise<void> {
     if (session.settled) return;
     session.settled = true;
-    this.running.delete(session.label);
+    try {
+      await this.reapSettled(session, code);
+    } finally {
+      this.running.delete(session.label);
+    }
+  }
+
+  private async reapSettled(session: Session, code: number | null): Promise<void> {
     session.logWriter.end();
 
     const claimed = await this.findClaimed(session);
@@ -605,10 +638,7 @@ export class Dispatcher {
    * is supplied (a dispatcher-labelled claim) the retry budget is bookkept and the task is
    * skip-listed at `maxAttempts`; a foreign/interactive claim (no attempt) just returns to the queue.
    */
-  private async releaseClaim(
-    key: string,
-    opts: { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined },
-  ): Promise<void> {
+  private async releaseClaim(key: string, opts: ReleaseOpts, tries = 0): Promise<void> {
     try {
       await this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
     } catch (err) {
@@ -616,7 +646,14 @@ export class Dispatcher {
         this.console.log(`[dispatcher] release of ${key} raced a concurrent move; leaving as-is`);
         return;
       }
-      this.console.error(`[dispatcher] failed to release ${key}: ${(err as Error).message}`);
+      // Transient failure (e.g. the board briefly unreachable over HTTP): queue a retry —
+      // giving up here stranded the claim until the stale reaper's horizon (staleClaimMinutes).
+      if (tries + 1 < RELEASE_RETRIES) {
+        this.pendingReleases.push({ key, opts, tries: tries + 1 });
+        this.console.warn(`[dispatcher] failed to release ${key} (${(err as Error).message}); will retry next tick (${tries + 1}/${RELEASE_RETRIES})`);
+      } else {
+        this.console.error(`[dispatcher] failed to release ${key} after ${RELEASE_RETRIES} tries: ${(err as Error).message} — the stale-claim reaper is the fallback`);
+      }
       return;
     }
 

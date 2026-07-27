@@ -97,6 +97,105 @@ describe('spawn gating', () => {
 });
 
 // ---------------------------------------------------------------------------
+// loop hardening (#45 review findings: re-entrancy, slot holding, release retry)
+// ---------------------------------------------------------------------------
+describe('loop hardening', () => {
+  it('a tick overlapping a slow board call does not double-spawn (re-entrancy guard)', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Slow board');
+    const { spawn, calls } = makeFakeSpawn();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    // listTasks slower than the poll interval — the second safeTick fires mid-tick
+    const slow = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'listTasks') {
+          return async (o: never) => { await gate; return core.listTasks(o); };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const d = new Dispatcher(makeConfig({ maxConcurrent: 1 }), makeDeps(slow, spawn, { console: makeFakeConsole() }));
+
+    const first = d.safeTick();
+    const second = d.safeTick(); // must be a no-op, not a second spawn for the same slot
+    release();
+    await Promise.all([first, second]);
+
+    expect(calls.length).toBe(1);
+  });
+
+  it('a reaping session holds its slot until the release completes (no same-attempt duplicate)', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Crashy');
+    const { spawn, calls } = makeFakeSpawn();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowRelease = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'releaseClaim') {
+          return async (key: string) => { await gate; return core.releaseClaim(key); };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const d = new Dispatcher(makeConfig(), makeDeps(slowRelease, spawn, { console: makeFakeConsole() }));
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    const drain = calls[0]!.child.exit(1); // reap starts, blocks on the gated release
+
+    await new Promise((r) => setImmediate(r));
+    expect(d.runningCount()).toBe(1); // the slot is NOT free while the reap is in flight
+
+    release();
+    await drain;
+    // the reap resumes once the release unblocks; give the microtask chain a few turns
+    for (let i = 0; i < 20 && d.runningCount() > 0; i++) await new Promise((r) => setImmediate(r));
+    expect(d.runningCount()).toBe(0); // slot freed only after the reap fully settled
+    expect(core.getTask(seedKey(core)).status).toBe('queued');
+  });
+
+  it('a transient release failure is retried next tick instead of stranding the claim', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Flaky board');
+    const { spawn, calls } = makeFakeSpawn();
+    let failures = 1; // fail the first release with a non-transition error (e.g. board 503)
+    const flaky = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'releaseClaim') {
+          return (k: string) => {
+            if (failures-- > 0) throw new Error('board unreachable (503)');
+            return core.releaseClaim(k);
+          };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const log = makeFakeConsole();
+    // staleClaimMinutes 0: the stale reaper is OFF — the retry queue must do the recovery
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 0 }), makeDeps(flaky, spawn, { now: () => Date.now(), console: log }));
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    await calls[0]!.child.exit(1); // crash → release fails once → queued for retry
+    expect(core.getTask(key).status).toBe('in_progress'); // still stranded after the failure
+
+    await d.tick(); // drainPendingReleases retries and succeeds
+    expect(core.getTask(key).status).toBe('queued');
+    expect(log.warnings.some((w) => w.includes('will retry'))).toBe(true);
+  });
+});
+
+/** The single seeded task's key (these tests seed exactly one). */
+function seedKey(core: Core): string {
+  return core.listTasks({})[0]!.key;
+}
+
+// ---------------------------------------------------------------------------
 // workspace selection (opt-out model)
 // ---------------------------------------------------------------------------
 describe('workspace selection', () => {
