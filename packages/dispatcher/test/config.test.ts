@@ -98,6 +98,25 @@ describe('config', () => {
     expect(() => parseConfig({ workspaces: ['a'] })).toThrow();
   });
 
+  it('db/board XOR: accepts board-only, rejects both, rejects neither (#46)', () => {
+    const cfg = parseConfig({ board: { url: 'http://board:8787', tokenEnv: 'AF_TOKEN' } });
+    expect(cfg.board?.url).toBe('http://board:8787');
+    expect(cfg.db).toBeUndefined();
+    expect(() => parseConfig({ db: 'x', board: { url: 'http://board' } })).toThrow(/exactly one/);
+    expect(() => parseConfig({})).toThrow(/exactly one/);
+  });
+
+  it('board accepts workerToken/workerTokenEnv and rejects unknown keys', () => {
+    const cfg = parseConfig({ board: { url: 'http://b', token: 't', workerTokenEnv: 'AF_WORKER' } });
+    expect(cfg.board?.workerTokenEnv).toBe('AF_WORKER');
+    expect(() => parseConfig({ board: { url: 'http://b', tokn: 'typo' } })).toThrow();
+  });
+
+  it('accepts repoPathOverrides (workspace → local clone path)', () => {
+    const cfg = parseConfig({ board: { url: 'http://b' }, repoPathOverrides: { shop: 'C:\\clones\\shop' } });
+    expect(cfg.repoPathOverrides).toEqual({ shop: 'C:\\clones\\shop' });
+  });
+
   it('loadConfig reads + parses via the injected reader', () => {
     const cfg = loadConfig('/cfg.json', () => JSON.stringify({ db: './af.db', workspaces: ['ws'], maxConcurrent: 2 }));
     expect(cfg.db).toBe('./af.db');

@@ -59,6 +59,8 @@ export class Dispatcher {
    *  claim is never stranded until the stale reaper's horizon just because one write failed. */
   private readonly pendingReleases: Array<{ key: string; opts: ReleaseOpts; tries: number }> = [];
   private readonly prompt = buildWorkerPrompt();
+  /** board-mode workspaces already warned about a missing repoPathOverride (once per run). */
+  private readonly warnedNoOverride = new Set<string>();
   private claudeCommand: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -384,6 +386,17 @@ export class Dispatcher {
   }
 
   private async repoPath(workspace: string): Promise<string | undefined> {
+    // The machine-local clone wins over the board-central path (#46 remote dispatch). This is
+    // also what makes the transcript tail work remotely: Session.cwd → findTranscript's
+    // encoded-cwd guess resolves against THIS machine's path.
+    const override = this.config.repoPathOverrides?.[workspace];
+    if (override) return override;
+    if (this.config.board && !this.warnedNoOverride.has(workspace)) {
+      // Board mode without an override means "same machine as the board" — legitimate for the
+      // localhost flip, a silent nonexistent-cwd spawn failure for a truly remote machine.
+      this.warnedNoOverride.add(workspace);
+      this.console.warn(`[dispatcher] board mode: workspace '${workspace}' has no repoPathOverride — using the board's repoPath as a local path`);
+    }
     return (await this.deps.core.listWorkspaces()).find((w) => w.name === workspace)?.repoPath;
   }
 
@@ -409,11 +422,19 @@ export class Dispatcher {
     const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}.mcp.json`;
     const logWriter = this.deps.openLog(logPath);
 
+    // ALL backend keys are written every time, the unused ones as '' (the MCP entry treats
+    // blank as unset) — an inherited shell export can never flip a worker's backend or trip
+    // the half-configured fail-fast. Workers get the PLAIN worker token, not the supervisor's.
+    const board = this.config.board;
     const mcpEnv: Record<string, string> = {
-      AGENTFACTORY_DB: this.config.db,
+      AGENTFACTORY_DB: board ? '' : (this.config.db ?? ''),
+      AGENTFACTORY_BOARD_URL: board?.url ?? '',
+      AGENTFACTORY_TOKEN: board?.workerToken ?? '',
       AGENTFACTORY_WORKSPACE: workspace,
       AGENTFACTORY_WORKER: label,
     };
+    const localRepo = this.config.repoPathOverrides?.[workspace];
+    if (localRepo) mcpEnv['AGENTFACTORY_REPO_PATH'] = localRepo;
     // The MCP config is written to a file rather than inlined: cmd.exe (the Windows .cmd
     // spawn path) strips the JSON's embedded quotes from argv.
     this.deps.writeMcp(mcpConfigPath, buildMcpConfig(this.deps.mcp, mcpEnv));

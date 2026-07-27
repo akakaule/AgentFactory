@@ -69,6 +69,70 @@ describe('spawn gating', () => {
     expect(calls.length).toBe(2);
   });
 
+  it('board mode: workers get BOARD_URL + the worker token, blank DB, and the local clone (#46)', async () => {
+    const core = makeCore('ws', '/board-machine/ws');
+    seedQueued(core, 'ws', 'Remote work');
+    const { spawn, calls } = makeFakeSpawn();
+    const mcpFiles = new Map<string, string>();
+    const local = process.platform === 'win32' ? 'C:\\clones\\ws' : '/clones/ws';
+    const d = new Dispatcher(
+      makeConfig({
+        db: undefined,
+        board: { url: 'http://board:8787', token: 'supervisor-secret', workerToken: 'worker-plain' },
+        repoPathOverrides: { ws: local },
+      }),
+      makeDeps(core, spawn, { console: makeFakeConsole(), writeMcp: (p, c) => void mcpFiles.set(p, c) }),
+    );
+
+    await d.tick();
+    expect(calls.length).toBe(1);
+    // spawn cwd is the machine-local clone, not the board's path
+    expect(calls[0]!.req.cwd).toBe(local);
+
+    const args = calls[0]!.req.args;
+    const written = JSON.parse(mcpFiles.get(args[args.indexOf('--mcp-config') + 1]!)!);
+    const env = written.mcpServers.agentfactory.env;
+    expect(env.AGENTFACTORY_BOARD_URL).toBe('http://board:8787');
+    expect(env.AGENTFACTORY_TOKEN).toBe('worker-plain'); // NOT the supervisor token
+    expect(env.AGENTFACTORY_DB).toBe(''); // blank = unset for the MCP entry
+    expect(env.AGENTFACTORY_REPO_PATH).toBe(local);
+  });
+
+  it('board mode without an override warns once and falls back to the board path', async () => {
+    const core = makeCore('ws', '/board-machine/ws');
+    seedQueued(core, 'ws', 'One');
+    seedQueued(core, 'ws', 'Two');
+    const { spawn, calls } = makeFakeSpawn();
+    const fake = makeFakeConsole();
+    const d = new Dispatcher(
+      makeConfig({ db: undefined, board: { url: 'http://b', token: 't' }, maxConcurrent: 2 }),
+      makeDeps(core, spawn, { console: fake }),
+    );
+
+    await d.tick();
+    expect(calls[0]!.req.cwd).toBe('/board-machine/ws');
+    expect(fake.warnings.filter((w) => w.includes('no repoPathOverride'))).toHaveLength(1); // once, not per session
+  });
+
+  it('db mode: backend keys are written blank so inherited env cannot flip the worker (#46)', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Local work');
+    const { spawn, calls } = makeFakeSpawn();
+    const mcpFiles = new Map<string, string>();
+    const d = new Dispatcher(
+      makeConfig(),
+      makeDeps(core, spawn, { console: makeFakeConsole(), writeMcp: (p, c) => void mcpFiles.set(p, c) }),
+    );
+
+    await d.tick();
+    const args = calls[0]!.req.args;
+    const env = JSON.parse(mcpFiles.get(args[args.indexOf('--mcp-config') + 1]!)!).mcpServers.agentfactory.env;
+    expect(env.AGENTFACTORY_DB).toBe(':memory:');
+    expect(env.AGENTFACTORY_BOARD_URL).toBe('');
+    expect(env.AGENTFACTORY_TOKEN).toBe('');
+    expect(env.AGENTFACTORY_REPO_PATH).toBeUndefined();
+  });
+
   it('does not re-spawn a task whose session is still running (no double claim)', async () => {
     const core = makeCore();
     seedQueued(core, 'ws', 'One');

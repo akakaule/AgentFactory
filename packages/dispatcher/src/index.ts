@@ -5,7 +5,7 @@ import { createWriteStream, mkdirSync, readFileSync, writeFileSync, statSync, ex
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { openCore } from '@agentfactory/core';
+import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
@@ -17,10 +17,47 @@ import type { DispatcherDeps, LogWriter, McpServerSpec, SpawnFn } from './types.
 const configPath = resolve(process.argv[2] ?? 'dispatcher.config.json');
 const config = loadConfig(configPath, (p) => readFileSync(p, 'utf8'));
 
-// Absolutise the DB path (relative to the config file) so the dispatcher's poller AND
-// each worker's MCP server — whose cwd is the workspace repo, not here — open the SAME DB.
-config.db = resolve(dirname(configPath), config.db);
-const core = openCore(config.db);
+// Backend branch (#46): a board URL + supervisor token (remote-capable, HTTP) — or the local
+// SQLite file as always. The config schema guarantees exactly one of the two is set.
+let core: import('./types.js').DispatcherCore;
+if (config.board) {
+  const token = resolveBoardToken(config.board, process.env, 'dispatcher board token');
+  // Workers get a PLAIN service token (least privilege — a worker must never release
+  // another worker's claim); fall back to the supervisor token loudly, not silently.
+  const workerToken =
+    config.board.workerToken?.trim() ||
+    (config.board.workerTokenEnv ? process.env[config.board.workerTokenEnv]?.trim() : undefined) ||
+    (console.warn('[dispatcher] no board.workerToken(Env) configured — workers will inherit the SUPERVISOR token; mint a plain service token instead'), token);
+  assertAbsoluteOverrides(config.repoPathOverrides, 'dispatcher');
+  const http = createHttpCore(config.board.url, token);
+  // Fail fast at startup — not as a 403 mid-tick on releaseClaim — when the token can't do the job.
+  try {
+    const id = await http.whoami();
+    if (!id.supervisor) {
+      console.error(`[dispatcher] board token '${id.label}' lacks the supervisor capability (releaseClaim needs it) — mint with: npm run token -- --supervisor`);
+      process.exit(1);
+    }
+    console.log(`[dispatcher] board ${config.board.url} as '${id.label}' (supervisor)`);
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      console.error(`[dispatcher] board ${config.board.url} does not expose /api/agent/whoami — deploy a board build with #46`);
+      process.exit(1);
+    }
+    throw err; // unreachable board / bad credentials — the raw error says which
+  }
+  // Resolved-in-place (same pattern as the db absolutization below) so the session
+  // spawner reads the effective values without re-deriving them.
+  config.board.token = token;
+  config.board.workerToken = workerToken;
+  core = http;
+} else {
+  // Absolutise the DB path (relative to the config file) so the dispatcher's poller AND
+  // each worker's MCP server — whose cwd is the workspace repo, not here — open the SAME DB.
+  // openCore also runs migrations — a board-mode process must never touch schema, which is
+  // why this call lives on the db-only branch.
+  config.db = resolve(dirname(configPath), config.db!);
+  core = openCore(config.db);
+}
 
 // Resolve the agentfactory MCP server entry from the installed @agentfactory/mcp package
 // (no "exports" map → subpath resolution of dist/index.js is allowed). Launched per
@@ -165,7 +202,7 @@ const wsDesc = config.workspaces
   ? `[${config.workspaces.join(', ')}]`
   : `all${config.excludeWorkspaces.length ? ` except [${config.excludeWorkspaces.join(', ')}]` : ''}`;
 console.log(
-  `[dispatcher] starting — db ${config.db}, workspaces ${wsDesc}, ` +
+  `[dispatcher] starting — ${config.board ? `board ${config.board.url}` : `db ${config.db}`}, workspaces ${wsDesc}, ` +
     `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s, permission ${config.permissionMode}`,
 );
 console.log(`[dispatcher] mcp entry ${mcpEntry}; logs ${logDir}`);
