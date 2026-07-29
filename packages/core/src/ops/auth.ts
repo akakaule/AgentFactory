@@ -25,26 +25,29 @@ export function createUser(
 
 export interface CreatedApiToken {
   token: string; // raw bearer — shown once, never persisted
-  id: number; label: string; userId: number | null; isService: boolean;
+  id: number; label: string; userId: number | null; isService: boolean; isSupervisor: boolean;
 }
 
-/** Mint a bearer token (optionally bound to a user; otherwise a service token). */
+/** Mint a bearer token (optionally bound to a user; otherwise a service token). `isSupervisor`
+ *  grants the supervisor-only agent ops (release-claim, delivery, workspace PAT) — mint it only
+ *  for dispatcher/reviewer/watcher processes, never for worker sessions. */
 export function createApiToken(
   db: DB,
-  input: { label: string; userId?: number | null; isService?: boolean },
+  input: { label: string; userId?: number | null; isService?: boolean; isSupervisor?: boolean },
   now: () => string = nowIso,
 ): CreatedApiToken {
   const token = generateToken();
   const userId = input.userId ?? null;
   const isService = input.isService ?? false;
-  const id = insertToken(db, { tokenHash: hashToken(token), userId, label: input.label, isService, createdAt: now() });
-  return { token, id, label: input.label, userId, isService };
+  const isSupervisor = input.isSupervisor ?? false;
+  const id = insertToken(db, { tokenHash: hashToken(token), userId, label: input.label, isService, isSupervisor, createdAt: now() });
+  return { token, id, label: input.label, userId, isService, isSupervisor };
 }
 
 export interface AuthedToken {
   tokenId: number; userId: number | null;
   email: string | null; displayName: string | null;
-  label: string; isService: boolean;
+  label: string; isService: boolean; isSupervisor: boolean;
 }
 
 /** Resolve a raw bearer token to its owner, or null if unknown. Bumps last_used_at. */
@@ -55,6 +58,6 @@ export function authenticateToken(db: DB, rawToken: string, now: () => string = 
   return {
     tokenId: row.id, userId: row.user_id,
     email: row.email, displayName: row.display_name,
-    label: row.label, isService: row.is_service === 1,
+    label: row.label, isService: row.is_service === 1, isSupervisor: row.is_supervisor === 1,
   };
 }

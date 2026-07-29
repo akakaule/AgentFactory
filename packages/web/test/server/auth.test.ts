@@ -57,7 +57,7 @@ describe('auth: token mode', () => {
 
   it('a service token resolves to a service principal', async () => {
     const svc = core.createApiToken({ label: 'ado-bridge', isService: true }).token;
-    expect(await (await app.request('/auth/whoami', bearer(svc))).json()).toEqual({ kind: 'service', label: 'ado-bridge' });
+    expect(await (await app.request('/auth/whoami', bearer(svc))).json()).toEqual({ kind: 'service', label: 'ado-bridge', supervisor: false });
     expect((await app.request('/api/tasks', bearer(svc))).status).toBe(200);
   });
 

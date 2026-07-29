@@ -348,3 +348,12 @@ export const MIGRATION_23_SQL = `
 ALTER TABLE workspace ADD COLUMN updated_at TEXT;
 UPDATE workspace SET updated_at = created_at;
 `;
+
+// Migration #24 — api_token.is_supervisor. The #45 agent-ops surface exposes recovery/delivery
+// mutations (release-claim, delivery/*) and the workspace PAT read; a plain worker service token
+// must not reach them (any worker could release another worker's claim). Supervisor tokens are
+// minted explicitly (npm run token -- --supervisor). Richer role/scope modelling arrives with
+// the Phase 3 roles migration; this is the minimal capability bit the network boundary needs now.
+export const MIGRATION_24_SQL = `
+ALTER TABLE api_token ADD COLUMN is_supervisor INTEGER NOT NULL DEFAULT 0;
+`;

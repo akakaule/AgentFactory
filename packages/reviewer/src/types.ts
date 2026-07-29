@@ -8,15 +8,19 @@ import type { ReviewEngine } from './config.js';
  * tasks and posts one agent comment per review; it never approves, requests changes, or
  * changes status (a clean doc-stage verdict auto-advances via core's add_comment hook).
  */
+/** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
+ *  the supervisor awaits every call. */
+type Awaitable<T> = T | Promise<T>;
+
 export interface ReviewerCore {
-  listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
-  listWorkspaces(): Workspace[];
-  getTask(key: string): TaskDetail;
+  listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Awaitable<Task[]>;
+  listWorkspaces(): Awaitable<Workspace[]>;
+  getTask(key: string): Awaitable<TaskDetail>;
   // the configured reviewer/evaluator system prompt (workspace override → global default → '').
-  resolveAgentPrompt(key: AgentPromptKey, workspace: string): string;
-  addComment(key: string, input: { actor: Actor; body: string }): Activity;
+  resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
+  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
-  recordSupervisorHeartbeat(input: UpsertSupervisor): void;
+  recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
 }
 
 /** Minimal readable-stream surface (node's `Readable` satisfies it). */

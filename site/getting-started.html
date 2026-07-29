@@ -157,6 +157,15 @@
       <li><span class="ok">✓</span>The task reaches <b>In Review</b> with a result summary and a branch link — pushed to origin and verified by submit guardrails. Your turn: <b>Approve</b> or <b>Request changes</b>.</li>
     </ul>
   </div>
+
+  <h2>Run it from another machine (board mode)</h2>
+  <div class="panel">
+    <ul class="check">
+      <li><span class="ok">→</span>Start the board with <code>AUTH_MODE=token</code> and mint tokens: <code>npm run token -- --label dispatcher --supervisor</code> (dispatcher &amp; watcher need <code>--supervisor</code>; reviewer and workers take a plain <code>--service</code> token).</li>
+      <li><span class="ok">→</span>In any supervisor config, replace <code>"db"</code> with <code>"board": { "url": "http://boardhost:8787", "tokenEnv": "AF_DISPATCHER_TOKEN" }</code> — the loop is unchanged, every board call now rides authenticated HTTP, and the token's capability is checked at startup, not mid-tick.</li>
+      <li><span class="ok">→</span>Add <code>"repoPathOverrides": { "shopfloor": "D:\\clones\\Shopfloor" }</code> so spawn cwd, worktree paths, diffs, and origin checks use <em>that machine's</em> clone (same HTTPS origin URL as the board's). Workers inherit the board URL + a least-privilege token automatically — no <code>.mcp.json</code> edits.</li>
+    </ul>
+  </div>
 </div>
 
 <script>

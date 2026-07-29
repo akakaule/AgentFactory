@@ -5,7 +5,7 @@ import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetri
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
-import { actorUserIdOf } from '../auth.js';
+import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
 
 // Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
 // is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
@@ -19,8 +19,9 @@ export function taskRoutes(core: Core) {
     return c.json(core.listTasks({ status, workspace, archived: archived === 'true' ? true : undefined }));
   });
 
-  // registered before the /:key routes so the static segment is never read as a task key
-  r.post('/archive-done', validated('json', archiveAllBody), (c) =>
+  // registered before the /:key routes so the static segment is never read as a task key.
+  // rejectService: the bulk variant of archive is as human-only as the per-task one.
+  r.post('/archive-done', rejectService, validated('json', archiveAllBody), (c) =>
     c.json(core.archiveDoneTasks({ workspace: c.req.valid('json').workspace })));
 
   r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
@@ -80,7 +81,10 @@ export function taskRoutes(core: Core) {
     return c.json({ ok: true, bytes: meta.bytes }, 201);
   });
 
-  r.post('/', validated('json', createBody), (c) => c.json(core.createTask(c.req.valid('json')), 201));
+  // Producer bridges (service tokens) legitimately create tasks here — but the seed activity
+  // must be attributed to the actor the token implies, not blanket-recorded as human.
+  r.post('/', validated('json', createBody), (c) =>
+    c.json(core.createTask({ ...c.req.valid('json'), actor: actorOf(c) }), 201));
 
   r.patch('/:key', validated('json', updateBody), (c) => {
     const b = c.req.valid('json');
@@ -92,15 +96,17 @@ export function taskRoutes(core: Core) {
     return c.json(core.updateTask(c.req.param('key'), fields));
   });
 
-  r.delete('/:key', (c) => {
+  r.delete('/:key', rejectService, (c) => {
     core.deleteTask(c.req.param('key'));
     return c.body(null, 204);
   });
 
   r.post('/:key/comment', validated('json', commentBody), (c) =>
-    c.json(core.addComment(c.req.param('key'), { actor: 'human', body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
+    // actorOf, not a hardcoded 'human': a producer bridge's service token commenting here must
+    // not masquerade as a human in the activity log (the agent surface is the preferred route).
+    c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
-  r.post('/:key/status', validated('json', statusBody), (c) =>
+  r.post('/:key/status', rejectService, validated('json', statusBody), (c) =>
     c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c), c.req.valid('json').note)));
 
   r.post('/:key/metrics', validated('json', metricsBody), (c) => {
@@ -117,29 +123,29 @@ export function taskRoutes(core: Core) {
   r.post('/:key/attachments', validated('json', attachmentBody), (c) =>
     c.json(core.addAttachment(c.req.param('key'), c.req.valid('json')), 201));
 
-  r.post('/:key/archive', (c) => c.json(core.archiveTask(c.req.param('key'))));
+  r.post('/:key/archive', rejectService, (c) => c.json(core.archiveTask(c.req.param('key'))));
 
-  r.post('/:key/unarchive', (c) => c.json(core.unarchiveTask(c.req.param('key'))));
+  r.post('/:key/unarchive', rejectService, (c) => c.json(core.unarchiveTask(c.req.param('key'))));
 
   // Restart a current skip-listed dispatcher/reviewer task without changing its lifecycle status.
   // The restart/v1 marker clears the derived failure and resets the owning supervisor's budget.
-  r.post('/:key/restart', (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c))));
+  r.post('/:key/restart', rejectService, (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c))));
 
-  r.post('/:key/approve', (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));
+  r.post('/:key/approve', rejectService, (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));
 
-  r.post('/:key/request-changes', validated('json', feedbackBody), (c) =>
+  r.post('/:key/request-changes', rejectService, validated('json', feedbackBody), (c) =>
     c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
 
   // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
-  r.post('/:key/pr-reviewed', validated('json', prReviewedBody), (c) =>
+  r.post('/:key/pr-reviewed', rejectService, validated('json', prReviewedBody), (c) =>
     c.json(core.reviewPrReviewed(c.req.param('key'), { review: c.req.valid('json').review, actorUserId: actorUserIdOf(c) })));
 
   // Delivering-feedback loop: forward a PR-review comment for evaluation, and apply a warranted verdict.
-  r.post('/:key/pr-feedback', validated('json', prFeedbackBody), (c) => {
+  r.post('/:key/pr-feedback', rejectService, validated('json', prFeedbackBody), (c) => {
     const b = c.req.valid('json');
     return c.json(core.addPrFeedback(c.req.param('key'), { feedback: b.feedback, author: b.author ?? null, url: b.url ?? null, actorUserId: actorUserIdOf(c) }), 201);
   });
-  r.post('/:key/apply-feedback', (c) => c.json(core.applyFeedbackFix(c.req.param('key'), actorUserIdOf(c))));
+  r.post('/:key/apply-feedback', rejectService, (c) => c.json(core.applyFeedbackFix(c.req.param('key'), actorUserIdOf(c))));
 
   return r;
 }

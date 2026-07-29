@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
 
 /** Permission modes the dispatcher passes through to `claude --permission-mode`. */
 export const PERMISSION_MODES = ['acceptEdits', 'bypassPermissions', 'default', 'plan'] as const;
@@ -7,10 +8,25 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 /**
  * `dispatcher.config.json` schema. Defaults match the design: one session per
  * workspace, a 15 s poll, `acceptEdits` permissions, a 60 min session cap, two attempts.
+ * Exactly one of `db` (local sqlite) or `board` (remote board over HTTP, #46) must be set.
  */
-export const configSchema = z.object({
-  /** Path to the agentfactory sqlite DB (read for the queue, written on release/metrics). */
-  db: z.string().min(1),
+export const baseConfigSchema = z.object({
+  /** Path to the agentfactory sqlite DB (read for the queue, written on release/metrics).
+   *  XOR with `board`. */
+  db: z.string().min(1).optional(),
+  /** Remote board (#46): url + supervisor token (inline or via tokenEnv). Workers' MCP
+   *  sessions get `workerToken` (a PLAIN service token — least privilege); when omitted,
+   *  they inherit the supervisor token with a startup warning. XOR with `db`. */
+  board: boardSchema
+    .extend({
+      workerToken: z.string().min(1).optional(),
+      workerTokenEnv: z.string().min(1).optional(),
+    })
+    .strict()
+    .optional(),
+  /** workspace name → absolute machine-local clone path. Board mode on another machine
+   *  needs these; without one, the board-central repoPath is used as-is (same-machine case). */
+  repoPathOverrides: repoPathOverridesSchema.optional(),
   /** Stable supervisor identity for the health view (one heartbeat row per name). */
   name: z.string().min(1).default('dispatcher'),
   /**
@@ -73,7 +89,11 @@ export const configSchema = z.object({
     .optional(),
 });
 
-export type DispatcherConfig = z.infer<typeof configSchema>;
+/** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be
+ *  `.extend`ed — sibling branches extend `baseConfigSchema` and re-apply `xorDbBoard`. */
+export const configSchema = baseConfigSchema.superRefine(xorDbBoard);
+
+export type DispatcherConfig = z.infer<typeof baseConfigSchema>;
 
 /** Validate a parsed config object, applying defaults. Throws a ZodError on bad input. */
 export function parseConfig(raw: unknown): DispatcherConfig {

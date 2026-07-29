@@ -77,15 +77,15 @@ export class Watcher {
     const { core, console } = this.deps;
     // Served set, re-read each tick: the explicit allowlist if set, else every DB workspace,
     // minus excludeWorkspaces — so a newly-created workspace is watched with no config edit.
-    const served = resolveServedWorkspaces(core.listWorkspaces().map((w) => w.name), {
+    const served = resolveServedWorkspaces((await core.listWorkspaces()).map((w) => w.name), {
       workspaces: this.config.workspaces,
       exclude: this.config.excludeWorkspaces,
     });
     const servedSet = new Set(served);
     const mine = (t: Task): boolean => servedSet.has(t.workspace);
-    const tasks = core.listTasks({ status: 'delivering' }).filter(mine);
+    const tasks = (await core.listTasks({ status: 'delivering' })).filter(mine);
     try {
-      core.recordSupervisorHeartbeat({
+      await core.recordSupervisorHeartbeat({
         name: this.config.name, kind: 'watcher', workspaces: served,
         inFlight: tasks.length, capacity: 0, pollSeconds: this.config.pollSeconds,
       });
@@ -106,6 +106,12 @@ export class Watcher {
     }
   }
 
+  /** The machine-local clone for a task's workspace (#46 remote watch) — the board-central
+   *  repoPath otherwise. `git remote get-url` must run against a repo on THIS machine. */
+  private repoFor(detail: { workspace: string; repoPath: string }): string {
+    return this.config.repoPathOverrides?.[detail.workspace] ?? detail.repoPath;
+  }
+
   private remoteFor(repoPath: string): RemoteRef | null {
     if (!this.remoteCache.has(repoPath)) {
       this.remoteCache.set(repoPath, parseRemoteUrl(this.deps.resolveOrigin(repoPath) ?? ''));
@@ -123,24 +129,24 @@ export class Watcher {
     const { core, console, now } = this.deps;
     if ((this.backoffUntil.get(key) ?? 0) > now()) return;
 
-    const detail = core.getTask(key);
+    const detail = await core.getTask(key);
     let delivery = detail.delivery;
 
     // Self-heal a raw in_review → delivering drag: approve seeds the delivery row, a drag
     // bypasses it. Needs a branch and a recognizable origin; otherwise the task sits visibly
     // in Delivering with no chip and the human's Mark-done/Re-queue buttons stay the way out.
     if (!delivery) {
-      const remote = this.remoteFor(detail.repoPath);
+      const remote = this.remoteFor(this.repoFor(detail));
       if (!detail.branch || !remote) {
         this.warnOnce(key, `[watcher] ${key} is delivering but has ${detail.branch ? 'no recognizable origin' : 'no branch'} — a human must Mark done or Re-queue`);
         return;
       }
       const prUrl = [...detail.links].reverse().find((l) => l.kind === 'pr')?.url ?? null;
-      delivery = core.beginDelivery(key, { provider: remote.provider, branch: detail.branch, prUrl });
+      delivery = await core.beginDelivery(key, { provider: remote.provider, branch: detail.branch, prUrl });
       console.log(`[watcher] ${key}: seeded delivery row (${remote.provider}, ${detail.branch})`);
     }
 
-    const remote = this.remoteFor(detail.repoPath);
+    const remote = this.remoteFor(this.repoFor(detail));
     if (!remote || remote.provider !== delivery.provider) {
       this.warnOnce(key, `[watcher] ${key}: workspace origin no longer matches its delivery provider (${delivery.provider}) — a human must Mark done or Re-queue`);
       return;
@@ -154,7 +160,7 @@ export class Watcher {
       this.deps.env,
       this.baseEnvVar(delivery.provider),
       detail.workspace,
-      this.deps.core.getWorkspacePat(detail.workspace),
+      await this.deps.core.getWorkspacePat(detail.workspace),
     );
     const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;
@@ -171,7 +177,7 @@ export class Watcher {
     this.warned.delete(key);
 
     const { pr, checks } = result;
-    const recorded = core.recordDeliveryCheck(key, {
+    const recorded = await core.recordDeliveryCheck(key, {
       prUrl: pr?.url ?? null,
       prId: pr?.id ?? null,
       prState: pr ? pr.state : 'not_found',
@@ -184,17 +190,17 @@ export class Watcher {
     // override throws InvalidTransitionError — the board already settled it, not an error.
     try {
       if (pr && pr.state === 'merged' && (checks.state === 'passing' || checks.state === 'none')) {
-        core.completeDelivery(key, `PR ${pr.id} merged; checks ${checks.state === 'none' ? 'not configured' : 'green'}`);
+        await core.completeDelivery(key, `PR ${pr.id} merged; checks ${checks.state === 'none' ? 'not configured' : 'green'}`);
         console.log(`[watcher] ${key}: delivered — PR ${pr.id} merged, checks ${checks.state}`);
       } else if (pr && pr.state === 'closed') {
-        core.failDelivery(key, {
+        await core.failDelivery(key, {
           reason: 'pr_closed',
           detail: `PR ${pr.id} was closed without merging`,
           body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix and reopen a PR from the SAME branch.`,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
       } else if (pr && pr.mergeConflict) {
-        core.failDelivery(key, {
+        await core.failDelivery(key, {
           reason: 'merge_conflict',
           detail: `PR ${pr.id} has merge conflicts`,
           body: this.mergeConflictBody(pr.url, delivery.branch, pr.mergeConflict.detail),
@@ -203,7 +209,7 @@ export class Watcher {
       } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
         const errors = await this.captureErrors(provider, remote, result);
-        core.failDelivery(key, {
+        await core.failDelivery(key, {
           reason: 'ci_failed',
           detail: `PR ${pr.id} checks failed: ${names}`,
           body: this.ciFailureBody(pr.url, pr.state, delivery.branch, checks.failing, errors),

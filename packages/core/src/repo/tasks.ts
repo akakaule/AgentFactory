@@ -205,6 +205,17 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const deliveries = deliveryByTaskIds(db, ids);
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null }));
 }
+/** The in_progress task a worker label already holds (oldest first), if any — the claim
+ *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of
+ *  claiming a second one. */
+export function heldClaimRow(db: DB, claimedBy: string, workspaceId?: number): TaskRow | undefined {
+  const held = `task.status='in_progress' AND task.claimed_by = ?`;
+  return (workspaceId === undefined
+    ? db.prepare(`${SELECT_TASK} WHERE ${held} ORDER BY task.seq ASC LIMIT 1`).get(claimedBy)
+    : db.prepare(`${SELECT_TASK} WHERE ${held} AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(claimedBy, workspaceId)
+  ) as TaskRow | undefined;
+}
+
 export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"
   // hold unconditionally rather than by inference. The kind guard is defense in depth:

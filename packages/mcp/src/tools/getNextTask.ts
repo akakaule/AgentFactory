@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Core } from '../types.js';
-import type { ServerOptions } from '../server.js';
+import type { McpCore } from '../types.js';
+import { localizeRepo, type ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
 import { detailContent } from '../content.js';
 import { buildProtocol } from '../protocol.js';
 import { resolveWorktreeBase, detectGitHubRemote } from '../git.js';
 
-export function registerGetNextTask(server: McpServer, core: Core, opts: ServerOptions = {}): void {
+export function registerGetNextTask(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'get_next_task',
     {
@@ -23,7 +23,7 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
     },
     async ({ workspace }) => {
       try {
-        const claimed = core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel });
+        const claimed = await core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel });
         if (claimed === null) {
           return {
             content: [
@@ -36,7 +36,7 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
         }
         // branchCreated is the create-vs-reuse signal for the protocol; it must not
         // ride along in the serialized task detail.
-        const { branchCreated, ...task } = claimed;
+        const { branchCreated, ...task } = localizeRepo(claimed, opts);
         // Doc stages always get a protocol (no branch involved); the implementation
         // stage keeps the legacy guard for pre-branch-feature rows left NULL.
         let protocol;
@@ -61,7 +61,7 @@ export function registerGetNextTask(server: McpServer, core: Core, opts: ServerO
             ...(task.verifyCommand ? { verifyCommand: task.verifyCommand } : {}),
           });
         }
-        return { content: detailContent(core, task, protocol ? { protocol } : undefined) };
+        return { content: await detailContent(core, task, protocol ? { protocol } : undefined) };
       } catch (err) {
         return toToolError(err);
       }

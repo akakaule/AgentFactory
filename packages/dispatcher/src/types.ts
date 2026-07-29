@@ -1,32 +1,38 @@
 import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
 
+/** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
+ *  the supervisor awaits every call. */
+type Awaitable<T> = T | Promise<T>;
+
 /**
  * The slice of `@agentfactory/core` the dispatcher drives. Declaring the surface
  * (instead of importing the concrete `Core`) lets tests pass a real in-memory core
  * OR a fake — and documents exactly which ops the supervisor touches.
  */
 export interface DispatcherCore {
-  listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Task[];
-  getTask(key: string): TaskDetail;
-  listWorkspaces(): Workspace[];
+  listTasks(opts: { status?: Status | undefined; workspace?: string | undefined }): Awaitable<Task[]>;
+  getTask(key: string): Awaitable<TaskDetail>;
+  listWorkspaces(): Awaitable<Workspace[]>;
   // git auth for the worker's push/fetch: the workspace's stored PAT (or env fallback) shaped as
   // an http.extraheader, or null when none resolves (worker uses ambient git credentials).
-  resolveGitAuth(workspace: string): GitAuth | null;
+  resolveGitAuth(workspace: string): Awaitable<GitAuth | null>;
   // the effective agent system prompt (workspace override → global default → '') for this role.
-  resolveAgentPrompt(key: AgentPromptKey, workspace: string): string;
-  updateStatus(key: string, status: Status, actor: Actor): TaskDetail;
-  addComment(key: string, input: { actor: Actor; body: string }): Activity;
-  addTaskMetrics(key: string, input: AddTaskMetricsInput): TaskDetail;
+  resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
+  // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
+  // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
+  releaseClaim(key: string): Awaitable<TaskDetail>;
+  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;
   // live agent status: keep a running session warm, and end it when the process exits
-  touchAgentSession(key: string): void;
-  endAgentSession(key: string): void;
+  touchAgentSession(key: string): Awaitable<void>;
+  endAgentSession(key: string): Awaitable<void>;
   // stale-claim reaper: read live-session heartbeats to detect orphaned in_progress claims
-  listLiveAgents(): AgentSessionView[];
+  listLiveAgents(): Awaitable<AgentSessionView[]>;
   // supervisor health: report a heartbeat each poll so the board knows the loop is alive
-  recordSupervisorHeartbeat(input: UpsertSupervisor): void;
+  recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
   // agent transcript: tail the running session's raw JSONL live, then persist it whole at exit
-  appendTranscript(key: string, input: AppendTranscriptInput): void;
-  saveTranscript(key: string, input: SaveTranscriptInput): void;
+  appendTranscript(key: string, input: AppendTranscriptInput): Awaitable<void>;
+  saveTranscript(key: string, input: SaveTranscriptInput): Awaitable<void>;
 }
 
 /** Minimal readable-stream surface (node's `Readable` satisfies it). */

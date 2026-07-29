@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -128,6 +128,11 @@ const MIGRATIONS: Migration[] = [
   (db) => {
     const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
     if (!cols.includes('updated_at')) db.exec(MIGRATION_23_SQL);
+  },
+  // #24 adds api_token.is_supervisor via ADD COLUMN — guard with table_info like #19/#20/#23.
+  (db) => {
+    const cols = (db.prepare("PRAGMA table_info('api_token')").all() as Array<{ name: string }>).map((c) => c.name);
+    if (!cols.includes('is_supervisor')) db.exec(MIGRATION_24_SQL);
   },
 ];
 

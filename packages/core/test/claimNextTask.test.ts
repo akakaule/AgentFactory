@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+// (claim reconciliation tests live at the bottom of this file)
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
@@ -152,5 +153,39 @@ describe('claimNextTask', () => {
 
     expect(detail).not.toBeNull();
     expect(detail!.links).toEqual([]);
+  });
+});
+
+describe('claim reconciliation (lost-response retry safety)', () => {
+  it('a worker retrying a claim gets its HELD task back, never a second one', () => {
+    const db = makeTestDb();
+    const [a, b] = seedQueued(db, 2);
+
+    const first = claimNextTask(db, { claimedBy: 'remote-w1' });
+    expect(first!.key).toBe(a!.key);
+
+    // the response was lost on the network; the worker retries
+    const retry = claimNextTask(db, { claimedBy: 'remote-w1' });
+    expect(retry!.key).toBe(a!.key); // same task, not b
+    expect(retry!.branchCreated).toBe(false); // branch was named by the original claim
+    expect(findRowByKey(db, b!.key)!.status).toBe('queued'); // untouched
+  });
+
+  it('a different worker still claims the next queued task', () => {
+    const db = makeTestDb();
+    const [a, b] = seedQueued(db, 2);
+    claimNextTask(db, { claimedBy: 'w1' });
+
+    const other = claimNextTask(db, { claimedBy: 'w2' });
+    expect(other!.key).toBe(b!.key);
+    expect(other!.key).not.toBe(a!.key);
+  });
+
+  it('an anonymous claim (no claimedBy) never reconciles', () => {
+    const db = makeTestDb();
+    seedQueued(db, 2);
+    const first = claimNextTask(db);
+    const second = claimNextTask(db);
+    expect(second!.key).not.toBe(first!.key);
   });
 });

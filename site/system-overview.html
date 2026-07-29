@@ -55,7 +55,9 @@
   <p>Azure DevOps backlogs feed the board through per-workspace <a href="producer-flow.html" style="color:var(--accent-2);text-decoration:none"><b>ado-bridge</b></a> loops — <span class="mono" style="color:var(--accent-2)">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono" style="color:var(--accent-2)">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono" style="color:var(--accent-2)">Run-ReviewerLoop.ps1</span> posts the AI first-pass verdict; pinned agents claim over MCP, work in
      isolated worktrees inside each workspace's git repo, and push <span class="mono" style="color:var(--accent-2)">feature/&lt;key&gt;-&lt;title&gt;</span> branches
      back to origin with the PR opened automatically. After the human approves, the <b>watcher</b> supervisor verifies delivery — done means the PR merged and the
-     pipeline came up green. The board is the human checkpoint — and the only shared state is one SQLite file.</p>
+     pipeline came up green. The board is the human checkpoint — and the only shared state. Locally that is one SQLite
+     file behind the web server; remotely, supervisors and workers reach the same board over an authenticated
+     <span class="mono" style="color:var(--accent-2)">/api/agent</span> HTTP surface with scoped service tokens.</p>
 </header>
 <main>
 <svg viewBox="0 0 1560 1030" role="img" aria-label="AgentFactory system diagram">
@@ -144,7 +146,7 @@
 
   <!-- sqlite -->
   <rect x="730" y="358" width="314" height="180" rx="10" fill="#1E293B" stroke="#1E2940"/>
-  <text x="744" y="382" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">SQLite <tspan class="mono" font-size="10.5" fill="#64748B">one file · the only shared state</tspan></text>
+  <text x="744" y="382" class="grotesk" font-size="12.5" font-weight="600" fill="#E8EDF6">SQLite <tspan class="mono" font-size="10.5" fill="#64748B">one file · web server = only writer</tspan></text>
   <text x="744" y="401" class="mono" font-size="10.5" fill="#97A5BE">task · activity · link · metric · attachment</text>
   <text x="744" y="424" class="grotesk" font-size="11" font-weight="600" fill="#64748B" letter-spacing="1">WORKSPACES → REPOS</text>
   <rect x="742" y="434" width="290" height="26" rx="6" fill="#0B1222"/><circle cx="757" cy="447" r="4" fill="#60A5FA"/><text x="768" y="451" class="mono" font-size="11" fill="#E8EDF6">agent-demo</text><text x="1024" y="451" text-anchor="end" class="mono" font-size="10.5" fill="#64748B">c:\git\AgentDemo</text>
@@ -318,7 +320,7 @@
     <div class="lp"><i>↩</i><span><b>Red CI heals itself</b> — the watcher bounces <span class="mono">delivering → queued</span> with the failing checks <em>and the captured build errors</em> in the note; the next worker fixes on the same branch, same PR. Manual <b>Reopen</b> (<span class="mono">done → queued</span>) stays for everything else.</span></div>
     <div class="lp"><i>💬</i><span><b>Delivering feedback</b> — paste a PR review comment onto a delivering task; an evaluator agent judges it critically, and one click re-queues the task with composed, human-endorsed feedback.</span></div>
     <div class="lp"><i>⚑</i><span><b>Release claim</b> — a dead worker's <span class="mono">in_progress</span> task is re-queued by the human; full history survives for the next claimant.</span></div>
-    <div class="lp"><i>◎</i><span><b>One SQLite file is the only shared state</b> — bridges (HTTP), agents (MCP), and the UI all converge on it; SSE fans changes out live. The board never runs agents and never writes to a repo.</span></div>
+    <div class="lp"><i>◎</i><span><b>The board is the only shared state</b> — one SQLite file, the web server its only writer. Bridges, agents (MCP), the UI, and remote supervisors converge on it — locally or over the authenticated <span class="mono">/api/agent</span> surface (<span class="mono">board:{url,token}</span> in any supervisor config; workers carry least-privilege service tokens, release/delivery ops need a supervisor token). SSE fans changes out live. The board never runs agents and never writes to a repo.</span></div>
     <div class="lp"><i>⇄</i><span><b>Scale by adding pairs</b> — each new repo = one workspace + one pinned bridge + one pinned worker. Queues never leak across workspaces; analytics splits per worker/workspace.</span></div>
     <div class="keyline">
       <span><i style="background:#60A5FA"></i>bridge / HTTP</span>
@@ -330,6 +332,6 @@
   </div>
 </div>
 </main>
-<footer>AgentFactory · system overview · updated 2026-07-27</footer>
+<footer>AgentFactory · system overview · updated 2026-07-28</footer>
 </body>
 </html>

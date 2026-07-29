@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
 
 /**
  * The review engines the supervisor can drive. Codex is the default — an independent
@@ -11,9 +12,15 @@ export type ReviewEngine = (typeof REVIEW_ENGINES)[number];
  * `reviewer.config.json` schema. Defaults match the design: Codex engine, a 60 s poll,
  * one review at a time, a 20 min per-review cap, 120k diff chars, two attempts.
  */
-export const configSchema = z.object({
-  /** Path to the agentfactory sqlite DB (read for in_review tasks, written via add_comment). */
-  db: z.string().min(1),
+export const baseConfigSchema = z.object({
+  /** Path to the agentfactory sqlite DB (read for in_review tasks, written via add_comment).
+   *  XOR with `board`. */
+  db: z.string().min(1).optional(),
+  /** Remote board (#46): url + a PLAIN service token (inline or via tokenEnv) — the reviewer
+   *  needs no supervisor capability. XOR with `db`. */
+  board: boardSchema.optional(),
+  /** workspace name → absolute machine-local clone path (diffs/fetches run against it). */
+  repoPathOverrides: repoPathOverridesSchema.optional(),
   /** Stable supervisor identity for the health view (one heartbeat row per name). */
   name: z.string().min(1).default('reviewer'),
   /**
@@ -55,7 +62,11 @@ export const configSchema = z.object({
     .optional(),
 });
 
-export type ReviewerConfig = z.infer<typeof configSchema>;
+/** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be
+ *  `.extend`ed — sibling branches extend `baseConfigSchema` and re-apply `xorDbBoard`. */
+export const configSchema = baseConfigSchema.superRefine(xorDbBoard);
+
+export type ReviewerConfig = z.infer<typeof baseConfigSchema>;
 
 /** Validate a parsed config object, applying defaults. Throws a ZodError on bad input. */
 export function parseConfig(raw: unknown): ReviewerConfig {

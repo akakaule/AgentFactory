@@ -18,13 +18,18 @@ export class FakeChild extends EventEmitter {
   emitStderr(text: string): void {
     this.stderr.emit('data', text);
   }
-  exit(code: number | null, signal: NodeJS.Signals | null = null): void {
-    if (this.exited) return;
-    this.exited = true;
-    this.emit('exit', code, signal);
+  /** Emits 'exit' and returns a drain promise: the supervisor's reap is async (#45 awaits),
+   *  so tests `await child.exit(0)` before asserting on post-reap state. */
+  exit(code: number | null, signal: NodeJS.Signals | null = null): Promise<void> {
+    if (!this.exited) {
+      this.exited = true;
+      this.emit('exit', code, signal);
+    }
+    return new Promise((r) => setImmediate(r));
   }
-  fail(err: Error): void {
+  fail(err: Error): Promise<void> {
     this.emit('error', err);
+    return new Promise((r) => setImmediate(r));
   }
   kill(signal?: NodeJS.Signals | number): boolean {
     this.killed = true;

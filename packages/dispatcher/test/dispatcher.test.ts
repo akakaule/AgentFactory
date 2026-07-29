@@ -69,6 +69,70 @@ describe('spawn gating', () => {
     expect(calls.length).toBe(2);
   });
 
+  it('board mode: workers get BOARD_URL + the worker token, blank DB, and the local clone (#46)', async () => {
+    const core = makeCore('ws', '/board-machine/ws');
+    seedQueued(core, 'ws', 'Remote work');
+    const { spawn, calls } = makeFakeSpawn();
+    const mcpFiles = new Map<string, string>();
+    const local = process.platform === 'win32' ? 'C:\\clones\\ws' : '/clones/ws';
+    const d = new Dispatcher(
+      makeConfig({
+        db: undefined,
+        board: { url: 'http://board:8787', token: 'supervisor-secret', workerToken: 'worker-plain' },
+        repoPathOverrides: { ws: local },
+      }),
+      makeDeps(core, spawn, { console: makeFakeConsole(), writeMcp: (p, c) => void mcpFiles.set(p, c) }),
+    );
+
+    await d.tick();
+    expect(calls.length).toBe(1);
+    // spawn cwd is the machine-local clone, not the board's path
+    expect(calls[0]!.req.cwd).toBe(local);
+
+    const args = calls[0]!.req.args;
+    const written = JSON.parse(mcpFiles.get(args[args.indexOf('--mcp-config') + 1]!)!);
+    const env = written.mcpServers.agentfactory.env;
+    expect(env.AGENTFACTORY_BOARD_URL).toBe('http://board:8787');
+    expect(env.AGENTFACTORY_TOKEN).toBe('worker-plain'); // NOT the supervisor token
+    expect(env.AGENTFACTORY_DB).toBe(''); // blank = unset for the MCP entry
+    expect(env.AGENTFACTORY_REPO_PATH).toBe(local);
+  });
+
+  it('board mode without an override warns once and falls back to the board path', async () => {
+    const core = makeCore('ws', '/board-machine/ws');
+    seedQueued(core, 'ws', 'One');
+    seedQueued(core, 'ws', 'Two');
+    const { spawn, calls } = makeFakeSpawn();
+    const fake = makeFakeConsole();
+    const d = new Dispatcher(
+      makeConfig({ db: undefined, board: { url: 'http://b', token: 't' }, maxConcurrent: 2 }),
+      makeDeps(core, spawn, { console: fake }),
+    );
+
+    await d.tick();
+    expect(calls[0]!.req.cwd).toBe('/board-machine/ws');
+    expect(fake.warnings.filter((w) => w.includes('no repoPathOverride'))).toHaveLength(1); // once, not per session
+  });
+
+  it('db mode: backend keys are written blank so inherited env cannot flip the worker (#46)', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Local work');
+    const { spawn, calls } = makeFakeSpawn();
+    const mcpFiles = new Map<string, string>();
+    const d = new Dispatcher(
+      makeConfig(),
+      makeDeps(core, spawn, { console: makeFakeConsole(), writeMcp: (p, c) => void mcpFiles.set(p, c) }),
+    );
+
+    await d.tick();
+    const args = calls[0]!.req.args;
+    const env = JSON.parse(mcpFiles.get(args[args.indexOf('--mcp-config') + 1]!)!).mcpServers.agentfactory.env;
+    expect(env.AGENTFACTORY_DB).toBe(':memory:');
+    expect(env.AGENTFACTORY_BOARD_URL).toBe('');
+    expect(env.AGENTFACTORY_TOKEN).toBe('');
+    expect(env.AGENTFACTORY_REPO_PATH).toBeUndefined();
+  });
+
   it('does not re-spawn a task whose session is still running (no double claim)', async () => {
     const core = makeCore();
     seedQueued(core, 'ws', 'One');
@@ -95,6 +159,105 @@ describe('spawn gating', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// loop hardening (#45 review findings: re-entrancy, slot holding, release retry)
+// ---------------------------------------------------------------------------
+describe('loop hardening', () => {
+  it('a tick overlapping a slow board call does not double-spawn (re-entrancy guard)', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Slow board');
+    const { spawn, calls } = makeFakeSpawn();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    // listTasks slower than the poll interval — the second safeTick fires mid-tick
+    const slow = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'listTasks') {
+          return async (o: never) => { await gate; return core.listTasks(o); };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const d = new Dispatcher(makeConfig({ maxConcurrent: 1 }), makeDeps(slow, spawn, { console: makeFakeConsole() }));
+
+    const first = d.safeTick();
+    const second = d.safeTick(); // must be a no-op, not a second spawn for the same slot
+    release();
+    await Promise.all([first, second]);
+
+    expect(calls.length).toBe(1);
+  });
+
+  it('a reaping session holds its slot until the release completes (no same-attempt duplicate)', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Crashy');
+    const { spawn, calls } = makeFakeSpawn();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowRelease = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'releaseClaim') {
+          return async (key: string) => { await gate; return core.releaseClaim(key); };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const d = new Dispatcher(makeConfig(), makeDeps(slowRelease, spawn, { console: makeFakeConsole() }));
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    const drain = calls[0]!.child.exit(1); // reap starts, blocks on the gated release
+
+    await new Promise((r) => setImmediate(r));
+    expect(d.runningCount()).toBe(1); // the slot is NOT free while the reap is in flight
+
+    release();
+    await drain;
+    // the reap resumes once the release unblocks; give the microtask chain a few turns
+    for (let i = 0; i < 20 && d.runningCount() > 0; i++) await new Promise((r) => setImmediate(r));
+    expect(d.runningCount()).toBe(0); // slot freed only after the reap fully settled
+    expect(core.getTask(seedKey(core)).status).toBe('queued');
+  });
+
+  it('a transient release failure is retried next tick instead of stranding the claim', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Flaky board');
+    const { spawn, calls } = makeFakeSpawn();
+    let failures = 1; // fail the first release with a non-transition error (e.g. board 503)
+    const flaky = new Proxy(core, {
+      get(target, prop, receiver) {
+        if (prop === 'releaseClaim') {
+          return (k: string) => {
+            if (failures-- > 0) throw new Error('board unreachable (503)');
+            return core.releaseClaim(k);
+          };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as unknown as Core;
+    const log = makeFakeConsole();
+    // staleClaimMinutes 0: the stale reaper is OFF — the retry queue must do the recovery
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 0 }), makeDeps(flaky, spawn, { now: () => Date.now(), console: log }));
+
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    await calls[0]!.child.exit(1); // crash → release fails once → queued for retry
+    expect(core.getTask(key).status).toBe('in_progress'); // still stranded after the failure
+
+    await d.tick(); // drainPendingReleases retries and succeeds
+    expect(core.getTask(key).status).toBe('queued');
+    expect(log.warnings.some((w) => w.includes('will retry'))).toBe(true);
+  });
+});
+
+/** The single seeded task's key (these tests seed exactly one). */
+function seedKey(core: Core): string {
+  return core.listTasks({})[0]!.key;
+}
 
 // ---------------------------------------------------------------------------
 // workspace selection (opt-out model)
@@ -239,7 +402,7 @@ describe('success path', () => {
         modelUsage: { 'claude-opus-4-8': {} },
       }),
     );
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     expect(t.status).toBe('in_review');
@@ -266,7 +429,7 @@ describe('live agent session', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     expect(core.listLiveAgents().map((a) => a.key)).toContain(key); // live while working
 
-    calls[0]!.child.exit(1); // crash without submitting → release + retry
+    await calls[0]!.child.exit(1); // crash without submitting → release + retry
     expect(core.getTask(key).status).toBe('queued');
     expect(core.listLiveAgents()).toHaveLength(0); // ended by the reap safety-net
   });
@@ -282,7 +445,7 @@ describe('live agent session', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     core.submitResult(key, { summary: 'done' }); // submit ends it
     expect(core.listLiveAgents()).toHaveLength(0);
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
     expect(core.listLiveAgents()).toHaveLength(0); // reap end is idempotent
   });
 });
@@ -316,7 +479,7 @@ describe('otel token capture', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     core.submitResult(key, { summary: 'done' });
     calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', total_cost_usd: 0.5, usage: { input_tokens: 1200, output_tokens: 300 } }));
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     expect(core.getTask(key).metrics.tokensIn).toBeNull(); // dispatcher skipped the stdout parse
   });
@@ -420,7 +583,7 @@ describe('crash path', () => {
     const label1 = workerLabel(calls[0]!.req.env);
     core.claimNextTask({ workspace: 'ws', claimedBy: label1 });
     calls[0]!.child.emitStdout('TypeError: boom\n  at worker.ts:42\n');
-    calls[0]!.child.exit(1);
+    await calls[0]!.child.exit(1);
 
     let t = core.getTask(key);
     expect(t.status).toBe('queued'); // released within the reap
@@ -436,7 +599,7 @@ describe('crash path', () => {
     const label2 = workerLabel(calls[1]!.req.env);
     expect(label2).toContain('-a2');
     core.claimNextTask({ workspace: 'ws', claimedBy: label2 });
-    calls[1]!.child.exit(1);
+    await calls[1]!.child.exit(1);
 
     t = core.getTask(key);
     expect(t.status).toBe('queued');
@@ -458,10 +621,10 @@ describe('crash path', () => {
     // burn both attempts → skip-listed
     await d.tick();
     core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
-    calls[0]!.child.exit(1);
+    await calls[0]!.child.exit(1);
     await d.tick();
     core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[1]!.req.env) });
-    calls[1]!.child.exit(1);
+    await calls[1]!.child.exit(1);
     expect(d.isSkipListed(key)).toBe(true);
     expect(core.getTask(key).failure).toMatchObject({ skipListed: true });
 
@@ -489,7 +652,7 @@ describe('crash path', () => {
     await d.tick();
     // the session lost the race — a different worker holds the task.
     core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' });
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     const t = core.getTask(key);
     expect(t.status).toBe('in_progress'); // untouched
@@ -520,7 +683,7 @@ describe('permission-denied path', () => {
     // attempt 1 — the session never claims: its MCP tool call is permission-denied
     await d.tick();
     calls[0]!.child.emitStdout(denialEnvelope);
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     expect(log.warnings.some((w) => w.includes('permission denied') && w.includes('mcp__agentfactory__get_next_task'))).toBe(true);
     expect(d.isSkipListed(key)).toBe(false);
@@ -532,7 +695,7 @@ describe('permission-denied path', () => {
     await d.tick();
     expect(calls.length).toBe(2);
     calls[1]!.child.emitStdout(denialEnvelope);
-    calls[1]!.child.exit(0);
+    await calls[1]!.child.exit(0);
 
     expect(d.isSkipListed(key)).toBe(true);
     expect(log.warnings.some((w) => w.includes('maxAttempts'))).toBe(true);
@@ -552,7 +715,7 @@ describe('permission-denied path', () => {
     await d.tick();
     core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' }); // lost race
     calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', subtype: 'success', permission_denials: [] }));
-    calls[0]!.child.exit(0);
+    await calls[0]!.child.exit(0);
 
     expect(log.logs.some((l) => l.includes('claimed nothing'))).toBe(true);
     expect(log.warnings).toEqual([]);
@@ -707,10 +870,10 @@ describe('stale-claim reaper', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: 'ws' });
     const { spawn } = makeFakeSpawn();
     const log = makeFakeConsole();
-    // updateStatus throws as if a human settled the task in the gap before release
+    // releaseClaim throws as if a human settled the task in the gap before release
     const racy = new Proxy(core, {
       get(target, prop, receiver) {
-        if (prop === 'updateStatus') return () => { throw new InvalidTransitionError('in_progress -> queued raced'); };
+        if (prop === 'releaseClaim') return () => { throw new InvalidTransitionError('in_progress -> queued raced'); };
         const v = Reflect.get(target, prop, receiver);
         return typeof v === 'function' ? v.bind(target) : v;
       },
@@ -847,7 +1010,7 @@ describe('transcript capture', () => {
 
     state.content += userLine('u2', 'world') + '\n';
     core.submitResult(key, { summary: 'done' });
-    calls[0]!.child.exit(0); // reap → persistTranscript
+    await calls[0]!.child.exit(0); // reap → persistTranscript
 
     tr = core.getTranscript(key);
     expect(tr.state).toBe('final');

@@ -48,6 +48,8 @@ export class Reviewer {
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false; // re-entrancy guard (same shape as the watcher's)
+  /** In-flight async reaps kicked off by child exit/error events (awaited by tick()). */
+  private readonly settling = new Set<Promise<void>>();
 
   constructor(
     private readonly config: ReviewerConfig,
@@ -94,10 +96,21 @@ export class Reviewer {
 
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
-    this.enforceTimeouts();
-    const served = this.servedWorkspaces();
-    this.recordHeartbeat(served);
+    await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.enforceTimeouts();
+    const served = await this.servedWorkspaces();
+    await this.recordHeartbeat(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
+    await Promise.all([...this.settling]); // exits fired during this tick too
+  }
+
+  /** Run a child-exit reap in the background, tracked so tick() can await stragglers. */
+  private trackReap(session: ReviewSession, code: number | null): void {
+    const p = this.reap(session, code).catch((err) => {
+      this.console.error(`[reviewer] reap of ${session.label} failed: ${(err as Error).message}`);
+    });
+    this.settling.add(p);
+    void p.finally(() => this.settling.delete(p));
   }
 
   /**
@@ -105,17 +118,17 @@ export class Reviewer {
    * workspace in the DB, minus `excludeWorkspaces`. Re-read each tick so a newly-created workspace
    * is reviewed automatically (opt-out model).
    */
-  servedWorkspaces(): string[] {
+  async servedWorkspaces(): Promise<string[]> {
     return resolveServedWorkspaces(
-      this.deps.core.listWorkspaces().map((w) => w.name),
+      (await this.deps.core.listWorkspaces()).map((w) => w.name),
       { workspaces: this.config.workspaces, exclude: this.config.excludeWorkspaces },
     );
   }
 
   /** Report a heartbeat so the board's health view knows the reviewer is alive. Best-effort. */
-  private recordHeartbeat(served: string[]): void {
+  private async recordHeartbeat(served: string[]): Promise<void> {
     try {
-      this.deps.core.recordSupervisorHeartbeat({
+      await this.deps.core.recordSupervisorHeartbeat({
         name: this.config.name,
         kind: 'reviewer',
         workspaces: served,
@@ -143,7 +156,7 @@ export class Reviewer {
 
   // -- timeouts --------------------------------------------------------------
 
-  private enforceTimeouts(): void {
+  private async enforceTimeouts(): Promise<void> {
     const capMs = this.config.reviewMinutes * 60_000;
     const now = this.deps.now();
     for (const session of this.running.values()) {
@@ -155,7 +168,7 @@ export class Reviewer {
         // is streaming and may be partial, so it is intentionally not recovered this way.
         if (session.outputFile && this.readVerdict(session).trim()) {
           this.appendLog(session, `\n[reviewer] completed verdict found at timeout boundary; accepting and cleaning up process tree\n`);
-          this.reap(session, 0);
+          await this.reap(session, 0);
           this.deps.terminateProcessTree(session.child, 'SIGKILL');
           continue;
         }
@@ -193,7 +206,7 @@ export class Reviewer {
   private async pollWorkspace(workspace: string): Promise<void> {
     let slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
-    const inReview = this.deps.core.listTasks({ status: 'in_review', workspace });
+    const inReview = await this.deps.core.listTasks({ status: 'in_review', workspace });
     this.clearRestarted(inReview);
     for (const task of inReview) {
       if (slots <= 0) break;
@@ -207,13 +220,13 @@ export class Reviewer {
     // delivering task — critically evaluate it and post a feedback-eval/v1 verdict.
     slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
-    const delivering = this.deps.core.listTasks({ status: 'delivering', workspace });
+    const delivering = await this.deps.core.listTasks({ status: 'delivering', workspace });
     this.clearRestarted(delivering);
     for (const task of delivering) {
       if (slots <= 0) break;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue;
-      if (!this.needsEval(this.deps.core.getTask(task.key))) continue;
+      if (!this.needsEval(await this.deps.core.getTask(task.key))) continue;
       if (await this.startReview(workspace, task.key, 'feedback-eval')) slots -= 1;
     }
   }
@@ -259,6 +272,12 @@ export class Reviewer {
     }
   }
 
+  /** The machine-local clone for a task's workspace (#46 remote review) — the board-central
+   *  repoPath otherwise. Diffs and fetches always run against local git. */
+  private repoFor(detail: { workspace: string; repoPath: string }): string {
+    return this.config.repoPathOverrides?.[detail.workspace] ?? detail.repoPath;
+  }
+
   /** Branch to diff: the last branch-kind link (as the board's diff view uses), else the named branch. */
   private resolveBranch(detail: TaskDetail): string | null {
     const link = detail.links.filter((l) => l.kind === 'branch').at(-1);
@@ -281,21 +300,21 @@ export class Reviewer {
     let prompt: string;
     let stage: Stage;
     try {
-      const detail = this.deps.core.getTask(key);
+      const detail = await this.deps.core.getTask(key);
       stage = detail.stage;
       if (mode === 'feedback-eval') {
         // critically evaluate the latest forwarded PR-review comment against the branch diff
-        const systemPrompt = this.deps.core.resolveAgentPrompt('delivering-evaluator', detail.workspace);
+        const systemPrompt = await this.deps.core.resolveAgentPrompt('delivering-evaluator', detail.workspace);
         const branch = this.resolveBranch(detail);
         if (!branch) throw new Error('no branch recorded to diff');
         const feedback = [...detail.activity.filter((a) => a.type === 'comment')].reverse()
           .map((a) => parsePrFeedbackComment(a.body)).find((p) => p !== null);
         if (!feedback) throw new Error('no pr-feedback to evaluate');
-        const diff = await this.deps.computeDiff(detail.repoPath, branch);
+        const diff = await this.deps.computeDiff(this.repoFor(detail), branch);
         prompt = buildFeedbackEvalPrompt({ task: detail, engine, feedback: feedback.feedback, branch, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
       } else {
         // the configured reviewer system prompt (workspace override → global default → ''), inlined
-        const systemPrompt = this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
+        const systemPrompt = await this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
         if (detail.stage === 'implementation') {
           const branch = this.resolveBranch(detail);
           if (!branch) throw new Error(`no branch recorded to diff`);
@@ -304,10 +323,10 @@ export class Reviewer {
           // diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
           let diffRef = branch;
           if (detail.kind === 'pr-review') {
-            await this.deps.fetchRef(detail.repoPath, branch);
+            await this.deps.fetchRef(this.repoFor(detail), branch);
             diffRef = `origin/${branch}`;
           }
-          const diff = await this.deps.computeDiff(detail.repoPath, diffRef);
+          const diff = await this.deps.computeDiff(this.repoFor(detail), diffRef);
           prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         } else {
           prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
@@ -315,7 +334,7 @@ export class Reviewer {
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.
-      this.burnAttempt(key, attempt, `could not prepare ${mode}: ${(err as Error).message}`);
+      await this.burnAttempt(key, attempt, `could not prepare ${mode}: ${(err as Error).message}`);
       return false;
     }
 
@@ -356,9 +375,9 @@ export class Reviewer {
     child.stderr?.on('data', (chunk) => this.appendLog(session, chunk.toString()));
     child.on('error', (err) => {
       this.appendLog(session, `\n[reviewer] spawn error: ${err.message}\n`);
-      this.reap(session, null);
+      this.trackReap(session, null);
     });
-    child.on('exit', (code) => this.reap(session, code));
+    child.on('exit', (code) => this.trackReap(session, code));
 
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${logPath}`);
     return true;
@@ -371,23 +390,33 @@ export class Reviewer {
 
   // -- reaping ---------------------------------------------------------------
 
-  /** Handle a review exit: read the verdict and post it, or burn an attempt on failure. */
-  private reap(session: ReviewSession, code: number | null): void {
+  /** Handle a review exit: read the verdict and post it, or burn an attempt on failure.
+   *  The session HOLDS its `running` slot (and its hasRunningFor guard) until the reap fully
+   *  settles — freeing it at entry let pollWorkspace start a same-attempt duplicate review
+   *  while the verdict/failure writes were still in flight. */
+  private async reap(session: ReviewSession, code: number | null): Promise<void> {
     if (session.settled) return;
     session.settled = true;
-    this.running.delete(session.label);
+    try {
+      await this.reapSettled(session, code);
+    } finally {
+      this.running.delete(session.label);
+    }
+  }
+
+  private async reapSettled(session: ReviewSession, code: number | null): Promise<void> {
     session.logWriter.end();
 
     const verdict = this.readVerdict(session);
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
-      this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      await this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
       return;
     }
 
     if (!verdict.trim()) {
       const reason = code === 0 ? 'engine produced no verdict' : `engine exited code ${code ?? 'null'} with no verdict`;
-      this.burnAttempt(session.key, session.attempt, reason);
+      await this.burnAttempt(session.key, session.attempt, reason);
       return;
     }
 
@@ -400,7 +429,7 @@ export class Reviewer {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation
       // and findings stay in_review for the human gate; a feedback-eval verdict is advisory on a
       // delivering task (the human clicks "Apply fix"). The reviewer only posts.
-      this.deps.core.addComment(session.key, { actor: 'agent', body });
+      await this.deps.core.addComment(session.key, { actor: 'agent', body });
     } catch (err) {
       // The review succeeded but the post failed — don't burn an attempt; it still needs
       // review, so the next poll retries.
@@ -424,12 +453,12 @@ export class Reviewer {
    * needs manual review — instead of it silently sitting in_review with no verdict. A later
    * successful review (an ai-review/v1 comment) supersedes the note (see failureByTaskIds).
    */
-  private burnAttempt(key: string, attempt: number, reason: string): void {
+  private async burnAttempt(key: string, attempt: number, reason: string): Promise<void> {
     this.attempts.set(key, attempt);
     this.console.warn(`[reviewer] review of ${key} failed (attempt ${attempt}/${this.config.maxAttempts}): ${reason}`);
     const atCap = attempt >= this.config.maxAttempts;
     try {
-      this.deps.core.addComment(key, {
+      await this.deps.core.addComment(key, {
         actor: 'agent',
         body: buildFailureComment({
           reason: 'review_failed',

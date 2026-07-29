@@ -1,12 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Core } from '../types.js';
+import type { McpCore } from '../types.js';
 import type { AddTaskMetricsInput, SubmitResultInput } from '@agentfactory/core';
 import { LinkSchema, MetricsSchema, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 import { checkSubmission } from '../git.js';
+import { localizeRepo, type ServerOptions } from '../server.js';
 
-export function registerSubmitResult(server: McpServer, core: Core): void {
+export function registerSubmitResult(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'submit_result',
     {
@@ -33,11 +34,13 @@ export function registerSubmitResult(server: McpServer, core: Core): void {
     async ({ key, summary, spec, acceptanceCriteria, plan, verification, links, metrics }) => {
       try {
         // Verify the finish protocol ran before core flips the status (git stays out of
-        // core). Doc stages never touch the repo — nothing to verify.
-        const detail = core.getTask(key);
+        // core). Doc stages never touch the repo — nothing to verify. The repoPath override
+        // matters here: a remote worker's guard must inspect the LOCAL clone, not the
+        // board's path (which doesn't exist on this machine and would degrade to skip).
+        const detail = localizeRepo(await core.getTask(key), opts);
         const guard =
           detail.stage === 'implementation'
-            ? await checkSubmission({ repoPath: detail.repoPath, branch: detail.branch, key, auth: core.resolveGitAuth(detail.workspace) })
+            ? await checkSubmission({ repoPath: detail.repoPath, branch: detail.branch, key, auth: await core.resolveGitAuth(detail.workspace) })
             : { ok: true as const };
         if (!guard.ok) {
           return { isError: true as const, content: [{ type: 'text' as const, text: guard.message ?? 'Submission blocked.' }] };
@@ -47,16 +50,23 @@ export function registerSubmitResult(server: McpServer, core: Core): void {
         if (acceptanceCriteria !== undefined) input.acceptanceCriteria = acceptanceCriteria;
         if (plan !== undefined) input.plan = plan;
         if (verification !== undefined) input.verification = verification;
-        let task = core.submitResult(key, input);
+        let task = await core.submitResult(key, input);
+        let metricsNote = '';
         if (metrics && Object.keys(metrics).length > 0) {
           const input: AddTaskMetricsInput = {};       // explicit build for exactOptionalPropertyTypes
           if (metrics.model !== undefined) input.model = metrics.model;
           if (metrics.tokensIn !== undefined) input.tokensIn = metrics.tokensIn;
           if (metrics.tokensOut !== undefined) input.tokensOut = metrics.tokensOut;
           if (metrics.costUsd !== undefined) input.costUsd = metrics.costUsd;
-          task = core.addTaskMetrics(key, input);
+          // Best-effort: the submit is already committed — a transient metrics failure must not
+          // report the whole call as an error (the task is in_review; a retry would be rejected).
+          try {
+            task = await core.addTaskMetrics(key, input);
+          } catch (err) {
+            metricsNote = `\n\n(note: the submit SUCCEEDED — the task is in review — but recording metrics failed: ${(err as Error).message}. Do not resubmit.)`;
+          }
         }
-        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) + metricsNote }] };
       } catch (err) {
         return toToolError(err);
       }

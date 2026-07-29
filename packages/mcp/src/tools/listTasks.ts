@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Core } from '../types.js';
+import type { McpCore } from '../types.js';
 import type { ServerOptions } from '../server.js';
 import { StatusEnum } from '../schemas.js';
 import { toToolError } from '../errors.js';
 
-export function registerListTasks(server: McpServer, core: Core, opts: ServerOptions = {}): void {
+export function registerListTasks(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'list_tasks',
     {
@@ -16,7 +16,7 @@ export function registerListTasks(server: McpServer, core: Core, opts: ServerOpt
     },
     async ({ status, workspace }) => {
       try {
-        const tasks = core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace });
+        const tasks = await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace });
         return { content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }] };
       } catch (err) {
         return toToolError(err);
