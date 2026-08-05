@@ -34,7 +34,7 @@ export type HttpCore = Pick<
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
-  | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment'
+  | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
 > & {
   whoami(): Promise<BoardIdentity>;
 };
@@ -62,6 +62,15 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  const throwHttpError = async (res: Response): Promise<never> => {
+    let message = String(res.status);
+    try {
+      const b = (await res.json()) as { message?: string };
+      if (b && typeof b.message === 'string') message = b.message;
+    } catch { /* non-JSON error body — the status carries it */ }
+    throw errorFrom(res.status, message);
+  };
+
   const req = async (method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<unknown> => {
     const init: RequestInit = {
       method,
@@ -73,14 +82,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
       signal: AbortSignal.timeout(timeoutMs),
     };
     const res = await fetchImpl(`${base}${path}`, init);
-    if (!res.ok) {
-      let message = String(res.status);
-      try {
-        const b = (await res.json()) as { message?: string };
-        if (b && typeof b.message === 'string') message = b.message;
-      } catch { /* non-JSON error body — the status carries it */ }
-      throw errorFrom(res.status, message);
-    }
+    if (!res.ok) await throwHttpError(res);
     return res.json();
   };
 
@@ -140,6 +142,21 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
         mime: res.headers.get('content-type') ?? 'application/octet-stream',
         bytes: new Uint8Array(await res.arrayBuffer()),
       };
+    },
+
+    // The reviewer's auto-generated change visualization: raw text/html body to the existing
+    // board route (deliberately not under /api/agent — the op has no actor axis; the route
+    // accepts service tokens by design). The second non-JSON call after getAttachment.
+    attachVisualization: async (key, input) => {
+      const res = await fetchImpl(`${base}/api/tasks/${enc(key)}/visualization`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html' },
+        body: input.html,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) await throwHttpError(res);
+      const meta = (await res.json()) as { bytes: number; generatedAt: string };
+      return { generatedAt: meta.generatedAt, bytes: meta.bytes };
     },
 
     // ── reads (existing board routes, same guard) ────────────────────────────

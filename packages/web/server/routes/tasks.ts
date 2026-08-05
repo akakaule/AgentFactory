@@ -71,6 +71,9 @@ export function taskRoutes(core: Core) {
 
   // POST attaches/replaces it. The body is the raw HTML (text/html, not JSON) — the producer uploads
   // with `curl --data-binary @file`. Cap the size so a runaway upload can't bloat the DB.
+  // Service tokens are accepted DELIBERATELY (no rejectService): the board-mode reviewer
+  // supervisor attaches its auto-generated visualizations here via HttpCore.attachVisualization —
+  // the op has no actor axis (no activity row), so the human/agent guard doesn't apply.
   r.post('/:key/visualization', async (c) => {
     const html = await c.req.text();
     if (!html.trim()) throw new ValidationError('visualization HTML body is empty');
@@ -78,7 +81,7 @@ export function taskRoutes(core: Core) {
       throw new ValidationError(`visualization HTML exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
     }
     const meta = core.attachVisualization(c.req.param('key'), { html });
-    return c.json({ ok: true, bytes: meta.bytes }, 201);
+    return c.json({ ok: true, bytes: meta.bytes, generatedAt: meta.generatedAt }, 201);
   });
 
   // Producer bridges (service tokens) legitimately create tasks here — but the seed activity
