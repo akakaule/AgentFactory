@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey } from '@agentfactory/core';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 /**
@@ -19,6 +19,8 @@ export interface ReviewerCore {
   // the configured reviewer/evaluator system prompt (workspace override → global default → '').
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  // store (or replace) a task's auto-generated change-visualization HTML (no actor axis)
+  attachVisualization(key: string, input: { html: string }): Awaitable<VisualizationMeta>;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
 }

@@ -25,7 +25,9 @@ describe('visualization REST API', () => {
   it('POST stores the HTML, then GET serves it back as text/html', async () => {
     const post = await postHtml(app, `/api/tasks/${key}/visualization`, html);
     expect(post.status).toBe(201);
-    expect(await post.json()).toMatchObject({ ok: true, bytes: html.length });
+    const body = await post.json() as { ok: boolean; bytes: number; generatedAt: string };
+    expect(body).toMatchObject({ ok: true, bytes: html.length });
+    expect(body.generatedAt).toBeTruthy(); // HttpCore.attachVisualization builds its meta from this
 
     const get = await app.request(`/api/tasks/${key}/visualization`);
     expect(get.status).toBe(200);
@@ -55,5 +57,22 @@ describe('visualization REST API', () => {
 
   it('POST to an unknown task → 404', async () => {
     expect((await postHtml(app, '/api/tasks/AF-9999/visualization', html)).status).toBe(404);
+  });
+
+  // Pins deliberate behavior: the board-mode reviewer supervisor attaches auto-generated
+  // visualizations with a plain service token — this route must NOT gain rejectService.
+  it('a service token may attach (board-mode reviewer)', async () => {
+    const authed = openCore(':memory:');
+    const authedApp = buildApp(authed, { auth: { mode: 'token' } });
+    const k = authed.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' }).key;
+    const svc = authed.createApiToken({ label: 'reviewer', isService: true }).token;
+
+    const res = await authedApp.request(`/api/tasks/${k}/visualization`, {
+      method: 'POST',
+      body: html,
+      headers: { 'content-type': 'text/html', authorization: `Bearer ${svc}` },
+    });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { generatedAt: string }).generatedAt).toBeTruthy();
   });
 });

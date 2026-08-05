@@ -6,5 +6,6 @@
   "maxConcurrent": 1,
   "reviewMinutes": 20,
   "maxDiffChars": 120000,
-  "maxAttempts": 2
+  "maxAttempts": 2,
+  "visualization": { "enabled": true }
 }

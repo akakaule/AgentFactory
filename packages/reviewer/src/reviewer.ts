@@ -4,10 +4,14 @@ import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildEngineArgs } from './engine.js';
 import { buildReviewPrompt, ensureMarker, buildFeedbackEvalPrompt, ensureFeedbackEvalMarker } from './review.js';
+import { buildVisualizationPrompt, extractHtml, MAX_VISUALIZATION_BYTES } from './viz.js';
+import type { BranchDiff } from '@agentfactory/core';
 
-/** A review session evaluates one of two things: a task's deliverable (`review` → ai-review/v1) or
- *  a forwarded PR-review comment on a delivering task (`feedback-eval` → feedback-eval/v1). */
-type ReviewMode = 'review' | 'feedback-eval';
+/** A session is one of three things: a review of a task's deliverable (`review` → ai-review/v1),
+ *  an evaluation of a forwarded PR-review comment on a delivering task (`feedback-eval` →
+ *  feedback-eval/v1), or the authoring of a task's HTML change-visualization (`visualize` →
+ *  attachVisualization, no comment). */
+type ReviewMode = 'review' | 'feedback-eval' | 'visualize';
 
 /** Live state for one spawned review session. */
 interface ReviewSession {
@@ -29,6 +33,9 @@ interface ReviewSession {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
+  /** visualize sessions only: the vizAttempts budget key, pinned at spawn so a result submitted
+   *  mid-session cannot shift it. */
+  vizKey?: string | undefined;
 }
 
 const LOG_TAIL_CHARS = 4000;
@@ -45,6 +52,9 @@ export class Reviewer {
   private readonly running = new Map<string, ReviewSession>(); // label -> session
   private readonly attempts = new Map<string, number>(); // task key -> attempts used
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
+  /** Visualization budget, keyed `${key}@${latestResultAt}` — a new submission gets a fresh
+   *  budget, and there is no skip-set for clearRestarted's failure-null forgiveness to resurrect. */
+  private readonly vizAttempts = new Map<string, number>();
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false; // re-entrancy guard (same shape as the watcher's)
@@ -203,11 +213,44 @@ export class Reviewer {
     return lastFeedback !== -1 && lastFeedback > lastEval;
   }
 
+  /** `createdAt` of the latest result activity — the submission a visualization belongs to. */
+  private latestResultAt(detail: TaskDetail): string {
+    return detail.activity.filter((a) => a.type === 'result').at(-1)?.createdAt ?? '';
+  }
+
+  /** A task needs a visualization iff it has a diffable implementation deliverable and no
+   *  visualization generated since the latest submission (both timestamps are nowIso() strings,
+   *  so lexicographic order is chronological order). */
+  private needsVisualization(detail: TaskDetail): boolean {
+    if (detail.stage !== 'implementation') return false;
+    if (this.resolveBranch(detail) === null) return false;
+    return detail.visualizationGeneratedAt === null || detail.visualizationGeneratedAt < this.latestResultAt(detail);
+  }
+
+  private vizKeyFor(detail: TaskDetail): string {
+    return `${detail.key}@${this.latestResultAt(detail)}`;
+  }
+
   private async pollWorkspace(workspace: string): Promise<void> {
     let slots = this.config.maxConcurrent - this.runningCount(workspace);
     if (slots <= 0) return;
     const inReview = await this.deps.core.listTasks({ status: 'in_review', workspace });
     this.clearRestarted(inReview);
+
+    // Visualization pass FIRST, so the page exists by the time the verdict posts (hasRunningFor
+    // serialises per key: viz this tick, review next tick, link line on the verdict). Deliberately
+    // ignores the review skip-list — a task left for a human reviewer wants the page most.
+    if (this.config.visualization.enabled) {
+      for (const task of inReview) {
+        if (slots <= 0) break;
+        if (this.hasRunningFor(task.key)) continue;
+        const detail = await this.deps.core.getTask(task.key);
+        if (!this.needsVisualization(detail)) continue;
+        if ((this.vizAttempts.get(this.vizKeyFor(detail)) ?? 0) >= this.config.maxAttempts) continue;
+        if (await this.startVisualization(workspace, task.key)) slots -= 1;
+      }
+    }
+
     for (const task of inReview) {
       if (slots <= 0) break;
       if (this.skipped.has(task.key)) continue;
@@ -288,6 +331,22 @@ export class Reviewer {
     return detail.branch ?? null;
   }
 
+  /** Resolve + compute the task's deliverable diff (shared by review and visualize sessions).
+   *  A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
+   *  into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
+   *  diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others). */
+  private async prepareDiff(detail: TaskDetail): Promise<{ diffRef: string; diff: BranchDiff }> {
+    const branch = this.resolveBranch(detail);
+    if (!branch) throw new Error(`no branch recorded to diff`);
+    let diffRef = branch;
+    if (detail.kind === 'pr-review') {
+      await this.deps.fetchRef(this.repoFor(detail), branch);
+      diffRef = `origin/${branch}`;
+    }
+    const diff = await this.deps.computeDiff(this.repoFor(detail), diffRef);
+    return { diffRef, diff };
+  }
+
   /** Build the prompt + spawn one review/evaluation; returns false (no slot consumed) on a pre-spawn failure. */
   private async startReview(workspace: string, key: string, mode: ReviewMode = 'review'): Promise<boolean> {
     const attempt = (this.attempts.get(key) ?? 0) + 1;
@@ -316,17 +375,7 @@ export class Reviewer {
         // the configured reviewer system prompt (workspace override → global default → ''), inlined
         const systemPrompt = await this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
         if (detail.stage === 'implementation') {
-          const branch = this.resolveBranch(detail);
-          if (!branch) throw new Error(`no branch recorded to diff`);
-          // A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
-          // into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
-          // diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
-          let diffRef = branch;
-          if (detail.kind === 'pr-review') {
-            await this.deps.fetchRef(this.repoFor(detail), branch);
-            diffRef = `origin/${branch}`;
-          }
-          const diff = await this.deps.computeDiff(this.repoFor(detail), diffRef);
+          const { diffRef, diff } = await this.prepareDiff(detail);
           prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         } else {
           prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
@@ -339,11 +388,66 @@ export class Reviewer {
     }
 
     const label = `${workspace}#${key}-r${attempt}`;
-    const logPath = `${this.deps.logDir}/${key}-review-${attempt}.log`;
-    const outputFile = engine === 'codex' ? `${this.deps.logDir}/${key}-review-${attempt}.out` : null;
+    const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
+    this.launchSession({ workspace, key, stage, mode, attempt, engine, model: this.config.model, prompt, label, fileBase });
+    this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
+    return true;
+  }
+
+  /** Author the task's HTML change-visualization in one extra engine session; returns false
+   *  (no slot consumed) on a pre-spawn failure. Failures are log-only (burnVizAttempt) — they
+   *  never post a comment and never touch the review budget. */
+  private async startVisualization(workspace: string, key: string): Promise<boolean> {
+    let detail: TaskDetail;
+    try {
+      detail = await this.deps.core.getTask(key);
+    } catch (err) {
+      this.console.error(`[reviewer] could not load ${key} for visualization: ${(err as Error).message}`);
+      return false;
+    }
+    if (!this.needsVisualization(detail)) return false; // superseded between list and load
+    const vizKey = this.vizKeyFor(detail);
+    const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
+    if (attempt > this.config.maxAttempts) return false;
+
+    const engine = this.config.visualization.engine ?? this.config.engine;
+    const model = this.config.visualization.model ?? this.config.model;
+    let prompt: string;
+    try {
+      const { diffRef, diff } = await this.prepareDiff(detail);
+      prompt = buildVisualizationPrompt({ task: detail, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
+    } catch (err) {
+      this.burnVizAttempt(key, vizKey, attempt, `could not prepare visualization: ${(err as Error).message}`);
+      return false;
+    }
+
+    const label = `${workspace}#${key}-viz${attempt}`;
+    const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, engine, model, prompt, label, fileBase, vizKey });
+    this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
+    return true;
+  }
+
+  /** Spawn one engine session and register it — the shared tail of every session kind. */
+  private launchSession(opts: {
+    workspace: string;
+    key: string;
+    stage: Stage;
+    mode: ReviewMode;
+    attempt: number;
+    engine: ReviewEngine;
+    model: string | undefined;
+    prompt: string;
+    label: string;
+    /** Log/output path base: `${fileBase}.log` + (codex) `${fileBase}.out`. */
+    fileBase: string;
+    vizKey?: string | undefined;
+  }): void {
+    const { workspace, key, stage, mode, attempt, engine, model, prompt, label, fileBase, vizKey } = opts;
+    const outputFile = engine === 'codex' ? `${fileBase}.out` : null;
     if (outputFile) this.deps.clearOutput(outputFile);
-    const logWriter = this.deps.openLog(logPath);
-    const args = buildEngineArgs({ engine, model: this.config.model, outputFile: outputFile ?? '' });
+    const logWriter = this.deps.openLog(`${fileBase}.log`);
+    const args = buildEngineArgs({ engine, model, outputFile: outputFile ?? '' });
     const env: NodeJS.ProcessEnv = { ...(this.deps.baseEnv ?? {}) };
     if (this.config.otel) this.applyOtel(env, engine, key, workspace, label);
 
@@ -364,6 +468,7 @@ export class Reviewer {
       logTail: '',
       settled: false,
       timedOut: false,
+      vizKey,
     };
     this.running.set(label, session);
 
@@ -378,9 +483,6 @@ export class Reviewer {
       this.trackReap(session, null);
     });
     child.on('exit', (code) => this.trackReap(session, code));
-
-    this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${logPath}`);
-    return true;
   }
 
   private appendLog(session: ReviewSession, text: string): void {
@@ -406,6 +508,7 @@ export class Reviewer {
 
   private async reapSettled(session: ReviewSession, code: number | null): Promise<void> {
     session.logWriter.end();
+    if (session.mode === 'visualize') return this.reapVisualization(session, code);
 
     const verdict = this.readVerdict(session);
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
@@ -424,7 +527,16 @@ export class Reviewer {
       this.console.log(`[reviewer] accepting completed verdict for ${session.key} found while terminating timed-out process tree`);
     }
 
-    const body = session.mode === 'feedback-eval' ? ensureFeedbackEvalMarker(verdict) : ensureMarker(verdict, session.engine);
+    let body = session.mode === 'feedback-eval' ? ensureFeedbackEvalMarker(verdict) : ensureMarker(verdict, session.engine);
+    if (session.mode === 'review') {
+      // Link the auto-generated change visualization (attached by the viz pass one tick earlier).
+      // parseAiReviewComment tolerates trailing text after the fenced JSON; never lose the verdict
+      // over a failed lookup.
+      try {
+        const detail = await this.deps.core.getTask(session.key);
+        if (detail.hasVisualization) body += `\n\nVisualization: /api/tasks/${session.key}/visualization`;
+      } catch { /* link line is best-effort */ }
+    }
     try {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation
       // and findings stay in_review for the human gate; a feedback-eval verdict is advisory on a
@@ -438,6 +550,52 @@ export class Reviewer {
     }
     this.attempts.delete(session.key); // reviewed successfully — reset the attempt budget
     this.console.log(`[reviewer] posted verdict for ${session.key} (${session.stage}) via ${session.engine}`);
+  }
+
+  /** Handle a visualize-session exit: salvage the HTML and attach it, or burn a viz attempt.
+   *  Mirrors reapSettled's failure taxonomy, but log-only — no comment, no review budget. */
+  private async reapVisualization(session: ReviewSession, code: number | null): Promise<void> {
+    const vizKey = session.vizKey ?? session.key;
+    const raw = this.readVerdict(session);
+    const completedCodexOutput = session.outputFile !== null && raw.trim().length > 0;
+    if (session.timedOut && !completedCodexOutput) {
+      this.burnVizAttempt(session.key, vizKey, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      return;
+    }
+    if (!raw.trim()) {
+      const reason = code === 0 ? 'engine produced no visualization' : `engine exited code ${code ?? 'null'} with no visualization`;
+      this.burnVizAttempt(session.key, vizKey, session.attempt, reason);
+      return;
+    }
+    const html = extractHtml(raw);
+    if (html === null) {
+      this.burnVizAttempt(session.key, vizKey, session.attempt, 'engine did not produce an HTML document');
+      return;
+    }
+    if (html.length > MAX_VISUALIZATION_BYTES) {
+      this.burnVizAttempt(session.key, vizKey, session.attempt, `visualization exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
+      return;
+    }
+    try {
+      await this.deps.core.attachVisualization(session.key, { html });
+    } catch (err) {
+      // The page exists but the attach failed — don't burn; visualizationGeneratedAt is still
+      // stale, so the next poll retries (same philosophy as a failed verdict post).
+      this.console.error(`[reviewer] failed to attach visualization for ${session.key}: ${(err as Error).message}`);
+      return;
+    }
+    this.vizAttempts.delete(vizKey);
+    this.console.log(`[reviewer] posted visualization for ${session.key} (${html.length} bytes) via ${session.engine}`);
+  }
+
+  /** A visualization attempt failed: log-only budget burn, keyed per submission. At the cap the
+   *  task simply gets no page until a new submission — never a failure/v1, never the review budget. */
+  private burnVizAttempt(key: string, vizKey: string, attempt: number, reason: string): void {
+    this.vizAttempts.set(vizKey, attempt);
+    this.console.warn(`[reviewer] visualization of ${key} failed (attempt ${attempt}/${this.config.maxAttempts}): ${reason}`);
+    if (attempt >= this.config.maxAttempts) {
+      this.console.warn(`[reviewer] giving up on visualization for ${key} until a new submission`);
+    }
   }
 
   /** The verdict text: codex's captured final message (file), or claude's stdout. */

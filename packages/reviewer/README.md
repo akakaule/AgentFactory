@@ -60,7 +60,8 @@ reviews them) and the web server, all pointed at the same DB.
 | `maxConcurrent` | `1` | Max concurrent reviews **per workspace**. |
 | `reviewMinutes` | `20` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |
 | `maxDiffChars` | `120000` | The diff is truncated to this many chars before the prompt (0 = no limit). |
-| `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left for a human reviewer. |
+| `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left for a human reviewer. Also caps visualization attempts (per submission, separate budget). |
+| `visualization` | `{ "enabled": true }` | Auto-generated HTML change-visualization for in_review **implementation** tasks: one extra one-shot engine session authors the self-contained page (Mermaid diagram + file map), attached to the board before the review runs; the verdict comment links it (`Visualization: /api/tasks/<key>/visualization`). Optional `engine`/`model` override the top-level ones for the viz session only. Failures are log-only — never a `failure/v1`, never the review budget. Set `"enabled": false` to opt out. |
 
 See [`reviewer.config.example.json`](./reviewer.config.example.json).
 
@@ -91,6 +92,11 @@ server's `/v1/logs` receiver with `task.key` set — see [`docs/token-telemetry.
   burns an attempt, and skip-lists after `maxAttempts`. Restart resets that budget in place.
 - **Cleans up the full process tree** on timeout/shutdown, including Windows CLI shims. A completed
   Codex final-message artifact found at the timeout boundary is posted instead of discarded.
+- **Visualizes first** (when `visualization.enabled`): an in_review implementation task without
+  a current change-visualization gets one extra engine session (`<ws>#<key>-viz<attempt>`,
+  logs `logs/<key>-viz-<n>.log`/`.out`) that authors the HTML page from the same diff; the
+  supervisor attaches it to the board and the verdict posted on the next poll links it. A new
+  submission regenerates the page. Viz failures are log-only and never touch the review budget.
 - **Logs** every review to `logs/<key>-review-<n>.log` (engine stdout + stderr); codex's
   captured verdict also lands in `logs/<key>-review-<n>.out`.
 

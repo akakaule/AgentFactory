@@ -49,7 +49,7 @@ Six packages (`packages/*`), npm workspaces, TypeScript project references (`tsc
 - **`mcp`** — stdio MCP server exposing board ops to agent loops (`src/tools/*`: `get_next_task`, `submit_result`, `report_progress`, etc.). Wraps core ops in the MCP protocol shape (`src/protocol.ts`).
 - **`web`** — `server/` is a Hono API + SSE (`buildApp` in `server/app.ts`, routes in `server/routes/*`); `client/` is React/Vite. The client polls a cheap version string and refetches on change.
 - **`dispatcher`** — polls the DB for `queued` tasks, spawns **one fresh `claude -p` session per task**, releases crashed/timed-out claims back to the queue. Config: `dispatcher.config.json`.
-- **`reviewer`** — polls `in_review` tasks, spawns **one fresh codex/claude session per task** to post an advisory `ai-review/v1` verdict. Config: `reviewer.config.json`.
+- **`reviewer`** — polls `in_review` tasks, spawns **one fresh codex/claude session per task** to post an advisory `ai-review/v1` verdict. Before reviewing an implementation task it also auto-generates the task's HTML change-visualization (one extra one-shot session; attached via the #16 storage, linked from the verdict; `visualization.enabled: false` opts out). Config: `reviewer.config.json`.
 - **`watcher`** — polls `delivering` tasks and verifies delivery on the git host (GitHub/Azure DevOps REST — no LLM, no spawn): PR merged + checks green ⇒ `done`; CI failed / PR closed unmerged ⇒ back to `queued` with a `failure/v1` comment. Config: `watcher.config.json` (auth via `GITHUB_TOKEN` / `AZDO_PAT` env).
 
 ### Lifecycle is the core invariant

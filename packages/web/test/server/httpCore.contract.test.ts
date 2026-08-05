@@ -101,6 +101,19 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect(detail.metrics.tokensIn).toBe(100);
   });
 
+  it('attachVisualization posts raw text/html and round-trips typed errors', async () => {
+    const doc = '<!doctype html>\n<html><body>viz</body></html>';
+    const t = core.createTask({ title: 'Viz', spec: 'S', acceptanceCriteria: 'A' });
+
+    const meta = await http.attachVisualization(t.key, { html: doc });
+    expect(meta.bytes).toBe(doc.length);
+    expect(typeof meta.generatedAt).toBe('string');
+    expect(core.getVisualizationHtml(t.key)).toBe(doc); // same store the board reads
+
+    await expect(http.attachVisualization('AF-9999', { html: doc })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(http.attachVisualization(t.key, { html: '   ' })).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it('whoami reports the token identity and supervisor capability', async () => {
     expect(await http.whoami()).toEqual({ label: 'remote-supervisor', supervisor: true });
 
