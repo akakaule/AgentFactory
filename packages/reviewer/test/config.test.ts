@@ -49,6 +49,23 @@ describe('reviewer config', () => {
     expect(c.model).toBe('opus');
   });
 
+  it('visualization defaults to enabled with no engine/model override', () => {
+    const c = parseConfig({ db: './x.db' });
+    expect(c.visualization).toEqual({ enabled: true });
+  });
+
+  it('visualization accepts enabled:false and engine/model overrides', () => {
+    const c = parseConfig({ db: './x.db', visualization: { enabled: false } });
+    expect(c.visualization.enabled).toBe(false);
+    const d = parseConfig({ db: './x.db', visualization: { engine: 'claude', model: 'opus' } });
+    expect(d.visualization).toEqual({ enabled: true, engine: 'claude', model: 'opus' });
+  });
+
+  it('visualization rejects unknown keys and unknown engines', () => {
+    expect(() => parseConfig({ db: './x.db', visualization: { minutes: 5 } })).toThrow();
+    expect(() => parseConfig({ db: './x.db', visualization: { engine: 'gpt' } })).toThrow();
+  });
+
   it('loadConfig parses JSON through the injected reader', () => {
     const c = loadConfig('/cfg.json', () => JSON.stringify({ db: './x.db', workspaces: ['ws'] }));
     expect(c.workspaces).toEqual(['ws']);

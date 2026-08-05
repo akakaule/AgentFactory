@@ -46,6 +46,21 @@ export const baseConfigSchema = z.object({
   /** Attempts a task gets before it is skip-listed (left for a human). */
   maxAttempts: z.number().int().positive().default(2),
   /**
+   * Auto-generated change visualization (#16 storage): before reviewing an in_review
+   * implementation task, spawn one extra one-shot engine session that authors the
+   * self-contained HTML change-overview and attach it to the board. `engine`/`model`
+   * default to the top-level review engine/model. Failures are log-only (their attempt
+   * budget is per submission, separate from the review budget).
+   */
+  visualization: z
+    .object({
+      enabled: z.boolean().default(true),
+      engine: z.enum(REVIEW_ENGINES).optional(),
+      model: z.string().min(1).optional(),
+    })
+    .strict()
+    .default({}),
+  /**
    * Optional OpenTelemetry export. When set, each spawned review binds its token usage to the
    * task so usage lands attributed (not "unattributed") in the live Telemetry feed + per-task
    * rollup. Wiring is per engine: the `claude` engine gets the OTLP env vars + a `task.key`

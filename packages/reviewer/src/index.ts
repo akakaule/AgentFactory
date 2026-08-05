@@ -128,6 +128,7 @@ const wsDesc = config.workspaces
 console.log(
   `[reviewer] starting — ${config.board ? `board ${config.board.url}` : `db ${config.db}`}, workspaces ${wsDesc}, ` +
     `engine ${config.engine}${config.model ? ` (${config.model})` : ''}, ` +
+    `viz ${config.visualization.enabled ? (config.visualization.engine ?? config.engine) : 'off'}, ` +
     `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s`,
 );
 console.log(`[reviewer] logs ${logDir}`);

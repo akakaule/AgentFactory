@@ -153,14 +153,23 @@ export function makeConfig(overrides: Partial<ReviewerConfig> = {}): ReviewerCon
     reviewMinutes: 20,
     maxDiffChars: 120000,
     maxAttempts: 2,
+    // Off in the test base (production default is ON via the zod default) so the many
+    // review-behavior tests keep tick 1 = review; visualization tests opt in explicitly.
+    visualization: { enabled: false },
     ...overrides,
   };
+}
+
+/** A minimal complete HTML document, as a well-behaved viz engine would emit it. */
+export function sampleHtml(marker = 'viz'): string {
+  return `<!doctype html>\n<html><head><style>body{background:#111}</style></head><body><h1>${marker}</h1></body></html>`;
 }
 
 export interface DepsOverrides {
   now?: () => number;
   console?: FakeConsole;
   computeDiff?: (repoPath: string, branch: string) => Promise<BranchDiff>;
+  fetchRef?: (repoPath: string, ref: string) => Promise<void>;
   readOutput?: (path: string) => string;
   clearOutput?: (path: string) => void;
   terminateProcessTree?: (child: SpawnedChild, signal: NodeJS.Signals) => void;
@@ -173,6 +182,7 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
     resolveEngine: (engine) => `${engine}.exe`,
     computeDiff:
       overrides.computeDiff ?? (async () => ({ baseRef: 'main', diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1 })),
+    fetchRef: overrides.fetchRef ?? (async () => {}),
     openLog: () => noopLog(),
     readOutput: overrides.readOutput ?? (() => ''),
     clearOutput: overrides.clearOutput ?? (() => {}),
