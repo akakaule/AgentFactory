@@ -34,6 +34,15 @@
   h2.sl { font-family:"Space Grotesk",sans-serif; font-size:13px; font-weight:600; letter-spacing:.1em;
           text-transform:uppercase; color:var(--ink-2); margin:46px 0 16px; }
 
+  /* demo video */
+  .video { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px;
+           padding:14px 18px 2px; margin-top:28px; }
+  .video .frame { position:relative; width:100%; aspect-ratio:16/9; border-radius:8px; overflow:hidden;
+                  background:var(--bg-deep); border:1px solid var(--line-soft); }
+  .video .frame iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .video .cap { text-align:center; font-family:"IBM Plex Mono",monospace; font-size:11px;
+                color:var(--ink-3); padding:8px 0 12px; }
+
   /* factory hero illustration */
   .factory { background:var(--panel); border:1px solid var(--line-soft); border-radius:12px;
              padding:14px 18px 2px; margin-top:28px; }
@@ -118,6 +127,19 @@
     <span class="pill"><b>Remote</b> · board mode over HTTP · scoped service tokens</span>
   </div>
 </header>
+
+<h2 class="sl">Watch it run</h2>
+<div class="video">
+  <div class="frame">
+    <iframe src="https://www.youtube-nocookie.com/embed/DIxWMoVvIbs"
+            title="AgentFactory demo — a task from creation to a merged PR"
+            loading="lazy" referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen></iframe>
+  </div>
+  <div class="cap">one live run — issue in, describe → plan → build, review, merged PR ·
+    <a href="https://youtu.be/DIxWMoVvIbs">watch on YouTube</a></div>
+</div>
 
 <div class="factory">
 <svg viewBox="0 0 1140 350" role="img" aria-label="A factory of robot agents assembling the AgentFactory board on a conveyor line">
@@ -616,6 +638,6 @@
 </div>
 
 </div>
-<footer>AgentFactory · index · updated 2026-07-28</footer>
+<footer>AgentFactory · index · updated 2026-08-09</footer>
 </body>
 </html>
