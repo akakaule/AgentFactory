@@ -52,7 +52,7 @@
 <body>
 <header class="page">
   <h1>AgentFactory <span>· system overview</span></h1>
-  <p>Azure DevOps backlogs feed the board through per-workspace <a href="producer-flow.html" style="color:var(--accent-2);text-decoration:none"><b>ado-bridge</b></a> loops — <span class="mono" style="color:var(--accent-2)">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono" style="color:var(--accent-2)">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono" style="color:var(--accent-2)">Run-ReviewerLoop.ps1</span> posts the AI first-pass verdict; pinned agents claim over MCP, work in
+  <p>Azure DevOps backlogs feed the board through per-workspace <a href="agent-flow.html#producers" style="color:var(--accent-2);text-decoration:none"><b>ado-bridge</b></a> loops — <span class="mono" style="color:var(--accent-2)">Run-AdoBridgeLoop.ps1</span> produces, <span class="mono" style="color:var(--accent-2)">Run-AgentFactoryLoop.ps1</span> consumes, <span class="mono" style="color:var(--accent-2)">Run-ReviewerLoop.ps1</span> posts the AI first-pass verdict; pinned agents claim over MCP, work in
      isolated worktrees inside each workspace's git repo, and push <span class="mono" style="color:var(--accent-2)">feature/&lt;key&gt;-&lt;title&gt;</span> branches
      back to origin with the PR opened automatically. After the human approves, the <b>watcher</b> supervisor verifies delivery — done means the PR merged and the
      pipeline came up green. The board is the human checkpoint — and the only shared state. Locally that is one SQLite
