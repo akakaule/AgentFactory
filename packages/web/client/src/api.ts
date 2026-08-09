@@ -1,5 +1,5 @@
 import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts } from './types.js';
-import type { AnalyticsData } from './metrics.js';
+import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
 export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
@@ -80,6 +80,12 @@ export const api = {
   // raw HTML, not JSON — rendered into a sandboxed iframe (srcDoc) by VisualizationModal
   getVisualizationHtml: (key: string) => rawFetch(`/api/tasks/${key}/visualization`).then((r) => r.text()),
   getAnalytics: () => req<AnalyticsData>('/api/analytics'),
+  getTokenTrend: (workspace?: string) => {
+    const q = new URLSearchParams();
+    if (workspace) q.set('workspace', workspace);
+    const qs = q.toString();
+    return req<TokenTrendPoint[]>(`/api/analytics/token-trend${qs ? `?${qs}` : ''}`);
+  },
   whoami: () => req<WhoAmI>('/auth/whoami'),
   listAgents: () => req<AgentSessionView[]>('/api/agents'),
   listSupervisors: () => req<SupervisorView[]>('/api/supervisors'),

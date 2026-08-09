@@ -35,6 +35,7 @@ export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
+export { tokenTrend, type TokenTrendPoint } from './ops/tokenTrend.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { addAttachment } from './ops/addAttachment.js';
 export { deleteAttachment } from './ops/deleteAttachment.js';
@@ -85,6 +86,7 @@ import type { AgentPromptKey } from './agentPrompts.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
+import { tokenTrend } from './ops/tokenTrend.js';
 import { addTaskMetrics } from './ops/addTaskMetrics.js';
 import { addAttachment } from './ops/addAttachment.js';
 import { deleteAttachment } from './ops/deleteAttachment.js';
@@ -173,6 +175,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     reviewPrReviewed: (key: string, input: { review?: string | undefined; actorUserId?: number | null }) => reviewPrReviewed(db, key, input),
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
+    tokenTrend: (opts: { workspace?: string | undefined } = {}) => tokenTrend(db, opts),
     addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, input),
     addAttachment: (key: string, input: AddAttachmentInput) => addAttachment(db, key, input),
     deleteAttachment: (id: number) => deleteAttachment(db, id),

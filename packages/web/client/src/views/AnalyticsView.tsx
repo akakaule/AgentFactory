@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useEventStream } from '../useEventStream.js';
 import { useWorkspaces } from '../useWorkspaces.js';
 import { wsColor } from '../wsColor.js';
-import { computeAnalytics, fmtDur, fmtNum, shortBranch, type AnalyticsData } from '../metrics.js';
+import { computeAnalytics, fmtDur, fmtNum, shortBranch, type AnalyticsData, type TokenTrendPoint } from '../metrics.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -35,12 +35,45 @@ function AnalyticsEmpty({ ws, rangeDays }: { ws: string; rangeDays: number | nul
   );
 }
 
+function TokenTrendChart({ points, workspace }: { points: TokenTrendPoint[]; workspace: string }) {
+  const max = Math.max(1, ...points.flatMap((p) => [p.tokensIn, p.tokensOut]));
+  const totalIn = points.reduce((sum, p) => sum + p.tokensIn, 0);
+  const totalOut = points.reduce((sum, p) => sum + p.tokensOut, 0);
+
+  return (
+    <>
+      <div className="an-trend-chart" role="img" aria-label={`Daily input and output tokens for ${workspace || 'all workspaces'}`}>
+        {points.map((p) => (
+          <div
+            className="an-trend-day"
+            key={p.date}
+            title={`${p.date} · input ${p.tokensIn.toLocaleString('en-US')} · output ${p.tokensOut.toLocaleString('en-US')}`}
+          >
+            <span className="bars">
+              <i className="in" style={{ height: `${(p.tokensIn / max) * 100}%` }}></i>
+              <i className="out" style={{ height: `${(p.tokensOut / max) * 100}%` }}></i>
+            </span>
+            <span className="date">{p.date.slice(8)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="an-caption"><b>{fmtNum(totalIn)} input · {fmtNum(totalOut)} output</b> · {workspace || 'all workspaces'}</div>
+    </>
+  );
+}
+
 type TokGroup = 'model' | 'workspace' | 'branch' | 'stage';
 
 export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tokGroup, setTokGroup] = useState<TokGroup>('model');
+  const [trend, setTrend] = useState<{ ws: string; points: TokenTrendPoint[] } | null>(null);
+  const [trendErr, setTrendErr] = useState<{ ws: string; message: string } | null>(null);
+  const [trendWs, setTrendWs] = useState('');
+  const trendWsRef = useRef('');
+  const selGen = useRef(0);
+  const inflight = useRef<{ gen: number; again: boolean } | null>(null);
   // Surface a failed/timed-out load instead of swallowing it — otherwise `data` stays null
   // and the view sits on "Loading…" forever (indistinguishable from a real load). A stale
   // refetch failure keeps the data already on screen; the error UI only shows when empty.
@@ -51,6 +84,51 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   }, []);
   useEffect(refetch, [refetch]);
   useEventStream(refetch);
+
+  const refetchTrend = useCallback(function fetchTrend(): void {
+    const gen = selGen.current;
+    const active = inflight.current;
+    if (active?.gen === gen) {
+      active.again = true;
+      return;
+    }
+
+    const selectedWs = trendWsRef.current;
+    inflight.current = { gen, again: false };
+    const settle = (result: { points: TokenTrendPoint[] } | { message: string }) => {
+      // A selection change invalidates this request. It must not touch the current
+      // generation's in-flight marker, error, or data.
+      if (gen !== selGen.current) return;
+
+      const again = inflight.current?.gen === gen && inflight.current.again;
+      inflight.current = null;
+      if ('points' in result) {
+        setTrend({ ws: selectedWs, points: result.points });
+        setTrendErr(null);
+      } else {
+        setTrendErr({ ws: selectedWs, message: result.message });
+      }
+      if (again) fetchTrend();
+    };
+
+    api.getTokenTrend(selectedWs || undefined)
+      .then((points) => settle({ points }))
+      .catch((e: unknown) => settle({
+        message: e instanceof Error && e.message ? e.message : 'Could not load token spend.',
+      }));
+  }, []);
+  useEffect(refetchTrend, [refetchTrend]);
+  useEventStream(refetchTrend);
+
+  const changeTrendWs = useCallback((nextWs: string) => {
+    if (nextWs === trendWsRef.current) return;
+    setTrendWs(nextWs);
+    trendWsRef.current = nextWs;
+    selGen.current += 1;
+    inflight.current = null;
+    setTrendErr(null);
+    refetchTrend();
+  }, [refetchTrend]);
   const { workspaces } = useWorkspaces();
 
   const a = useMemo(() => (data ? computeAnalytics(data, ws, rangeDays) : null), [data, ws, rangeDays]);
@@ -246,6 +324,36 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
             </table>
           </div>
         </>); })()}
+
+        <section className="an-panel span an-trend-panel" aria-label="Token spend">
+          <div className="an-ph an-trend-head">
+            <h3>Token spend</h3><small>daily · last 30 days UTC</small>
+            <div className="an-trend-legend" aria-label="Token types">
+              <span><i className="in"></i>Input</span>
+              <span><i className="out"></i>Output</span>
+            </div>
+            <select
+              className="an-trend-ws"
+              aria-label="Token spend workspace"
+              value={trendWs}
+              onChange={(e) => changeTrendWs(e.target.value)}
+            >
+              <option value="">All workspaces</option>
+              {workspaces.map((w) => <option key={w.id} value={w.name}>{w.name}</option>)}
+            </select>
+          </div>
+          {trendErr?.ws === trendWs ? (
+            <div className="an-trend-error">
+              <b>Couldn't load token spend for {trendWs || 'all workspaces'}</b>
+              <span>{trendErr.message}</span>
+              <button className="af-btn-primary" onClick={() => { setTrendErr(null); refetchTrend(); }}>Retry</button>
+            </div>
+          ) : !trend || trend.ws !== trendWs ? (
+            <div className="an-trend-loading">Loading token spend for {trendWs || 'all workspaces'}…</div>
+          ) : (
+            <TokenTrendChart points={trend.points} workspace={trend.ws} />
+          )}
+        </section>
       </div>
     </div>
   );
