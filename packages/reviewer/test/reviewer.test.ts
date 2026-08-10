@@ -196,7 +196,7 @@ describe('poll + spawn', () => {
 // otel token capture (bind the review's usage to the task)
 // ---------------------------------------------------------------------------
 describe('otel token capture', () => {
-  it('codex review: sets AF_TASK_KEY (+ AF_OTEL_TOKEN) so config.toml binds the run', async () => {
+  it('codex review: injects the otlp-http exporter via -c with the literal task key (and keeps AF_TASK_KEY as a session marker)', async () => {
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Build it', 'implementation');
     const { spawn, calls } = makeFakeSpawn();
@@ -204,10 +204,14 @@ describe('otel token capture', () => {
     const r = new Reviewer(cfg, makeDeps(core, spawn, { console: makeFakeConsole() }));
 
     await r.tick();
-    const env = calls[0]!.req.env;
+    const { args, env } = calls[0]!.req;
+    const override = args[args.indexOf('-c') + 1]!;
+    expect(override).toContain('otel.exporter={otlp-http={endpoint="http://localhost:8787/v1/logs"');
+    expect(override).toContain(`X-Task-Key="${key}"`);
+    expect(override).toContain('Authorization="Bearer svc"');
     expect(env['AF_TASK_KEY']).toBe(key);
     expect(env['AF_OTEL_TOKEN']).toBe('svc');
-    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toBeUndefined(); // codex reads config.toml, not env
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toBeUndefined(); // codex gets -c config, not the OTLP env
   });
 
   it('claude review: sets the OTLP env + a task.key resource attribute', async () => {

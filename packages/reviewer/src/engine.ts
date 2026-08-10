@@ -46,12 +46,43 @@ export function resolveEngineCommand(engine: ReviewEngine, { platform, env, look
   return platform === 'win32' ? `${engine}.cmd` : engine;
 }
 
+export interface EngineOtelOpts {
+  /** The board's base URL (the OTLP path is appended here — codex uses the endpoint verbatim). */
+  endpoint: string;
+  /** The task this spawn's token usage is attributed to (rides as a literal header value). */
+  taskKey: string;
+  /** Optional bearer token for a board running in token auth mode. */
+  token?: string | undefined;
+}
+
 export interface EngineArgsOpts {
   engine: ReviewEngine;
   /** Optional model override (codex `-m`, claude `--model`). */
   model?: string | undefined;
   /** File codex captures its final message to (`--output-last-message`); ignored for claude. */
   outputFile: string;
+  /** When set, codex gets a `-c otel.exporter=...` override binding its token export to the
+   *  task; ignored for claude (which reads OTLP from the environment). */
+  otel?: EngineOtelOpts | undefined;
+}
+
+/** Escape a value as a TOML basic string (the `-c` override value is parsed as TOML). */
+const tomlStr = (s: string): string => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+/**
+ * The codex OTel exporter override, passed as `-c otel.exporter=<TOML inline table>`.
+ * Injected per spawn because config.toml cannot do this: codex uses the configured endpoint
+ * VERBATIM (it never appends `/v1/logs`), and it does not interpolate env vars into header
+ * values — so the task key must ride as a literal, per-session header. Written without
+ * spaces or cmd.exe metacharacters so the value survives the Windows `.cmd`-shim spawn path.
+ */
+export function buildOtelOverride({ endpoint, taskKey, token }: EngineOtelOpts): string {
+  const url = `${endpoint.replace(/\/+$/, '')}/v1/logs`;
+  const headers = [
+    `X-Task-Key=${tomlStr(taskKey)}`,
+    ...(token ? [`Authorization=${tomlStr(`Bearer ${token}`)}`] : []),
+  ].join(',');
+  return `otel.exporter={otlp-http={endpoint=${tomlStr(url)},protocol="json",headers={${headers}}}}`;
 }
 
 /**
@@ -60,12 +91,13 @@ export interface EngineArgsOpts {
  * - codex: `exec` read-only, no git-repo check, final message captured to a file, prompt via `-`.
  * - claude: headless single-turn text; the verdict is stdout.
  */
-export function buildEngineArgs({ engine, model, outputFile }: EngineArgsOpts): string[] {
+export function buildEngineArgs({ engine, model, outputFile, otel }: EngineArgsOpts): string[] {
   if (engine === 'codex') {
     const args = [
       'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never',
       '--output-last-message', outputFile,
     ];
+    if (otel) args.push('-c', buildOtelOverride(otel));
     if (model) args.push('-m', model);
     args.push('-'); // read the prompt from stdin
     return args;

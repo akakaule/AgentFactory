@@ -12,9 +12,11 @@ row via the normal path — so OTel usage aggregates exactly like dispatcher-rep
 
 - **Token events read:** Claude `claude_code.api_request` (`input_tokens`, `output_tokens`,
   `cache_read_tokens`, `cache_creation_tokens`, `cost_usd`, `model`); Codex `codex.sse_event` /
-  `response.completed` (`input_tokens`, `output_tokens`, `cached_input_tokens`, `model`).
-- **tokensIn = input + cache_read + cache_creation; tokensOut = output** (same convention as the
-  dispatcher's parser).
+  `response.completed` (`input_token_count`, `output_token_count`, `cached_token_count`, `model`
+  — the codex 0.14x shape, verified against 0.147.0).
+- **Claude: tokensIn = input + cache_read + cache_creation** (same convention as the dispatcher's
+  parser). **Codex: tokensIn = input_token_count** as-is — it already includes the cached prefix
+  (OpenAI usage semantics), so cached is a breakdown, never an addend.
 - **Task correlation (first match wins):** `X-Task-Key` request header → `task.key` resource
   attribute → `task.key` log attribute. **No key ⇒ the event is dropped** (per-task tracking
   needs a task binding — see Limitations).
@@ -28,8 +30,9 @@ It's a live table of recent events — **time · task · workspace · worker · 
 in · cached · out · cost** — plus rolling totals broken down by agent and model. Use it to watch
 usage flow in real time and to confirm a session is actually exporting.
 
-- **Cached** is the cache-hit portion (`cache_read + cache_creation` for Claude, `cached_input` for
-  Codex) and is **already counted inside In** — it's a breakdown, not an extra addend.
+- **Cached** is the cache-hit portion (`cache_read + cache_creation` for Claude,
+  `cached_token_count` for Codex) and is **already counted inside In** — it's a breakdown, not an
+  extra addend.
 - **Worker/workspace** come from the `af.worker` / `af.workspace` resource attributes the dispatcher
   stamps (see below); columns show `–` when a session doesn't set them.
 - **Unattributed events** (no task key) are **dropped** — the feed shows only usage that maps to a
@@ -57,28 +60,28 @@ so the session isn't double-counted:
 ```
 
 ## Codex
-Codex is configured by file, not env (env only interpolates into values like headers). In
-`~/.codex/config.toml` — `exporter` is a single inline table (a string + a `[otel.exporter.otlp-http]`
-table would collide on the `exporter` key and fail to parse):
-```toml
-[otel]
-exporter = { otlp-http = { endpoint = "http://localhost:8787", protocol = "json", headers = {
-  "X-Task-Key" = "${AF_TASK_KEY}",                 # binds the run to a task
-  "Authorization" = "Bearer ${AF_OTEL_TOKEN}",     # only in token mode; drop in none mode
-} } }
-```
-Then export `AF_TASK_KEY=AF-123` (and `AF_OTEL_TOKEN`) before launching `codex` / `codex exec`.
-The **reviewer does this automatically per review** when its config has an `otel` block — for the
-`codex` engine it stamps `AF_TASK_KEY` (+ `AF_OTEL_TOKEN`), and for the `claude` engine it stamps
-the full OTLP env + a `task.key` resource attribute (like the dispatcher):
+Two codex behaviors shape the wiring (both verified against codex 0.147.0):
+- Codex uses the configured OTLP endpoint **verbatim** — it never appends `/v1/logs`, so the
+  endpoint must carry the full path.
+- Codex does **not interpolate env vars** into config header values — a
+  `"X-Task-Key" = "${AF_TASK_KEY}"` header arrives as the literal string `${AF_TASK_KEY}`, so a
+  static `~/.codex/config.toml` cannot bind a run to a task.
+
+The **reviewer therefore injects the whole exporter per spawn** when its config has an `otel`
+block, as a config override on the codex command line (for the `claude` engine it stamps the full
+OTLP env + a `task.key` resource attribute instead, like the dispatcher):
 ```jsonc
 // reviewer.config.json
 { "otel": { "endpoint": "http://localhost:8787", "token": "<service-token>" } }
 ```
-The `codex` path still requires the `[otel]` block above in `~/.codex/config.toml` (the reviewer
-only supplies the per-run header values it interpolates). Token counts ride `codex.sse_event` logs
-in both interactive and `codex exec` (note: `codex exec` emits logs but no OTel *metrics* — we read
-logs, so this is fine).
+becomes, per review/visualization session:
+```
+codex exec ... -c otel.exporter={otlp-http={endpoint="http://localhost:8787/v1/logs",protocol="json",headers={X-Task-Key="AF-123",Authorization="Bearer <service-token>"}}}
+```
+No `[otel]` block in `~/.codex/config.toml` is needed (an existing one is overridden for these
+spawns and can be removed). For a **manual** task-bound run, pass the same `-c` override with the
+task key inlined. Token counts ride `codex.sse_event` logs in both interactive and `codex exec`
+(note: `codex exec` emits logs but no OTel *metrics* — we read logs, so this is fine).
 
 ## Verify
 ```sh

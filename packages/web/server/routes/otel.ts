@@ -9,8 +9,9 @@ import type { TelemetryStore } from '../telemetry.js';
  * captured in BOTH interactive and headless runs. Tolerant by design: malformed or
  * unattributed events are skipped, never failing the batch (the CLI would otherwise retry).
  *
- * Correlation to a task (first match wins): the `X-Task-Key` request header (Codex stamps
- * it via a config header), then a `task.key` resource attribute (Claude stamps it via
+ * Correlation to a task (first match wins): the `X-Task-Key` request header (the reviewer
+ * injects it into codex's exporter config per spawn — codex does NOT interpolate env vars
+ * into config.toml headers), then a `task.key` resource attribute (Claude stamps it via
  * OTEL_RESOURCE_ATTRIBUTES), then a `task.key` log attribute. No key → the event is dropped.
  */
 
@@ -37,8 +38,11 @@ const asNum = (v?: AnyValue): number | undefined => {
   return undefined;
 };
 
+// The `event.name` ATTRIBUTE is checked first: it is the semantic-convention event identity,
+// whereas codex's Rust SDK fills the top-level `eventName` field with tracing metadata
+// ("event otel\\src\\events\\session_telemetry.rs:927") that would shadow the real name.
 const eventNameOf = (rec: LogRecord): string =>
-  rec.eventName ?? asStr(rec.body) ?? asStr(attrOf(rec.attributes, 'event.name')) ?? '';
+  asStr(attrOf(rec.attributes, 'event.name')) ?? rec.eventName ?? asStr(rec.body) ?? '';
 
 interface TokenHit { tokensIn: number; tokensCached: number; tokensOut: number; costUsd?: number; model?: string; source: 'claude-code' | 'codex' }
 
@@ -60,11 +64,14 @@ function extract(rec: LogRecord): TokenHit | null {
   }
 
   if (name === 'codex.sse_event' || name === 'response.completed') {
-    const input = asNum(attrOf(a, 'input_tokens')) ?? asNum(attrOf(a, 'input')) ?? 0;
-    const output = asNum(attrOf(a, 'output_tokens')) ?? asNum(attrOf(a, 'output')) ?? 0;
-    const cached = asNum(attrOf(a, 'cached_input_tokens')) ?? asNum(attrOf(a, 'cached')) ?? 0;
+    // codex 0.14x shape (verified against 0.147.0): the `response.completed` sse event carries
+    // `*_token_count` attrs, where `input_token_count` already INCLUDES the cached prefix
+    // (OpenAI usage semantics) — so no summing here, unlike the claude branch.
+    const input = asNum(attrOf(a, 'input_token_count')) ?? 0;
+    const output = asNum(attrOf(a, 'output_token_count')) ?? 0;
+    const cached = asNum(attrOf(a, 'cached_token_count')) ?? 0;
     if (input + output + cached === 0) return null;
-    const hit: TokenHit = { tokensIn: input + cached, tokensCached: cached, tokensOut: output, source: 'codex' };
+    const hit: TokenHit = { tokensIn: input, tokensCached: cached, tokensOut: output, source: 'codex' };
     const model = asStr(attrOf(a, 'model')); if (model !== undefined) hit.model = model;
     return hit;
   }

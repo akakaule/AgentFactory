@@ -27,16 +27,26 @@ function claudeBody(taskKey: string | null) {
   };
 }
 
+// A real codex 0.14x `response.completed` sse event: the top-level `eventName` field holds
+// tracing metadata (NOT the event name — it must not shadow the `event.name` attribute),
+// body is null, token attrs are `*_token_count`, and int64s arrive as BOTH stringValue and
+// string-encoded intValue. `input_token_count` already includes the cached prefix (OpenAI
+// usage semantics).
 function codexBody() {
   return {
     resourceLogs: [{
       scopeLogs: [{
         logRecords: [{
-          body: { stringValue: 'codex.sse_event' },
+          eventName: 'event otel\\src\\events\\session_telemetry.rs:927',
+          body: null,
           attributes: [
-            { key: 'input_tokens', value: { intValue: '300' } },
-            { key: 'output_tokens', value: { intValue: '40' } },
-            { key: 'cached_input_tokens', value: { intValue: '10' } },
+            { key: 'event.name', value: { stringValue: 'codex.sse_event' } },
+            { key: 'event.kind', value: { stringValue: 'response.completed' } },
+            { key: 'input_token_count', value: { stringValue: '1200' } },
+            { key: 'output_token_count', value: { stringValue: '45' } },
+            { key: 'cached_token_count', value: { intValue: '300' } },
+            { key: 'cache_write_token_count', value: { intValue: '0' } },
+            { key: 'reasoning_token_count', value: { intValue: '0' } },
             { key: 'model', value: { stringValue: 'gpt-5-codex' } },
           ],
         }],
@@ -57,7 +67,7 @@ describe('POST /v1/logs — OTLP token ingest', () => {
     expect(detail.metrics).toMatchObject({ tokensIn: 1050, tokensOut: 200, costUsd: 0.01, model: 'claude-opus-4-8' });
   });
 
-  it('Codex sse_event + X-Task-Key header → summed tokens', async () => {
+  it('Codex sse_event + X-Task-Key header → tokens recorded (input NOT double-counted with cached)', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core);
     const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
@@ -65,7 +75,7 @@ describe('POST /v1/logs — OTLP token ingest', () => {
     await postLogs(app, codexBody(), { 'x-task-key': t.key });
 
     const detail = await (await app.request(`/api/tasks/${t.key}`)).json() as { metrics: { tokensIn: number; tokensOut: number; model: string } };
-    expect(detail.metrics).toMatchObject({ tokensIn: 310, tokensOut: 40, model: 'gpt-5-codex' });
+    expect(detail.metrics).toMatchObject({ tokensIn: 1200, tokensOut: 45, model: 'gpt-5-codex' });
   });
 
   it('no task.key anywhere → 200 but nothing recorded', async () => {

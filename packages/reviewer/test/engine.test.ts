@@ -33,6 +33,35 @@ describe('buildEngineArgs', () => {
     expect(args.slice(-3)).toEqual(['-m', 'o3', '-']);
   });
 
+  it('codex: otel opts inject a full otlp-http exporter override via -c (endpoint gains /v1/logs, literal task key)', () => {
+    const args = buildEngineArgs({
+      engine: 'codex', outputFile: '/logs/x.out',
+      otel: { endpoint: 'http://localhost:8787/', taskKey: 'AF-7', token: 'svc' },
+    });
+    const i = args.indexOf('-c');
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe(
+      'otel.exporter={otlp-http={endpoint="http://localhost:8787/v1/logs",protocol="json",headers={X-Task-Key="AF-7",Authorization="Bearer svc"}}}',
+    );
+    expect(args.at(-1)).toBe('-'); // stdin marker stays last
+  });
+
+  it('codex: otel without a token omits the Authorization header', () => {
+    const args = buildEngineArgs({
+      engine: 'codex', outputFile: '/logs/x.out',
+      otel: { endpoint: 'http://localhost:8787', taskKey: 'AF-7' },
+    });
+    const override = args[args.indexOf('-c') + 1]!;
+    expect(override).toContain('headers={X-Task-Key="AF-7"}');
+    expect(override).not.toContain('Authorization');
+  });
+
+  it('claude: otel opts are ignored (claude reads OTLP from the environment)', () => {
+    expect(
+      buildEngineArgs({ engine: 'claude', outputFile: '', otel: { endpoint: 'http://x', taskKey: 'AF-7' } }),
+    ).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
+  });
+
   it('claude: headless single-turn text (verdict on stdout)', () => {
     expect(buildEngineArgs({ engine: 'claude', outputFile: '' })).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
   });

@@ -34,15 +34,21 @@ function claudeBody(taskKey: string | null, extra: { workspace?: string; worker?
   };
 }
 
+// The real codex 0.14x shape: `eventName` holds tracing metadata (must not shadow the
+// `event.name` attribute), tokens ride `*_token_count` attrs.
 function codexBody() {
   return {
     resourceLogs: [{
       scopeLogs: [{
         logRecords: [{
-          body: { stringValue: 'codex.sse_event' },
+          eventName: 'event otel\\src\\events\\session_telemetry.rs:927',
+          body: null,
           attributes: [
-            { key: 'input_tokens', value: { intValue: '300' } },
-            { key: 'output_tokens', value: { intValue: '40' } },
+            { key: 'event.name', value: { stringValue: 'codex.sse_event' } },
+            { key: 'event.kind', value: { stringValue: 'response.completed' } },
+            { key: 'input_token_count', value: { stringValue: '300' } },
+            { key: 'output_token_count', value: { stringValue: '40' } },
+            { key: 'cached_token_count', value: { intValue: '0' } },
             { key: 'model', value: { stringValue: 'gpt-5-codex' } },
           ],
         }],

@@ -296,8 +296,10 @@ export class Reviewer {
   /**
    * Bind a spawned review's token usage to its task for OTLP export. Engine-specific:
    * `claude` reads OTLP from the environment (so we set the full env, plus a `task.key`/
-   * `af.workspace`/`af.worker` resource attribute); `codex` reads OTLP from `~/.codex/config.toml`
-   * and only interpolates `AF_TASK_KEY`/`AF_OTEL_TOKEN` from the env into its header values.
+   * `af.workspace`/`af.worker` resource attribute); `codex` gets its exporter injected as a
+   * `-c otel.exporter=...` override in buildEngineArgs (codex does not interpolate env vars
+   * into config.toml headers) — the AF_TASK_KEY/AF_OTEL_TOKEN env vars remain as session
+   * markers only.
    */
   private applyOtel(env: NodeJS.ProcessEnv, engine: ReviewEngine, key: string, workspace: string, label: string): void {
     const otel = this.config.otel;
@@ -447,7 +449,12 @@ export class Reviewer {
     const outputFile = engine === 'codex' ? `${fileBase}.out` : null;
     if (outputFile) this.deps.clearOutput(outputFile);
     const logWriter = this.deps.openLog(`${fileBase}.log`);
-    const args = buildEngineArgs({ engine, model, outputFile: outputFile ?? '' });
+    const args = buildEngineArgs({
+      engine,
+      model,
+      outputFile: outputFile ?? '',
+      otel: this.config.otel ? { endpoint: this.config.otel.endpoint, taskKey: key, token: this.config.otel.token } : undefined,
+    });
     const env: NodeJS.ProcessEnv = { ...(this.deps.baseEnv ?? {}) };
     if (this.config.otel) this.applyOtel(env, engine, key, workspace, label);
 
