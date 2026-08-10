@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVisualizationPrompt, extractHtml, MAX_VISUALIZATION_BYTES } from '../src/viz.js';
+import { buildVisualizationPrompt, extractHtml, sanitizeMermaid, MAX_VISUALIZATION_BYTES } from '../src/viz.js';
 import { makeCore, seedInReview, sampleHtml } from './helpers.js';
 
 function promptFor(diffText = 'diff --git a/a.ts b/a.ts\n+code', maxDiffChars?: number) {
@@ -65,6 +65,42 @@ describe('extractHtml', () => {
     expect(extractHtml('I could not generate a page for this diff.')).toBeNull();
     expect(extractHtml('')).toBeNull();
     expect(extractHtml('```\n\n```')).toBeNull();
+  });
+});
+
+describe('sanitizeMermaid', () => {
+  const wrap = (diagram: string) => `<!doctype html><body><pre class="mermaid">${diagram}</pre></body>`;
+
+  it('replaces statement-splitting semicolons in sequence message text with commas', () => {
+    const input = wrap('\nsequenceDiagram\n    A->>B: Validate -1 or 1..365; convert days\n');
+    expect(sanitizeMermaid(input)).toBe(wrap('\nsequenceDiagram\n    A->>B: Validate -1 or 1..365, convert days\n'));
+  });
+
+  it('fixes Note text too, only after the first colon', () => {
+    const input = wrap('\nsequenceDiagram\n    Note over L,C: Fixed windows include Retry-After; concurrency does not\n');
+    expect(sanitizeMermaid(input)).toBe(wrap('\nsequenceDiagram\n    Note over L,C: Fixed windows include Retry-After, concurrency does not\n'));
+  });
+
+  it('leaves HTML entities intact while fixing bare semicolons', () => {
+    const input = wrap('\nsequenceDiagram\n    A->>B: compare a &gt; b; then merge &amp; save\n');
+    expect(sanitizeMermaid(input)).toBe(wrap('\nsequenceDiagram\n    A->>B: compare a &gt; b, then merge &amp; save\n'));
+  });
+
+  it('leaves non-sequence mermaid blocks and surrounding HTML untouched', () => {
+    const flow = wrap('\nflowchart TD\n    A[x; y] --> B\n');
+    expect(sanitizeMermaid(flow)).toBe(flow);
+    const page = '<!doctype html><body><p>a; b</p></body>';
+    expect(sanitizeMermaid(page)).toBe(page);
+  });
+
+  it('ignores colon-free lines (alt/else labels, participant lines)', () => {
+    const input = wrap('\nsequenceDiagram\n    alt fast path; slow path\n    A->>B: go\n    end\n');
+    expect(sanitizeMermaid(input)).toBe(input);
+  });
+
+  it('also fixes <div class="mermaid"> blocks (generators use either tag)', () => {
+    const input = '<div class="mermaid">\nsequenceDiagram\n    A->>B: stop; drop\n</div>';
+    expect(sanitizeMermaid(input)).toBe('<div class="mermaid">\nsequenceDiagram\n    A->>B: stop, drop\n</div>');
   });
 });
 

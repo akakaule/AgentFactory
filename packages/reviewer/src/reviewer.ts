@@ -4,7 +4,7 @@ import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildEngineArgs } from './engine.js';
 import { buildReviewPrompt, ensureMarker, buildFeedbackEvalPrompt, ensureFeedbackEvalMarker } from './review.js';
-import { buildVisualizationPrompt, extractHtml, MAX_VISUALIZATION_BYTES } from './viz.js';
+import { buildVisualizationPrompt, extractHtml, sanitizeMermaid, MAX_VISUALIZATION_BYTES } from './viz.js';
 import type { BranchDiff } from '@agentfactory/core';
 
 /** A session is one of three things: a review of a task's deliverable (`review` → ai-review/v1),
@@ -574,11 +574,12 @@ export class Reviewer {
       this.burnVizAttempt(session.key, vizKey, session.attempt, reason);
       return;
     }
-    const html = extractHtml(raw);
-    if (html === null) {
+    const extracted = extractHtml(raw);
+    if (extracted === null) {
       this.burnVizAttempt(session.key, vizKey, session.attempt, 'engine did not produce an HTML document');
       return;
     }
+    const html = sanitizeMermaid(extracted);
     if (html.length > MAX_VISUALIZATION_BYTES) {
       this.burnVizAttempt(session.key, vizKey, session.attempt, `visualization exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
       return;

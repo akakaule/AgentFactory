@@ -42,7 +42,10 @@ function pageTreatment(): string {
     '2. A Mermaid diagram of the change: prefer a `sequenceDiagram` with `autonumber` showing the',
     '   primary runtime flow (participants labelled "Role (file)"), or a `flowchart` when the',
     '   change is structural rather than a call sequence. Diagram the CHANGED behaviour, not the',
-    '   whole system.',
+    '   whole system. Mermaid syntax rules — a single parse error blanks the whole diagram:',
+    '   NEVER use a semicolon in any diagram text (message, Note, alt/else label — `;` terminates',
+    '   the statement mid-line; use a comma or dash instead), and keep quotes out of participant',
+    '   aliases and flowchart node labels.',
     '3. Only if the change is user-facing: a small hand-built HTML/CSS mockup of the affected UI.',
     '4. A "What changed" file map grouped by area (backend / frontend / tests / infra or similar),',
     '   each entry with a `new` or `mod` badge and a half-line note. Summarise repeated patterns',
@@ -88,6 +91,35 @@ export function buildVisualizationPrompt(input: VisualizationPromptInput): strin
     '=== DIFF ===',
     truncateDiff(diff.diff, maxDiffChars),
   ].join('\n');
+}
+
+/**
+ * Deterministic repair of the one Mermaid failure class engines keep producing despite the
+ * prompt rule: a `;` inside sequence-diagram text (message or Note body) terminates the
+ * statement mid-line and blanks the WHOLE diagram ("Syntax error in text"). For every
+ * `<pre class="mermaid">` block that is a `sequenceDiagram`, bare semicolons after the first
+ * `:` on a line become commas. HTML entities (`&gt;` …) keep their terminating semicolon.
+ * Other diagram kinds pass through untouched — bracket-aware surgery on flowcharts is riskier
+ * than the failure it would prevent. Engines emit either `<pre>` or `<div>` for the block.
+ */
+export function sanitizeMermaid(html: string): string {
+  return html.replace(/(<(pre|div) class="mermaid">)([\s\S]*?)(<\/\2>)/g, (_m, open: string, _tag: string, body: string, close: string) => {
+    const firstLine = body.split('\n').find((l) => l.trim() !== '')?.trim() ?? '';
+    if (!firstLine.startsWith('sequenceDiagram')) return open + body + close;
+    const fixed = body
+      .split('\n')
+      .map((line) => {
+        const colon = line.indexOf(':');
+        if (colon === -1) return line;
+        const text = line.slice(colon + 1).replace(
+          /&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);|;/g,
+          (tok) => (tok === ';' ? ',' : tok),
+        );
+        return line.slice(0, colon + 1) + text;
+      })
+      .join('\n');
+    return open + fixed + close;
+  });
 }
 
 /**

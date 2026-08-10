@@ -31,7 +31,9 @@ Read-only with respect to the repo; you never change task status.
    - Title + one-line lede summarising the change.
    - A Mermaid `sequenceDiagram` (with `autonumber`) of the primary runtime flow the diff introduces
      — who calls whom, in order; label participants with role + file. Add a `flowchart` instead/also
-     when the change is structural rather than a call sequence.
+     when the change is structural rather than a call sequence. **Never put a semicolon in any
+     diagram text** (message, Note, or label — Mermaid parses `;` as a statement terminator and one
+     hit blanks the entire diagram); use a comma or dash instead.
    - A **UI mockup** (hand-built HTML/CSS) only if the diff has a user-facing/visual change.
    - A new/modified file map grouped by area (backend / frontend / tests / infra) with `new`/`mod`
      badges; summarise repeated patterns once.
