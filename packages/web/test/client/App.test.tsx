@@ -36,6 +36,7 @@ vi.mock('../../client/src/api.js', () => ({
     listWorkspaces: vi.fn(),
     createWorkspace: vi.fn().mockResolvedValue({}),
     getAnalytics: vi.fn().mockResolvedValue({ tasks: [], stranded: [] }),
+    getTokenTrend: vi.fn().mockResolvedValue([]),
   },
   eventsUrl: () => '/events',
   setUnauthorizedHandler: () => {},
@@ -52,6 +53,7 @@ const ws = (id: number, name: string, repoPath: string) =>
 beforeEach(() => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.')]);
+  vi.mocked(api.getTokenTrend).mockResolvedValue([]);
   // Set up no-op EventSource for App (uses useTasks → useEventStream)
   globalThis.EventSource = vi.fn().mockImplementation(() => ({
     addEventListener: vi.fn(),

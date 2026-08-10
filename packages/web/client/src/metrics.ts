@@ -14,6 +14,7 @@ export interface AnalyticsTaskRow {
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 export interface FailureEvent { reason: string; workspace: string; at: string; }
 export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; }
+export interface TokenTrendPoint { date: string; tokensIn: number; tokensOut: number; }
 
 /** Friendly labels for known supervisor failure reasons; unknown reasons render as-is. */
 export const FAILURE_LABELS: Record<string, string> = {
