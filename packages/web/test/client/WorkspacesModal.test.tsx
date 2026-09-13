@@ -78,3 +78,34 @@ describe('WorkspacesModal — git PAT is settable in the web UI', () => {
     expect(body).not.toHaveProperty('pat'); // PAT left blank → omitted → stays untouched
   });
 });
+
+describe('WorkspacesModal — single-workspace edit mode', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows only the focused workspace (no create row) when opened via "Edit <name>"', () => {
+    const list = [ws(), ws({ id: 2, name: 'repo-b', repoPath: '/b' })];
+    render(<WorkspacesModal workspaces={list} focusWorkspace="repo-b" onCreated={noop} onClose={noop} />);
+
+    expect(screen.getByRole('heading', { name: 'Edit repo-b' })).toBeTruthy();
+    expect(screen.getByText('repo-b')).toBeTruthy();
+    expect(screen.queryByText('repo-a')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create workspace' })).toBeNull();
+  });
+
+  it('lists every workspace plus the create row when no workspace is focused', () => {
+    const list = [ws(), ws({ id: 2, name: 'repo-b', repoPath: '/b' })];
+    render(<WorkspacesModal workspaces={list} focusWorkspace={null} onCreated={noop} onClose={noop} />);
+
+    expect(screen.getByRole('heading', { name: 'Workspaces' })).toBeTruthy();
+    expect(screen.getByText('repo-a')).toBeTruthy();
+    expect(screen.getByText('repo-b')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Create workspace' })).toBeTruthy();
+  });
+
+  it('falls back to the full list when the focused workspace no longer exists', () => {
+    render(<WorkspacesModal workspaces={[ws()]} focusWorkspace="gone" onCreated={noop} onClose={noop} />);
+
+    expect(screen.getByRole('heading', { name: 'Workspaces' })).toBeTruthy();
+    expect(screen.getByText('repo-a')).toBeTruthy();
+  });
+});
