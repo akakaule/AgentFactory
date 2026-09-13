@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { Workspace } from '../types.js';
 import { api } from '../api.js';
 import { wsColor } from '../wsColor.js';
@@ -6,18 +6,13 @@ import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 
 interface Props {
   workspaces: Workspace[];
-  focusWorkspace?: string | null; // scroll to + highlight this workspace when opening to edit it
+  focusWorkspace?: string | null; // edit mode: show only this workspace (falls back to the full list if unknown)
   onCreated: () => void;
   onClose: () => void;
 }
 
 /** One workspace row with inline editing of its repo path, engineering-discipline fields, and PAT. */
-function WorkspaceItem({ workspace, dot, onSaved, highlight }: { workspace: Workspace; dot: string; onSaved: () => void; highlight?: boolean }) {
-  const rowRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    // optional-chain: scrollIntoView is undefined under jsdom (tests) — a no-op there, real in the browser
-    if (highlight && rowRef.current) rowRef.current.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-  }, [highlight]);
+function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot: string; onSaved: () => void }) {
   const [repoPath, setRepoPath] = useState(workspace.repoPath);
   const [policy, setPolicy] = useState(workspace.policy ?? '');
   const [verifyCommand, setVerifyCommand] = useState(workspace.verifyCommand ?? '');
@@ -71,15 +66,7 @@ function WorkspaceItem({ workspace, dot, onSaved, highlight }: { workspace: Work
   };
 
   return (
-    <div
-      ref={rowRef}
-      style={{
-        padding: '10px', margin: '0 -6px', borderBottom: '1px solid var(--line-soft)', borderRadius: '8px',
-        boxShadow: highlight ? 'inset 0 0 0 1.5px var(--accent)' : undefined,
-        background: highlight ? 'rgba(96,165,250,0.06)' : undefined,
-        transition: 'box-shadow .2s, background .2s',
-      }}
-    >
+    <div style={{ padding: '10px', margin: '0 -6px', borderBottom: '1px solid var(--line-soft)', borderRadius: '8px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span className="af-ws-dot" style={{ background: dot }}></span>
         <span style={{ fontWeight: 600, minWidth: '120px' }}>{workspace.name}</span>
@@ -184,20 +171,25 @@ export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose
       .catch((e: Error) => setError(e.message));
   };
 
+  // "Edit <ws>" from the switcher opens a single-workspace editor; "New workspace…" / manage opens the full list
+  const focused = focusWorkspace ? workspaces.find((w) => w.name === focusWorkspace) : undefined;
+  const shown = focused ? [focused] : workspaces;
+
   return (
     <div className="af-overlay">
-      <div className="af-modal" style={{ padding: '16px' }}>
+      <div className="af-modal af-ws-modal" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>Workspaces</h3>
+          <h3 style={{ margin: 0 }}>{focused ? `Edit ${focused.name}` : 'Workspaces'}</h3>
           <button className="af-x" onClick={onClose}>✕</button>
         </div>
 
         <div style={{ margin: '12px 0' }}>
-          {workspaces.map((w) => (
-            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} highlight={w.name === focusWorkspace} />
+          {shown.map((w) => (
+            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} />
           ))}
         </div>
 
+        {!focused && <>
         {error && <div className="af-err" style={{ marginBottom: '8px' }}>{error}</div>}
         <div style={{ display: 'flex', gap: '8px' }}>
           <input
@@ -218,6 +210,7 @@ export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose
             Create workspace
           </button>
         </div>
+        </>}
       </div>
     </div>
   );

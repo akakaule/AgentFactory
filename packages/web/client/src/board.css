@@ -369,6 +369,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 }
 .af-modal input:focus, .af-modal textarea:focus, .af-modal select:focus { border-color: var(--accent); }
 .af-modal .af-err { color: var(--st-blocked); }
+/* workspace editor: wider than the default modal so policy/prompt textareas have room */
+.af-ws-modal { width: min(960px, 96vw); max-height: 92vh; }
 
 /* ============================== DIFF VIEW ============================== */
 .af-diffstat { display: flex; align-items: center; gap: 9px; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-2); }
@@ -771,6 +773,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   .af-diffmodal { width: 100vw; height: 100vh; max-width: none; border-radius: 0; }
   .af-vizmodal { width: 100vw; height: 100vh; max-width: none; border-radius: 0; }
   .af-detail-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .af-ws-modal { width: 100vw; max-height: 100vh; border-radius: 0; }
   .af-diff-line { grid-template-columns: 30px 1fr; }
   .af-diff-line .ln:first-child { display: none; }
 
