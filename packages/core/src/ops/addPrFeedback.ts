@@ -6,6 +6,7 @@ import { appendActivity } from '../repo/activity.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { buildPrFeedbackComment } from '../prFeedback.js';
 import { nowIso } from '../time.js';
+import { advanceRetryBudget } from '../repo/retry.js';
 
 export interface AddPrFeedbackInput { feedback: string; author?: string | null; url?: string | null; actorUserId?: number | null }
 
@@ -21,8 +22,10 @@ export function addPrFeedback(db: DB, key: string, input: AddPrFeedbackInput, no
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   if (row.status !== 'delivering') throw new ValidationError(`PR feedback can only be added to a delivering task (got ${row.status})`);
   return transaction(db, () => {
+    const ts = now();
+    advanceRetryBudget(db, row.id, 'reviewer:feedback-eval', ts, 'new delivery feedback');
     const body = buildPrFeedbackComment({ feedback, author: input.author ?? undefined, url: input.url ?? undefined });
-    appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', body, createdAt: now(), actorUserId: input.actorUserId ?? null });
+    appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

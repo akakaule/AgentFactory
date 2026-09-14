@@ -1,5 +1,5 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, RetryReservation } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -12,6 +12,8 @@ interface Session {
   /** The queued key this session was spawned for (matches the claimed key at maxConcurrent 1). */
   predictedKey: string;
   attempt: number;
+  maxAttempts: number;
+  reservationId: string;
   child: SpawnedChild;
   logWriter: LogWriter;
   startedAtMs: number;
@@ -37,9 +39,10 @@ const LOG_TAIL_CHARS = 4000;
 const COMMENT_TAIL_LINES = 40;
 /** Attempts (incl. the first) to land a claim release before deferring to the stale reaper. */
 const RELEASE_RETRIES = 5;
+const RETRY_RESERVATION_GRACE_MS = 30_000;
 
 /** What a release posts to the board alongside the recovery edge. */
-interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; }
+interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; maxAttempts?: number | undefined; reservationId?: string | undefined; }
 
 /**
  * The supervisor. Polls the queue read-only and spawns one fresh headless `claude`
@@ -49,8 +52,8 @@ interface ReleaseOpts { reason: FailureReason | string; detail: string; body: st
  */
 export class Dispatcher {
   private readonly running = new Map<string, Session>(); // label -> session
-  private readonly attempts = new Map<string, number>(); // task key -> attempts used
-  private readonly skipped = new Set<string>(); // task keys past maxAttempts
+  /** UI/test cache only; retry decisions come from core's durable budget. */
+  private readonly skipped = new Set<string>(); // task keys observed at the persisted cap
   /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
    *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
   private readonly settling = new Set<Promise<void>>();
@@ -120,8 +123,12 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
     this.enforceTimeouts();
+    // Timeout kills emit child exit synchronously on some platforms; finish that reap before
+    // polling so a freed slot can be used in this cycle without competing with the old session.
+    await Promise.all([...this.settling]);
     await this.touchLiveSessions();
     await this.tailTranscripts();
     const served = await this.servedWorkspaces();
@@ -129,6 +136,15 @@ export class Dispatcher {
     await this.reapStaleClaims(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
     await Promise.all([...this.settling]); // exits fired during this tick (fast sessions) too
+  }
+
+  private async reconcileAbandonedReservations(): Promise<void> {
+    if (!this.deps.core.reconcileAbandonedRetryReservations) return;
+    try {
+      await this.deps.core.reconcileAbandonedRetryReservations(RETRY_RESERVATION_GRACE_MS);
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
+    }
   }
 
   /** Retry releases that failed transiently on a previous tick (bounded per entry). */
@@ -251,6 +267,19 @@ export class Dispatcher {
 
         const ageMinutes = Math.round((now - seenMs) / 60_000);
         const label = task.claimedBy ?? 'unknown';
+        const orphanAttempt = this.parseAttempt(task.claimedBy);
+        const retryOperation = `dispatcher:${task.stage}`;
+        let orphanMaxAttempts = task.failure?.maxAttempts ?? this.config.maxAttempts;
+        if (orphanAttempt !== undefined && this.deps.core.recordRetryFailure) {
+          const budget = await this.deps.core.getRetryBudget?.(task.key, retryOperation);
+          orphanMaxAttempts = budget?.maxAttempts ?? orphanMaxAttempts;
+          await this.deps.core.recordRetryFailure(task.key, {
+            operation: retryOperation,
+            maxAttempts: orphanMaxAttempts,
+            attempt: orphanAttempt,
+            reason: 'stale claim reclaimed',
+          });
+        }
         this.console.log(`[dispatcher] reaping stale claim ${task.key} (claimed by ${label}, no heartbeat for ${ageMinutes}m)`);
         await this.releaseClaim(task.key, {
           reason: 'stale',
@@ -258,7 +287,8 @@ export class Dispatcher {
           body:
             'The supervisor found this task `in_progress` with no live agent activity — typically an ' +
             'orphaned claim after a supervisor or session crash. Releasing it back to the queue for pickup.',
-          attempt: this.parseAttempt(task.claimedBy),
+          attempt: orphanAttempt,
+          ...(orphanAttempt !== undefined ? { maxAttempts: orphanMaxAttempts } : {}),
         });
       }
     }
@@ -351,12 +381,21 @@ export class Dispatcher {
       if (task.unmetDependencyCount > 0) continue;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
-      const attempt = (this.attempts.get(task.key) ?? 0) + 1;
-      if (attempt > this.config.maxAttempts) {
+      const reservation = await this.deps.core.reserveRetry(task.key, {
+        operation: `dispatcher:${task.stage}`,
+        maxAttempts: this.config.maxAttempts,
+      });
+      if (reservation === null) {
         this.skipList(task.key);
         continue;
       }
-      if (await this.spawnSession(workspace, task.key, task.stage, attempt)) spawned += 1;
+      try {
+        if (await this.spawnSession(workspace, task.key, task.stage, reservation)) spawned += 1;
+        else await this.deps.core.settleRetry(reservation.id, { state: 'cancelled', reason: 'workspace could not be launched' });
+      } catch (err) {
+        await this.deps.core.settleRetry(reservation.id, { state: 'cancelled', reason: `spawn failed: ${(err as Error).message}` });
+        throw err;
+      }
     }
   }
 
@@ -373,8 +412,7 @@ export class Dispatcher {
     for (const task of queued) {
       if (task.failure !== null) continue; // still failing / never failed — no stale budget to forgive
       const wasSkipped = this.skipped.delete(task.key);
-      const hadAttempts = this.attempts.delete(task.key);
-      if (wasSkipped || hadAttempts) {
+      if (wasSkipped) {
         this.console.log(`[dispatcher] ${task.key} was restarted from the board; cleared attempt budget, will retry`);
       }
     }
@@ -411,7 +449,8 @@ export class Dispatcher {
   }
 
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
-  private async spawnSession(workspace: string, key: string, stage: Stage, attempt: number): Promise<boolean> {
+  private async spawnSession(workspace: string, key: string, stage: Stage, reservation: RetryReservation): Promise<boolean> {
+    const attempt = reservation.attempt;
     const cwd = await this.repoPath(workspace);
     if (!cwd) {
       this.console.warn(`[dispatcher] workspace '${workspace}' has no repoPath; cannot spawn for ${key}`);
@@ -485,6 +524,8 @@ export class Dispatcher {
       workspace,
       predictedKey: key,
       attempt,
+      maxAttempts: reservation.maxAttempts,
+      reservationId: reservation.id,
       child,
       logWriter,
       startedAtMs: this.deps.now(),
@@ -499,6 +540,11 @@ export class Dispatcher {
       transcriptKey: null,
     };
     this.running.set(label, session);
+    try {
+      await this.deps.core.settleRetry(reservation.id, { state: 'running' });
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not mark ${label} running: ${(err as Error).message}`);
+    }
 
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString();
@@ -557,9 +603,28 @@ export class Dispatcher {
       } else if (code !== 0) {
         this.console.warn(`[dispatcher] ${session.label} exited (code ${code ?? 'null'}) without claiming a task`);
       } else {
+        await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: `exited code ${code ?? 'null'} without claiming` });
         this.console.log(`[dispatcher] ${session.label} claimed nothing (queue empty or lost race); exiting clean`);
       }
       return;
+    }
+
+    // The worker may have raced the prediction and claimed another queued task. Move the active
+    // reservation before any settle so only the actual task pays for the attempt.
+    if (claimed.key !== session.predictedKey && this.deps.core.reconcileRetry) {
+      const moved = await this.deps.core.reconcileRetry(session.reservationId, {
+        actualKey: claimed.key,
+        operation: `dispatcher:${claimed.stage}`,
+        maxAttempts: session.maxAttempts,
+      });
+      if (moved) {
+        session.attempt = moved.attempt;
+        session.maxAttempts = moved.maxAttempts;
+      } else {
+        // The predicted reservation was refunded by reconciliation when the actual budget was
+        // exhausted; do not later settle that now-obsolete id as a failure for the wrong task.
+        session.reservationId = '';
+      }
     }
 
     // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
@@ -576,16 +641,19 @@ export class Dispatcher {
     if (claimed.status === 'in_progress') {
       await this.releaseAndRetry(session, claimed.key, code);
     } else {
+      if (session.reservationId) {
+        await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: `task advanced to ${claimed.status}` });
+      }
       const note = code === 0 ? '' : ` (exited code ${code ?? 'null'} after advancing)`;
       this.console.log(`[dispatcher] ${session.label} finished ${claimed.key} -> ${claimed.status}${note}`);
     }
   }
 
   /** The task this session claimed — matched on the worker label persisted as claimed_by. */
-  private async findClaimed(session: Session): Promise<{ key: string; status: string } | undefined> {
+  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage } | undefined> {
     const all = await this.deps.core.listTasks({ workspace: session.workspace });
     const row = all.find((t) => t.claimedBy === session.label);
-    return row ? { key: row.key, status: row.status } : undefined;
+    return row ? { key: row.key, status: row.status, stage: row.stage } : undefined;
   }
 
   private async recordMetrics(key: string, label: string, m: ParsedMetrics): Promise<void> {
@@ -605,7 +673,6 @@ export class Dispatcher {
   private async recordDenial(session: Session, denials: string[]): Promise<void> {
     const key = session.predictedKey;
     const attempt = session.attempt;
-    this.attempts.set(key, attempt);
     this.console.warn(
       `[dispatcher] ${session.label} exited without claiming — permission denied for ${denials.join(', ')}; ` +
         `check --allowedTools / permission settings`,
@@ -618,7 +685,7 @@ export class Dispatcher {
           detail: `permission denied for ${denials.join(', ')}`,
           source: 'dispatcher',
           attempt,
-          maxAttempts: this.config.maxAttempts,
+          maxAttempts: session.maxAttempts,
           body:
             `Session \`${session.label}\` was permission denied for ${denials.map((d) => `\`${d}\``).join(', ')} ` +
             `and exited without claiming. The worker's tool allowlist or permission mode is misconfigured.`,
@@ -627,10 +694,11 @@ export class Dispatcher {
     } catch {
       /* the console warning is the contract; the board comment is a bonus */
     }
-    if (attempt >= this.config.maxAttempts) {
+    await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'permission denied' });
+    if (attempt >= session.maxAttempts) {
       this.skipList(key);
       this.console.warn(
-        `[dispatcher] ${key} reached maxAttempts (${this.config.maxAttempts}); skip-listing — left queued for a human`,
+        `[dispatcher] ${key} reached maxAttempts (${session.maxAttempts}); skip-listing — left queued for a human`,
       );
     }
   }
@@ -647,6 +715,8 @@ export class Dispatcher {
       detail,
       body: `Releasing the claim for retry.\n\nLog tail:\n\`\`\`\n${tail}\n\`\`\``,
       attempt: session.attempt,
+      maxAttempts: session.maxAttempts,
+      reservationId: session.reservationId,
     });
   }
 
@@ -664,6 +734,7 @@ export class Dispatcher {
       await this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
+        if (opts.reservationId) await this.deps.core.settleRetry(opts.reservationId, { state: 'succeeded', reason: 'claim already advanced' });
         this.console.log(`[dispatcher] release of ${key} raced a concurrent move; leaving as-is`);
         return;
       }
@@ -679,7 +750,7 @@ export class Dispatcher {
     }
 
     const attempt = opts.attempt;
-    const maxAttempts = attempt !== undefined ? this.config.maxAttempts : undefined;
+    const maxAttempts = attempt !== undefined ? (opts.maxAttempts ?? this.config.maxAttempts) : undefined;
     try {
       await this.deps.core.addComment(key, {
         actor: 'agent',
@@ -689,22 +760,23 @@ export class Dispatcher {
       /* the release is the contract; the board comment is a bonus */
     }
 
+    if (opts.reservationId) await this.deps.core.settleRetry(opts.reservationId, { state: 'failed', reason: opts.detail });
+
     if (attempt === undefined) return; // foreign/interactive claim: no attempt budget to bookkeep
-    this.attempts.set(key, attempt);
-    if (attempt >= this.config.maxAttempts) {
+    if (attempt >= (maxAttempts ?? this.config.maxAttempts)) {
       this.skipList(key);
       this.console.warn(
-        `[dispatcher] ${key} reached maxAttempts (${this.config.maxAttempts}); skip-listing — left queued for a human`,
+        `[dispatcher] ${key} reached maxAttempts (${maxAttempts}); skip-listing — left queued for a human`,
       );
       try {
         await this.deps.core.addComment(key, {
           actor: 'agent',
           body: buildFailureComment({
             reason: 'max_attempts',
-            detail: `reached maxAttempts (${this.config.maxAttempts}) and is skip-listed`,
+            detail: `reached maxAttempts (${maxAttempts}) and is skip-listed`,
             source: 'dispatcher',
             attempt,
-            maxAttempts: this.config.maxAttempts,
+            maxAttempts,
             body: 'No further sessions will be spawned until a human intervenes.',
           }),
         });

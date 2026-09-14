@@ -4,10 +4,13 @@ import { STAGE_ORDER } from '../types.js';
 import type { TaskRow } from '../repo/tasks.js';
 import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
-import { upsertDelivery } from '../repo/delivery.js';
+import { upsertDelivery, deliveryRowFor } from '../repo/delivery.js';
 import { latestPrLinkUrl } from '../repo/links.js';
 import { assertTransition } from '../transitions.js';
 import { InvalidTransitionError } from '../errors.js';
+import { resetRetryBudget as resetRetryBudgetRow } from '../repo/retry.js';
+
+const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
 /** Approve-time routing decision: non-null ⇒ the implementation approve enters 'delivering'
  *  under this provider (reviewApprove computes it from the workspace's origin URL). */
@@ -45,9 +48,16 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     const to: Status = delivery ? 'delivering' : 'done';
     assertTransition('in_review', to, actor);
     setStatus(db, row.id, to, ts);
-    // seed (or reset, on a re-approval) the delivery row inside the same transaction — the
-    // watcher must never find a delivering task it can't attribute to a provider/branch
-    if (delivery) upsertDelivery(db, row.id, { provider: delivery.provider, branch: row.branch!, prUrl: latestPrLinkUrl(db, row.id) }, ts);
+    // seed (or refresh, on a re-approval) the delivery row inside the same transaction — the
+    // watcher must never find a delivering task it can't attribute to a provider/branch. The
+    // repair budget is created only for the first episode; a successful worker resubmission must
+    // not reset it or CI can bounce forever.
+    if (delivery) {
+      const newDeliveryEpisode = deliveryRowFor(db, row.id) === undefined;
+      upsertDelivery(db, row.id, { provider: delivery.provider, branch: row.branch!, prUrl: latestPrLinkUrl(db, row.id) }, ts);
+      if (newDeliveryEpisode)
+        resetRetryBudgetRow(db, row.id, 'delivery', DEFAULT_DELIVERY_REPAIR_ATTEMPTS, ts, 'new delivery episode');
+    }
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: to, createdAt: ts,
       body: delivery ? 'approved — awaiting PR merge + green checks' : '', actorUserId,
