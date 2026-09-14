@@ -115,14 +115,14 @@ describe('createHttpCore ⇄ buildApp contract', () => {
   });
 
   it('whoami reports the token identity and supervisor capability', async () => {
-    expect(await http.whoami()).toEqual({ label: 'remote-supervisor', supervisor: true });
+    expect(await http.whoami()).toEqual({ label: 'remote-supervisor', supervisor: true, capabilities: ['execution-fence/v1'] });
 
     const plain = core.createApiToken({ label: 'plain-worker', isService: true }).token;
     const app = buildApp(core, { auth: { mode: 'token' } });
     const asPlain = createHttpCore('http://board', plain, {
       fetchImpl: ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch,
     });
-    expect(await asPlain.whoami()).toEqual({ label: 'plain-worker', supervisor: false });
+    expect(await asPlain.whoami()).toEqual({ label: 'plain-worker', supervisor: false, capabilities: ['execution-fence/v1'] });
   });
 
   it('whoami refuses user tokens (service-only surface)', async () => {

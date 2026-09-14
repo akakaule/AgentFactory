@@ -25,7 +25,8 @@ export function registerReportProgress(server: McpServer, core: McpCore, opts: S
         const input: { message: string; tokensIn?: number; tokensOut?: number; executionId?: string } = { message };
         if (tokensIn !== undefined) input.tokensIn = tokensIn;
         if (tokensOut !== undefined) input.tokensOut = tokensOut;
-        if (opts.executionId !== undefined) input.executionId = opts.executionId;
+        const executionId = opts.executionContext?.get() ?? opts.executionId;
+        if (executionId !== undefined) input.executionId = executionId;
         await core.reportProgress(key, input);
         return { content: [{ type: 'text', text: 'ok' }] };
       } catch (err) {

@@ -46,7 +46,8 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
           return { isError: true as const, content: [{ type: 'text' as const, text: guard.message ?? 'Submission blocked.' }] };
         }
         const input: Parameters<McpCore['submitResult']>[1] & { executionId?: string } = { summary, links }; // explicit build for exactOptionalPropertyTypes
-        if (opts.executionId !== undefined) input.executionId = opts.executionId;
+        const executionId = opts.executionContext?.get() ?? opts.executionId;
+        if (executionId !== undefined) input.executionId = executionId;
         if (spec !== undefined) input.spec = spec;
         if (acceptanceCriteria !== undefined) input.acceptanceCriteria = acceptanceCriteria;
         if (plan !== undefined) input.plan = plan;
@@ -55,7 +56,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
         let metricsNote = '';
         if (metrics && Object.keys(metrics).length > 0) {
           const input: AddTaskMetricsInput & { executionId?: string } = {};       // explicit build for exactOptionalPropertyTypes
-          if (opts.executionId !== undefined) input.executionId = opts.executionId;
+          if (executionId !== undefined) input.executionId = executionId;
           if (metrics.model !== undefined) input.model = metrics.model;
           if (metrics.tokensIn !== undefined) input.tokensIn = metrics.tokensIn;
           if (metrics.tokensOut !== undefined) input.tokensOut = metrics.tokensOut;

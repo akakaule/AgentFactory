@@ -5,8 +5,7 @@ import { findRowByKey } from '../repo/tasks.js';
 import { appendLiveBuf, saveFinal, getTranscriptRow, decodeRaw } from '../repo/transcripts.js';
 import { parseTranscript } from '../transcript.js';
 import { nowIso } from '../time.js';
-import { latestExecution } from '../repo/execution.js';
-import { InvalidTransitionError } from '../errors.js';
+import { assertExecutionOwnership } from '../repo/execution.js';
 
 /**
  * Standalone entry points for the agent transcript (the dispatcher tails into appendTranscript /
@@ -20,11 +19,10 @@ export interface SaveTranscriptInput { raw: string; attempt?: number; sessionId?
 
 /** Append a chunk of the running session's raw JSONL to a task's live transcript tail. */
 export function appendTranscript(db: DB, key: string, input: AppendTranscriptInput, now: () => string = nowIso): void {
-  const row = findRowByKey(db, key);
-  if (!row) return;
   transaction(db, () => {
-    if (input.executionId !== undefined && latestExecution(db, row.id)?.id !== input.executionId)
-      throw new InvalidTransitionError(`execution ${input.executionId} is not the current execution for ${key}`);
+    const row = findRowByKey(db, key);
+    if (!row) return;
+    assertExecutionOwnership(db, row.id, key, input.executionId, { allowSettledSuccess: true });
     appendLiveBuf(db, {
       taskId: row.id, attempt: input.attempt ?? 1, sessionId: input.sessionId ?? null,
       engine: input.engine ?? 'claude', chunk: input.chunk, now: now(),
@@ -34,11 +32,10 @@ export function appendTranscript(db: DB, key: string, input: AppendTranscriptInp
 
 /** Persist the full transcript for a task's attempt at session exit (gzip + flip to 'final'). */
 export function saveTranscript(db: DB, key: string, input: SaveTranscriptInput, now: () => string = nowIso): void {
-  const row = findRowByKey(db, key);
-  if (!row) return;
   transaction(db, () => {
-    if (input.executionId !== undefined && latestExecution(db, row.id)?.id !== input.executionId)
-      throw new InvalidTransitionError(`execution ${input.executionId} is not the current execution for ${key}`);
+    const row = findRowByKey(db, key);
+    if (!row) return;
+    assertExecutionOwnership(db, row.id, key, input.executionId, { allowSettledSuccess: true });
     saveFinal(db, {
       taskId: row.id, attempt: input.attempt ?? 1, sessionId: input.sessionId ?? null,
       engine: input.engine ?? 'claude', raw: input.raw, now: now(),

@@ -2,7 +2,7 @@ import type { DB } from '../db.js';
 import type { Execution, RetryOperation } from '../types.js';
 import { transaction } from '../transaction.js';
 import { findRowByKey } from '../repo/tasks.js';
-import { createExecution, abandonedExecutionIds, settleExecution } from '../repo/execution.js';
+import { createExecution, abandonedExecutionIds, settleExecution, touchExecution as touchExecutionRow } from '../repo/execution.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
@@ -37,9 +37,14 @@ export function reconcileExecutions(db: DB, graceMs: number, now: () => string =
     for (const id of abandonedExecutionIds(db, cutoff)) {
       const row = db.prepare('SELECT retry_id FROM task_execution WHERE id = ?').get(id) as { retry_id: string | null } | undefined;
       if (!row) continue;
-      if (row.retry_id) settleRetryRow(db, row.retry_id, 'cancelled', ts, 'execution reservation abandoned');
-      if (settleExecution(db, id, 'cancelled', ts, 'execution reservation abandoned')) count += 1;
+      const retrySettled = row.retry_id ? settleRetryRow(db, row.retry_id, 'cancelled', ts, 'execution reservation abandoned') : false;
+      if (settleExecution(db, id, 'cancelled', ts, 'execution reservation abandoned') || retrySettled) count += 1;
     }
     return count;
   });
+}
+
+/** Refresh a supervisor-owned execution heartbeat without changing task state. */
+export function touchExecution(db: DB, id: string, now: () => string = nowIso): boolean {
+  return transaction(db, () => touchExecutionRow(db, id, now()));
 }

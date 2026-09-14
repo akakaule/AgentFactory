@@ -111,6 +111,8 @@ export class Reviewer {
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.touchLiveSessions();
+    await this.reconcileExecutions();
     await this.reconcileAbandonedReservations();
     await this.enforceTimeouts();
     const served = await this.servedWorkspaces();
@@ -125,6 +127,20 @@ export class Reviewer {
       await this.deps.core.reconcileAbandonedRetryReservations(RETRY_RESERVATION_GRACE_MS);
     } catch (err) {
       this.console.warn(`[reviewer] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
+    }
+  }
+
+  private async reconcileExecutions(): Promise<void> {
+    if (!this.deps.core.reconcileExecutions) return;
+    try { await this.deps.core.reconcileExecutions(RETRY_RESERVATION_GRACE_MS); }
+    catch (err) { this.console.warn(`[reviewer] could not reconcile abandoned executions: ${(err as Error).message}`); }
+  }
+
+  private async touchLiveSessions(): Promise<void> {
+    if (!this.deps.core.touchExecution) return;
+    for (const session of this.running.values()) {
+      if (session.settled || !session.executionId) continue;
+      try { await this.deps.core.touchExecution(session.executionId); } catch { /* best-effort liveness */ }
     }
   }
 
@@ -405,7 +421,7 @@ export class Reviewer {
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.
-      await this.burnAttempt(key, attempt, reservation.maxAttempts, `could not prepare ${mode}: ${(err as Error).message}`, reservation.id);
+      await this.burnAttempt(key, attempt, reservation.maxAttempts, `could not prepare ${mode}: ${(err as Error).message}`, reservation.id, executionId);
       return false;
     }
 
@@ -459,7 +475,9 @@ export class Reviewer {
         operation,
         maxAttempts: this.config.maxAttempts,
         owner: `${workspace}#reviewer`,
-        startImmediately: true,
+        // Keep the reservation fenced but reserved until the child is actually launched. A
+        // supervisor crash between reservation and spawn can then be reconciled safely.
+        startImmediately: false,
       });
       if (!execution) return null;
       return {
@@ -574,13 +592,13 @@ export class Reviewer {
     const verdict = this.readVerdict(session);
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
-      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, `timed out after ${this.config.reviewMinutes}m`, session.reservationId);
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, `timed out after ${this.config.reviewMinutes}m`, session.reservationId, session.executionId);
       return;
     }
 
     if (!verdict.trim()) {
       const reason = code === 0 ? 'engine produced no verdict' : `engine exited code ${code ?? 'null'} with no verdict`;
-      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, reason, session.reservationId);
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, reason, session.reservationId, session.executionId);
       return;
     }
 
@@ -680,7 +698,7 @@ export class Reviewer {
    * needs manual review — instead of it silently sitting in_review with no verdict. A later
    * successful review (an ai-review/v1 comment) supersedes the note (see failureByTaskIds).
    */
-  private async burnAttempt(key: string, attempt: number, maxAttempts: number, reason: string, reservationId?: string): Promise<void> {
+  private async burnAttempt(key: string, attempt: number, maxAttempts: number, reason: string, reservationId?: string, executionId?: string | null): Promise<void> {
     this.console.warn(`[reviewer] review of ${key} failed (attempt ${attempt}/${maxAttempts}): ${reason}`);
     const atCap = attempt >= maxAttempts;
     try {
@@ -696,6 +714,7 @@ export class Reviewer {
             ? 'The automated reviewer is skip-listing this task — review it manually.'
             : 'The automated reviewer will retry on the next poll.',
         }),
+        ...(executionId ? { executionId } : {}),
       });
     } catch (err) {
       this.console.error(`[reviewer] failed to post failure note for ${key}: ${(err as Error).message}`);

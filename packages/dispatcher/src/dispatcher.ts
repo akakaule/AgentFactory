@@ -126,6 +126,7 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.touchLiveSessions();
     await this.reconcileExecutions();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
@@ -133,7 +134,6 @@ export class Dispatcher {
     // Timeout kills emit child exit synchronously on some platforms; finish that reap before
     // polling so a freed slot can be used in this cycle without competing with the old session.
     await Promise.all([...this.settling]);
-    await this.touchLiveSessions();
     await this.tailTranscripts();
     const served = await this.servedWorkspaces();
     await this.recordHeartbeat(served);
@@ -330,6 +330,7 @@ export class Dispatcher {
       if (s.settled) continue;
       try {
         await this.deps.core.touchAgentSession(s.predictedKey);
+        if (s.executionId && this.deps.core.touchExecution) await this.deps.core.touchExecution(s.executionId);
       } catch {
         /* best-effort — a missing live row (not yet claimed / already ended) is fine */
       }
@@ -713,6 +714,7 @@ export class Dispatcher {
             `Session \`${session.label}\` was permission denied for ${denials.map((d) => `\`${d}\``).join(', ')} ` +
             `and exited without claiming. The worker's tool allowlist or permission mode is misconfigured.`,
         }),
+        ...(session.executionId ? { executionId: session.executionId } : {}),
       });
     } catch {
       /* the console warning is the contract; the board comment is a bonus */

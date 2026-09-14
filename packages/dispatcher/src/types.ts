@@ -32,13 +32,14 @@ export interface DispatcherCore {
   releaseClaim(key: string, now?: () => string, executionId?: string): Awaitable<TaskDetail>;
   reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null }): Awaitable<ExecutionLike | null>;
   reconcileExecutions?(graceMs: number): Awaitable<number>;
+  touchExecution?(id: string): Awaitable<boolean>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;
   reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   getRetryBudget?(key: string, operation: string): Awaitable<{ maxAttempts: number; attemptsUsed: number } | null>;
   recordRetryFailure?(key: string, input: { operation: string; maxAttempts: number; attempt: number; reason: string }): Awaitable<void>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
-  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  addComment(key: string, input: { actor: Actor; body: string; executionId?: string }): Awaitable<Activity>;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;
   // live agent status: keep a running session warm, and end it when the process exits
   touchAgentSession(key: string): Awaitable<void>;

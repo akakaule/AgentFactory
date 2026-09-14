@@ -136,6 +136,18 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect(await res.json()).toBeNull();
   });
 
+  it('claims an explicitly reserved task even when it is not the oldest queued task', async () => {
+    const first = queuedTask(core, 'Oldest queued task');
+    const reserved = queuedTask(core, 'Reserved task');
+    const execution = core.reserveExecution(reserved.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'worker-2' });
+    expect(execution).not.toBeNull();
+
+    const res = await post(app, '/api/agent/claim', { claimedBy: 'worker-2', executionId: execution!.id }, service);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { key: string }).key).toBe(reserved.key);
+    expect(core.getTask(first.key).status).toBe('queued');
+  });
+
   it('release-claim performs the system recovery edge', async () => {
     const t = queuedTask(core);
     core.claimNextTask({ claimedBy: 'w1' });

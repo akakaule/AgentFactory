@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DB } from '../db.js';
 import type { Execution, ExecutionState, Stage } from '../types.js';
+import { InvalidTransitionError } from '../errors.js';
 
 interface ExecutionRow {
   id: string; task_id: number; stage: Stage; operation: string; generation: number; attempt: number; max_attempts: number;
@@ -44,15 +45,45 @@ export function executionById(db: DB, id: string): ExecutionRow | undefined {
 
 export function currentExecution(db: DB, taskId: number): ExecutionRow | undefined {
   return db.prepare(
-    `SELECT * FROM task_execution WHERE task_id = ? AND state IN ('reserved','running')
-     ORDER BY reserved_at DESC, rowid DESC LIMIT 1`,
-  ).get(taskId) as ExecutionRow | undefined;
+    `SELECT * FROM task_execution
+      WHERE task_id = ? AND state IN ('reserved','running')
+        AND rowid = (
+          SELECT rowid FROM task_execution
+           WHERE task_id = ?
+           ORDER BY reserved_at DESC, rowid DESC LIMIT 1
+        )`,
+  ).get(taskId, taskId) as ExecutionRow | undefined;
 }
 
 export function latestExecution(db: DB, taskId: number): ExecutionRow | undefined {
   return db.prepare(
     'SELECT * FROM task_execution WHERE task_id = ? ORDER BY reserved_at DESC, rowid DESC LIMIT 1',
   ).get(taskId) as ExecutionRow | undefined;
+}
+
+/**
+ * Validate a mutation's execution fence. Tasks created before migration 26 have no execution
+ * history and retain the legacy direct-core behavior; every supervisor-owned execution is fenced
+ * once it exists. The check is intended to run inside the caller's write transaction.
+ */
+export function assertExecutionOwnership(
+  db: DB,
+  taskId: number,
+  taskKey: string,
+  executionId: string | undefined,
+  opts: { allowSettledSuccess?: boolean; requireRunning?: boolean } = {},
+): ExecutionRow | undefined {
+  const latest = latestExecution(db, taskId);
+  if (executionId === undefined) {
+    const priorCount = latest === undefined ? 0 : (db.prepare('SELECT COUNT(*) AS count FROM task_execution WHERE task_id = ? AND id <> ?').get(taskId, latest.id) as { count: number }).count;
+    if (latest?.owner !== null && latest !== undefined && priorCount > 0 && (latest.state === 'reserved' || latest.state === 'running'))
+      throw new InvalidTransitionError(`execution identity is required for ${taskKey}; restart the worker and supervisor together`);
+    return undefined;
+  }
+  const current = currentExecution(db, taskId);
+  if (current?.id === executionId && (!opts.requireRunning || current.state === 'running')) return current;
+  if (opts.allowSettledSuccess && latest?.id === executionId && latest.state === 'succeeded') return latest;
+  throw new InvalidTransitionError(`execution ${executionId} is not the current execution for ${taskKey}`);
 }
 
 export function executionForTask(db: DB, taskId: number, taskKey: string): Execution | null {
@@ -88,6 +119,11 @@ export function settleExecution(db: DB, id: string, state: Exclude<ExecutionStat
 
 export function abandonedExecutionIds(db: DB, cutoff: string): string[] {
   return (db.prepare(
-    `SELECT id FROM task_execution WHERE state = 'reserved' AND reserved_at <= ? ORDER BY reserved_at ASC`,
+    `SELECT e.id
+       FROM task_execution e
+       JOIN task t ON t.id = e.task_id
+      WHERE e.reserved_at <= ?
+        AND (e.state = 'reserved' OR (e.state = 'running' AND t.status = 'queued'))
+      ORDER BY e.reserved_at ASC`,
   ).all(cutoff) as Array<{ id: string }>).map((r) => r.id);
 }

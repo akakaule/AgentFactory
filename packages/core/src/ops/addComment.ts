@@ -6,9 +6,9 @@ import { findRowByKey, touch } from '../repo/tasks.js';
 import { appendActivity, recentActivity } from '../repo/activity.js';
 import { parseAiReviewComment } from '../aiReview.js';
 import { applyApproval } from './approval.js';
-import { InvalidTransitionError, NotFoundError } from '../errors.js';
+import { NotFoundError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { currentExecution } from '../repo/execution.js';
+import { assertExecutionOwnership } from '../repo/execution.js';
 
 export function addComment(
   db: DB,
@@ -17,12 +17,10 @@ export function addComment(
   now: () => string = nowIso,
 ): Activity {
   const { body } = parse(commentSchema, input);
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
-  const current = currentExecution(db, row.id);
-  if (input.executionId !== undefined && (!current || current.id !== input.executionId || current.state !== 'running'))
-    throw new InvalidTransitionError(`execution ${input.executionId} is not the current running execution for ${key}`);
   return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    if (input.actor === 'agent') assertExecutionOwnership(db, row.id, key, input.executionId);
     const ts = now();
     appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     touch(db, row.id, ts);

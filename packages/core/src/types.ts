@@ -2,6 +2,9 @@ import type { AgentPrompts } from './agentPrompts.js';
 
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
+/** Wire capabilities that must be present before supervisors and workers are restarted together. */
+export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
+export type AgentCapability = typeof AGENT_CAPABILITIES[number];
 
 /** Durable retry accounting is deliberately open-ended so a new supervisor operation can be
  * added without another schema migration. Callers use names such as `dispatcher:implementation`

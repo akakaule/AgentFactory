@@ -21,6 +21,7 @@ type Asyncified<T> = {
 export interface BoardIdentity {
   label: string;
   supervisor: boolean;
+  capabilities: readonly string[];
 }
 
 /** Every op a remote MCP server or supervisor drives over HTTP (the §3.5 cut, verified per consumer).
@@ -28,7 +29,7 @@ export interface BoardIdentity {
  *  only exists on the wire — hence the intersection rather than a wider Pick. */
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
-  | 'claimNextTask' | 'submitResult' | 'createTask' | 'reserveExecution'
+  | 'claimNextTask' | 'submitResult' | 'createTask' | 'reserveExecution' | 'reconcileExecutions' | 'touchExecution'
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
@@ -87,23 +88,35 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
   };
 
   const enc = encodeURIComponent;
+  const executions = new Map<string, string>();
+  const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
+    if (input.executionId !== undefined) return input;
+    const executionId = executions.get(key);
+    return executionId === undefined ? input : { ...input, executionId };
+  };
 
   return {
     // ── identity ─────────────────────────────────────────────────────────────
     whoami: async () => (await req('GET', '/api/agent/whoami')) as BoardIdentity,
 
     // ── claim / deliver ──────────────────────────────────────────────────────
-    claimNextTask: async (o = {}) => (await req('POST', '/api/agent/claim', o)) as never,
+    claimNextTask: async (o = {}) => {
+      const claim = (await req('POST', '/api/agent/claim', o)) as { key?: string; executionId?: string } | null;
+      if (claim?.key !== undefined && claim.executionId !== undefined) executions.set(claim.key, claim.executionId);
+      return claim as never;
+    },
     reserveExecution: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/execution/reserve`, input)) as never,
-    submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, input)) as never,
+    reconcileExecutions: async (graceMs) => ((await req('POST', '/api/agent/executions/reconcile', { graceMs })) as { count: number }).count,
+    touchExecution: async (id) => ((await req('POST', `/api/agent/executions/${enc(id)}/touch`, {})) as { touched: boolean }).touched,
+    submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, fenced(key, input))) as never,
     createTask: async (input) => (await req('POST', '/api/agent/tasks', input)) as never,
 
     // ── narration / lifecycle ────────────────────────────────────────────────
-    reportProgress: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/progress`, input); },
-    addComment: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/comments`, input)) as never,
-    updateStatus: async (key, status, _actor, _actorUserId, note) =>
+    reportProgress: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/progress`, fenced(key, input)); },
+    addComment: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/comments`, fenced(key, input))) as never,
+    updateStatus: async (key, status, _actor, _actorUserId, note, executionId) =>
       // the server derives the actor from the token — the local-signature actor is ignored on the wire
-      (await req('POST', `/api/agent/tasks/${enc(key)}/status`, { status, note })) as never,
+      (await req('POST', `/api/agent/tasks/${enc(key)}/status`, fenced(key, { status, note, ...(executionId !== undefined ? { executionId } : {}) }))) as never,
     releaseClaim: async (key, _now, executionId) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, executionId ? { executionId } : {})) as never,
     reserveRetry: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/retry/reserve`, input)) as never,
     reconcileRetry: async (id, input) => (await req('POST', `/api/agent/retry/${enc(id)}/reconcile`, input)) as never,
@@ -113,9 +126,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     settleRetry: async (id, input) => ((await req('POST', `/api/agent/retry/${enc(id)}/settle`, input)) as { settled: boolean }).settled,
 
     // ── transcript / session / metrics ───────────────────────────────────────
-    appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, input); },
-    saveTranscript: async (key, input) => { await req('PUT', `/api/agent/tasks/${enc(key)}/transcript`, input); },
-    addTaskMetrics: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/metrics`, input)) as never,
+    appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, fenced(key, input)); },
+    saveTranscript: async (key, input) => { await req('PUT', `/api/agent/tasks/${enc(key)}/transcript`, fenced(key, input)); },
+    addTaskMetrics: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/metrics`, fenced(key, input))) as never,
     touchAgentSession: async (key) => { await req('POST', `/api/agent/tasks/${enc(key)}/session/touch`, {}); },
     endAgentSession: async (key) => { await req('POST', `/api/agent/tasks/${enc(key)}/session/end`, {}); },
     listLiveAgents: async () => (await req('GET', '/api/agent/live-agents')) as never,
@@ -157,7 +170,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     attachVisualization: async (key, input) => {
       const res = await fetchImpl(`${base}/api/tasks/${enc(key)}/visualization`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...(input.executionId ? { 'x-agentfactory-execution-id': input.executionId } : {}) },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...((fenced(key, input).executionId) ? { 'x-agentfactory-execution-id': fenced(key, input).executionId } : {}) },
         body: input.html,
         signal: AbortSignal.timeout(timeoutMs),
       });
