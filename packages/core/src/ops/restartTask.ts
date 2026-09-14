@@ -44,7 +44,11 @@ export function restartTask(db: DB, key: string, actorUserId: number | null = nu
       createdAt: ts,
       actorUserId,
     });
-    const operation = dispatcherRetry ? `dispatcher:${row.stage}` : reviewerRetry ? 'reviewer' : 'delivery';
+    const operation = dispatcherRetry
+      ? `dispatcher:${row.stage}`
+      : reviewerRetry
+        ? (row.status === 'delivering' ? 'reviewer:feedback-eval' : `reviewer:${row.stage}`)
+        : 'delivery';
     resetRetryBudgetRow(db, row.id, operation, failure!.maxAttempts ?? 2, ts, 'operator restart');
     touch(db, row.id, ts); // bump updated_at so getVersion() moves and clients/dispatcher refetch
     return toDetail(db, findRowByKey(db, key)!);

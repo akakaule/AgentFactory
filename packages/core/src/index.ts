@@ -31,7 +31,7 @@ export { releaseClaim } from './ops/releaseClaim.js';
 export { createHttpCore, type HttpCore, type HttpCoreOptions, type BoardIdentity } from './httpCore.js';
 export { boardSchema, repoPathOverridesSchema, xorDbBoard, resolveBoardToken, assertAbsoluteOverrides, DEFAULT_TOKEN_ENV, type BoardConfig } from './boardConfig.js';
 export { restartTask } from './ops/restartTask.js';
-export { reserveRetry, settleRetry, getRetryBudget, resetRetryBudget, type ReserveRetryInput, type SettleRetryInput } from './ops/retry.js';
+export { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget, type ReserveRetryInput, type SettleRetryInput, type ReconcileRetryInput, type RecordRetryFailureInput } from './ops/retry.js';
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
@@ -74,7 +74,7 @@ import { submitResult } from './ops/submitResult.js';
 import { updateStatus } from './ops/updateStatus.js';
 import { releaseClaim } from './ops/releaseClaim.js';
 import { restartTask } from './ops/restartTask.js';
-import { reserveRetry, settleRetry, getRetryBudget, resetRetryBudget } from './ops/retry.js';
+import { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget } from './ops/retry.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
@@ -166,6 +166,9 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),
     settleRetry: (id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }) => settleRetry(db, id, input),
+    reconcileRetry: (id: string, input: { actualKey: string; operation: RetryOperation; maxAttempts: number }) => reconcileRetry(db, id, input),
+    reconcileAbandonedRetryReservations: (graceMs: number) => reconcileAbandonedRetryReservations(db, graceMs),
+    recordRetryFailure: (key: string, input: { operation: RetryOperation; maxAttempts: number; attempt: number; reason: string }) => recordRetryFailure(db, key, input),
     getRetryBudget: (key: string, operation: RetryOperation) => getRetryBudget(db, key, operation),
     resetRetryBudget: (key: string, operation: RetryOperation, maxAttempts: number, reason?: string) => resetRetryBudget(db, key, operation, maxAttempts, reason),
     /** Delivering-feedback loop: attach a human's PR-review comment (trigger for the evaluator),

@@ -29,7 +29,7 @@ export interface BoardIdentity {
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
   | 'claimNextTask' | 'submitResult' | 'createTask'
-  | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'settleRetry'
+  | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
@@ -105,6 +105,10 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
       (await req('POST', `/api/agent/tasks/${enc(key)}/status`, { status, note })) as never,
     releaseClaim: async (key) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, {})) as never,
     reserveRetry: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/retry/reserve`, input)) as never,
+    reconcileRetry: async (id, input) => (await req('POST', `/api/agent/retry/${enc(id)}/reconcile`, input)) as never,
+    reconcileAbandonedRetryReservations: async (graceMs) => ((await req('POST', '/api/agent/retry/reconcile-abandoned', { graceMs })) as { count: number }).count,
+    getRetryBudget: async (key, operation) => (await req('GET', `/api/agent/tasks/${enc(key)}/retry?operation=${enc(operation)}`)) as never,
+    recordRetryFailure: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/retry/record-failure`, input); },
     settleRetry: async (id, input) => ((await req('POST', `/api/agent/retry/${enc(id)}/settle`, input)) as { settled: boolean }).settled,
 
     // ── transcript / session / metrics ───────────────────────────────────────

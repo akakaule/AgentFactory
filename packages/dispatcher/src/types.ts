@@ -22,6 +22,10 @@ export interface DispatcherCore {
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string): Awaitable<TaskDetail>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
+  reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
+  reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
+  getRetryBudget?(key: string, operation: string): Awaitable<{ maxAttempts: number; attemptsUsed: number } | null>;
+  recordRetryFailure?(key: string, input: { operation: string; maxAttempts: number; attempt: number; reason: string }): Awaitable<void>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;

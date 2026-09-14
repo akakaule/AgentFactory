@@ -571,6 +571,24 @@ describe('worker system prompt', () => {
 // crash path → release, retry, skip-list
 // ---------------------------------------------------------------------------
 describe('crash path', () => {
+  it('reconciles a reservation when the worker claims a different task than predicted', async () => {
+    const core = makeCore();
+    const predicted = seedQueued(core, 'ws', 'Predicted');
+    const actual = seedQueued(core, 'ws', 'Actually claimed');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'another-worker' });
+    expect(core.claimNextTask({ workspace: 'ws', claimedBy: label })?.key).toBe(actual);
+    await calls[0]!.child.exit(1);
+
+    expect(core.getRetryBudget(predicted, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 0 });
+    expect(core.getRetryBudget(actual, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 1 });
+    expect(core.getTask(actual).failure).toMatchObject({ source: 'dispatcher', attempt: 1 });
+  });
+
   it('does not restore a spent retry allowance when the supervisor is reconstructed', async () => {
     const core = makeCore();
     const key = seedQueued(core, 'ws', 'Restart resistant');

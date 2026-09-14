@@ -11,3 +11,8 @@
 - In PowerShell, quote Git revision syntax such as `'@{u}'`; unquoted `@{...}` is parsed as a hashtable literal before Git receives it.
 - On Windows, preserve the repository's canonical path casing for builds and checks: resolve it with `Get-Location` or `git rev-parse --show-toplevel` before briefing subagents or invoking analyzers. AgentFactory is `C:\Git\AgentFactory` (capital `G`), even when the environment supplies `C:\git\AgentFactory`.
 - Durable retry reservations must finish the reap before polling for a replacement slot; cancelled pre-launch or transient-post reservations must refund and remove the non-attempt so its number can be reused. Preserve legacy `failure/v1` restart behavior when older comments omit `source`.
+- Retry-budget tests that seed legacy failure markers must materialize the legacy budget before adding an independent operation; otherwise the compatibility seed correctly makes the first reservation unavailable.
+- `node:sqlite` statement results need an explicit `as unknown as Row` cast when projecting joined retry rows under the repository's strict TypeScript build.
+- When retry budgets are seeded from legacy failure markers without attempt rows, the next reservation number must fall back to the persisted `attempts_used`; active rows still derive the number from their maximum attempt.
+- Stale dispatcher claims carry only a label-derived attempt after restart; persist that exact orphan attempt at the core boundary before releasing the claim, including reconciling any matching active reservation.
+- After reservation reconciliation exhausts the target budget, reap must not settle the refunded obsolete reservation ID.

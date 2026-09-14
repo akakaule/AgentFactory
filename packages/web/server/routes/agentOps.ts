@@ -32,6 +32,9 @@ const deliveryCheckBody = z.object({
 const deliveryCompleteBody = z.object({ note: z.string() });
 const deliveryFailBody = z.object({ reason: z.string().min(1), detail: z.string(), body: z.string().optional() }).passthrough();
 const retryReserveBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive() });
+const retryReconcileBody = z.object({ actualKey: z.string().min(1), operation: z.string().min(1), maxAttempts: z.number().int().positive() });
+const retryReconcileAbandonedBody = z.object({ graceMs: z.number().finite().nonnegative() });
+const retryRecordFailureBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive(), attempt: z.number().int().positive(), reason: z.string() });
 const retrySettleBody = z.object({ state: z.enum(['running', 'succeeded', 'failed', 'cancelled']), reason: z.string().optional() });
 
 /**
@@ -129,6 +132,19 @@ export function agentOpsRoutes(core: Core): Hono {
   // the operation name is supplied by the supervisor and core stores the decision atomically.
   r.post('/tasks/:key/retry/reserve', validated('json', retryReserveBody), (c) =>
     c.json(core.reserveRetry(c.req.param('key'), c.req.valid('json'))));
+  r.post('/retry/:id/reconcile', validated('json', retryReconcileBody), (c) =>
+    c.json(core.reconcileRetry(c.req.param('id'), c.req.valid('json'))));
+  r.post('/retry/reconcile-abandoned', validated('json', retryReconcileAbandonedBody), (c) =>
+    c.json({ count: core.reconcileAbandonedRetryReservations(c.req.valid('json').graceMs) }));
+  r.get('/tasks/:key/retry', (c) => {
+    const operation = c.req.query('operation');
+    if (!operation) throw new ValidationError('retry operation query parameter is required');
+    return c.json(core.getRetryBudget(c.req.param('key'), operation));
+  });
+  r.post('/tasks/:key/retry/record-failure', validated('json', retryRecordFailureBody), (c) => {
+    core.recordRetryFailure(c.req.param('key'), c.req.valid('json'));
+    return c.json({ ok: true });
+  });
   r.post('/retry/:id/settle', validated('json', retrySettleBody), (c) =>
     c.json({ settled: core.settleRetry(c.req.param('id'), c.req.valid('json')) }));
 

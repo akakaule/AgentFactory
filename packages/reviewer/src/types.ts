@@ -20,6 +20,7 @@ export interface ReviewerCore {
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
+  reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   // store (or replace) a task's auto-generated change-visualization HTML (no actor axis)
   attachVisualization(key: string, input: { html: string }): Awaitable<VisualizationMeta>;
