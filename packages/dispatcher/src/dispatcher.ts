@@ -33,6 +33,10 @@ interface Session {
   transcriptOffset: number;
   /** The task key the transcript attaches to (the resolved claim); null until claimed. */
   transcriptKey: string | null;
+  /** The task actually claimed by this worker, once observed. */
+  claimedKey: string | null;
+  /** Set when a completed merged delivery cancels this worker before it can publish. */
+  cancelled: boolean;
 }
 
 const LOG_TAIL_CHARS = 4000;
@@ -123,6 +127,8 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.cancelCompletedSessions();
+    await Promise.all([...this.settling]);
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
     this.enforceTimeouts();
@@ -322,6 +328,25 @@ export class Dispatcher {
         await this.deps.core.touchAgentSession(s.predictedKey);
       } catch {
         /* best-effort — a missing live row (not yet claimed / already ended) is fine */
+      }
+    }
+  }
+
+  /** Stop a worker whose approved delivery was completed by another supervisor while it ran. */
+  private async cancelCompletedSessions(): Promise<void> {
+    for (const session of this.running.values()) {
+      if (session.settled || session.cancelled) continue;
+      const claimed = await this.findClaimed(session);
+      const key = claimed?.key ?? session.claimedKey ?? session.predictedKey;
+      const task = await this.tryGetTask(key);
+      if (task?.status !== 'done' || task.delivery?.prState !== 'merged') continue;
+
+      session.cancelled = true;
+      this.appendLog(session, '\n[dispatcher] merged delivery completed elsewhere; terminating repair worker\n');
+      try {
+        this.deps.terminateProcessTree(session.child, 'SIGTERM');
+      } catch {
+        /* the exit handler still settles the worker */
       }
     }
   }
@@ -538,6 +563,8 @@ export class Dispatcher {
       transcriptPath: null,
       transcriptOffset: 0,
       transcriptKey: null,
+      claimedKey: null,
+      cancelled: false,
     };
     this.running.set(label, session);
     try {
@@ -594,6 +621,13 @@ export class Dispatcher {
     await this.persistTranscript(session, claimed?.key ?? session.predictedKey);
 
     if (!claimed) {
+      if (session.cancelled) {
+        if (session.reservationId) {
+          await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'merged delivery completed while repair was running' });
+        }
+        this.console.log(`[dispatcher] ${session.label} stopped after merged delivery completion`);
+        return;
+      }
       // The session never claimed: empty queue, a lost race, a permission denial,
       // or a crash before claim. A denial is a misconfiguration — respawning would
       // burn a session per poll forever, so it consumes an attempt like a crash.
@@ -627,6 +661,13 @@ export class Dispatcher {
       }
     }
 
+    if (session.cancelled) {
+      if (session.reservationId) {
+        await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'merged delivery completed while repair was running' });
+      }
+      return;
+    }
+
     // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
     if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(claimed.key, session.label, metrics);
 
@@ -653,6 +694,7 @@ export class Dispatcher {
   private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage } | undefined> {
     const all = await this.deps.core.listTasks({ workspace: session.workspace });
     const row = all.find((t) => t.claimedBy === session.label);
+    if (row) session.claimedKey = row.key;
     return row ? { key: row.key, status: row.status, stage: row.stage } : undefined;
   }
 

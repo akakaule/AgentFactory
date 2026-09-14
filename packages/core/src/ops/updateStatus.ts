@@ -34,6 +34,7 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   // (ops/approval.ts) — as a raw status move it would let an agent dodge its own review.
   if (row.status === 'in_review' && status === 'queued' && actor === 'agent')
     throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
+  const repairRetry = status === 'queued' && actor === 'human' && ['queued', 'in_progress', 'blocked'].includes(row.status);
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
     // Re-read under the write lock: a retry click can race the watcher recording a merged PR.
@@ -43,8 +44,8 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
     assertTransition(current.status, status, actor);
     const ts = now();
     const delivery = deliveryRowFor(db, current.id);
-    if (status === 'queued' && actor === 'human' && ['queued', 'in_progress', 'blocked'].includes(current.status) && delivery?.pr_state === 'merged') {
-      completeDeliveryRow(db, current, delivery, ts);
+    if (repairRetry && delivery?.pr_state === 'merged' && ['queued', 'in_progress', 'blocked', 'done'].includes(current.status)) {
+      if (current.status !== 'done') completeDeliveryRow(db, current, delivery, ts);
       return toDetail(db, findRowByKey(db, key)!);
     }
     if (status === 'queued' && actor === 'human' && (current.status === 'done' || current.status === 'delivering'))

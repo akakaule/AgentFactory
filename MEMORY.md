@@ -18,3 +18,4 @@
 - Worktree tests that import workspace packages can resolve the parent repository's junctions when dependencies are absent locally; run `npm install --ignore-scripts --no-audit --no-fund` in the worktree before rebuilding package outputs.
 - After reservation reconciliation exhausts the target budget, reap must not settle the refunded obsolete reservation ID.
 - Keep shared delivery completion helpers state-agnostic for the existing force-complete API; enforce `pr_state = 'merged'` only at new retry/late-submit reconciliation call sites, and exclude intentional delivering/done reopens from retry reconciliation.
+- Capture repair-retry intent before its write transaction so a watcher winning the race into `done` cannot be mistaken for an intentional reopen; when merged completion ends the DB session, the dispatcher must also terminate the matching live child and settle its reservation without releasing or republishing the completed task.

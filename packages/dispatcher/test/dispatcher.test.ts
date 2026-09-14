@@ -448,6 +448,33 @@ describe('live agent session', () => {
     await calls[0]!.child.exit(0);
     expect(core.listLiveAgents()).toHaveLength(0); // reap end is idempotent
   });
+
+  it('terminates a repair worker when the watcher completes its merged delivery', async () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'Merged while repairing', spec: 'spec', acceptanceCriteria: 'criteria', workspace: 'ws' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'seed-worker' });
+    core.submitResult(t.key, { summary: 'initial result' });
+    core.updateStatus(t.key, 'delivering', 'human');
+    const approved = core.getTask(t.key);
+    core.beginDelivery(t.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/1' });
+    core.recordDeliveryCheck(t.key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.failDelivery(t.key, { reason: 'ci_failed', detail: 'build failed' });
+
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+
+    core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.completeDelivery(t.key, 'PR merged; checks failing');
+    await d.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(core.getTask(t.key).status).toBe('done');
+    expect(calls).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
