@@ -1,5 +1,5 @@
 import { parseFailureComment } from '@agentfactory/core';
-import type { ActivityFeedRow, SupervisorView, Task, Status } from '@agentfactory/core';
+import type { ActivityFeedRow, AttentionReason, CaptureNotificationsInput, NotificationOutboxEntry, SupervisorView, Task, Status } from '@agentfactory/core';
 
 /**
  * The unattended-loop notifier. A poll loop in the always-on web process that derives "you're
@@ -9,9 +9,9 @@ import type { ActivityFeedRow, SupervisorView, Task, Status } from '@agentfactor
  * it catches agent-driven transitions from the MCP process too, not just web-server actions —
  * consistent with the codebase's derive-from-activity philosophy.
  *
- * Dedup is structural, not time-based: activity events are deduped by the durable `app_kv` cursor
- * (each row processed once, ever); state events (supervisor down, queue empty) fire on the edge
- * (tracked in memory) so they alert once per transition, not every poll.
+ * Dedup is structural, not time-based: the core captures activity and state occurrences plus one
+ * outbox row per destination in the same transaction that advances the source cursor. Delivery is
+ * at-least-once: a timeout after a receiver accepted a POST can duplicate an alert on retry.
  */
 
 export type NotifyEvent = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty';
@@ -29,15 +29,23 @@ export interface NotifierCore {
   setKv(key: string, value: string): void;
   listSupervisors(): SupervisorView[];
   listTasks(opts?: { status?: Status | undefined }): Task[];
+  captureNotifications?: (input: CaptureNotificationsInput) => void | Promise<void>;
+  listNotificationOutbox?: (now?: string, limit?: number) => NotificationOutboxEntry[] | Promise<NotificationOutboxEntry[]>;
+  settleNotificationOutbox?: (id: number, input: { ok: boolean; now?: string; retryAt?: string; error?: string }) => boolean | Promise<boolean>;
 }
 
 /** Minimal fetch surface (global `fetch` satisfies it); injectable so tests don't hit the network. */
-export type NotifyFetch = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{ ok: boolean; status: number }>;
+export type NotifyFetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number }>;
 
 export interface NotifierConfig {
   webhooks: string[];
   events: Set<NotifyEvent>;
   pollMs: number;
+  appUrl?: string;
+  timeoutMs?: number;
+  maxAttempts?: number;
+  retryBaseMs?: number;
+  retryMaxMs?: number;
 }
 
 export interface NotifierDeps {
@@ -55,13 +63,27 @@ export function notifierConfigFromEnv(env: Record<string, string | undefined>): 
     (e): e is NotifyEvent => (ALL_NOTIFY_EVENTS as readonly string[]).includes(e),
   );
   const pollSec = Number(env['AF_NOTIFY_POLL_SEC'] ?? '15');
-  return { webhooks, events: new Set(chosen), pollMs: (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 15) * 1000 };
+  const timeoutMs = Number(env['AF_NOTIFY_TIMEOUT_MS'] ?? '10000');
+  const maxAttempts = Number(env['AF_NOTIFY_MAX_ATTEMPTS'] ?? '5');
+  const retryBaseSec = Number(env['AF_NOTIFY_RETRY_BASE_SEC'] ?? '15');
+  const retryMaxSec = Number(env['AF_NOTIFY_RETRY_MAX_SEC'] ?? '900');
+  const port = env['PORT'] ?? '8787';
+  return {
+    webhooks: [...new Set(webhooks)], events: new Set(chosen),
+    pollMs: (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 15) * 1000,
+    appUrl: env['AF_APP_URL']?.trim() || `http://localhost:${port}`,
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000,
+    maxAttempts: Number.isInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : 5,
+    retryBaseMs: Number.isFinite(retryBaseSec) && retryBaseSec > 0 ? retryBaseSec * 1000 : 15000,
+    retryMaxMs: Number.isFinite(retryMaxSec) && retryMaxSec > 0 ? retryMaxSec * 1000 : 900000,
+  };
 }
 
 export class Notifier {
   private timer: ReturnType<typeof setInterval> | null = null;
   private cursor = 0;
   private initialized = false;
+  private tickInFlight: Promise<void> | null = null;
   private readonly down = new Set<string>(); // supervisors currently alerted as down (edge detection)
   private queueEmpty = false;
 
@@ -91,7 +113,22 @@ export class Notifier {
   }
 
   async tick(): Promise<void> {
+    if (this.tickInFlight) return this.tickInFlight;
+    const work = this.runTick();
+    this.tickInFlight = work;
+    try {
+      await work;
+    } finally {
+      if (this.tickInFlight === work) this.tickInFlight = null;
+    }
+  }
+
+  private async runTick(): Promise<void> {
     this.ensureCursor();
+    if (this.deps.core.captureNotifications && this.deps.core.listNotificationOutbox && this.deps.core.settleNotificationOutbox) {
+      await this.durableTick();
+      return;
+    }
     await this.processActivity();
     await this.processState();
   }
@@ -121,14 +158,14 @@ export class Notifier {
 
   private classify(row: ActivityFeedRow): { type: NotifyEvent; text: string } | null {
     if (row.type === 'status_change' && row.toStatus === 'in_review') {
-      return { type: 'in_review', text: `:eyes: *${row.taskKey}* needs review — ${row.taskTitle} _(${row.workspace})_` };
+      return { type: 'in_review', text: this.taskText(`:eyes: *${row.taskKey}* needs review — ${row.taskTitle} _(${row.workspace})_`, row.taskKey) };
     }
     if (row.type === 'comment') {
       const f = parseFailureComment(row.body);
       if (f) {
         const skip = f.reason === 'max_attempts' || (f.attempt !== null && f.maxAttempts !== null && f.attempt >= f.maxAttempts);
-        if (skip) return { type: 'skip_listed', text: `:rotating_light: *${row.taskKey}* skip-listed (${f.reason}) — needs you. ${row.taskTitle}` };
-        return { type: 'failed', text: `:warning: *${row.taskKey}* failed: ${f.reason}${f.detail ? ` — ${f.detail}` : ''}` };
+        if (skip) return { type: 'skip_listed', text: this.taskText(`:rotating_light: *${row.taskKey}* skip-listed (${f.reason}) — needs you. ${row.taskTitle}`, row.taskKey) };
+        return { type: 'failed', text: this.taskText(`:warning: *${row.taskKey}* failed: ${f.reason}${f.detail ? ` — ${f.detail}` : ''}`, row.taskKey) };
       }
     }
     return null;
@@ -155,6 +192,113 @@ export class Notifier {
         this.queueEmpty = false;
       }
     }
+  }
+
+  /** New path: capture all derived events before attempting any network delivery. */
+  private async durableTick(): Promise<void> {
+    const rows = this.deps.core.activitySince(this.cursor, 200);
+    const occurrences: CaptureNotificationsInput['occurrences'] = [];
+    for (const row of rows) {
+      const event = this.classify(row);
+      if (!event || !this.cfg.events.has(event.type)) continue;
+      occurrences.push({
+        key: `activity:${row.id}`, eventType: event.type,
+        reason: this.reasonFor(event.type), target: row.taskKey, taskKey: row.taskKey, text: event.text,
+      });
+    }
+    const nextCursor = rows.length ? rows[rows.length - 1]!.id : this.cursor;
+    occurrences.push(...this.stateOccurrences());
+    await this.deps.core.captureNotifications!({
+      sourceCursor: nextCursor, destinations: this.cfg.webhooks,
+      maxAttempts: this.cfg.maxAttempts ?? 5, occurrences,
+      now: new Date().toISOString(),
+    });
+    this.cursor = nextCursor;
+    await this.deliverOutbox();
+  }
+
+  private stateOccurrences(): CaptureNotificationsInput['occurrences'] {
+    const out: CaptureNotificationsInput['occurrences'] = [];
+    if (this.cfg.events.has('supervisor_down')) {
+      for (const s of this.deps.core.listSupervisors()) {
+        out.push({
+          key: `supervisor:${s.name}:down`, stateKey: `supervisor:${s.name}:down`, eventType: 'supervisor_down',
+          reason: 'supervisor_unavailable', target: s.name,
+          text: this.supervisorText(s), active: !s.healthy,
+        });
+      }
+    }
+    if (this.cfg.events.has('queue_empty')) {
+      const empty = this.deps.core.listTasks({ status: 'queued' }).length === 0;
+      out.push({
+        key: 'queue:empty', stateKey: 'queue:empty', eventType: 'queue_empty', reason: 'queue_empty', target: 'queue',
+        text: ':inbox_tray: the queue is empty — no work left to dispatch', active: empty,
+      });
+    }
+    return out;
+  }
+
+  private async deliverOutbox(): Promise<void> {
+    const ready = await this.deps.core.listNotificationOutbox!(new Date().toISOString(), 100);
+    for (const item of ready) {
+      const now = new Date().toISOString();
+      try {
+        const res = await this.fetchWithTimeout(item.destination, item.text);
+        if (!res.ok) throw new Error(`webhook returned ${res.status}`);
+        await this.deps.core.settleNotificationOutbox!(item.id, { ok: true, now });
+      } catch (err) {
+        const delay = Math.min((this.cfg.retryBaseMs ?? 15000) * 2 ** item.attempts, this.cfg.retryMaxMs ?? 900000);
+        const retryAt = new Date(Date.now() + delay).toISOString();
+        const error = err instanceof Error ? err.message : String(err);
+        await this.deps.core.settleNotificationOutbox!(item.id, { ok: false, now, retryAt, error });
+        this.console.warn(`[notifier] ${item.destination}: ${error} — retry at ${retryAt}`);
+      }
+    }
+  }
+
+  private async fetchWithTimeout(url: string, text: string): Promise<{ ok: boolean; status: number }> {
+    const timeoutMs = this.cfg.timeoutMs ?? 10000;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`webhook timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([
+        this.deps.fetch(url, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }), signal: controller.signal,
+        }),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private reasonFor(type: NotifyEvent): AttentionReason {
+    if (type === 'in_review') return 'review_ready';
+    if (type === 'skip_listed') return 'attempts_exhausted';
+    if (type === 'supervisor_down') return 'supervisor_unavailable';
+    if (type === 'queue_empty') return 'queue_empty';
+    return 'failed';
+  }
+
+  private taskText(text: string, taskKey: string): string {
+    const url = this.taskUrl(taskKey);
+    return url ? `${text} — <${url}|open task>` : text;
+  }
+
+  private taskUrl(taskKey: string): string | null {
+    const base = this.cfg.appUrl?.trim();
+    if (!base) return null;
+    return `${base.replace(/\/+$/, '')}/?task=${encodeURIComponent(taskKey)}`;
+  }
+
+  private supervisorText(s: SupervisorView): string {
+    return `:red_circle: supervisor *${s.name}* (${s.kind}) is down — not seen in ${s.staleSeconds}s`;
   }
 
   private async send(text: string): Promise<void> {

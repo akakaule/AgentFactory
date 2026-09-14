@@ -43,6 +43,7 @@ export const prReviewedBody = z.object({ review: z.string().optional() });
 export const prFeedbackBody = z.object({ feedback: z.string().min(1), author: z.string().optional(), url: z.string().optional() });
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
 export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
+export const attentionSnoozeBody = z.object({ until: z.string().min(1) });
 export const attachmentBody = z.object({
   filename: z.string().min(1),
   mime: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
