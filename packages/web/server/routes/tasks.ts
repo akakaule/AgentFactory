@@ -80,7 +80,8 @@ export function taskRoutes(core: Core) {
     if (html.length > MAX_VISUALIZATION_BYTES) {
       throw new ValidationError(`visualization HTML exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
     }
-    const meta = core.attachVisualization(c.req.param('key'), { html });
+    const executionId = c.req.header('x-agentfactory-execution-id');
+    const meta = core.attachVisualization(c.req.param('key'), { html, ...(executionId ? { executionId } : {}) });
     return c.json({ ok: true, bytes: meta.bytes, generatedAt: meta.generatedAt }, 201);
   });
 

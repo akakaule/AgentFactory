@@ -62,8 +62,8 @@ describe('derived failure field', () => {
     addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed', attempt: 1, maxAttempts: 2 }) }, at(95));
     updateStatus(db, task.key, 'queued', 'human', at(96));
     // a fresh claim succeeds → result postdates the failure note → failure cleared
-    claimNextTask(db, { claimedBy: 'worker-2' }, at(100));
-    submitResult(db, task.key, { summary: 'fixed on retry' }, at(120));
+    const retry = claimNextTask(db, { claimedBy: 'worker-2' }, at(100));
+    submitResult(db, task.key, { summary: 'fixed on retry', executionId: retry!.executionId }, at(120));
     expect(getTask(db, task.key).failure).toBeNull();
   });
 

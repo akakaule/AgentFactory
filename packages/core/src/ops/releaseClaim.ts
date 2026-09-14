@@ -7,6 +7,7 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { currentExecution, settleExecution } from '../repo/execution.js';
 
 /**
  * Release a stranded `in_progress` claim back to `queued` — the SYSTEM recovery action behind the
@@ -19,15 +20,19 @@ import { nowIso } from '../time.js';
  * The row is read INSIDE the transaction (delivery.ts pattern): five processes share this DB, and
  * the release must never race a concurrent settle into logging a stale from_status.
  */
-export function releaseClaim(db: DB, key: string, now: () => string = nowIso): TaskDetail {
+export function releaseClaim(db: DB, key: string, now: () => string = nowIso, executionId?: string): TaskDetail {
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     if (row.status !== 'in_progress')
       throw new InvalidTransitionError(`release requires an in_progress claim (got ${row.status}): ${key}`);
+    const current = currentExecution(db, row.id);
+    if (executionId !== undefined && (!current || current.id !== executionId))
+      throw new InvalidTransitionError(`execution ${executionId} is not the current execution for ${key}`);
     assertTransition('in_progress', 'queued', 'human');
     const ts = now();
     setStatus(db, row.id, 'queued', ts);
+    if (current) settleExecution(db, current.id, 'failed', ts, 'claim released for retry');
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor: 'human',
       fromStatus: 'in_progress', toStatus: 'queued', createdAt: ts,

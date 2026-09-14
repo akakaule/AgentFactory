@@ -1,4 +1,13 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey, RetryReservation } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
+
+export interface ExecutionLike {
+  id: string; taskKey: string; operation: string; generation: number; attempt: number; maxAttempts: number;
+  state: 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled'; reservedAt: string;
+}
+export interface RetryReservationLike {
+  id: string; taskKey: string; operation: string; generation: number; attempt: number; maxAttempts: number;
+  state: 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled'; reservedAt: string;
+}
 
 /** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
  *  the supervisor awaits every call. */
@@ -20,14 +29,17 @@ export interface DispatcherCore {
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
-  releaseClaim(key: string): Awaitable<TaskDetail>;
-  reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
-  reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
+  releaseClaim(key: string, now?: () => string, executionId?: string): Awaitable<TaskDetail>;
+  reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null }): Awaitable<ExecutionLike | null>;
+  reconcileExecutions?(graceMs: number): Awaitable<number>;
+  touchExecution?(id: string): Awaitable<boolean>;
+  reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;
+  reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   getRetryBudget?(key: string, operation: string): Awaitable<{ maxAttempts: number; attemptsUsed: number } | null>;
   recordRetryFailure?(key: string, input: { operation: string; maxAttempts: number; attempt: number; reason: string }): Awaitable<void>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
-  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  addComment(key: string, input: { actor: Actor; body: string; executionId?: string }): Awaitable<Activity>;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;
   // live agent status: keep a running session warm, and end it when the process exits
   touchAgentSession(key: string): Awaitable<void>;

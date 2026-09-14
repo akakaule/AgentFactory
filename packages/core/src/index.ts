@@ -11,6 +11,7 @@ export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
+export { reserveExecution, reconcileExecutions, touchExecution, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
@@ -75,6 +76,7 @@ import { updateStatus } from './ops/updateStatus.js';
 import { releaseClaim } from './ops/releaseClaim.js';
 import { restartTask } from './ops/restartTask.js';
 import { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget } from './ops/retry.js';
+import { reserveExecution, reconcileExecutions, touchExecution } from './ops/execution.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
@@ -105,7 +107,7 @@ import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
@@ -116,6 +118,15 @@ export interface CoreOptions {
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB, opts: CoreOptions = {}) {
   const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
+  // Keep the public in-process facade as ergonomic as the HTTP client: once a claim returns an
+  // execution identity, subsequent mutations from that same facade are fenced automatically.
+  // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
+  const executionIds = new Map<string, string>();
+  const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
+    if (input.executionId !== undefined) return input;
+    const executionId = executionIds.get(key);
+    return executionId === undefined ? input : { ...input, executionId };
+  };
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
@@ -127,7 +138,14 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     getTask: (key: string) => getTask(db, key),
     addTaskDependency: (dependentKey: string, dependencyKey: string) => addTaskDependency(db, dependentKey, dependencyKey),
     removeTaskDependency: (dependentKey: string, dependencyKey: string) => removeTaskDependency(db, dependentKey, dependencyKey),
-    claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
+    claimNextTask: (opts?: ClaimOptions) => {
+      const claim = claimNextTask(db, opts);
+      if (claim) executionIds.set(claim.key, claim.executionId);
+      return claim;
+    },
+    reserveExecution: (key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }) => reserveExecution(db, key, input),
+    reconcileExecutions: (graceMs: number) => reconcileExecutions(db, graceMs),
+    touchExecution: (id: string) => touchExecution(db, id),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),
     listWorkspaces: () => listWorkspaces(db),
@@ -143,12 +161,12 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
     createApiToken: (input: { label: string; userId?: number | null; isService?: boolean; isSupervisor?: boolean }) => createApiToken(db, input),
     authenticateToken: (rawToken: string) => authenticateToken(db, rawToken),
-    reportProgress: (key: string, input: { message: string; tokensIn?: number; tokensOut?: number }) => reportProgress(db, key, input),
+    reportProgress: (key: string, input: { message: string; tokensIn?: number; tokensOut?: number; executionId?: string }) => reportProgress(db, key, fenced(key, input)),
     touchAgentSession: (key: string) => touchAgentSession(db, key),
     endAgentSession: (key: string) => endAgentSession(db, key),
     listLiveAgents: () => listLiveAgents(db),
-    appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, input),
-    saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, input),
+    appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, fenced(key, input)),
+    saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, fenced(key, input)),
     getTranscript: (key: string) => getTranscript(db, key),
     attachVisualization: (key: string, input: AttachVisualizationInput) => attachVisualization(db, key, input),
     getVisualization: (key: string) => getVisualization(db, key),
@@ -159,10 +177,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     latestActivityId: () => latestActivityId(db),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
-    addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
-    submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
-    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
-    releaseClaim: (key: string) => releaseClaim(db, key),
+    addComment: (key: string, input: AddCommentInput) => addComment(db, key, input),
+    submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, executionId ?? executionIds.get(key)),
+    releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, executionId),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),
     settleRetry: (id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }) => settleRetry(db, id, input),
@@ -185,7 +203,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
     tokenTrend: (opts: { workspace?: string | undefined } = {}) => tokenTrend(db, opts),
-    addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, input),
+    addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, fenced(key, input)),
     addAttachment: (key: string, input: AddAttachmentInput) => addAttachment(db, key, input),
     deleteAttachment: (id: number) => deleteAttachment(db, id),
     getAttachment: (id: number) => getAttachment(db, id),

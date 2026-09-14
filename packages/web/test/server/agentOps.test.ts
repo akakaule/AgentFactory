@@ -136,6 +136,18 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect(await res.json()).toBeNull();
   });
 
+  it('claims an explicitly reserved task even when it is not the oldest queued task', async () => {
+    const first = queuedTask(core, 'Oldest queued task');
+    const reserved = queuedTask(core, 'Reserved task');
+    const execution = core.reserveExecution(reserved.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'worker-2' });
+    expect(execution).not.toBeNull();
+
+    const res = await post(app, '/api/agent/claim', { claimedBy: 'worker-2', executionId: execution!.id }, service);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { key: string }).key).toBe(reserved.key);
+    expect(core.getTask(first.key).status).toBe('queued');
+  });
+
   it('release-claim performs the system recovery edge', async () => {
     const t = queuedTask(core);
     core.claimNextTask({ claimedBy: 'w1' });
@@ -145,6 +157,21 @@ describe('agent ops — the worked loop over HTTP', () => {
     const detail = core.getTask(t.key);
     expect(detail.status).toBe('queued');
     expect(detail.activity.filter((a) => a.type === 'status_change').at(-1)!.body).toContain('system-reap');
+  });
+
+  it('rejects late fenced progress and submit after a replacement claim', async () => {
+    const t = queuedTask(core);
+    const first = (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as Promise<{ executionId: string }>;
+    const firstClaim = await first;
+    expect(firstClaim.executionId).toBeTruthy();
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: firstClaim.executionId }, supervisor)).status).toBe(200);
+    const replacement = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-2' }, service)).json() as { executionId: string };
+    expect(replacement.executionId).not.toBe(firstClaim.executionId);
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { executionId: firstClaim.executionId, message: 'late' }, service)).status).toBe(409);
+    expect((await post(app, `/api/agent/tasks/${t.key}/submit`, { executionId: firstClaim.executionId, summary: 'late', links: [] }, service)).status).toBe(409);
+    expect(core.getTask(t.key).status).toBe('in_progress');
   });
 
   it('creating a task through the agent surface lands in backlog with actor agent', async () => {

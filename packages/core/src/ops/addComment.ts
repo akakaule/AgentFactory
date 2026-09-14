@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Activity, Actor } from '../types.js';
+import type { Activity, AddCommentInput } from '../types.js';
 import { transaction } from '../transaction.js';
 import { commentSchema, parse } from '../validate.js';
 import { findRowByKey, touch } from '../repo/tasks.js';
@@ -8,17 +8,19 @@ import { parseAiReviewComment } from '../aiReview.js';
 import { applyApproval } from './approval.js';
 import { NotFoundError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { assertExecutionOwnership } from '../repo/execution.js';
 
 export function addComment(
   db: DB,
   key: string,
-  input: { actor: Actor; body: string; actorUserId?: number | null },
+  input: AddCommentInput,
   now: () => string = nowIso,
 ): Activity {
-  const { body } = parse(commentSchema, { body: input.body });
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
+  const { body } = parse(commentSchema, input);
   return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    if (input.actor === 'agent') assertExecutionOwnership(db, row.id, key, input.executionId);
     const ts = now();
     appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     touch(db, row.id, ts);

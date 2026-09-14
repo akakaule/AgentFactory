@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation } from '@agentfactory/core';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, Execution } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 /**
@@ -18,12 +18,15 @@ export interface ReviewerCore {
   getTask(key: string): Awaitable<TaskDetail>;
   // the configured reviewer/evaluator system prompt (workspace override → global default → '').
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
-  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  addComment(key: string, input: { actor: Actor; body: string; executionId?: string | undefined }): Awaitable<Activity>;
+  reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null | undefined; startImmediately?: boolean | undefined }): Awaitable<Execution | null>;
+  reconcileExecutions?(graceMs: number): Awaitable<number>;
+  touchExecution?(id: string): Awaitable<boolean>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   // store (or replace) a task's auto-generated change-visualization HTML (no actor axis)
-  attachVisualization(key: string, input: { html: string }): Awaitable<VisualizationMeta>;
+  attachVisualization(key: string, input: { html: string; executionId?: string | undefined }): Awaitable<VisualizationMeta>;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
 }

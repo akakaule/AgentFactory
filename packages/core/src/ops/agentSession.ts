@@ -5,6 +5,7 @@ import { findRowByKey } from '../repo/tasks.js';
 import { updateProgress, touchSession, endSession, listLiveSessions } from '../repo/agentSessions.js';
 import { NotFoundError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { assertExecutionOwnership, touchExecution } from '../repo/execution.js';
 
 /**
  * Standalone entry points (MCP report_progress, the dispatcher, the HTTP heartbeat route)
@@ -16,14 +17,17 @@ import { nowIso } from '../time.js';
 export function reportProgress(
   db: DB,
   key: string,
-  input: { message: string; tokensIn?: number | undefined; tokensOut?: number | undefined },
+  input: { message: string; tokensIn?: number | undefined; tokensOut?: number | undefined; executionId?: string | undefined },
   now: () => string = nowIso,
 ): void {
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
-  transaction(db, () =>
-    updateProgress(db, { taskId: row.id, message: input.message, tokensIn: input.tokensIn ?? null, tokensOut: input.tokensOut ?? null, now: now() }),
-  );
+  transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    assertExecutionOwnership(db, row.id, key, input.executionId, { requireRunning: true });
+    const ts = now();
+    if (input.executionId !== undefined) touchExecution(db, input.executionId, ts);
+    updateProgress(db, { taskId: row.id, message: input.message, tokensIn: input.tokensIn ?? null, tokensOut: input.tokensOut ?? null, now: ts });
+  });
 }
 
 /** Liveness heartbeat for a task's live session (no-op if unknown/not live). */

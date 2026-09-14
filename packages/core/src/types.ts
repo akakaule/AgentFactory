@@ -2,12 +2,22 @@ import type { AgentPrompts } from './agentPrompts.js';
 
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
+/** Wire capabilities that must be present before supervisors and workers are restarted together. */
+export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
+export type AgentCapability = typeof AGENT_CAPABILITIES[number];
 
 /** Durable retry accounting is deliberately open-ended so a new supervisor operation can be
  * added without another schema migration. Callers use names such as `dispatcher:implementation`
  * and `reviewer:implementation` to give stages/submissions independent budgets. */
 export type RetryOperation = string;
 export type RetryAttemptState = 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type ExecutionState = RetryAttemptState;
+export interface Execution {
+  id: string; taskKey: string; stage: Stage; operation: RetryOperation;
+  generation: number; attempt: number; maxAttempts: number; owner: string | null;
+  state: ExecutionState; reservedAt: string; startedAt: string | null;
+  heartbeatAt: string | null; retryAfterAt: string | null; terminalReason: string | null;
+}
 export interface RetryBudget {
   taskKey: string; operation: RetryOperation; generation: number;
   maxAttempts: number; attemptsUsed: number; remaining: number; exhausted: boolean;
@@ -271,6 +281,7 @@ export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCrit
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
   summary: string;
+  executionId?: string | undefined;
   links?: LinkInput[];
   // stage deliverables — required/forbidden per the task's stage (see ops/submitResult.ts):
   spec?: string | undefined;               // description stage: the rewritten feature description
@@ -279,8 +290,9 @@ export interface SubmitResultInput {
   verification?: string | undefined;       // implementation/harden: reported outcome of the workspace verify command
 }
 export interface AddTaskMetricsInput {
-  model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;
+  model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;
 }
+export interface AddCommentInput { actor: Actor; body: string; actorUserId?: number | null; executionId?: string | undefined; }
 export interface AddAttachmentInput { filename: string; mime: string; dataBase64: string; }
 
 export const ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;

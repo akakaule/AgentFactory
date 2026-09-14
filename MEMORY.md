@@ -16,3 +16,6 @@
 - When retry budgets are seeded from legacy failure markers without attempt rows, the next reservation number must fall back to the persisted `attempts_used`; active rows still derive the number from their maximum attempt.
 - Stale dispatcher claims carry only a label-derived attempt after restart; persist that exact orphan attempt at the core boundary before releasing the claim, including reconciling any matching active reservation.
 - After reservation reconciliation exhausts the target budget, reap must not settle the refunded obsolete reservation ID.
+- Execution reservation adoption must accept both `reserved` and `running` states; a worker can claim after the supervisor marks the reservation running, and rejecting that state creates a duplicate execution fence.
+- Execution fencing changes must flow through every agent adapter and be checked inside the same transaction as the mutation; retain a versioned capability handshake so supervisors restart together when the protocol changes.
+- MCP claim polling must clear the prior task's execution context before asking for the next task; claim reconciliation can adopt pending reservations without sending a settled fence from the previous task.
