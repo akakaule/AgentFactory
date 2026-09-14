@@ -32,7 +32,9 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
   const approveLabel = isPrReview ? 'Mark reviewed'
     : willDeliver ? 'Approve → deliver'
     : APPROVE_LABELS[stage ?? 'implementation'];
-  const items = aiReview?.items ?? [];
+  // The action checklist includes only high-priority findings; keep the full verdict
+  // for approval semantics and retain all findings in the task's review history.
+  const items = (aiReview?.items ?? []).filter((f) => f.severity === 'error');
   const reviewer = aiReview?.reviewer ?? null;
   const reviewPresent = items.length > 0;
   // Break-glass only over a CURRENT review with open findings; pending/clean approve in one click.
@@ -88,7 +90,7 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
       {reviewPresent && (
         <div className="af-airev-list">
           <div className="hd">
-            {I.bot({})} AI review · {items.length} finding{items.length === 1 ? '' : 's'}{reviewer ? ` · ${reviewer}` : ''}
+            {I.bot({})} AI review · {items.length} high-priority finding{items.length === 1 ? '' : 's'}{reviewer ? ` · ${reviewer}` : ''}
           </div>
           {items.map((f, i) => (
             <label key={i} className="it">
@@ -105,6 +107,10 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
             </label>
           ))}
         </div>
+      )}
+
+      {hasOpenFindings && !reviewPresent && (
+        <div className="af-compose-hint">No high-priority findings.</div>
       )}
 
       {hasOpenFindings && (

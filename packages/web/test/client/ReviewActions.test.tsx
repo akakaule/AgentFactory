@@ -5,12 +5,42 @@ import { ReviewActions } from '../../client/src/components/ReviewActions.js';
 import type { AiReviewSummary, AiReviewFinding } from '../../client/src/types.js';
 
 const finding = (over: Partial<AiReviewFinding> = {}): AiReviewFinding =>
-  ({ severity: 'warning', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: 'no cap', ...over });
+  ({ severity: 'error', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: 'no cap', ...over });
 
 const review = (over: Partial<AiReviewSummary>): AiReviewSummary =>
   ({ verdict: 'findings', findings: 0, reviewer: 'codex', items: [], ...over });
 
 describe('ReviewActions', () => {
+  it('lists and sends only high-priority findings from a mixed review', async () => {
+    const onRequestChanges = vi.fn();
+    const user = userEvent.setup();
+    render(<ReviewActions aiReview={review({ findings: 4, items: [
+      finding({ severity: 'warning', title: 'Warning' }),
+      finding({ title: 'Critical bug' }),
+      finding({ severity: 'info', title: 'Suggestion' }),
+      finding({ severity: null, title: 'Unclassified' }),
+    ] })} onApprove={vi.fn()} onRequestChanges={onRequestChanges} />);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+    expect(screen.getByText(/AI review · 1 high-priority finding/)).toBeInTheDocument();
+    expect(screen.queryByText('Warning')).not.toBeInTheDocument();
+    expect(screen.queryByText('Suggestion')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unclassified')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Request changes' }));
+    await user.click(screen.getByRole('button', { name: 'Send back' }));
+    expect(onRequestChanges).toHaveBeenCalledWith('[reviewer-codex] Critical bug — no cap (src/x.ts:42)');
+  });
+
+  it('shows an explicit empty state when only lower-priority findings exist', async () => {
+    const onRequestChanges = vi.fn();
+    const user = userEvent.setup();
+    render(<ReviewActions aiReview={review({ findings: 1, items: [finding({ severity: 'warning' })] })} onApprove={vi.fn()} onRequestChanges={onRequestChanges} />);
+    expect(screen.getByText('No high-priority findings.')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Request changes' }));
+    await user.click(screen.getByRole('button', { name: 'Send back' }));
+    expect(onRequestChanges).not.toHaveBeenCalled();
+  });
+
   it('calls onApprove when Approve is clicked (no AI review)', async () => {
     const onApprove = vi.fn();
     const user = userEvent.setup();
