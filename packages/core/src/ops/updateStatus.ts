@@ -7,7 +7,8 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { clearDelivery } from '../repo/delivery.js';
+import { clearDelivery, deliveryRowFor } from '../repo/delivery.js';
+import { completeDeliveryRow } from './delivery.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
   const row = findRowByKey(db, key);
@@ -35,17 +36,27 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
     throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
+    // Re-read under the write lock: a retry click can race the watcher recording a merged PR.
+    // The merge is authoritative even when the old CI result was failing or still unresolved.
+    const current = findRowByKey(db, key);
+    if (!current) throw new NotFoundError(`task not found: ${key}`);
+    assertTransition(current.status, status, actor);
     const ts = now();
-    if (status === 'queued' && actor === 'human' && (row.status === 'done' || row.status === 'delivering'))
-      clearDelivery(db, row.id); // an intentional reopen starts a new approval episode
-    setStatus(db, row.id, status, ts);
+    const delivery = deliveryRowFor(db, current.id);
+    if (status === 'queued' && actor === 'human' && ['queued', 'in_progress', 'blocked'].includes(current.status) && delivery?.pr_state === 'merged') {
+      completeDeliveryRow(db, current, delivery, ts);
+      return toDetail(db, findRowByKey(db, key)!);
+    }
+    if (status === 'queued' && actor === 'human' && (current.status === 'done' || current.status === 'delivering'))
+      clearDelivery(db, current.id); // an intentional reopen starts a new approval episode
+    setStatus(db, current.id, status, ts);
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, body: note?.trim() || '', createdAt: ts, actorUserId });
+    appendActivity(db, { taskId: current.id, type: 'status_change', actor, fromStatus: current.status, toStatus: status, body: note?.trim() || '', createdAt: ts, actorUserId });
     // Releasing a stranded claim (in_progress → queued by a human) abandons the worker — end its
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
-    if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
+    if (current.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, current.id, ts);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

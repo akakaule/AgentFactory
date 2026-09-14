@@ -2,9 +2,9 @@ import type { DB } from '../db.js';
 import type { TaskDetail, DeliverySummary, DeliveryProvider } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
-import { findRowByKey, toDetail, setStatus, touch } from '../repo/tasks.js';
+import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
-import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation } from '../repo/delivery.js';
+import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation, type DeliveryRow } from '../repo/delivery.js';
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
@@ -15,6 +15,22 @@ const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
 /** The watcher's reasons for bouncing a delivering task back to the queue. */
 export type DeliveryFailureReason = 'ci_failed' | 'pr_closed' | 'merge_conflict';
+
+function mergedChecksNote(delivery: DeliveryRow): string {
+  const checks = delivery.checks_state === 'passing'
+    ? 'green'
+    : delivery.checks_state === 'none'
+      ? 'not configured'
+      : `${delivery.checks_state}; merge resolved the original task (CI status retained)`;
+  return `PR ${delivery.pr_id ?? delivery.pr_url ?? 'current'} merged; checks ${checks}`;
+}
+
+/** Complete a delivery while the caller already holds the core write transaction. */
+export function completeDeliveryRow(db: DB, row: TaskRow, delivery: DeliveryRow, ts: string, note = mergedChecksNote(delivery)): void {
+  setStatus(db, row.id, 'done', ts);
+  endSession(db, row.id, ts);
+  appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'done', body: note, createdAt: ts });
+}
 
 // The watcher (its own process) races the web server's human overrides on these rows, so unlike
 // the single-process ops the status read happens INSIDE the BEGIN IMMEDIATE transaction.
@@ -79,9 +95,7 @@ export function completeDelivery(db: DB, key: string, note: string, expectedStat
     if (!delivery || (expectedStateChangedAt !== undefined && delivery.state_changed_at !== expectedStateChangedAt))
       throw new InvalidTransitionError(`stale delivery observation for ${key}`);
     const ts = now();
-    setStatus(db, row.id, 'done', ts);
-    endSession(db, row.id, ts);
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'done', body: note, createdAt: ts });
+    completeDeliveryRow(db, row, delivery, ts, note);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

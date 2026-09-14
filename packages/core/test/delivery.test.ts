@@ -167,6 +167,26 @@ describe('delivery ops', () => {
     expect(done.status).toBe('done');
   });
 
+  it('an active repair submit reconciles a merged delivery and preserves the original result', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    core.recordDeliveryCheck(key, {
+      prState: 'merged', checksState: 'failing', prId: '#42',
+      prUrl: 'https://github.com/acme/widgets/pull/42',
+      failing: [{ name: 'post-merge build', url: null }],
+    });
+
+    const submitted = core.submitResult(key, { summary: 'late repair result' });
+
+    expect(submitted.status).toBe('done');
+    expect(submitted.resultSummary).toBe('done');
+    expect(submitted.delivery).toMatchObject({ prState: 'merged', checksState: 'failing', prId: '#42' });
+    expect(submitted.failure).toMatchObject({ source: 'watcher', reason: 'ci_failed' });
+    expect(submitted.activity.some((a) => a.type === 'comment' && a.body.includes('late repair result'))).toBe(true);
+  });
+
   it('completeDelivery closes with an agent status_change carrying the note; a second call throws', () => {
     const core = makeCore();
     const key = deliverTask(core);

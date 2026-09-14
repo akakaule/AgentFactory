@@ -17,3 +17,4 @@
 - Stale dispatcher claims carry only a label-derived attempt after restart; persist that exact orphan attempt at the core boundary before releasing the claim, including reconciling any matching active reservation.
 - Worktree tests that import workspace packages can resolve the parent repository's junctions when dependencies are absent locally; run `npm install --ignore-scripts --no-audit --no-fund` in the worktree before rebuilding package outputs.
 - After reservation reconciliation exhausts the target budget, reap must not settle the refunded obsolete reservation ID.
+- Keep shared delivery completion helpers state-agnostic for the existing force-complete API; enforce `pr_state = 'merged'` only at new retry/late-submit reconciliation call sites, and exclude intentional delivering/done reopens from retry reconciliation.

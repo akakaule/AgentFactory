@@ -129,6 +129,42 @@ describe('updateStatus', () => {
     expect(listLiveAgents(db)).toHaveLength(0); // orphaned session ended, clears from the Live view
   });
 
+  it('blocked → queued (human) completes an already merged delivery instead of retrying it', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='blocked' WHERE key=?").run(task.key);
+    db.prepare(
+      `INSERT INTO task_delivery
+        (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)
+       VALUES (?, 'github', 'feature/t', 'https://github.com/acme/t/pull/1', '#1', 'merged', 'failing', '{"failing":[{"name":"build","url":null}]}', ?, ?, ?, ?)`,
+    ).run(task.id, FIXED_TS, FIXED_TS, FIXED_TS, FIXED_TS);
+
+    const detail = updateStatus(db, task.key, 'queued', 'human', fixedNow);
+
+    expect(detail.status).toBe('done');
+    expect(detail.delivery).toMatchObject({ prState: 'merged', checksState: 'failing', prId: '#1' });
+    expect(detail.activity.at(-1)).toMatchObject({
+      type: 'status_change', fromStatus: 'blocked', toStatus: 'done',
+      body: expect.stringContaining('merge resolved the original task'),
+    });
+  });
+
+  it('delivering → queued (human) still starts an intentional new delivery episode after a merge', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status='delivering' WHERE key=?").run(task.key);
+    db.prepare(
+      `INSERT INTO task_delivery
+        (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)
+       VALUES (?, 'github', 'feature/t', 'https://github.com/acme/t/pull/1', '#1', 'merged', 'passing', NULL, ?, ?, ?, ?)`,
+    ).run(task.id, FIXED_TS, FIXED_TS, FIXED_TS, FIXED_TS);
+
+    const detail = updateStatus(db, task.key, 'queued', 'human', fixedNow);
+
+    expect(detail.status).toBe('queued');
+    expect(detail.delivery).toBeNull();
+  });
+
   // ── Invalid edges (wrong transition, nothing changed) ─────────────────────
 
   it.each<[Status, Status, Actor]>([
