@@ -1,4 +1,5 @@
 import type { AgentPrompts } from './agentPrompts.js';
+import type { ReviewConsensus } from './reviewConsensus.js';
 
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
@@ -49,7 +50,7 @@ export interface AiReviewFinding {
 }
 
 /** clean = current review, no findings; findings = current review with N>0; pending = a result is newer than the latest review. */
-export type AiReviewVerdict = 'clean' | 'findings' | 'pending';
+export type AiReviewVerdict = 'clean' | 'findings' | 'pending' | 'disputed';
 
 /**
  * Verdict of the latest automated AI review, derived at read time from the activity log
@@ -61,6 +62,7 @@ export interface AiReviewSummary {
   findings: number; // count of items (0 when clean); for pending, the superseded review's count
   reviewer: string | null;
   items: AiReviewFinding[];
+  consensus?: ReviewConsensus;
 }
 
 /**

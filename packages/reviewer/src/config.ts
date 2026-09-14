@@ -50,6 +50,9 @@ export const baseConfigSchema = z.object({
     (profiles) => new Set(profiles.map((p) => JSON.stringify([p.engine, p.model ?? null]))).size === profiles.length,
     'reviewers must have distinct engine/model pairs',
   ).optional(),
+  /** Opt-in discussion: one rebuttal exchange and an overall attempt deadline. */
+  consensus: z.object({ enabled: z.boolean().default(false), totalMinutes: z.number().positive().max(120).default(30),
+    maxPromptChars: z.number().int().min(1000).max(2000000).default(500000) }).strict().optional(),
   /** Queue poll interval, seconds. */
   pollSeconds: z.number().positive().default(60),
   /** Max concurrent review sessions per workspace. */
@@ -95,7 +98,11 @@ export const baseConfigSchema = z.object({
 
 /** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be
  *  `.extend`ed — sibling branches extend `baseConfigSchema` and re-apply `xorDbBoard`. */
-export const configSchema = baseConfigSchema.superRefine(xorDbBoard);
+export const configSchema = baseConfigSchema.superRefine(xorDbBoard).superRefine((config, ctx) => {
+  if (config.consensus?.enabled && ((config.reviewers?.length ?? 0) < 2 || (config.reviewers?.length ?? 0) > 8)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reviewers'], message: 'consensus requires 2–8 distinct reviewer profiles' });
+  }
+});
 
 export type ReviewerConfig = z.infer<typeof baseConfigSchema>;
 

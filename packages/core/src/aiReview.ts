@@ -8,9 +8,10 @@
  */
 import type { AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity } from './types.js';
 import type { ActivityStep } from './metrics.js';
+import { parseConsensusReview, type ReviewConsensus } from './reviewConsensus.js';
 
 /** A comment is an AI review iff its body (leading whitespace ignored) starts with this. */
-const MARKER = /^ai-review\/v1\b/i;
+const MARKER = /^ai-review\/v[12]\b/i;
 
 /**
  * True iff a comment body carries the `ai-review/v1` marker, regardless of whether the
@@ -26,11 +27,15 @@ export function isAiReviewMarker(body: string): boolean {
 export interface ParsedAiReview {
   reviewer: string | null;
   findings: AiReviewFinding[];
+  consensus?: ReviewConsensus;
 }
 
 /** The fenced ```json block if present, else the first `{…}` span; null if neither parses. */
 function extractJson(text: string): unknown {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  // Discussion history contains escaped Markdown fences inside JSON strings. Only a
+  // standalone closing fence terminates a multiline payload, not those embedded fences.
+  const fence = text.match(/```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/i)
+    ?? text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   let candidate: string | null = null;
   if (fence && fence[1] !== undefined) {
     candidate = fence[1];
@@ -71,6 +76,10 @@ function normalizeFinding(raw: unknown): AiReviewFinding | null {
 export function parseAiReviewComment(body: string): ParsedAiReview | null {
   if (!isAiReviewMarker(body)) return null;
   const json = extractJson(body);
+  if (/^ai-review\/v2\b/i.test(body.trimStart())) {
+    const review = parseConsensusReview(json);
+    return review ? { reviewer: review.reviewer, findings: review.findings, consensus: review.consensus } : null;
+  }
   if (!json || typeof json !== 'object') return null;
   const obj = json as Record<string, unknown>;
   if (!Array.isArray(obj.findings)) return null;
@@ -89,12 +98,12 @@ export function parseAiReviewComment(body: string): ParsedAiReview | null {
 export function summarizeAiReview(parsed: ParsedAiReview | null, superseded: boolean): AiReviewSummary | null {
   if (!parsed) return null;
   const findings = parsed.findings.length;
-  const verdict: AiReviewVerdict = superseded ? 'pending' : findings > 0 ? 'findings' : 'clean';
-  return { verdict, findings, reviewer: parsed.reviewer, items: parsed.findings };
+  const verdict: AiReviewVerdict = superseded ? 'pending' : parsed.consensus?.status === 'disputed' ? 'disputed' : findings > 0 ? 'findings' : 'clean';
+  return { verdict, findings, reviewer: parsed.reviewer, items: parsed.findings, ...(parsed.consensus ? { consensus: parsed.consensus } : {}) };
 }
 
 /**
- * The findings count standing at a task's *final* approval, or null when the approved
+ * The unresolved issue count (confirmed findings plus disputes) at final approval, or null when the approved
  * result had no current AI review — none was ever posted, OR a newer result superseded
  * the last review (pending at done). Walks the status history (id order): an ai-review
  * comment sets the current count, a `result` clears it (the new submission is unreviewed
@@ -108,7 +117,7 @@ export function findingsAtApproval(steps: ActivityStep[]): number | null {
   for (const s of steps) {
     if (s.type === 'comment' && s.body) {
       const p = parseAiReviewComment(s.body);
-      if (p) current = p.findings.length;
+      if (p) current = p.findings.length + (p.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0);
     } else if (s.type === 'result') {
       current = null; // a fresh result supersedes the prior review ⇒ pending until re-reviewed
     } else if (s.type === 'status_change' && s.toStatus === 'done') {

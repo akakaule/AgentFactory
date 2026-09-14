@@ -1,18 +1,21 @@
 import { z } from 'zod';
-import { parseAiReviewComment, type AiReviewFinding, type TaskDetail } from '@agentfactory/core';
+import { reviewSubmissionFingerprint, parseAiReviewComment, type AiReviewFinding, type TaskDetail } from '@agentfactory/core';
 import type { ReviewerProfile } from './config.js';
 import { ensureMarker } from './review.js';
+import type { ConsensusState } from './consensus.js';
 
 export interface ReviewRound {
   fingerprint: string;
   members: Array<{ profile: ReviewerProfile; prompt: string }>;
   results: Array<{ reviewer: string; body: string; findings: AiReviewFinding[] }>;
+  consensus?: ConsensusState;
+  deadlineMs?: number;
+  revision?: { headSha: string; baseSha: string };
 }
 
 /** Comments/telemetry do not supersede a submission; deliverable edits and result IDs do. */
 export function reviewFingerprint(task: TaskDetail): string {
-  return JSON.stringify([task.status, task.stage, task.activity.filter((a) => a.type === 'result').at(-1)?.id,
-    task.title, task.spec, task.acceptanceCriteria, task.plan, task.branch, task.links]);
+  return reviewSubmissionFingerprint(task);
 }
 
 const outputSchema = z.object({

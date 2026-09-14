@@ -2,7 +2,7 @@
 
 Design: [Consensus task review](../specs/2026-09-15-consensus-task-review.md).
 
-Status: proposed; implementation and runtime configuration changes await design review.
+Status: approved by the user and implemented; final verification and rollout recorded below.
 
 ## 1. Define final outcomes and lifecycle behavior
 
@@ -37,3 +37,11 @@ Run focused tests during RED/GREEN development, then `npm test`, `npm run build`
 - Both finish with no findings: one clean review; document-stage advancement follows existing rules.
 - A model fails or the reviewed commit changes: no final verdict from that incomplete/stale cycle.
 - Confirmed warnings remain in history; only confirmed errors enter the high-priority checklist.
+
+## Verification and rollout — 2026-09-15
+
+- Full suite: 153 files, 1,446 tests passed. The subsequently added failed-Codex-output regression passed with all eight consensus supervisor tests. Production build and client typecheck passed.
+- Real isolated CLI verification: Claude Fable and GPT-6 Astra (medium) each reviewed an intentionally broken one-line clamp function, then each completed cross-examination. Both confirmed both candidate reports and agreed the second duplicated the first. The board posted one confirmed high-priority finding from four actual sessions, with no execution failure.
+- Verification artifact: `logs/consensus-smoke-1789426265884/verification.json`, with per-model phase transcripts alongside it. The disposable database/repository is isolated from the production board. Disposable services were stopped after verification.
+- Verified the real agreed result in Chrome: one checklist item, reviewer confirmation attribution, and expandable discussion. Mixed, disputed-only, and clean handling are covered by component/core tests. Later browser inspection attempts timed out; the verification tab was cleaned up.
+- Runtime config enabled consensus with a 30-minute attempt deadline and the two requested models. Restarted the idle reviewer and the compatible web service. Startup confirms `consensus on (30m total)`; board HTTP checks passed. No historical production reviews were rerun.

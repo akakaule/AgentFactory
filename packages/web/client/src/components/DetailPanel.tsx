@@ -59,7 +59,9 @@ function ActivityItem({ entry }: { entry: Activity }) {
             <span className="mv"> · {STATUS_LABELS[entry.fromStatus]} → {STATUS_LABELS[entry.toStatus]}</span>
           )}
         </div>
-        {entry.body && <div className="af-tl-text">{entry.body}</div>}
+        {entry.body && (/^ai-review\/v2\b/i.test(entry.body.trimStart())
+          ? <details className="af-tl-text"><summary>{entry.body.split('\n')[0]}</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{entry.body}</pre></details>
+          : <div className="af-tl-text">{entry.body}</div>)}
       </div>
       <span className="af-tl-time">{shortTime(entry.createdAt)}</span>
     </div>

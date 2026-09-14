@@ -10,12 +10,16 @@ import { I } from '../icons.js';
 export function AiReviewChip({ review }: { review: AiReviewSummary | null }) {
   if (!review) return null;
   const { verdict, findings } = review;
+  const disputes = review.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0;
+  const high = review.items.filter(f => f.severity === 'error').length;
+  const other = findings - high;
   const label = verdict === 'pending' ? 'pending'
     : verdict === 'clean' ? 'clean'
+    : review.consensus ? `${high} agreed high-priority${disputes ? ` · ${disputes} disputed` : ''}${other ? ` · ${other} other confirmed` : ''}`
     : `${findings} finding${findings === 1 ? '' : 's'}`;
   const title = verdict === 'pending' ? 'Automated AI review: a newer result is awaiting re-review'
     : verdict === 'clean' ? 'Automated AI review: no findings'
-    : `Automated AI review: ${findings} open finding${findings === 1 ? '' : 's'}`;
+    : `Automated AI review: ${findings} open finding${findings === 1 ? '' : 's'}${disputes ? ` and ${disputes} unresolved disputes` : ''}`;
   return (
     <span className={'af-airev' + (verdict === 'clean' ? ' clean' : verdict === 'pending' ? ' pending' : '')} title={title}>
       {I.bot({})}

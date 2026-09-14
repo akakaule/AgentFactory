@@ -1,6 +1,7 @@
 export { openDb, type DB } from './db.js';
 export { runMigrations } from './migrate.js';
 export * from './types.js';
+export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 export { getVersion } from './version.js';
 export { createTask } from './ops/createTask.js';

@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { parseConfig, loadConfig } from '../src/config.js';
 
 describe('reviewer config', () => {
+  it('requires multiple profiles and finite bounds when consensus is enabled', () => {
+    expect(() => parseConfig({ db: 'x', consensus: { enabled: true } })).toThrow();
+    const reviewers = [{ engine: 'claude' }, { engine: 'codex' }];
+    expect(parseConfig({ db: 'x', reviewers, consensus: { enabled: true } }).consensus).toMatchObject({ totalMinutes: 30, maxPromptChars: 500000 });
+    expect(() => parseConfig({ db: 'x', reviewers, consensus: { enabled: true, totalMinutes: 0 } })).toThrow();
+  });
   it('accepts both reviewers with an explicit Astra reasoning effort', () => {
     const reviewers = [
       { engine: 'claude', model: 'claude-fable-5-1' },

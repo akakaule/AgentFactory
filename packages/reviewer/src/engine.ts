@@ -47,6 +47,8 @@ export function resolveEngineCommand(engine: ReviewEngine, { platform, env, look
 }
 
 export interface EngineOtelOpts {
+  worker?: string;
+  workspace?: string;
   /** The board's base URL (the OTLP path is appended here — codex uses the endpoint verbatim). */
   endpoint: string;
   /** The task this spawn's token usage is attributed to (rides as a literal header value). */
@@ -77,10 +79,12 @@ const tomlStr = (s: string): string => `"${s.replace(/\\/g, '\\\\').replace(/"/g
  * values — so the task key must ride as a literal, per-session header. Written without
  * spaces or cmd.exe metacharacters so the value survives the Windows `.cmd`-shim spawn path.
  */
-export function buildOtelOverride({ endpoint, taskKey, token }: EngineOtelOpts): string {
+export function buildOtelOverride({ endpoint, taskKey, token, worker, workspace }: EngineOtelOpts): string {
   const url = `${endpoint.replace(/\/+$/, '')}/v1/logs`;
   const headers = [
     `X-Task-Key=${tomlStr(taskKey)}`,
+    ...(worker ? [`X-AF-Worker=${tomlStr(worker)}`] : []),
+    ...(workspace ? [`X-AF-Workspace=${tomlStr(workspace)}`] : []),
     ...(token ? [`Authorization=${tomlStr(`Bearer ${token}`)}`] : []),
   ].join(',');
   return `otel.exporter={otlp-http={endpoint=${tomlStr(url)},protocol="json",headers={${headers}}}}`;

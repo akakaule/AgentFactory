@@ -30,6 +30,12 @@ describe('resolveEngineCommand', () => {
 });
 
 describe('buildEngineArgs', () => {
+  it('attributes Codex review phase sessions through OTLP headers', () => {
+    const args = buildEngineArgs({ engine: 'codex', outputFile: 'out', otel: { endpoint: 'http://board', taskKey: 'AF-1',
+      worker: 'ws#AF-1-r1-2-codex-cross-examination', workspace: 'ws' } });
+    expect(args.join(' ')).toContain('X-AF-Worker="ws#AF-1-r1-2-codex-cross-examination"');
+    expect(args.join(' ')).toContain('X-AF-Workspace="ws"');
+  });
   it('allows Claude to inspect code and then answer, with read-only permissions and the supervisor time limit', () => {
     const args = buildEngineArgs({ engine: 'claude', model: 'claude-fable-5-1', outputFile: '' });
     expect(args).not.toContain('--max-turns');

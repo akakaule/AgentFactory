@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 /** Environment/repo problems the human must fix (mapped to 422), as opposed to bad input. */
 export class GitError extends Error { name = 'GitError'; }
 
-export interface BranchDiff { baseRef: string; diff: string; commits: number; }
+export interface BranchDiff { baseRef: string; diff: string; commits: number; headSha?: string; baseSha?: string; }
 
 // Branch refs arrive as agent-submitted link labels — untrusted. They're passed to git
 // as a single argv token (execFile, no shell) and interpolated into a '+<ref>:refs/...'
@@ -90,15 +90,19 @@ export async function fetchRemoteRef(repoPath: string, ref: string): Promise<voi
 export async function branchDiff(repoPath: string, branch: string): Promise<BranchDiff> {
   if (!SAFE_REF.test(branch)) throw new ValidationError(`invalid branch ref: ${branch}`);
   const baseRef = await resolveBaseRef(repoPath);
-  const exists = await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', branch]);
+  const exists = await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${branch}^{commit}`]);
   if (!exists.ok) throw new NotFoundError(`branch not found in repository: ${branch}`);
+  const base = await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${baseRef}^{commit}`]);
+  if (!base.ok) throw new GitError(`cannot resolve base commit: ${baseRef}`);
+  const headSha = exists.stdout.trim();
+  const baseSha = base.stdout.trim();
   const diff = await runGit(repoPath, [
     '-c', 'core.quotepath=false',
     'diff', '--no-color', '--no-ext-diff', '--find-renames',
-    '--end-of-options', `${baseRef}...${branch}`, '--',
+    '--end-of-options', `${baseSha}...${headSha}`, '--',
   ]);
   if (!diff.ok) throw new GitError(`git diff failed for ${baseRef}...${branch}`);
-  const count = await runGit(repoPath, ['rev-list', '--count', '--end-of-options', `${baseRef}..${branch}`, '--']);
+  const count = await runGit(repoPath, ['rev-list', '--count', '--end-of-options', `${baseSha}..${headSha}`, '--']);
   if (!count.ok) throw new GitError(`git rev-list failed for ${baseRef}..${branch}`);
-  return { baseRef, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0 };
+  return { baseRef, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0, headSha, baseSha };
 }

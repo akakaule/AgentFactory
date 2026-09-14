@@ -33,10 +33,10 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
   // The auto path can never hit this — a clean verdict is its precondition (so actorUserId
   // is the approving human here, never the agent).
   const review = aiReviewFor(db, row.id);
-  if (review && review.verdict === 'findings') {
+  if (review && (review.verdict === 'findings' || review.verdict === 'disputed')) {
     appendActivity(db, {
       taskId: row.id, type: 'comment', actor: 'human',
-      body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}`,
+      body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}${review.verdict === 'disputed' ? ` and ${review.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0} unresolved disputes` : ''}`,
       createdAt: ts, actorUserId,
     });
   }

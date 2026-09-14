@@ -1,6 +1,6 @@
 # Consensus task review
 
-Status: proposed for review; runtime behavior is unchanged.
+Status: approved by the user and implemented behind the consensus setting.
 
 ## Purpose
 

@@ -2,6 +2,8 @@ import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbac
 import type { Task, TaskDetail, Stage } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
+import { createConsensus, collectBallot, consensusReview } from './consensus.js';
+import { buildConsensusPrompt } from './consensusPrompt.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildEngineArgs } from './engine.js';
 import { buildReviewPrompt, ensureMarker, buildFeedbackEvalPrompt, ensureFeedbackEvalMarker } from './review.js';
@@ -35,6 +37,7 @@ interface ReviewSession {
   settled: boolean;
   timedOut: boolean;
   round?: ReviewRound | undefined;
+  deadlineTimer?: ReturnType<typeof setTimeout>;
   /** visualize sessions only: the vizAttempts budget key, pinned at spawn so a result submitted
    *  mid-session cannot shift it. */
   vizKey?: string | undefined;
@@ -176,7 +179,7 @@ export class Reviewer {
     const now = this.deps.now();
     for (const session of this.running.values()) {
       if (session.timedOut || session.settled) continue;
-      if (now - session.startedAtMs > capMs) {
+      if (now - session.startedAtMs > capMs || now >= (session.round?.deadlineMs ?? Infinity)) {
         // Codex writes --output-last-message only after completing its final answer. If that
         // artifact is already present at the polling boundary, keep the completed review and
         // merely terminate a wrapper/descendant that has not exited cleanly yet. Claude stdout
@@ -363,6 +366,7 @@ export class Reviewer {
     }
 
     const engine = this.config.engine;
+    const deadlineMs = this.config.consensus?.enabled ? this.deps.now() + this.config.consensus.totalMinutes * 60000 : undefined;
     let prompt: string;
     let stage: Stage;
     let round: ReviewRound | undefined;
@@ -383,9 +387,16 @@ export class Reviewer {
         // the configured reviewer system prompt (workspace override → global default → ''), inlined
         const systemPrompt = await this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
         let makePrompt: (reviewEngine: ReviewEngine) => string;
+        let revision: ReviewRound['revision'];
         if (detail.stage === 'implementation') {
           const { diffRef, diff } = await this.prepareDiff(detail);
-          makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+          if (this.config.consensus?.enabled) {
+            if (!diff.headSha || !diff.baseSha) throw new Error('consensus requires immutable review revisions');
+            revision = { headSha: diff.headSha, baseSha: diff.baseSha };
+          }
+          makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine,
+            branch: revision ? `${diffRef}\nRepository: ${this.repoFor(detail)}\nPinned head: ${revision.headSha}\nPinned base tip: ${revision.baseSha}\nInspect these immutable commits with git show; do not inspect the current working tree or edit files.` : diffRef,
+            diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         } else {
           makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         }
@@ -394,6 +405,8 @@ export class Reviewer {
           fingerprint: reviewFingerprint(detail),
           members: this.config.reviewers.map((profile) => ({ profile, prompt: makePrompt(profile.engine) })),
           results: [],
+          ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+          ...(revision ? { revision } : {}),
         };
       }
     } catch (err) {
@@ -415,13 +428,17 @@ export class Reviewer {
   }
 
   private launchRoundMember(workspace: string, key: string, stage: Stage, attempt: number, round: ReviewRound): void {
-    const index = round.results.length;
+    if (this.deps.now() >= (round.deadlineMs ?? Infinity)) throw new Error('consensus total deadline exceeded');
+    const index = round.consensus ? round.consensus.ballots.length : round.results.length;
     const member = round.members[index]!;
     const { engine, model, reasoningEffort } = member.profile;
-    const suffix = `r${attempt}-${index + 1}-${engine}`;
+    const phase = round.consensus?.phase ?? 'discovery';
+    const suffix = `r${attempt}-${index + 1}-${engine}${round.deadlineMs !== undefined ? `-${phase}` : ''}`;
+    const prompt = round.consensus ? buildConsensusPrompt(member.prompt, round.consensus, this.config.consensus?.maxPromptChars) : member.prompt;
+    if (round.deadlineMs !== undefined && prompt.length > this.config.consensus!.maxPromptChars) throw new Error('consensus prompt exceeds configured limit');
     this.launchSession({ workspace, key, stage, mode: 'review', attempt, engine, model, reasoningEffort,
-      prompt: member.prompt, label: `${workspace}#${key}-${suffix}`, fileBase: `${this.deps.logDir}/${key}-review-${suffix}`, round });
-    this.console.log(`[reviewer] reviewing ${key} (${stage}) via ${engine}/${model ?? 'default'}${reasoningEffort ? ` (${reasoningEffort})` : ''}, reviewer ${index + 1}/${round.members.length}`);
+      prompt, label: `${workspace}#${key}-${suffix}`, fileBase: `${this.deps.logDir}/${key}-review-${suffix}`, round });
+    this.console.log(`[reviewer] reviewing ${key} (${stage}, ${phase}) via ${engine}/${model ?? 'default'}${reasoningEffort ? ` (${reasoningEffort})` : ''}, reviewer ${index + 1}/${round.members.length}`);
   }
 
   /** Author the task's HTML change-visualization in one extra engine session; returns false
@@ -484,7 +501,7 @@ export class Reviewer {
       model,
       reasoningEffort: opts.reasoningEffort,
       outputFile: outputFile ?? '',
-      otel: this.config.otel ? { endpoint: this.config.otel.endpoint, taskKey: key, token: this.config.otel.token } : undefined,
+      otel: this.config.otel ? { endpoint: this.config.otel.endpoint, taskKey: key, token: this.config.otel.token, worker: label, workspace } : undefined,
     });
     const env: NodeJS.ProcessEnv = { ...(this.deps.baseEnv ?? {}) };
     if (this.config.otel) this.applyOtel(env, engine, key, workspace, label);
@@ -522,6 +539,15 @@ export class Reviewer {
       this.trackReap(session, null);
     });
     child.on('exit', (code) => this.trackReap(session, code));
+    if (opts.round?.deadlineMs !== undefined) {
+      const remaining = Math.min(this.config.reviewMinutes * 60000, opts.round.deadlineMs - this.deps.now());
+      session.deadlineTimer = setTimeout(() => {
+        if (session.settled) return;
+        session.timedOut = true;
+        this.deps.terminateProcessTree(child, 'SIGKILL');
+      }, Math.max(0, remaining));
+      session.deadlineTimer.unref();
+    }
   }
 
   private appendLog(session: ReviewSession, text: string): void {
@@ -556,6 +582,7 @@ export class Reviewer {
   }
 
   private async reapSettled(session: ReviewSession, code: number | null): Promise<void> {
+    if (session.deadlineTimer) clearTimeout(session.deadlineTimer);
     session.logWriter.end();
     if (session.mode === 'visualize') return this.reapVisualization(session, code);
 
@@ -569,9 +596,18 @@ export class Reviewer {
     }
 
     const verdict = this.readVerdict(session);
+    if (this.deps.now() >= (session.round?.deadlineMs ?? Infinity)) {
+      await this.burnAttempt(session.key, session.attempt, 'consensus total deadline exceeded');
+      return;
+    }
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
       await this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      return;
+    }
+
+    if (session.round?.deadlineMs !== undefined && code !== 0 && !session.timedOut) {
+      await this.burnAttempt(session.key, session.attempt, `${session.engine} exited code ${code ?? 'null'} during consensus`);
       return;
     }
 
@@ -594,12 +630,28 @@ export class Reviewer {
     let body = session.mode === 'feedback-eval' ? ensureFeedbackEvalMarker(verdict) : ensureMarker(verdict, session.engine);
     if (session.round) {
       try {
-        collectReview(session.round, verdict);
+        if (session.round.consensus) collectBallot(session.round.consensus, verdict);
+        else collectReview(session.round, verdict);
         if (session.round.results.length < session.round.members.length) {
           this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, session.round);
           return;
         }
-        body = combinedReview(session.round);
+        if (session.round.deadlineMs !== undefined) {
+          session.round.consensus ??= createConsensus(session.round.results);
+          if (session.round.consensus.phase !== 'complete') {
+            this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, session.round);
+            return;
+          }
+          if (session.round.revision) {
+            const detail = await this.deps.core.getTask(session.key);
+            const { diff } = await this.prepareDiff(detail);
+            if (diff.headSha !== session.round.revision.headSha || diff.baseSha !== session.round.revision.baseSha) {
+              this.console.log(`[reviewer] discarded consensus for changed revision of ${session.key}`);
+              return;
+            }
+          }
+          body = consensusReview(session.round.consensus, { key: session.key, fingerprint: session.round.fingerprint, ...session.round.revision });
+        } else body = combinedReview(session.round);
       } catch (err) {
         await this.burnAttempt(session.key, session.attempt, `review round failed: ${(err as Error).message}`);
         return;
@@ -618,6 +670,14 @@ export class Reviewer {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation
       // and findings stay in_review for the human gate; a feedback-eval verdict is advisory on a
       // delivering task (the human clicks "Apply fix"). The reviewer only posts.
+      if (session.round) {
+        const detail = await this.deps.core.getTask(session.key);
+        if (this.stopping || reviewFingerprint(detail) !== session.round.fingerprint) return;
+        if (this.deps.now() >= (session.round.deadlineMs ?? Infinity)) {
+          await this.burnAttempt(session.key, session.attempt, 'consensus total deadline exceeded before publication');
+          return;
+        }
+      }
       await this.deps.core.addComment(session.key, { actor: 'agent', body });
     } catch (err) {
       // The review succeeded but the post failed — don't burn an attempt; it still needs

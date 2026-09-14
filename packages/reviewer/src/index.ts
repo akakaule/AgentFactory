@@ -129,6 +129,7 @@ console.log(
   `[reviewer] starting — ${config.board ? `board ${config.board.url}` : `db ${config.db}`}, workspaces ${wsDesc}, ` +
     `reviews ${config.reviewers ? config.reviewers.map((p) => `${p.engine}/${p.model ?? 'default'}${p.reasoningEffort ? ` (${p.reasoningEffort})` : ''}`).join(' + ') : `${config.engine}${config.model ? ` (${config.model})` : ''}`}, ` +
     `viz ${config.visualization.enabled ? (config.visualization.engine ?? config.engine) : 'off'}, ` +
+    `consensus ${config.consensus?.enabled ? `on (${config.consensus.totalMinutes}m total)` : 'off'}, ` +
     `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s`,
 );
 console.log(`[reviewer] logs ${logDir}`);

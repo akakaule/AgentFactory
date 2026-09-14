@@ -4,7 +4,8 @@ A small Node supervisor that runs AgentFactory's **AI first-pass review** with *
 the loop**. It polls the DB for `in_review` tasks that still need a review and runs the
 configured independent reviewers against the task's diff (implementation) or deliverable
 (description/plan). Each receives its prompt on STDIN. The supervisor posts one combined
-`ai-review/v1` verdict after every configured reviewer completes.
+`ai-review/v1` verdict after every configured reviewer completes, or an `ai-review/v2`
+consensus verdict when discussion is enabled.
 
 It is the in-repo sibling of the [dispatcher](../dispatcher/README.md): the same poll → spawn →
 reap shape, Core-direct (opens the same SQLite DB), no web server required. It supersedes the
@@ -35,7 +36,37 @@ final message, claude via stdout. The `ai-review/v1` marker is prepended if the 
 Claude ignores ambient MCP servers and uses plan permissions for read-only inspection. CLI
 error text and nonzero Claude exits are reported as execution failures before parsing a verdict.
 
-## Run
+## Consensus discussion
+
+Set `"consensus": { "enabled": true, "totalMinutes": 30, "maxPromptChars": 500000 }`
+with two or more distinct `reviewers` (at most eight). The example uses Claude Fable and
+GPT-6 Astra at medium reasoning. Consensus is disabled when the setting is omitted.
+
+Each model first reviews independently. Both then evaluate every candidate using the same
+pinned commit snapshot and completed peer evidence. Split votes get one final ballot after
+cross-examination; every phase has a barrier so one model's current ballot cannot influence
+the other's. Confirmed findings require unanimous agreement on the defect and severity.
+Duplicates merge only when every reviewer identifies the same earlier confirmed candidate.
+Disagreements, uncertainty, and late unevaluated findings remain explicit disputes.
+
+The board lists confirmed high-priority findings, shows disputes in a collapsed human-decision
+section, and retains the complete discussion. Disputed reviews remain in review and never
+auto-advance document stages. They are finished reviews, not failed attempts. A human can
+still approve with an audited override. Legacy v1 reviews retain their existing behavior.
+
+`totalMinutes` bounds the entire attempt; `reviewMinutes` still caps each session. A timeout,
+invalid ballot, nonzero process exit, or oversized prompt cannot produce a consensus verdict.
+Typically two reviewers require four sessions, or six with a final ballot; two clean discovery
+results need only two. Token usage varies. Logs and live telemetry identify model and phase;
+durable task token totals retain their existing aggregate format. A restart repeats an unfinished
+attempt. The supervisor checks revision freshness and core validates the submission fingerprint
+inside the publication transaction. No database migration is needed.
+
+Deploy compatible core/web/reviewer builds before enabling consensus, and restart the reviewer
+only when idle. Existing completed reviews are not automatically rerun. For HTTP mode the remote
+board must also have v2 support; deploying only the reviewer is insufficient.
+
+## Run the reviewer
 
 ```sh
 npm run build                            # from the monorepo root

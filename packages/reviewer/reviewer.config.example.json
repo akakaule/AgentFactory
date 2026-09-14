@@ -7,6 +7,7 @@
     { "engine": "codex", "model": "gpt-6-astra", "reasoningEffort": "medium" }
   ],
   "pollSeconds": 60,
+  "consensus": { "enabled": true, "totalMinutes": 30, "maxPromptChars": 500000 },
   "maxConcurrent": 1,
   "reviewMinutes": 20,
   "maxDiffChars": 120000,
