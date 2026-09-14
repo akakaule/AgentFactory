@@ -10,6 +10,8 @@ import { insertLinks } from '../repo/links.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
+import { currentExecution, settleExecution } from '../repo/execution.js';
+import { InvalidTransitionError } from '../errors.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -43,6 +45,11 @@ export function submitResult(
   const { summary, links, spec, acceptanceCriteria, plan, verification } = parse(submitResultSchema, input);
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
+  const current = currentExecution(db, row.id);
+  if (input.executionId !== undefined && (!current || current.id !== input.executionId))
+    throw new InvalidTransitionError(`execution ${input.executionId} is not the current execution for ${key}`);
+  if (input.executionId !== undefined && current && current.state !== 'running')
+    throw new InvalidTransitionError(`execution ${input.executionId} is not running`);
   assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
   assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification);
   // Verification gate: when the workspace configures a verify command, the implementation stage
@@ -67,6 +74,7 @@ export function submitResult(
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);
     endSession(db, row.id, ts); // the agent finished — drop it from the live view
+    if (input.executionId !== undefined) settleExecution(db, input.executionId, 'succeeded', ts, 'result submitted');
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     // surface the verify-command attestation in the thread so the human/reviewer can see it

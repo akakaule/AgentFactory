@@ -3,8 +3,9 @@ import { z } from 'zod';
 import type { McpCore } from '../types.js';
 import { taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
+import type { ServerOptions } from '../server.js';
 
-export function registerReportProgress(server: McpServer, core: McpCore): void {
+export function registerReportProgress(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'report_progress',
     {
@@ -21,9 +22,10 @@ export function registerReportProgress(server: McpServer, core: McpCore): void {
     async ({ key, message, tokensIn, tokensOut }) => {
       try {
         // explicit build for exactOptionalPropertyTypes (never pass an explicit undefined)
-        const input: { message: string; tokensIn?: number; tokensOut?: number } = { message };
+        const input: { message: string; tokensIn?: number; tokensOut?: number; executionId?: string } = { message };
         if (tokensIn !== undefined) input.tokensIn = tokensIn;
         if (tokensOut !== undefined) input.tokensOut = tokensOut;
+        if (opts.executionId !== undefined) input.executionId = opts.executionId;
         await core.reportProgress(key, input);
         return { content: [{ type: 'text', text: 'ok' }] };
       } catch (err) {

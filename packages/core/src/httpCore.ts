@@ -28,7 +28,7 @@ export interface BoardIdentity {
  *  only exists on the wire — hence the intersection rather than a wider Pick. */
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
-  | 'claimNextTask' | 'submitResult' | 'createTask'
+  | 'claimNextTask' | 'submitResult' | 'createTask' | 'reserveExecution'
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
@@ -94,6 +94,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
 
     // ── claim / deliver ──────────────────────────────────────────────────────
     claimNextTask: async (o = {}) => (await req('POST', '/api/agent/claim', o)) as never,
+    reserveExecution: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/execution/reserve`, input)) as never,
     submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, input)) as never,
     createTask: async (input) => (await req('POST', '/api/agent/tasks', input)) as never,
 
@@ -103,7 +104,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     updateStatus: async (key, status, _actor, _actorUserId, note) =>
       // the server derives the actor from the token — the local-signature actor is ignored on the wire
       (await req('POST', `/api/agent/tasks/${enc(key)}/status`, { status, note })) as never,
-    releaseClaim: async (key) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, {})) as never,
+    releaseClaim: async (key, _now, executionId) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, executionId ? { executionId } : {})) as never,
     reserveRetry: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/retry/reserve`, input)) as never,
     reconcileRetry: async (id, input) => (await req('POST', `/api/agent/retry/${enc(id)}/reconcile`, input)) as never,
     reconcileAbandonedRetryReservations: async (graceMs) => ((await req('POST', '/api/agent/retry/reconcile-abandoned', { graceMs })) as { count: number }).count,
@@ -156,7 +157,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     attachVisualization: async (key, input) => {
       const res = await fetchImpl(`${base}/api/tasks/${enc(key)}/visualization`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html' },
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...(input.executionId ? { 'x-agentfactory-execution-id': input.executionId } : {}) },
         body: input.html,
         signal: AbortSignal.timeout(timeoutMs),
       });

@@ -5,6 +5,8 @@ import { findRowByKey } from '../repo/tasks.js';
 import { appendLiveBuf, saveFinal, getTranscriptRow, decodeRaw } from '../repo/transcripts.js';
 import { parseTranscript } from '../transcript.js';
 import { nowIso } from '../time.js';
+import { latestExecution } from '../repo/execution.js';
+import { InvalidTransitionError } from '../errors.js';
 
 /**
  * Standalone entry points for the agent transcript (the dispatcher tails into appendTranscript /
@@ -13,31 +15,35 @@ import { nowIso } from '../time.js';
  * total: an unknown key is a silent no-op (a transcript is observability, never control flow).
  */
 
-export interface AppendTranscriptInput { chunk: string; attempt?: number; sessionId?: string | null; engine?: TranscriptEngine; }
-export interface SaveTranscriptInput { raw: string; attempt?: number; sessionId?: string | null; engine?: TranscriptEngine; }
+export interface AppendTranscriptInput { chunk: string; attempt?: number; sessionId?: string | null; engine?: TranscriptEngine; executionId?: string; }
+export interface SaveTranscriptInput { raw: string; attempt?: number; sessionId?: string | null; engine?: TranscriptEngine; executionId?: string; }
 
 /** Append a chunk of the running session's raw JSONL to a task's live transcript tail. */
 export function appendTranscript(db: DB, key: string, input: AppendTranscriptInput, now: () => string = nowIso): void {
   const row = findRowByKey(db, key);
   if (!row) return;
-  transaction(db, () =>
+  transaction(db, () => {
+    if (input.executionId !== undefined && latestExecution(db, row.id)?.id !== input.executionId)
+      throw new InvalidTransitionError(`execution ${input.executionId} is not the current execution for ${key}`);
     appendLiveBuf(db, {
       taskId: row.id, attempt: input.attempt ?? 1, sessionId: input.sessionId ?? null,
       engine: input.engine ?? 'claude', chunk: input.chunk, now: now(),
-    }),
-  );
+    });
+  });
 }
 
 /** Persist the full transcript for a task's attempt at session exit (gzip + flip to 'final'). */
 export function saveTranscript(db: DB, key: string, input: SaveTranscriptInput, now: () => string = nowIso): void {
   const row = findRowByKey(db, key);
   if (!row) return;
-  transaction(db, () =>
+  transaction(db, () => {
+    if (input.executionId !== undefined && latestExecution(db, row.id)?.id !== input.executionId)
+      throw new InvalidTransitionError(`execution ${input.executionId} is not the current execution for ${key}`);
     saveFinal(db, {
       taskId: row.id, attempt: input.attempt ?? 1, sessionId: input.sessionId ?? null,
       engine: input.engine ?? 'claude', raw: input.raw, now: now(),
-    }),
-  );
+    });
+  });
 }
 
 /** The task's transcript as normalized blocks — live tail while running, persisted artifact after.

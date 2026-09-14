@@ -4,7 +4,9 @@ import { transaction } from '../transaction.js';
 import { findRowByKey } from '../repo/tasks.js';
 import { saveVisualization, visualizationMetaFor, getVisualizationHtml as readVisualizationHtml } from '../repo/visualizations.js';
 import { NotFoundError } from '../errors.js';
+import { InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { currentExecution } from '../repo/execution.js';
 
 /**
  * Standalone entry points for the per-task change visualization (the `/visualize-task` command
@@ -14,12 +16,15 @@ import { nowIso } from '../time.js';
  * than silently no-op'ing.
  */
 
-export interface AttachVisualizationInput { html: string; }
+export interface AttachVisualizationInput { html: string; executionId?: string | undefined; }
 
 /** Store (or replace) a task's change-visualization HTML. Throws NotFoundError for an unknown key. */
 export function attachVisualization(db: DB, key: string, input: AttachVisualizationInput, now: () => string = nowIso): VisualizationMeta {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task ${key} not found`);
+  const current = currentExecution(db, row.id);
+  if (input.executionId !== undefined && (!current || current.id !== input.executionId || current.state !== 'running'))
+    throw new InvalidTransitionError(`execution ${input.executionId} is not the current running execution for ${key}`);
   const ts = now();
   transaction(db, () => saveVisualization(db, { taskId: row.id, html: input.html, now: ts }));
   return { generatedAt: ts, bytes: input.html.length };

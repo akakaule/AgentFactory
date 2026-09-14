@@ -23,6 +23,7 @@ interface ReviewSession {
   attempt: number;
   maxAttempts: number;
   reservationId: string;
+  executionId: string | null;
   engine: ReviewEngine;
   child: SpawnedChild;
   logWriter: LogWriter;
@@ -374,11 +375,12 @@ export class Reviewer {
       return false;
     }
     const operation = mode === 'feedback-eval' ? 'reviewer:feedback-eval' : `reviewer:${stage}`;
-    const reservation = await this.deps.core.reserveRetry(key, { operation, maxAttempts: this.config.maxAttempts });
-    if (reservation === null) {
+    const reserved = await this.reserveSession(key, operation, workspace);
+    if (reserved === null) {
       this.skipList(key);
       return false;
     }
+    const { reservation, executionId } = reserved;
     const attempt = reservation.attempt;
     try {
       if (mode === 'feedback-eval') {
@@ -409,7 +411,7 @@ export class Reviewer {
 
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
-    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, engine, model: this.config.model, prompt, label, fileBase });
+    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model: this.config.model, prompt, label, fileBase });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -439,15 +441,38 @@ export class Reviewer {
       return false;
     }
 
-    const reservation = await this.deps.core.reserveRetry(key, { operation: `visualization:${vizKey}`, maxAttempts: this.config.maxAttempts });
-    if (reservation === null) return false;
+    const reserved = await this.reserveSession(key, `visualization:${vizKey}`, workspace);
+    if (reserved === null) return false;
+    const { reservation, executionId } = reserved;
     const attempt = reservation.attempt;
 
     const label = `${workspace}#${key}-viz${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
-    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, engine, model, prompt, label, fileBase, vizKey });
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, prompt, label, fileBase, vizKey });
     this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
+  }
+
+  private async reserveSession(key: string, operation: string, workspace: string): Promise<{ reservation: RetryReservation; executionId: string | null } | null> {
+    if (this.deps.core.reserveExecution) {
+      const execution = await this.deps.core.reserveExecution(key, {
+        operation,
+        maxAttempts: this.config.maxAttempts,
+        owner: `${workspace}#reviewer`,
+        startImmediately: true,
+      });
+      if (!execution) return null;
+      return {
+        reservation: {
+          id: execution.id, taskKey: execution.taskKey, operation: execution.operation,
+          generation: execution.generation, attempt: execution.attempt, maxAttempts: execution.maxAttempts,
+          state: execution.state, reservedAt: execution.reservedAt,
+        },
+        executionId: execution.id,
+      };
+    }
+    const reservation = await this.deps.core.reserveRetry(key, { operation, maxAttempts: this.config.maxAttempts });
+    return reservation ? { reservation, executionId: null } : null;
   }
 
   /** Spawn one engine session and register it — the shared tail of every session kind. */
@@ -459,6 +484,7 @@ export class Reviewer {
     attempt: number;
     maxAttempts: number;
     reservationId: string;
+    executionId: string | null;
     engine: ReviewEngine;
     model: string | undefined;
     prompt: string;
@@ -467,7 +493,7 @@ export class Reviewer {
     fileBase: string;
     vizKey?: string | undefined;
   }): void {
-    const { workspace, key, stage, mode, attempt, maxAttempts, reservationId, engine, model, prompt, label, fileBase, vizKey } = opts;
+    const { workspace, key, stage, mode, attempt, maxAttempts, reservationId, executionId, engine, model, prompt, label, fileBase, vizKey } = opts;
     const outputFile = engine === 'codex' ? `${fileBase}.out` : null;
     if (outputFile) this.deps.clearOutput(outputFile);
     const logWriter = this.deps.openLog(`${fileBase}.log`);
@@ -490,6 +516,7 @@ export class Reviewer {
       attempt,
       maxAttempts,
       reservationId,
+      executionId,
       engine,
       child,
       logWriter,
@@ -575,7 +602,7 @@ export class Reviewer {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation
       // and findings stay in_review for the human gate; a feedback-eval verdict is advisory on a
       // delivering task (the human clicks "Apply fix"). The reviewer only posts.
-      await this.deps.core.addComment(session.key, { actor: 'agent', body });
+      await this.deps.core.addComment(session.key, { actor: 'agent', body, ...(session.executionId ? { executionId: session.executionId } : {}) });
     } catch (err) {
       // The review succeeded but the post failed — don't burn an attempt; it still needs
       // review, so the next poll retries.
@@ -617,7 +644,7 @@ export class Reviewer {
       return;
     }
     try {
-      await this.deps.core.attachVisualization(session.key, { html });
+      await this.deps.core.attachVisualization(session.key, { html, ...(session.executionId ? { executionId: session.executionId } : {}) });
     } catch (err) {
       // The page exists but the attach failed — don't burn; visualizationGeneratedAt is still
       // stale, so the next poll retries (same philosophy as a failed verdict post).

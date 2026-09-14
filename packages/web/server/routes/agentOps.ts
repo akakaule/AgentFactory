@@ -10,12 +10,14 @@ import { requireService, requireSupervisor, principalOf } from '../auth.js';
 // `.passthrough()` keeps core the authority on any extra fields it knows about.
 const claimBody = z.object({ workspace: z.string().min(1).optional(), claimedBy: z.string().min(1).optional() });
 const progressBody = z.object({
+  executionId: z.string().min(1).optional(),
   message: z.string().min(1).max(500),
   tokensIn: z.number().int().nonnegative().optional(),
   tokensOut: z.number().int().nonnegative().optional(),
 });
-const agentCommentBody = z.object({ body: z.string().min(1) });
+const agentCommentBody = z.object({ body: z.string().min(1), executionId: z.string().min(1).optional() });
 const agentStatusBody = z.object({ status: z.string().min(1), note: z.string().optional() });
+const releaseClaimBody = z.object({ executionId: z.string().min(1).optional() });
 const transcriptAppendBody = z.object({ chunk: z.string().min(1), attempt: z.number().int().positive().optional(), sessionId: z.string().nullable().optional(), engine: z.string().optional() }).passthrough();
 const transcriptSaveBody = z.object({ raw: z.string().min(1), attempt: z.number().int().positive().optional(), sessionId: z.string().nullable().optional(), engine: z.string().optional() }).passthrough();
 const heartbeatBody = z.object({
@@ -37,6 +39,18 @@ const retryReconcileAbandonedBody = z.object({ graceMs: z.number().finite().nonn
 const retryRecordFailureBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive(), attempt: z.number().int().positive(), reason: z.string() });
 const retrySettleBody = z.object({ state: z.enum(['running', 'succeeded', 'failed', 'cancelled']), reason: z.string().optional() });
 
+type AgentOpsCore = Core & {
+  reportProgress(key: string, input: { message: string; tokensIn?: number; tokensOut?: number; executionId?: string }): void;
+  reserveExecution(key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }): unknown;
+  reserveRetry(key: string, input: { operation: string; maxAttempts: number }): unknown;
+  reconcileRetry(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): unknown;
+  reconcileAbandonedRetryReservations(graceMs: number): number;
+  getRetryBudget(key: string, operation: string): unknown;
+  recordRetryFailure(key: string, input: { operation: string; maxAttempts: number; attempt: number; reason: string }): void;
+  settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): boolean;
+  releaseClaim(key: string, now?: () => string, executionId?: string): unknown;
+};
+
 /**
  * The agent-ops surface (#45): every board operation a worker MCP session or a remote supervisor
  * needs, over authenticated HTTP. Service tokens only (enforced router-wide); the `human|agent`
@@ -53,6 +67,7 @@ const retrySettleBody = z.object({ state: z.enum(['running', 'succeeded', 'faile
  */
 export function agentOpsRoutes(core: Core): Hono {
   const r = new Hono();
+  const agentCore = core as AgentOpsCore;
   r.use('*', requireService);
 
   // ── identity probe ─────────────────────────────────────────────────────────
@@ -78,6 +93,11 @@ export function agentOpsRoutes(core: Core): Hono {
     return c.json(claim); // null = queue empty (the caller's idle signal, not an error)
   });
 
+  r.post('/tasks/:key/execution/reserve', async (c) => {
+    const b = await body<{ operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }>(c);
+    return c.json(agentCore.reserveExecution(c.req.param('key'), b));
+  });
+
   r.post('/tasks/:key/submit', async (c) =>
     c.json(core.submitResult(c.req.param('key'), await body<Parameters<Core['submitResult']>[1]>(c))));
 
@@ -90,15 +110,18 @@ export function agentOpsRoutes(core: Core): Hono {
   // ── in-flight narration ────────────────────────────────────────────────────
   r.post('/tasks/:key/progress', validated('json', progressBody), (c) => {
     const b = c.req.valid('json');
-    const input: Parameters<Core['reportProgress']>[1] = { message: b.message }; // explicit build for exactOptionalPropertyTypes
+    const input: Parameters<AgentOpsCore['reportProgress']>[1] = { message: b.message }; // explicit build for exactOptionalPropertyTypes
+    if (b.executionId !== undefined) input.executionId = b.executionId;
     if (b.tokensIn !== undefined) input.tokensIn = b.tokensIn;
     if (b.tokensOut !== undefined) input.tokensOut = b.tokensOut;
-    core.reportProgress(c.req.param('key'), input);
+    agentCore.reportProgress(c.req.param('key'), input);
     return c.json({ ok: true });
   });
 
-  r.post('/tasks/:key/comments', validated('json', agentCommentBody), (c) =>
-    c.json(core.addComment(c.req.param('key'), { actor: 'agent', body: c.req.valid('json').body }), 201));
+  r.post('/tasks/:key/comments', validated('json', agentCommentBody), (c) => {
+    const b = c.req.valid('json');
+    return c.json(agentCore.addComment(c.req.param('key'), { actor: 'agent', body: b.body, ...(b.executionId ? { executionId: b.executionId } : {}) }), 201);
+  });
 
   r.post('/tasks/:key/status', validated('json', agentStatusBody), (c) => {
     const b = c.req.valid('json');
@@ -131,26 +154,29 @@ export function agentOpsRoutes(core: Core): Hono {
   // Reservation/settlement is service-scoped so the plain reviewer token can use its own budget;
   // the operation name is supplied by the supervisor and core stores the decision atomically.
   r.post('/tasks/:key/retry/reserve', validated('json', retryReserveBody), (c) =>
-    c.json(core.reserveRetry(c.req.param('key'), c.req.valid('json'))));
+    c.json(agentCore.reserveRetry(c.req.param('key'), c.req.valid('json'))));
   r.post('/retry/:id/reconcile', validated('json', retryReconcileBody), (c) =>
-    c.json(core.reconcileRetry(c.req.param('id'), c.req.valid('json'))));
+    c.json(agentCore.reconcileRetry(c.req.param('id'), c.req.valid('json'))));
   r.post('/retry/reconcile-abandoned', validated('json', retryReconcileAbandonedBody), (c) =>
-    c.json({ count: core.reconcileAbandonedRetryReservations(c.req.valid('json').graceMs) }));
+    c.json({ count: agentCore.reconcileAbandonedRetryReservations(c.req.valid('json').graceMs) }));
   r.get('/tasks/:key/retry', (c) => {
     const operation = c.req.query('operation');
     if (!operation) throw new ValidationError('retry operation query parameter is required');
-    return c.json(core.getRetryBudget(c.req.param('key'), operation));
+    return c.json(agentCore.getRetryBudget(c.req.param('key'), operation));
   });
   r.post('/tasks/:key/retry/record-failure', validated('json', retryRecordFailureBody), (c) => {
-    core.recordRetryFailure(c.req.param('key'), c.req.valid('json'));
+    agentCore.recordRetryFailure(c.req.param('key'), c.req.valid('json'));
     return c.json({ ok: true });
   });
   r.post('/retry/:id/settle', validated('json', retrySettleBody), (c) =>
-    c.json({ settled: core.settleRetry(c.req.param('id'), c.req.valid('json')) }));
+    c.json({ settled: agentCore.settleRetry(c.req.param('id'), c.req.valid('json')) }));
 
   // ── supervisor surface ─────────────────────────────────────────────────────
   // the system recovery edge (reaper) — NOT an agent in_progress→queued transition
-  r.post('/tasks/:key/release-claim', requireSupervisor, (c) => c.json(core.releaseClaim(c.req.param('key'))));
+  r.post('/tasks/:key/release-claim', requireSupervisor, validated('json', releaseClaimBody), (c) => {
+    const executionId = c.req.valid('json').executionId;
+    return c.json(agentCore.releaseClaim(c.req.param('key'), undefined, executionId));
+  });
 
   r.post('/supervisors/heartbeat', validated('json', heartbeatBody), (c) => {
     core.recordSupervisorHeartbeat(c.req.valid('json') as Parameters<Core['recordSupervisorHeartbeat']>[0]);

@@ -49,14 +49,14 @@ if (config.board) {
   // spawner reads the effective values without re-deriving them.
   config.board.token = token;
   config.board.workerToken = workerToken;
-  core = http;
+  core = http as unknown as import('./types.js').DispatcherCore;
 } else {
   // Absolutise the DB path (relative to the config file) so the dispatcher's poller AND
   // each worker's MCP server — whose cwd is the workspace repo, not here — open the SAME DB.
   // openCore also runs migrations — a board-mode process must never touch schema, which is
   // why this call lives on the db-only branch.
   config.db = resolve(dirname(configPath), config.db!);
-  core = openCore(config.db);
+  core = openCore(config.db) as unknown as import('./types.js').DispatcherCore;
 }
 
 // Resolve the agentfactory MCP server entry from the installed @agentfactory/mcp package

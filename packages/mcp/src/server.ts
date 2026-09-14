@@ -13,6 +13,7 @@ import { registerReportProgress } from './tools/reportProgress.js';
 export interface ServerOptions {
   defaultWorkspace?: string | undefined;
   workerLabel?: string | undefined; // recorded as claimed_by on every claim
+  executionId?: string | undefined; // stable ownership fence injected by a supervisor
   /** Machine-local clone of the PINNED workspace (#46 remote workers): replaces the
    *  board-central task.repoPath in every path handed to the agent (protocol worktree,
    *  serialized detail) and in the submit guard, which must inspect THIS machine's repo. */
@@ -35,6 +36,6 @@ export function buildServer(core: McpCore, opts: ServerOptions = {}): McpServer 
   registerAddComment(server, core);
   registerSubmitResult(server, core, opts);
   registerUpdateStatus(server, core);
-  registerReportProgress(server, core);
+  registerReportProgress(server, core, opts);
   return server;
 }

@@ -5,12 +5,16 @@ import { insertMetric } from '../repo/metrics.js';
 import { taskMetricsSchema, parse } from '../validate.js';
 import { NotFoundError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { latestExecution } from '../repo/execution.js';
+import { InvalidTransitionError } from '../errors.js';
 
 /** Record a worker-reported usage report (best-effort at submit, or exact post-run). */
 export function addTaskMetrics(db: DB, key: string, input: AddTaskMetricsInput, now: () => string = nowIso): TaskDetail {
   const m = parse(taskMetricsSchema, input);
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
+  if (m.executionId !== undefined && latestExecution(db, row.id)?.id !== m.executionId)
+    throw new InvalidTransitionError(`execution ${m.executionId} is not the current execution for ${key}`);
   insertMetric(db, {
     taskId: row.id,
     model: m.model ?? null,

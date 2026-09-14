@@ -23,7 +23,12 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
     },
     async ({ workspace }) => {
       try {
-        const claimed = await core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel });
+        const claimInput: { workspace?: string; claimedBy?: string; executionId?: string } = {};
+        const claimWorkspace = workspace ?? opts.defaultWorkspace;
+        if (claimWorkspace !== undefined) claimInput.workspace = claimWorkspace;
+        if (opts.workerLabel !== undefined) claimInput.claimedBy = opts.workerLabel;
+        if (opts.executionId !== undefined) claimInput.executionId = opts.executionId;
+        const claimed = await core.claimNextTask(claimInput);
         if (claimed === null) {
           return {
             content: [

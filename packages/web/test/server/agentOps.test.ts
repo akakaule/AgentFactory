@@ -147,6 +147,21 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect(detail.activity.filter((a) => a.type === 'status_change').at(-1)!.body).toContain('system-reap');
   });
 
+  it('rejects late fenced progress and submit after a replacement claim', async () => {
+    const t = queuedTask(core);
+    const first = (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as Promise<{ executionId: string }>;
+    const firstClaim = await first;
+    expect(firstClaim.executionId).toBeTruthy();
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: firstClaim.executionId }, supervisor)).status).toBe(200);
+    const replacement = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-2' }, service)).json() as { executionId: string };
+    expect(replacement.executionId).not.toBe(firstClaim.executionId);
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { executionId: firstClaim.executionId, message: 'late' }, service)).status).toBe(409);
+    expect((await post(app, `/api/agent/tasks/${t.key}/submit`, { executionId: firstClaim.executionId, summary: 'late', links: [] }, service)).status).toBe(409);
+    expect(core.getTask(t.key).status).toBe('in_progress');
+  });
+
   it('creating a task through the agent surface lands in backlog with actor agent', async () => {
     const res = await post(app, '/api/agent/tasks', { title: 'Found a bug', spec: 'S', acceptanceCriteria: 'A' }, service);
     expect(res.status).toBe(201);

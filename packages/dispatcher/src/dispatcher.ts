@@ -1,7 +1,7 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, RetryReservation } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey } from '@agentfactory/core';
 import type { DispatcherConfig } from './config.js';
-import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
+import type { DispatcherDeps, SpawnedChild, LogWriter, RetryReservationLike } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
 import { parseCliMetrics, hasMetrics, parsePermissionDenials, type ParsedMetrics } from './metrics.js';
 
@@ -14,6 +14,7 @@ interface Session {
   attempt: number;
   maxAttempts: number;
   reservationId: string;
+  executionId: string | null;
   child: SpawnedChild;
   logWriter: LogWriter;
   startedAtMs: number;
@@ -42,7 +43,9 @@ const RELEASE_RETRIES = 5;
 const RETRY_RESERVATION_GRACE_MS = 30_000;
 
 /** What a release posts to the board alongside the recovery edge. */
-interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; maxAttempts?: number | undefined; reservationId?: string | undefined; }
+interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; maxAttempts?: number | undefined; reservationId?: string | undefined; executionId?: string | undefined; }
+
+type LaunchReservation = RetryReservationLike & { executionId?: string | undefined };
 
 /**
  * The supervisor. Polls the queue read-only and spawns one fresh headless `claude`
@@ -123,6 +126,7 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.reconcileExecutions();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
     this.enforceTimeouts();
@@ -145,6 +149,12 @@ export class Dispatcher {
     } catch (err) {
       this.console.warn(`[dispatcher] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
     }
+  }
+
+  private async reconcileExecutions(): Promise<void> {
+    if (!this.deps.core.reconcileExecutions) return;
+    try { await this.deps.core.reconcileExecutions(RETRY_RESERVATION_GRACE_MS); }
+    catch (err) { this.console.warn(`[dispatcher] could not reconcile abandoned executions: ${(err as Error).message}`); }
   }
 
   /** Retry releases that failed transiently on a previous tick (bounded per entry). */
@@ -347,7 +357,7 @@ export class Dispatcher {
         }
         const slice = this.deps.tailFile(s.transcriptPath, s.transcriptOffset);
         if (slice && slice.chunk) {
-          await this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId });
+          await this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId, ...(s.executionId ? { executionId: s.executionId } : {}) });
           s.transcriptOffset = slice.offset;
         }
       } catch {
@@ -362,7 +372,7 @@ export class Dispatcher {
       const path = session.transcriptPath ?? this.deps.findTranscript(session.cwd, session.sessionId);
       if (!path) return;
       const raw = this.deps.readFile(path);
-      if (raw && raw.trim()) await this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId });
+      if (raw && raw.trim()) await this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId, ...(session.executionId ? { executionId: session.executionId } : {}) });
     } catch {
       /* best-effort */
     }
@@ -381,10 +391,13 @@ export class Dispatcher {
       if (task.unmetDependencyCount > 0) continue;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
-      const reservation = await this.deps.core.reserveRetry(task.key, {
-        operation: `dispatcher:${task.stage}`,
-        maxAttempts: this.config.maxAttempts,
-      });
+      let reservation: LaunchReservation | null;
+      if (this.deps.core.reserveExecution) {
+        const execution = await this.deps.core.reserveExecution(task.key, { operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts, owner: `${workspace}#${task.key}` });
+        reservation = execution ? ({ ...execution, executionId: execution.id } as LaunchReservation) : null;
+      } else {
+        reservation = await this.deps.core.reserveRetry(task.key, { operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts });
+      }
       if (reservation === null) {
         this.skipList(task.key);
         continue;
@@ -449,16 +462,20 @@ export class Dispatcher {
   }
 
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
-  private async spawnSession(workspace: string, key: string, stage: Stage, reservation: RetryReservation): Promise<boolean> {
+  private async spawnSession(workspace: string, key: string, stage: Stage, reservation: LaunchReservation): Promise<boolean> {
     const attempt = reservation.attempt;
     const cwd = await this.repoPath(workspace);
     if (!cwd) {
       this.console.warn(`[dispatcher] workspace '${workspace}' has no repoPath; cannot spawn for ${key}`);
       return false;
     }
+    const identitySuffix = reservation.executionId ? `-${reservation.executionId.slice(0, 8)}` : '';
+    // Keep the established worker label stable for claim reconciliation and activity analytics.
+    // The execution fence and the per-run file suffix provide uniqueness without changing the
+    // label contract consumed by existing workers.
     const label = `${workspace}#${key}-a${attempt}`;
-    const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}.log`;
-    const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}.mcp.json`;
+    const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}${identitySuffix}.log`;
+    const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}${identitySuffix}.mcp.json`;
     const logWriter = this.deps.openLog(logPath);
 
     // ALL backend keys are written every time, the unused ones as '' (the MCP entry treats
@@ -472,6 +489,7 @@ export class Dispatcher {
       AGENTFACTORY_WORKSPACE: workspace,
       AGENTFACTORY_WORKER: label,
     };
+    if (reservation.executionId) mcpEnv['AGENTFACTORY_EXECUTION_ID'] = reservation.executionId;
     const localRepo = this.config.repoPathOverrides?.[workspace];
     if (localRepo) mcpEnv['AGENTFACTORY_REPO_PATH'] = localRepo;
     // The MCP config is written to a file rather than inlined: cmd.exe (the Windows .cmd
@@ -526,6 +544,7 @@ export class Dispatcher {
       attempt,
       maxAttempts: reservation.maxAttempts,
       reservationId: reservation.id,
+      executionId: reservation.executionId ?? null,
       child,
       logWriter,
       startedAtMs: this.deps.now(),
@@ -620,6 +639,9 @@ export class Dispatcher {
       if (moved) {
         session.attempt = moved.attempt;
         session.maxAttempts = moved.maxAttempts;
+        // The actual task was claimed through the compatibility path and owns a different
+        // execution row. Release it through the task's current claim, not the predicted fence.
+        session.executionId = null;
       } else {
         // The predicted reservation was refunded by reconciliation when the actual budget was
         // exhausted; do not later settle that now-obsolete id as a failure for the wrong task.
@@ -628,7 +650,7 @@ export class Dispatcher {
     }
 
     // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
-    if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(claimed.key, session.label, metrics);
+    if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(claimed.key, session.label, metrics, session.executionId);
 
     // the process exited: end its live session. submit_result already ended it on success;
     // this also clears a crashed in_progress session the agent never got to end before dying.
@@ -656,8 +678,9 @@ export class Dispatcher {
     return row ? { key: row.key, status: row.status, stage: row.stage } : undefined;
   }
 
-  private async recordMetrics(key: string, label: string, m: ParsedMetrics): Promise<void> {
-    const input: AddTaskMetricsInput = { reportedBy: label };
+  private async recordMetrics(key: string, label: string, m: ParsedMetrics, executionId: string | null): Promise<void> {
+    const input: AddTaskMetricsInput & { executionId?: string } = { reportedBy: label };
+    if (executionId) input.executionId = executionId;
     if (m.model !== undefined) input.model = m.model;
     if (m.tokensIn !== undefined) input.tokensIn = m.tokensIn;
     if (m.tokensOut !== undefined) input.tokensOut = m.tokensOut;
@@ -717,6 +740,7 @@ export class Dispatcher {
       attempt: session.attempt,
       maxAttempts: session.maxAttempts,
       reservationId: session.reservationId,
+      executionId: session.executionId ?? undefined,
     });
   }
 
@@ -731,7 +755,7 @@ export class Dispatcher {
    */
   private async releaseClaim(key: string, opts: ReleaseOpts, tries = 0): Promise<void> {
     try {
-      await this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
+      await this.deps.core.releaseClaim(key, undefined, opts.executionId); // the system recovery edge (stamped system-reap in activity)
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         if (opts.reservationId) await this.deps.core.settleRetry(opts.reservationId, { state: 'succeeded', reason: 'claim already advanced' });
