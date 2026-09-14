@@ -17,6 +17,8 @@ npm test                 # vitest run (whole workspace)
 npm run test:watch
 ```
 
+In a task worktree, first run `npm ci --cache .npm-cache` from that worktree's root, then `npm run build` before tests. Each worktree needs its own installed workspace links: falling back to the parent checkout's `node_modules/@agentfactory/*` mixes source and compiled exports from different branches. The local ignored npm cache avoids sandbox writes to the user's global npm cache. Use npm to create workspace links; do not construct manual junctions or share the canonical checkout's `node_modules`.
+
 Run a single package's tests / a single file / by name:
 
 ```bash
