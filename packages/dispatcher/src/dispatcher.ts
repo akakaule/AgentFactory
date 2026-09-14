@@ -339,7 +339,8 @@ export class Dispatcher {
       const claimed = await this.findClaimed(session);
       const key = claimed?.key ?? session.claimedKey ?? session.predictedKey;
       const task = await this.tryGetTask(key);
-      if (task?.status !== 'done' || task.delivery?.prState !== 'merged') continue;
+      const merged = task?.status === 'done' && task.delivery?.prState === 'merged';
+      if (!merged && !claimed?.mergedCompletion) continue;
 
       session.cancelled = true;
       this.appendLog(session, '\n[dispatcher] merged delivery completed elsewhere; terminating repair worker\n');
@@ -691,11 +692,33 @@ export class Dispatcher {
   }
 
   /** The task this session claimed — matched on the worker label persisted as claimed_by. */
-  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage } | undefined> {
+  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage; mergedCompletion?: boolean } | undefined> {
     const all = await this.deps.core.listTasks({ workspace: session.workspace });
     const row = all.find((t) => t.claimedBy === session.label);
     if (row) session.claimedKey = row.key;
-    return row ? { key: row.key, status: row.status, stage: row.stage } : undefined;
+    if (row) return { key: row.key, status: row.status, stage: row.stage };
+
+    // A merged completion clears the live session, and an intentional reopen may replace the
+    // claim before this poll. Keep the old worker fenced by the durable activity episode rather
+    // than letting a later claim hide the completed repair. The recent activity window includes
+    // the old claim, completion, reopen, and replacement claim in this race.
+    for (const task of all) {
+      const detail = await this.tryGetTask(task.key);
+      if (!detail) continue;
+      let claimed = false;
+      let mergedCompletion = false;
+      for (const activity of detail.activity) {
+        if (activity.type === 'status_change' && activity.toStatus === 'in_progress' && activity.body === session.label)
+          claimed = true;
+        if (claimed && activity.type === 'status_change' && activity.actor === 'agent' && activity.fromStatus === 'in_progress' && activity.toStatus === 'done')
+          mergedCompletion = true;
+      }
+      if (mergedCompletion) {
+        session.claimedKey = task.key;
+        return { key: task.key, status: task.status, stage: task.stage, mergedCompletion: true };
+      }
+    }
+    return undefined;
   }
 
   private async recordMetrics(key: string, label: string, m: ParsedMetrics): Promise<void> {
