@@ -271,6 +271,8 @@ export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCrit
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
   summary: string;
+  /** The claimedAt value from the worker's current claim; rejects late submissions from an old execution. */
+  claimAt?: string | undefined;
   links?: LinkInput[];
   // stage deliverables — required/forbidden per the task's stage (see ops/submitResult.ts):
   spec?: string | undefined;               // description stage: the rewritten feature description

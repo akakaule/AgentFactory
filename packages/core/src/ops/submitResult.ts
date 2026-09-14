@@ -7,7 +7,7 @@ import { findRowByKey, toDetail, setStatus, setResultSummary, setPlan, applyEdit
 import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { insertLinks } from '../repo/links.js';
-import { NotFoundError, ValidationError } from '../errors.js';
+import { InvalidTransitionError, NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { clearDelivery, deliveryRowFor } from '../repo/delivery.js';
@@ -42,7 +42,7 @@ export function submitResult(
   input: SubmitResultInput,
   now: () => string = nowIso,
 ): TaskDetail {
-  const { summary, links, spec, acceptanceCriteria, plan, verification } = parse(submitResultSchema, input);
+  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification } = parse(submitResultSchema, input);
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
@@ -59,6 +59,8 @@ export function submitResult(
     const current = findRowByKey(db, key);
     if (!current) throw new NotFoundError(`task not found: ${key}`);
     assertTransition(current.status, 'in_review', 'agent');
+    if (claimAt !== undefined && current.claimed_at !== claimAt)
+      throw new InvalidTransitionError(`stale claim for ${key}`);
     const currentDelivery = deliveryRowFor(db, current.id);
     if (currentDelivery?.pr_state === 'merged') {
       const ts = now();

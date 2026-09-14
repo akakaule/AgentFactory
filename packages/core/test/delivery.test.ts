@@ -159,6 +159,23 @@ describe('delivery ops', () => {
     expect(core.getDelivery(key)).toMatchObject({ prState: 'unknown', checksState: 'unknown' });
   });
 
+  it('rejects a late submission from an old claim after completion and re-claim', () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'T', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const oldClaim = core.claimNextTask({ claimedBy: 'old-worker' }, () => '2030-08-01T10:00:00.000Z')!;
+    core.submitResult(t.key, { summary: 'original', claimAt: oldClaim.claimedAt! });
+    core.reviewApprove(t.key);
+    core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'passing' });
+    core.completeDelivery(t.key, 'PR merged; checks green');
+
+    core.updateStatus(t.key, 'queued', 'human');
+    const newClaim = core.claimNextTask({ claimedBy: 'new-worker' }, () => '2030-08-01T11:00:00.000Z')!;
+
+    expect(() => core.submitResult(t.key, { summary: 'stale repair', claimAt: oldClaim.claimedAt! })).toThrow(/stale claim/);
+    expect(core.getTask(t.key)).toMatchObject({ status: 'in_progress', claimedBy: 'new-worker', claimedAt: newClaim.claimedAt, resultSummary: 'original' });
+  });
+
   it('allows merged delivery completion from a queued repair', () => {
     const core = makeCore();
     const key = deliverTask(core);
