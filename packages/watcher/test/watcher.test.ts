@@ -167,7 +167,7 @@ describe('watcher tick', () => {
     expect(core.getVersion()).toBe(v1);
   });
 
-  it('merged but checks still pending → keeps waiting (no premature done)', async () => {
+  it('merged but checks still pending → done while preserving the observed check state', async () => {
     const core = makeCore();
     const key = deliverTask(core);
     const fetchJson = fakeFetch([
@@ -177,7 +177,59 @@ describe('watcher tick', () => {
     ]);
     const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
     await w.tick();
-    expect(core.getTask(key).status).toBe('delivering');
+    const t = core.getTask(key);
+    expect(t.status).toBe('done');
+    expect(t.delivery).toMatchObject({ prState: 'merged', checksState: 'pending' });
+  });
+
+  it('merged PR with failing checks → done and keeps the failed-check evidence visible', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
+      ['/check-runs', { body: red }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    const t = core.getTask(key);
+    expect(t.status).toBe('done');
+    expect(t.delivery).toMatchObject({ prState: 'merged', checksState: 'failing' });
+    expect(t.delivery!.failing).toEqual([{ name: 'build', url: 'https://gh/run/1' }]);
+    expect(t.activity.some((a) => a.type === 'comment' && isFailureMarker(a.body))).toBe(false);
+  });
+
+  it('a queued merged delivery is reconciled before another worker can claim it', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'build failed' });
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
+      ['/check-runs', { body: running }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key).status).toBe('done');
+    expect(core.claimNextTask({ claimedBy: 'retry-worker' })).toBeNull();
+  });
+
+  it('an active repair can be completed from a merged delivery without reopening it', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.recordDeliveryCheck(key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'build failed' });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
+      ['/check-runs', { body: running }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key).status).toBe('done');
+    expect(() => core.submitResult(key, { summary: 'late repair result' })).toThrow();
   });
 
   it('no PR yet → records not_found and waits', async () => {

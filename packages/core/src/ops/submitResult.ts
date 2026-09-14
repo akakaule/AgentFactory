@@ -10,6 +10,7 @@ import { insertLinks } from '../repo/links.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
+import { clearDelivery } from '../repo/delivery.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -55,6 +56,9 @@ export function submitResult(
     // A new result is a new review episode. Preserve failures from the prior submission but do
     // not let a successful review consume the next submission's allowance.
     advanceRetryBudget(db, row.id, `reviewer:${row.stage}`, ts, 'new submission');
+    // A new implementation result supersedes the previously approved delivery episode. Keeping
+    // its row would let a slow watcher observation for the old PR complete this new review.
+    if (row.stage === 'implementation') clearDelivery(db, row.id);
     // applyEdit is the repo primitive shared with updateTask; the backlog-only rule for
     // human edits lives in that op, not here — a description-stage submit IS the edit.
     if (row.stage === 'description') {

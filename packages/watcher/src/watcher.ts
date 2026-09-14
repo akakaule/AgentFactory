@@ -83,7 +83,12 @@ export class Watcher {
     });
     const servedSet = new Set(served);
     const mine = (t: Task): boolean => servedSet.has(t.workspace);
-    const tasks = (await core.listTasks({ status: 'delivering' })).filter(mine);
+    // Keep observing the current approved delivery while it is queued, blocked, or being
+    // repaired. A merged observation must be reconciled before another worker is allowed to claim
+    // the queued row; in-progress work is completed safely and late submission is rejected by core.
+    const observedStatuses = ['delivering', 'queued', 'in_progress', 'blocked', 'in_review'] as const;
+    const tasks = (await Promise.all(observedStatuses.map((status) => core.listTasks({ status }))))
+      .flat().filter(mine).filter((t) => t.status === 'delivering' || t.delivery !== null);
     try {
       await core.recordSupervisorHeartbeat({
         name: this.config.name, kind: 'watcher', workspaces: served,
@@ -97,7 +102,7 @@ export class Watcher {
       if (this.deps.now() < this.pausedUntil) return;
       // Per-task isolation: checkTask handles provider/transition errors itself, but a core
       // throw (e.g. the task was deleted between listTasks and here) must not abort the
-      // remaining delivering tasks' checks for this tick.
+      // remaining tasks' checks for this tick.
       try {
         await this.checkTask(t.key);
       } catch (err) {
@@ -136,6 +141,7 @@ export class Watcher {
     // bypasses it. Needs a branch and a recognizable origin; otherwise the task sits visibly
     // in Delivering with no chip and the human's Mark-done/Re-queue buttons stay the way out.
     if (!delivery) {
+      if (detail.status !== 'delivering') return;
       const remote = this.remoteFor(this.repoFor(detail));
       if (!detail.branch || !remote) {
         this.warnOnce(key, `[watcher] ${key} is delivering but has ${detail.branch ? 'no recognizable origin' : 'no branch'} — a human must Mark done or Re-queue`);
@@ -178,41 +184,52 @@ export class Watcher {
 
     const { pr, checks } = result;
     const recorded = await core.recordDeliveryCheck(key, {
+      expectedStateChangedAt: delivery.stateChangedAt,
       prUrl: pr?.url ?? null,
       prId: pr?.id ?? null,
       prState: pr ? pr.state : 'not_found',
       checksState: checks.state,
       failing: checks.failing,
     });
+    if (!recorded.accepted || recorded.stateChangedAt === null) return; // the task was re-submitted/re-approved while the host was polled
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);
+    const observedStateChangedAt = recorded.stateChangedAt;
 
     // Transitions run through core's assertTransition inside a transaction; racing a human
     // override throws InvalidTransitionError — the board already settled it, not an error.
     try {
-      if (pr && pr.state === 'merged' && (checks.state === 'passing' || checks.state === 'none')) {
-        await core.completeDelivery(key, `PR ${pr.id} merged; checks ${checks.state === 'none' ? 'not configured' : 'green'}`);
+      if (pr && pr.state === 'merged') {
+        const checkNote = checks.state === 'passing'
+          ? 'green'
+          : checks.state === 'none'
+            ? 'not configured'
+            : `${checks.state}; merge resolved the original task (CI status retained)`;
+        await core.completeDelivery(key, `PR ${pr.id} merged; checks ${checkNote}`, observedStateChangedAt);
         console.log(`[watcher] ${key}: delivered — PR ${pr.id} merged, checks ${checks.state}`);
-      } else if (pr && pr.state === 'closed') {
+      } else if (detail.status === 'delivering' && pr && pr.state === 'closed') {
         await core.failDelivery(key, {
           reason: 'pr_closed',
           detail: `PR ${pr.id} was closed without merging`,
           body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix and reopen a PR from the SAME branch.`,
+          expectedStateChangedAt: observedStateChangedAt,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
-      } else if (pr && pr.mergeConflict) {
+      } else if (detail.status === 'delivering' && pr && pr.mergeConflict) {
         await core.failDelivery(key, {
           reason: 'merge_conflict',
           detail: `PR ${pr.id} has merge conflicts`,
           body: this.mergeConflictBody(pr.url, delivery.branch, pr.mergeConflict.detail),
+          expectedStateChangedAt: observedStateChangedAt,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} has merge conflicts`);
-      } else if (pr && checks.state === 'failing') {
+      } else if (detail.status === 'delivering' && pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
         const errors = await this.captureErrors(provider, remote, result);
         await core.failDelivery(key, {
           reason: 'ci_failed',
           detail: `PR ${pr.id} checks failed: ${names}`,
           body: this.ciFailureBody(pr.url, pr.state, delivery.branch, checks.failing, errors),
+          expectedStateChangedAt: observedStateChangedAt,
         });
         console.log(`[watcher] ${key}: bounced — checks failed (${names})${errors.length ? ` · captured ${errors.length} error line(s)` : ''}`);
       }

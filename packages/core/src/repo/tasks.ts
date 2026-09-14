@@ -237,6 +237,12 @@ export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefin
       WHERE budget.task_id = task.id AND budget.operation = 'delivery'
         AND budget.generation = (SELECT MAX(latest_budget.generation) FROM retry_budget latest_budget WHERE latest_budget.task_id = task.id AND latest_budget.operation = 'delivery')
         AND budget.attempts_used >= budget.max_attempts
+    )
+    -- A watcher may have confirmed the currently approved PR merged while this repair was
+    -- queued. Reconcile that delivery instead of starting another implementation attempt.
+    AND NOT EXISTS (
+      SELECT 1 FROM task_delivery delivery
+      WHERE delivery.task_id = task.id AND delivery.pr_state = 'merged'
     )`;
   return (workspaceId === undefined
     ? db.prepare(`${SELECT_TASK} WHERE ${eligible} ORDER BY task.seq ASC LIMIT 1`).get()

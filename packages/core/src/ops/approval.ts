@@ -4,7 +4,8 @@ import { STAGE_ORDER } from '../types.js';
 import type { TaskRow } from '../repo/tasks.js';
 import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
-import { upsertDelivery, deliveryRowFor } from '../repo/delivery.js';
+import { upsertDelivery } from '../repo/delivery.js';
+import { budgetByTask } from '../repo/retry.js';
 import { latestPrLinkUrl } from '../repo/links.js';
 import { assertTransition } from '../transitions.js';
 import { InvalidTransitionError } from '../errors.js';
@@ -53,7 +54,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     // repair budget is created only for the first episode; a successful worker resubmission must
     // not reset it or CI can bounce forever.
     if (delivery) {
-      const newDeliveryEpisode = deliveryRowFor(db, row.id) === undefined;
+      const newDeliveryEpisode = budgetByTask(db, row.id, 'delivery') === null;
       upsertDelivery(db, row.id, { provider: delivery.provider, branch: row.branch!, prUrl: latestPrLinkUrl(db, row.id) }, ts);
       if (newDeliveryEpisode)
         resetRetryBudgetRow(db, row.id, 'delivery', DEFAULT_DELIVERY_REPAIR_ATTEMPTS, ts, 'new delivery episode');

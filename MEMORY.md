@@ -15,4 +15,5 @@
 - `node:sqlite` statement results need an explicit `as unknown as Row` cast when projecting joined retry rows under the repository's strict TypeScript build.
 - When retry budgets are seeded from legacy failure markers without attempt rows, the next reservation number must fall back to the persisted `attempts_used`; active rows still derive the number from their maximum attempt.
 - Stale dispatcher claims carry only a label-derived attempt after restart; persist that exact orphan attempt at the core boundary before releasing the claim, including reconciling any matching active reservation.
+- Worktree tests that import workspace packages can resolve the parent repository's junctions when dependencies are absent locally; run `npm install --ignore-scripts --no-audit --no-fund` in the worktree before rebuilding package outputs.
 - After reservation reconciliation exhausts the target budget, reap must not settle the refunded obsolete reservation ID.

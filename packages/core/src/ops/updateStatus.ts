@@ -7,6 +7,7 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { clearDelivery } from '../repo/delivery.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
   const row = findRowByKey(db, key);
@@ -35,6 +36,8 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
   assertTransition(row.status, status, actor);
   return transaction(db, () => {
     const ts = now();
+    if (status === 'queued' && actor === 'human' && (row.status === 'done' || row.status === 'delivering'))
+      clearDelivery(db, row.id); // an intentional reopen starts a new approval episode
     setStatus(db, row.id, status, ts);
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).

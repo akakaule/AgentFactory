@@ -11,6 +11,8 @@ export interface DeliveryRow {
 
 /** What a watcher poll observed — the delta applied by updateDeliveryObservation. */
 export interface DeliveryObservation {
+  /** The approval episode the watcher read before making its provider request. */
+  expectedStateChangedAt?: string | undefined;
   prUrl?: string | null | undefined;
   prId?: string | null | undefined;
   prState: DeliveryPrState;
@@ -43,15 +45,27 @@ export function toDeliverySummary(r: DeliveryRow): DeliverySummary {
 
 /** Seed (or reset — INSERT OR REPLACE, so a re-approval starts a fresh observation) the delivery row. */
 export function upsertDelivery(db: DB, taskId: number, seed: { provider: DeliveryProvider; branch: string; prUrl: string | null }, ts: string): void {
+  const previous = deliveryRowFor(db, taskId);
+  // state_changed_at doubles as the watcher fence token. Keep it monotonic when a deterministic
+  // test clock or a fast pair of approvals supplies the same timestamp for two episodes.
+  const previousMs = previous ? Date.parse(previous.state_changed_at) : NaN;
+  const requestedMs = Date.parse(ts);
+  const episodeTs = previous && Number.isFinite(previousMs) && Number.isFinite(requestedMs) && requestedMs <= previousMs
+    ? new Date(previousMs + 1).toISOString()
+    : ts;
   db.prepare(
     `INSERT OR REPLACE INTO task_delivery
        (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, NULL, 'unknown', 'unknown', NULL, NULL, ?, ?, ?)`,
-  ).run(taskId, seed.provider, seed.branch, seed.prUrl, ts, ts, ts);
+  ).run(taskId, seed.provider, seed.branch, seed.prUrl, episodeTs, episodeTs, episodeTs);
 }
 
 export function deliveryRowFor(db: DB, taskId: number): DeliveryRow | undefined {
   return db.prepare('SELECT * FROM task_delivery WHERE task_id = ?').get(taskId) as DeliveryRow | undefined;
+}
+
+export function clearDelivery(db: DB, taskId: number): void {
+  db.prepare('DELETE FROM task_delivery WHERE task_id = ?').run(taskId);
 }
 
 /** Batched delivery summaries per task id — mirrors aiReviewByTaskIds' one-query shape. */
@@ -70,7 +84,9 @@ export function deliveryByTaskIds(db: DB, ids: number[]): Map<number, DeliverySu
  * caller's task touch → getVersion bump) only when the observed state actually changed.
  * Returns whether it did.
  */
-export function updateDeliveryObservation(db: DB, row: DeliveryRow, obs: DeliveryObservation, ts: string): { changed: boolean } {
+export function updateDeliveryObservation(db: DB, row: DeliveryRow, obs: DeliveryObservation, ts: string): { changed: boolean; accepted: boolean } {
+  if (obs.expectedStateChangedAt !== undefined && obs.expectedStateChangedAt !== row.state_changed_at)
+    return { changed: false, accepted: false };
   const prUrl = obs.prUrl !== undefined ? obs.prUrl : row.pr_url;
   const prId = obs.prId !== undefined ? obs.prId : row.pr_id;
   const detail = obs.failing && obs.failing.length > 0 ? JSON.stringify({ failing: obs.failing }) : null;
@@ -83,5 +99,5 @@ export function updateDeliveryObservation(db: DB, row: DeliveryRow, obs: Deliver
        checked_at = ?, state_changed_at = ?, updated_at = ?
      WHERE task_id = ?`,
   ).run(prUrl, prId, obs.prState, obs.checksState, detail, ts, changed ? ts : row.state_changed_at, ts, row.task_id);
-  return { changed };
+  return { changed, accepted: true };
 }

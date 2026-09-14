@@ -122,6 +122,51 @@ describe('delivery ops', () => {
     expect(core.getDelivery(key)!.prState).toBe('unknown');
   });
 
+  it('records delivery facts while a queued repair is waiting for reconciliation', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    const result = core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'pending' });
+    expect(result.changed).toBe(true);
+    expect(core.getDelivery(key)).toMatchObject({ prState: 'merged', checksState: 'pending' });
+  });
+
+  it('does not claim a queued task whose current delivery is already merged', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    expect(core.claimNextTask({ claimedBy: 'retry-worker' })).toBeNull();
+    expect(core.reserveRetry(key, { operation: 'dispatcher:implementation', maxAttempts: 2 })).toBeNull();
+  });
+
+  it('rejects an observation fenced to an older approval episode', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const oldEpisode = core.getDelivery(key)!.stateChangedAt;
+    core.updateStatus(key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'new-worker' });
+    core.submitResult(key, { summary: 'replacement' });
+    core.reviewApprove(key);
+    expect(core.getDelivery(key)!.stateChangedAt).not.toBe(oldEpisode);
+    const recorded = core.recordDeliveryCheck(key, {
+      expectedStateChangedAt: oldEpisode,
+      prState: 'merged',
+      checksState: 'passing',
+    });
+    expect(recorded).toMatchObject({ changed: false, accepted: false, stateChangedAt: null });
+    expect(core.getTask(key).status).toBe('delivering');
+    expect(core.getDelivery(key)).toMatchObject({ prState: 'unknown', checksState: 'unknown' });
+  });
+
+  it('allows merged delivery completion from a queued repair', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    const done = core.completeDelivery(key, 'PR #42 merged; checks pending', core.getDelivery(key)!.stateChangedAt);
+    expect(done.status).toBe('done');
+  });
+
   it('completeDelivery closes with an agent status_change carrying the note; a second call throws', () => {
     const core = makeCore();
     const key = deliverTask(core);

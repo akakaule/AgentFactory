@@ -103,6 +103,14 @@ export function reserveRetry(
   input: { operation: RetryOperation; maxAttempts: number },
   now: string,
 ): RetryReservation | null {
+  // A queued delivery whose approved PR is already merged must be settled by the watcher, not
+  // handed to a dispatcher. This check closes the list → reserve race at the write boundary.
+  if (input.operation.startsWith('dispatcher:')) {
+    const merged = db.prepare(
+      `SELECT 1 FROM task_delivery WHERE task_id = ? AND pr_state = 'merged' LIMIT 1`,
+    ).get(taskId);
+    if (merged) return null;
+  }
   const budget = ensureRetryBudget(db, taskId, input.operation, input.maxAttempts, now);
   const updated = db.prepare(
     `UPDATE retry_budget SET attempts_used = attempts_used + 1

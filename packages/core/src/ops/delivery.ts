@@ -9,6 +9,7 @@ import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
+import { endSession } from '../repo/agentSessions.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
@@ -46,33 +47,40 @@ export function beginDelivery(db: DB, key: string, seed: { provider: DeliveryPro
 /**
  * Record one watcher poll. Always refreshes checked_at; bumps the task (→ getVersion → UI refetch)
  * only when the observed PR/checks state actually changed. Deliberately a no-op once the task has
- * left 'delivering' — a late watcher write races a human override, and the human wins.
+ * left the active approval episode — a late watcher write races a human override or a new
+ * submission, and the newer lifecycle wins. The watcher may use this to refresh facts while a
+ * queued/blocked/in-progress repair is waiting for reconciliation.
  */
-export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean } {
+export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean; accepted: boolean; stateChangedAt: string | null } {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    if (row.status !== 'delivering') return { changed: false };
+    if (!['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { changed: false, accepted: false, stateChangedAt: null };
     const d = deliveryRowFor(db, row.id);
-    if (!d) return { changed: false }; // nothing seeded — the watcher self-heals via beginDelivery first
+    if (!d) return { changed: false, accepted: false, stateChangedAt: null }; // nothing seeded — the watcher self-heals via beginDelivery first
     const ts = now();
-    const { changed } = updateDeliveryObservation(db, d, obs, ts);
+    const { changed, accepted } = updateDeliveryObservation(db, d, obs, ts);
     if (changed) touch(db, row.id, ts);
-    return { changed };
+    return { changed, accepted, stateChangedAt: accepted ? (changed ? ts : d.state_changed_at) : null };
   });
 }
 
 /**
- * The watcher's happy ending: PR merged + pipeline green ⇒ delivering → done (by 'agent' — the
- * one automated path into done, and it exists only from delivering). `note` records WHY in the
- * status trail (e.g. "PR #42 merged; checks green"). Throws InvalidTransitionError if the task
- * already left delivering (raced a human) — callers treat that as settled, not an error.
+ * The watcher's happy ending: a current approved PR was merged ⇒ the task is done (by 'agent').
+ * This also reconciles queued or active repairs of that delivery; the host's check state remains
+ * in the delivery row and in the note. An episode token prevents a slow observation from
+ * completing a replacement delivery.
  */
-export function completeDelivery(db: DB, key: string, note: string, now: () => string = nowIso): TaskDetail {
+export function completeDelivery(db: DB, key: string, note: string, expectedStateChangedAt?: string, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    assertTransition(row.status, 'done', 'agent');
+    if (!['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status))
+      throw new InvalidTransitionError(`${row.status} -> done not allowed for agent`);
+    const delivery = deliveryRowFor(db, row.id);
+    if (!delivery || (expectedStateChangedAt !== undefined && delivery.state_changed_at !== expectedStateChangedAt))
+      throw new InvalidTransitionError(`stale delivery observation for ${key}`);
     const ts = now();
     setStatus(db, row.id, 'done', ts);
+    endSession(db, row.id, ts);
     appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'done', body: note, createdAt: ts });
     return toDetail(db, findRowByKey(db, key)!);
   });
@@ -89,12 +97,15 @@ export function completeDelivery(db: DB, key: string, note: string, now: () => s
 export function failDelivery(
   db: DB,
   key: string,
-  input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined },
+  input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined },
   now: () => string = nowIso,
 ): TaskDetail {
   return transaction(db, () => {
     const row = requireRow(db, key);
     assertTransition(row.status, 'queued', 'agent');
+    const delivery = deliveryRowFor(db, row.id);
+    if (input.expectedStateChangedAt !== undefined && delivery?.state_changed_at !== input.expectedStateChangedAt)
+      throw new InvalidTransitionError(`stale delivery observation for ${key}`);
     const ts = now();
     const repair = reserveRetryRow(db, row.id, key, { operation: 'delivery', maxAttempts: DEFAULT_DELIVERY_REPAIR_ATTEMPTS }, ts);
     if (!repair) throw new InvalidTransitionError(`delivery repair budget exhausted for ${key}; operator restart is required`);
