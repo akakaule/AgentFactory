@@ -571,6 +571,32 @@ describe('worker system prompt', () => {
 // crash path → release, retry, skip-list
 // ---------------------------------------------------------------------------
 describe('crash path', () => {
+  it('does not restore a spent retry allowance when the supervisor is reconstructed', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Restart resistant');
+
+    const first = makeFakeSpawn();
+    const d1 = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, first.spawn));
+    await d1.tick();
+    const label1 = workerLabel(first.calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label1 });
+    await first.calls[0]!.child.exit(1);
+
+    const second = makeFakeSpawn();
+    const d2 = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, second.spawn));
+    await d2.tick();
+    expect(second.calls).toHaveLength(1);
+    const label2 = workerLabel(second.calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label2 });
+    await second.calls[0]!.child.exit(1);
+
+    const third = makeFakeSpawn();
+    const d3 = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, third.spawn));
+    await d3.tick();
+    expect(third.calls).toHaveLength(0);
+    expect(core.getTask(key).failure?.skipListed).toBe(true);
+  });
+
   it('releases a stranded claim with a log-tail comment, retries, then skip-lists at maxAttempts', async () => {
     const core = makeCore();
     const key = seedQueued(core, 'ws', 'Crashy');

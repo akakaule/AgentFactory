@@ -1,5 +1,5 @@
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage } from '@agentfactory/core';
+import type { Task, TaskDetail, Stage, RetryReservation } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine } from './config.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildEngineArgs } from './engine.js';
@@ -21,6 +21,7 @@ interface ReviewSession {
   stage: Stage;
   mode: ReviewMode;
   attempt: number;
+  reservationId: string;
   engine: ReviewEngine;
   child: SpawnedChild;
   logWriter: LogWriter;
@@ -50,10 +51,10 @@ const LOG_TAIL_CHARS = 4000;
  */
 export class Reviewer {
   private readonly running = new Map<string, ReviewSession>(); // label -> session
-  private readonly attempts = new Map<string, number>(); // task key -> attempts used
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
   /** Visualization budget, keyed `${key}@${latestResultAt}` — a new submission gets a fresh
    *  budget, and there is no skip-set for clearRestarted's failure-null forgiveness to resurrect. */
+  /** Visualization retries are durable; this cache only supports the local diagnostic log. */
   private readonly vizAttempts = new Map<string, number>();
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -279,7 +280,6 @@ export class Reviewer {
     for (const task of tasks) {
       if (!this.skipped.has(task.key) || task.failure !== null) continue;
       this.skipped.delete(task.key);
-      this.attempts.delete(task.key);
       this.console.log(`[reviewer] ${task.key} restarted by operator — attempt budget reset`);
     }
   }
@@ -351,18 +351,25 @@ export class Reviewer {
 
   /** Build the prompt + spawn one review/evaluation; returns false (no slot consumed) on a pre-spawn failure. */
   private async startReview(workspace: string, key: string, mode: ReviewMode = 'review'): Promise<boolean> {
-    const attempt = (this.attempts.get(key) ?? 0) + 1;
-    if (attempt > this.config.maxAttempts) {
-      this.skipList(key);
-      return false;
-    }
-
     const engine = this.config.engine;
     let prompt: string;
     let stage: Stage;
+    let detail: TaskDetail;
     try {
-      const detail = await this.deps.core.getTask(key);
+      detail = await this.deps.core.getTask(key);
       stage = detail.stage;
+    } catch (err) {
+      this.console.error(`[reviewer] could not load ${key}: ${(err as Error).message}`);
+      return false;
+    }
+    const operation = mode === 'feedback-eval' ? 'reviewer:feedback-eval' : `reviewer:${stage}`;
+    const reservation = await this.deps.core.reserveRetry(key, { operation, maxAttempts: this.config.maxAttempts });
+    if (reservation === null) {
+      this.skipList(key);
+      return false;
+    }
+    const attempt = reservation.attempt;
+    try {
       if (mode === 'feedback-eval') {
         // critically evaluate the latest forwarded PR-review comment against the branch diff
         const systemPrompt = await this.deps.core.resolveAgentPrompt('delivering-evaluator', detail.workspace);
@@ -385,13 +392,13 @@ export class Reviewer {
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.
-      await this.burnAttempt(key, attempt, `could not prepare ${mode}: ${(err as Error).message}`);
+      await this.burnAttempt(key, attempt, `could not prepare ${mode}: ${(err as Error).message}`, reservation.id);
       return false;
     }
 
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
-    this.launchSession({ workspace, key, stage, mode, attempt, engine, model: this.config.model, prompt, label, fileBase });
+    this.launchSession({ workspace, key, stage, mode, attempt, reservationId: reservation.id, engine, model: this.config.model, prompt, label, fileBase });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -409,9 +416,6 @@ export class Reviewer {
     }
     if (!this.needsVisualization(detail)) return false; // superseded between list and load
     const vizKey = this.vizKeyFor(detail);
-    const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
-    if (attempt > this.config.maxAttempts) return false;
-
     const engine = this.config.visualization.engine ?? this.config.engine;
     const model = this.config.visualization.model ?? this.config.model;
     let prompt: string;
@@ -419,13 +423,18 @@ export class Reviewer {
       const { diffRef, diff } = await this.prepareDiff(detail);
       prompt = buildVisualizationPrompt({ task: detail, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
     } catch (err) {
+      const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
       this.burnVizAttempt(key, vizKey, attempt, `could not prepare visualization: ${(err as Error).message}`);
       return false;
     }
 
+    const reservation = await this.deps.core.reserveRetry(key, { operation: `visualization:${vizKey}`, maxAttempts: this.config.maxAttempts });
+    if (reservation === null) return false;
+    const attempt = reservation.attempt;
+
     const label = `${workspace}#${key}-viz${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
-    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, engine, model, prompt, label, fileBase, vizKey });
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, reservationId: reservation.id, engine, model, prompt, label, fileBase, vizKey });
     this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -437,6 +446,7 @@ export class Reviewer {
     stage: Stage;
     mode: ReviewMode;
     attempt: number;
+    reservationId: string;
     engine: ReviewEngine;
     model: string | undefined;
     prompt: string;
@@ -445,7 +455,7 @@ export class Reviewer {
     fileBase: string;
     vizKey?: string | undefined;
   }): void {
-    const { workspace, key, stage, mode, attempt, engine, model, prompt, label, fileBase, vizKey } = opts;
+    const { workspace, key, stage, mode, attempt, reservationId, engine, model, prompt, label, fileBase, vizKey } = opts;
     const outputFile = engine === 'codex' ? `${fileBase}.out` : null;
     if (outputFile) this.deps.clearOutput(outputFile);
     const logWriter = this.deps.openLog(`${fileBase}.log`);
@@ -466,6 +476,7 @@ export class Reviewer {
       stage,
       mode,
       attempt,
+      reservationId,
       engine,
       child,
       logWriter,
@@ -478,6 +489,9 @@ export class Reviewer {
       vizKey,
     };
     this.running.set(label, session);
+    void Promise.resolve(this.deps.core.settleRetry(reservationId, { state: 'running' })).catch((err) => {
+      this.console.warn(`[reviewer] could not mark ${label} running: ${(err as Error).message}`);
+    });
 
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString();
@@ -520,13 +534,13 @@ export class Reviewer {
     const verdict = this.readVerdict(session);
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
-      await this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      await this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`, session.reservationId);
       return;
     }
 
     if (!verdict.trim()) {
       const reason = code === 0 ? 'engine produced no verdict' : `engine exited code ${code ?? 'null'} with no verdict`;
-      await this.burnAttempt(session.key, session.attempt, reason);
+      await this.burnAttempt(session.key, session.attempt, reason, session.reservationId);
       return;
     }
 
@@ -552,10 +566,11 @@ export class Reviewer {
     } catch (err) {
       // The review succeeded but the post failed — don't burn an attempt; it still needs
       // review, so the next poll retries.
+      await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'verdict post failed' });
       this.console.error(`[reviewer] failed to post verdict for ${session.key}: ${(err as Error).message}`);
       return;
     }
-    this.attempts.delete(session.key); // reviewed successfully — reset the attempt budget
+    await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'review posted' });
     this.console.log(`[reviewer] posted verdict for ${session.key} (${session.stage}) via ${session.engine}`);
   }
 
@@ -567,21 +582,25 @@ export class Reviewer {
     const completedCodexOutput = session.outputFile !== null && raw.trim().length > 0;
     if (session.timedOut && !completedCodexOutput) {
       this.burnVizAttempt(session.key, vizKey, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'visualization timed out' });
       return;
     }
     if (!raw.trim()) {
       const reason = code === 0 ? 'engine produced no visualization' : `engine exited code ${code ?? 'null'} with no visualization`;
       this.burnVizAttempt(session.key, vizKey, session.attempt, reason);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason });
       return;
     }
     const extracted = extractHtml(raw);
     if (extracted === null) {
       this.burnVizAttempt(session.key, vizKey, session.attempt, 'engine did not produce an HTML document');
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'no HTML document' });
       return;
     }
     const html = sanitizeMermaid(extracted);
     if (html.length > MAX_VISUALIZATION_BYTES) {
       this.burnVizAttempt(session.key, vizKey, session.attempt, `visualization exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'visualization too large' });
       return;
     }
     try {
@@ -589,10 +608,12 @@ export class Reviewer {
     } catch (err) {
       // The page exists but the attach failed — don't burn; visualizationGeneratedAt is still
       // stale, so the next poll retries (same philosophy as a failed verdict post).
+      await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'visualization attach failed' });
       this.console.error(`[reviewer] failed to attach visualization for ${session.key}: ${(err as Error).message}`);
       return;
     }
     this.vizAttempts.delete(vizKey);
+    await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'visualization attached' });
     this.console.log(`[reviewer] posted visualization for ${session.key} (${html.length} bytes) via ${session.engine}`);
   }
 
@@ -619,8 +640,7 @@ export class Reviewer {
    * needs manual review — instead of it silently sitting in_review with no verdict. A later
    * successful review (an ai-review/v1 comment) supersedes the note (see failureByTaskIds).
    */
-  private async burnAttempt(key: string, attempt: number, reason: string): Promise<void> {
-    this.attempts.set(key, attempt);
+  private async burnAttempt(key: string, attempt: number, reason: string, reservationId?: string): Promise<void> {
     this.console.warn(`[reviewer] review of ${key} failed (attempt ${attempt}/${this.config.maxAttempts}): ${reason}`);
     const atCap = attempt >= this.config.maxAttempts;
     try {
@@ -640,6 +660,7 @@ export class Reviewer {
     } catch (err) {
       this.console.error(`[reviewer] failed to post failure note for ${key}: ${(err as Error).message}`);
     }
+    if (reservationId) await this.deps.core.settleRetry(reservationId, { state: 'failed', reason });
     if (atCap) {
       this.skipList(key);
       this.console.warn(

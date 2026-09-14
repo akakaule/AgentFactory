@@ -31,6 +31,8 @@ const deliveryCheckBody = z.object({
 }).passthrough();
 const deliveryCompleteBody = z.object({ note: z.string() });
 const deliveryFailBody = z.object({ reason: z.string().min(1), detail: z.string(), body: z.string().optional() }).passthrough();
+const retryReserveBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive() });
+const retrySettleBody = z.object({ state: z.enum(['running', 'succeeded', 'failed', 'cancelled']), reason: z.string().optional() });
 
 /**
  * The agent-ops surface (#45): every board operation a worker MCP session or a remote supervisor
@@ -121,6 +123,14 @@ export function agentOpsRoutes(core: Core): Hono {
     core.endAgentSession(c.req.param('key'));
     return c.json({ ok: true });
   });
+
+  // ── durable retry accounting ─────────────────────────────────────────────
+  // Reservation/settlement is service-scoped so the plain reviewer token can use its own budget;
+  // the operation name is supplied by the supervisor and core stores the decision atomically.
+  r.post('/tasks/:key/retry/reserve', validated('json', retryReserveBody), (c) =>
+    c.json(core.reserveRetry(c.req.param('key'), c.req.valid('json'))));
+  r.post('/retry/:id/settle', validated('json', retrySettleBody), (c) =>
+    c.json({ settled: core.settleRetry(c.req.param('id'), c.req.valid('json')) }));
 
   // ── supervisor surface ─────────────────────────────────────────────────────
   // the system recovery edge (reaper) — NOT an agent in_progress→queued transition

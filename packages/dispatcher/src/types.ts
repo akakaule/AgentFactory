@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey, RetryReservation } from '@agentfactory/core';
 
 /** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
  *  the supervisor awaits every call. */
@@ -21,6 +21,8 @@ export interface DispatcherCore {
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string): Awaitable<TaskDetail>;
+  reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
+  settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;
   // live agent status: keep a running session warm, and end it when the process exits

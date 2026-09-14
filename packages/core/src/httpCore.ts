@@ -29,7 +29,7 @@ export interface BoardIdentity {
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
   | 'claimNextTask' | 'submitResult' | 'createTask'
-  | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim'
+  | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
@@ -104,6 +104,8 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
       // the server derives the actor from the token — the local-signature actor is ignored on the wire
       (await req('POST', `/api/agent/tasks/${enc(key)}/status`, { status, note })) as never,
     releaseClaim: async (key) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, {})) as never,
+    reserveRetry: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/retry/reserve`, input)) as never,
+    settleRetry: async (id, input) => ((await req('POST', `/api/agent/retry/${enc(id)}/settle`, input)) as { settled: boolean }).settled,
 
     // ── transcript / session / metrics ───────────────────────────────────────
     appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, input); },
