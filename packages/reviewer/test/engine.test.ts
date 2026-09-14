@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { resolveEngineCommand, buildEngineArgs, pickFromWhich } from '../src/engine.js';
+// The configured effort must reach the CLI even when the user's default differs.
+it('pins Astra medium reasoning in the actual Codex argv', () => {
+  const args = buildEngineArgs({ engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'medium', outputFile: '/logs/x.out' });
+  expect(args).toContain('gpt-6-astra');
+  expect(args).toContain('model_reasoning_effort="medium"');
+  expect(args[args.indexOf('model_reasoning_effort="medium"') - 1]).toBe('-c');
+  expect(args.at(-1)).toBe('-');
+});
 
 describe('resolveEngineCommand', () => {
   it('prefers the per-engine override env var', () => {

@@ -1,10 +1,10 @@
 # @agentfactory/reviewer
 
 A small Node supervisor that runs AgentFactory's **AI first-pass review** with **no human in
-the loop**. It polls the DB for `in_review` tasks that still need a review and spawns **one
-fresh headless engine session per task** — codex (default) or claude — feeding it the task's
-diff (implementation) or deliverable (description/plan) on STDIN, then posts the engine's
-`ai-review/v1` verdict back as a comment.
+the loop**. It polls the DB for `in_review` tasks that still need a review and runs the
+configured independent reviewers against the task's diff (implementation) or deliverable
+(description/plan). Each receives its prompt on STDIN. The supervisor posts one combined
+`ai-review/v1` verdict after every configured reviewer completes.
 
 It is the in-repo sibling of the [dispatcher](../dispatcher/README.md): the same poll → spawn →
 reap shape, Core-direct (opens the same SQLite DB), no web server required. It supersedes the
@@ -56,6 +56,7 @@ reviews them) and the web server, all pointed at the same DB.
 | `excludeWorkspaces` | `[]` | Workspace slugs to **never** watch — the opt-out escape hatch. Applied whether or not `workspaces` is set. |
 | `engine` | `codex` | Review engine: `codex` or `claude`. |
 | `model` | — (optional) | Model override (codex `-m`, claude `--model`). |
+| `reviewers` | — (optional) | Ordered profiles `{ engine, model?, reasoningEffort? }`. Runs every profile independently and sequentially against the same submission, then posts one combined verdict. `reasoningEffort` is Codex-only: `low`, `medium`, `high`, `xhigh`, or `max`. When omitted, task reviews use the top-level engine/model. Visualization and feedback evaluation still use their existing engine settings. |
 | `pollSeconds` | `60` | Queue poll interval. |
 | `maxConcurrent` | `1` | Max concurrent reviews **per workspace**. |
 | `reviewMinutes` | `20` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |
@@ -64,6 +65,16 @@ reviews them) and the web server, all pointed at the same DB.
 | `visualization` | `{ "enabled": true }` | Auto-generated HTML change-visualization for in_review **implementation** tasks: one extra one-shot engine session authors the self-contained page (Mermaid diagram + file map), attached to the board before the review runs; the verdict comment links it (`Visualization: /api/tasks/<key>/visualization`). Optional `engine`/`model` override the top-level ones for the viz session only. Failures are log-only — never a `failure/v1`, never the review budget. Set `"enabled": false` to opt out. |
 
 See [`reviewer.config.example.json`](./reviewer.config.example.json).
+
+The example and local configuration use Claude Fable (`claude-fable-5-1`) and GPT-6 Astra
+(`gpt-6-astra`, medium reasoning). Findings from both are retained and labeled with their
+configured model. A clean result requires both valid outputs. A failed or malformed output
+retries the whole round under `maxAttempts`; an unfinished round repeats after supervisor
+restart. `reviewMinutes` applies per model session. `maxConcurrent` still limits concurrent
+task rounds per workspace, with only one model active per round. Each model gets a distinct
+log/output filename and telemetry worker label. Results for a changed submission or a task
+that left review are discarded. Existing completed reviews are not rerun just because the
+configuration changes. Restart the reviewer to load saved configuration changes.
 
 ## Which tasks it reviews
 

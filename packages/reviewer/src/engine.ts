@@ -1,4 +1,4 @@
-import type { ReviewEngine } from './config.js';
+import type { ReviewEngine, ReasoningEffort } from './config.js';
 
 /**
  * Pick the best CLI path from the raw output of `where`/`which`. On Windows prefer a real
@@ -57,6 +57,7 @@ export interface EngineOtelOpts {
 
 export interface EngineArgsOpts {
   engine: ReviewEngine;
+  reasoningEffort?: ReasoningEffort | undefined;
   /** Optional model override (codex `-m`, claude `--model`). */
   model?: string | undefined;
   /** File codex captures its final message to (`--output-last-message`); ignored for claude. */
@@ -91,7 +92,7 @@ export function buildOtelOverride({ endpoint, taskKey, token }: EngineOtelOpts):
  * - codex: `exec` read-only, no git-repo check, final message captured to a file, prompt via `-`.
  * - claude: headless single-turn text; the verdict is stdout.
  */
-export function buildEngineArgs({ engine, model, outputFile, otel }: EngineArgsOpts): string[] {
+export function buildEngineArgs({ engine, model, reasoningEffort, outputFile, otel }: EngineArgsOpts): string[] {
   if (engine === 'codex') {
     const args = [
       'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never',
@@ -99,6 +100,7 @@ export function buildEngineArgs({ engine, model, outputFile, otel }: EngineArgsO
     ];
     if (otel) args.push('-c', buildOtelOverride(otel));
     if (model) args.push('-m', model);
+    if (reasoningEffort) args.push('-c', `model_reasoning_effort=${tomlStr(reasoningEffort)}`);
     args.push('-'); // read the prompt from stdin
     return args;
   }

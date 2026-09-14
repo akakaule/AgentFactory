@@ -2,6 +2,10 @@
   "db": "./agentfactory.db",
   "excludeWorkspaces": ["agent-demo"],
   "engine": "codex",
+  "reviewers": [
+    { "engine": "claude", "model": "claude-fable-5-1" },
+    { "engine": "codex", "model": "gpt-6-astra", "reasoningEffort": "medium" }
+  ],
   "pollSeconds": 60,
   "maxConcurrent": 1,
   "reviewMinutes": 20,

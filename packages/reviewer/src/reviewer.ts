@@ -1,6 +1,7 @@
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage } from '@agentfactory/core';
-import type { ReviewerConfig, ReviewEngine } from './config.js';
+import type { ReviewerConfig, ReviewEngine, ReasoningEffort } from './config.js';
+import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
 import type { ReviewerDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildEngineArgs } from './engine.js';
 import { buildReviewPrompt, ensureMarker, buildFeedbackEvalPrompt, ensureFeedbackEvalMarker } from './review.js';
@@ -33,6 +34,7 @@ interface ReviewSession {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
+  round?: ReviewRound | undefined;
   /** visualize sessions only: the vizAttempts budget key, pinned at spawn so a result submitted
    *  mid-session cannot shift it. */
   vizKey?: string | undefined;
@@ -58,6 +60,7 @@ export class Reviewer {
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false; // re-entrancy guard (same shape as the watcher's)
+  private stopping = false;
   /** In-flight async reaps kicked off by child exit/error events (awaited by tick()). */
   private readonly settling = new Set<Promise<void>>();
 
@@ -73,12 +76,14 @@ export class Reviewer {
   /** Begin polling on the configured interval. Runs one tick immediately. */
   start(): void {
     if (this.timer) return;
+    this.stopping = false;
     void this.safeTick();
     this.timer = setInterval(() => void this.safeTick(), this.config.pollSeconds * 1000);
   }
 
   /** Stop polling and kill any in-flight reviews. */
   stop(): void {
+    this.stopping = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -360,6 +365,7 @@ export class Reviewer {
     const engine = this.config.engine;
     let prompt: string;
     let stage: Stage;
+    let round: ReviewRound | undefined;
     try {
       const detail = await this.deps.core.getTask(key);
       stage = detail.stage;
@@ -376,12 +382,19 @@ export class Reviewer {
       } else {
         // the configured reviewer system prompt (workspace override → global default → ''), inlined
         const systemPrompt = await this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
+        let makePrompt: (reviewEngine: ReviewEngine) => string;
         if (detail.stage === 'implementation') {
           const { diffRef, diff } = await this.prepareDiff(detail);
-          prompt = buildReviewPrompt({ task: detail, engine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+          makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         } else {
-          prompt = buildReviewPrompt({ task: detail, engine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+          makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         }
+        prompt = makePrompt(engine);
+        if (this.config.reviewers) round = {
+          fingerprint: reviewFingerprint(detail),
+          members: this.config.reviewers.map((profile) => ({ profile, prompt: makePrompt(profile.engine) })),
+          results: [],
+        };
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.
@@ -389,11 +402,26 @@ export class Reviewer {
       return false;
     }
 
+    if (round) {
+      try { this.launchRoundMember(workspace, key, stage, attempt, round); }
+      catch (err) { await this.burnAttempt(key, attempt, `could not launch review: ${(err as Error).message}`); return false; }
+      return true;
+    }
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
     this.launchSession({ workspace, key, stage, mode, attempt, engine, model: this.config.model, prompt, label, fileBase });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
+  }
+
+  private launchRoundMember(workspace: string, key: string, stage: Stage, attempt: number, round: ReviewRound): void {
+    const index = round.results.length;
+    const member = round.members[index]!;
+    const { engine, model, reasoningEffort } = member.profile;
+    const suffix = `r${attempt}-${index + 1}-${engine}`;
+    this.launchSession({ workspace, key, stage, mode: 'review', attempt, engine, model, reasoningEffort,
+      prompt: member.prompt, label: `${workspace}#${key}-${suffix}`, fileBase: `${this.deps.logDir}/${key}-review-${suffix}`, round });
+    this.console.log(`[reviewer] reviewing ${key} (${stage}) via ${engine}/${model ?? 'default'}${reasoningEffort ? ` (${reasoningEffort})` : ''}, reviewer ${index + 1}/${round.members.length}`);
   }
 
   /** Author the task's HTML change-visualization in one extra engine session; returns false
@@ -439,6 +467,8 @@ export class Reviewer {
     attempt: number;
     engine: ReviewEngine;
     model: string | undefined;
+    reasoningEffort?: ReasoningEffort | undefined;
+    round?: ReviewRound | undefined;
     prompt: string;
     label: string;
     /** Log/output path base: `${fileBase}.log` + (codex) `${fileBase}.out`. */
@@ -452,6 +482,7 @@ export class Reviewer {
     const args = buildEngineArgs({
       engine,
       model,
+      reasoningEffort: opts.reasoningEffort,
       outputFile: outputFile ?? '',
       otel: this.config.otel ? { endpoint: this.config.otel.endpoint, taskKey: key, token: this.config.otel.token } : undefined,
     });
@@ -475,6 +506,7 @@ export class Reviewer {
       logTail: '',
       settled: false,
       timedOut: false,
+      round: opts.round,
       vizKey,
     };
     this.running.set(label, session);
@@ -517,6 +549,15 @@ export class Reviewer {
     session.logWriter.end();
     if (session.mode === 'visualize') return this.reapVisualization(session, code);
 
+    if (session.round) {
+      const detail = await this.deps.core.getTask(session.key);
+      if (this.stopping || detail.status !== 'in_review' || !this.needsReview(detail)
+        || reviewFingerprint(detail) !== session.round.fingerprint) {
+        this.console.log(`[reviewer] discarded superseded/stopped review round for ${session.key}`);
+        return;
+      }
+    }
+
     const verdict = this.readVerdict(session);
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
@@ -535,6 +576,19 @@ export class Reviewer {
     }
 
     let body = session.mode === 'feedback-eval' ? ensureFeedbackEvalMarker(verdict) : ensureMarker(verdict, session.engine);
+    if (session.round) {
+      try {
+        collectReview(session.round, verdict);
+        if (session.round.results.length < session.round.members.length) {
+          this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, session.round);
+          return;
+        }
+        body = combinedReview(session.round);
+      } catch (err) {
+        await this.burnAttempt(session.key, session.attempt, `review round failed: ${(err as Error).message}`);
+        return;
+      }
+    }
     if (session.mode === 'review') {
       // Link the auto-generated change visualization (attached by the viz pass one tick earlier).
       // parseAiReviewComment tolerates trailing text after the fenced JSON; never lose the verdict
