@@ -20,6 +20,27 @@ function setup(stage: 'implementation' | 'description' = 'implementation', codex
 }
 
 describe('two-model task review', () => {
+  it.each([0, 1])('reports the real Claude turn-limit error instead of a JSON error (exit %i)', async (exitCode) => {
+    const { core, key, calls, r } = setup();
+    await r.tick();
+    calls[0]!.child.emitStdout('Error: Reached max turns (1)\n');
+    await calls[0]!.child.exit(exitCode);
+    expect(core.getTask(key).failure?.detail).toContain('Reached max turns (1)');
+    expect(core.getTask(key).failure?.detail).not.toContain('JSON');
+    expect(core.getTask(key).aiReview).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('does not accept a failed Claude process as a successful clean review', async () => {
+    const { core, key, calls, r } = setup();
+    await r.tick();
+    calls[0]!.child.emitStdout(aiReviewBody(0, 'claude'));
+    calls[0]!.child.emitStderr('Error: upstream request failed');
+    await calls[0]!.child.exit(1);
+    expect(core.getTask(key).failure?.detail).toContain('exited code 1');
+    expect(core.getTask(key).aiReview).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
   it('waits for both clean reviews before advancing a description task', async () => {
     const { core, key, calls, r, finishClaude } = setup('description');
     await r.tick();

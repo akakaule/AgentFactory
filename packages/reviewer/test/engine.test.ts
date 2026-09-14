@@ -30,6 +30,12 @@ describe('resolveEngineCommand', () => {
 });
 
 describe('buildEngineArgs', () => {
+  it('allows Claude to inspect code and then answer, with read-only permissions and the supervisor time limit', () => {
+    const args = buildEngineArgs({ engine: 'claude', model: 'claude-fable-5-1', outputFile: '' });
+    expect(args).not.toContain('--max-turns');
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan');
+    expect(args).toContain('--strict-mcp-config');
+  });
   it('codex: read-only exec capturing the final message, prompt via stdin (-)', () => {
     expect(buildEngineArgs({ engine: 'codex', outputFile: '/logs/x.out' })).toEqual([
       'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never', '--output-last-message', '/logs/x.out', '-',
@@ -67,16 +73,16 @@ describe('buildEngineArgs', () => {
   it('claude: otel opts are ignored (claude reads OTLP from the environment)', () => {
     expect(
       buildEngineArgs({ engine: 'claude', outputFile: '', otel: { endpoint: 'http://x', taskKey: 'AF-7' } }),
-    ).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
+    ).toEqual(['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config']);
   });
 
-  it('claude: headless single-turn text (verdict on stdout)', () => {
-    expect(buildEngineArgs({ engine: 'claude', outputFile: '' })).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
+  it('claude: headless read-only inspection (verdict on stdout)', () => {
+    expect(buildEngineArgs({ engine: 'claude', outputFile: '' })).toEqual(['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config']);
   });
 
   it('claude: appends --model <model>', () => {
     expect(buildEngineArgs({ engine: 'claude', model: 'opus', outputFile: '' })).toEqual([
-      '-p', '--output-format', 'text', '--max-turns', '1', '--model', 'opus',
+      '-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config', '--model', 'opus',
     ]);
   });
 });

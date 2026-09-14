@@ -90,7 +90,8 @@ export function buildOtelOverride({ endpoint, taskKey, token }: EngineOtelOpts):
  * Build the engine argv. The review prompt rides on STDIN for both engines (diffs exceed
  * command-line limits), so neither carries a prompt argument.
  * - codex: `exec` read-only, no git-repo check, final message captured to a file, prompt via `-`.
- * - claude: headless single-turn text; the verdict is stdout.
+ * - claude: headless read-only review; tool inspection can take multiple turns.
+ *   The supervisor's reviewMinutes bounds runtime; the verdict is stdout.
  */
 export function buildEngineArgs({ engine, model, reasoningEffort, outputFile, otel }: EngineArgsOpts): string[] {
   if (engine === 'codex') {
@@ -104,7 +105,7 @@ export function buildEngineArgs({ engine, model, reasoningEffort, outputFile, ot
     args.push('-'); // read the prompt from stdin
     return args;
   }
-  const args = ['-p', '--output-format', 'text', '--max-turns', '1'];
+  const args = ['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config'];
   if (model) args.push('--model', model);
   return args;
 }

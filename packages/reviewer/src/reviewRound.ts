@@ -31,6 +31,7 @@ export function collectReview(round: ReviewRound, body: string): void {
   const marked = ensureMarker(body, member.profile.engine);
   const fenced = marked.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const candidate = fenced ?? marked.slice(marked.indexOf('{'), marked.lastIndexOf('}') + 1);
+  if (!candidate.trim()) throw new Error(`${member.profile.engine} produced no review JSON`);
   outputSchema.parse(JSON.parse(candidate));
   const parsed = parseAiReviewComment(marked);
   if (!parsed) throw new Error('invalid ai-review/v1 output');

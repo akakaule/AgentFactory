@@ -316,7 +316,7 @@ describe('posting verdicts', () => {
     await r.tick();
     const req = calls[0]!.req;
     expect(req.command).toBe('claude.exe');
-    expect(req.args).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
+    expect(req.args).toEqual(['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config']);
     expect(req.stdin).toContain('ai-review/v1');
 
     calls[0]!.child.emitStdout(aiReviewBody(0, 'claude')); // claude streams the verdict on stdout

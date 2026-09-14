@@ -25,11 +25,15 @@ unchanged). So review is a pure function — read the task, run the engine, post
 
 - **codex** (default) — an independent second opinion on the (typically Claude) dispatcher's
   work: `codex exec --sandbox read-only --skip-git-repo-check --output-last-message <file> -`.
-- **claude** — `claude -p --output-format text --max-turns 1`.
+- **claude** — `claude -p --output-format text --permission-mode plan --strict-mcp-config`.
+  Read-only tool inspection can take multiple turns; `reviewMinutes` bounds the whole session.
+  A one-turn limit would stop a review immediately after its first inspection tool call.
 
-Both run headless in a neutral directory (no repo `.claude/` context, no MCP), read the prompt
+Both run headless from the logs directory, read the prompt
 from STDIN (diffs are large/arbitrary), and produce the verdict text — codex via its captured
 final message, claude via stdout. The `ai-review/v1` marker is prepended if the engine omits it.
+Claude ignores ambient MCP servers and uses plan permissions for read-only inspection. CLI
+error text and nonzero Claude exits are reported as execution failures before parsing a verdict.
 
 ## Run
 

@@ -531,6 +531,16 @@ export class Reviewer {
 
   // -- reaping ---------------------------------------------------------------
 
+  /** CLI errors are not review JSON, even when a wrapper exits zero. Codex final-file
+   * recovery keeps its existing semantics; Claude streaming output is not that artifact. */
+  private claudeFailure(session: ReviewSession, code: number | null, output: string): string | null {
+    if (session.engine !== 'claude') return null;
+    const errorLine = output.trimStart().match(/^Error:[^\r\n]*/i)?.[0];
+    if (code === 0 && !errorLine) return null;
+    const detail = errorLine ?? session.logTail.match(/^Error:[^\r\n]*/im)?.[0];
+    return `claude ${code === 0 ? 'failed' : `exited code ${code ?? 'null'}`}${detail ? `: ${detail.slice(0,500)}` : ''}`;
+  }
+
   /** Handle a review exit: read the verdict and post it, or burn an attempt on failure.
    *  The session HOLDS its `running` slot (and its hasRunningFor guard) until the reap fully
    *  settles — freeing it at entry let pollWorkspace start a same-attempt duplicate review
@@ -562,6 +572,12 @@ export class Reviewer {
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
       await this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      return;
+    }
+
+    const cliFailure = this.claudeFailure(session, code, verdict);
+    if (cliFailure) {
+      await this.burnAttempt(session.key, session.attempt, cliFailure);
       return;
     }
 
@@ -621,6 +637,11 @@ export class Reviewer {
     const completedCodexOutput = session.outputFile !== null && raw.trim().length > 0;
     if (session.timedOut && !completedCodexOutput) {
       this.burnVizAttempt(session.key, vizKey, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      return;
+    }
+    const cliFailure = this.claudeFailure(session, code, raw);
+    if (cliFailure) {
+      this.burnVizAttempt(session.key, vizKey, session.attempt, cliFailure);
       return;
     }
     if (!raw.trim()) {
