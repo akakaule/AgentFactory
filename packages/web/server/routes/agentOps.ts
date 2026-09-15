@@ -164,6 +164,9 @@ export function agentOpsRoutes(core: Core): Hono {
 
   r.get('/live-agents', (c) => c.json(core.listLiveAgents()));
 
+  // Read-only for agents/supervisors: the board (a human) decides which engines may run.
+  r.get('/engines', (c) => c.json(core.getEngineSettings()));
+
   r.get('/prompts/:key', (c) => {
     const workspace = c.req.query('workspace');
     if (!workspace) throw new ValidationError('workspace query parameter is required');

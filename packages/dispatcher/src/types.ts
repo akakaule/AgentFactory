@@ -1,3 +1,4 @@
+import type { EngineSettings } from '@agentfactory/core';
 import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey, RetryReservation } from '@agentfactory/core';
 
 /** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
@@ -18,6 +19,8 @@ export interface DispatcherCore {
   resolveGitAuth(workspace: string): Awaitable<GitAuth | null>;
   // the effective agent system prompt (workspace override → global default → '') for this role.
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
+  /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
+  getEngineSettings(): Awaitable<EngineSettings>;
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string): Awaitable<TaskDetail>;

@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { AgentPrompts } from '../types.js';
+import type { AgentPrompts, EngineSettings, AgentEngine } from '../types.js';
 import { api } from '../api.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
+
+const ENGINE_TOGGLES: ReadonlyArray<{ key: AgentEngine; label: string }> = [
+  { key: 'claude', label: 'Claude enabled' },
+  { key: 'codex', label: 'Codex enabled' },
+];
 
 /** Edit the GLOBAL default agent system prompts. A workspace can override any of these per repo
  *  (Workspaces modal). Effective prompt an agent runs with = workspace override ?? global ?? ''. */
@@ -10,6 +15,20 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [engines, setEngines] = useState<EngineSettings | null>(null);
+
+  useEffect(() => {
+    api.getEngineSettings().then(setEngines).catch((e: Error) => setErr(e.message));
+  }, []);
+
+  // Toggles apply immediately (no Save): the dispatcher re-reads them every tick, so a stage
+  // configured for a disabled engine falls back to the other one on its next spawn.
+  const toggleEngine = (engine: AgentEngine, enabled: boolean) => {
+    setErr(null);
+    api.setEngineSettings({ [engine]: { enabled } })
+      .then(setEngines)
+      .catch((e: Error) => setErr(e.message));
+  };
 
   useEffect(() => {
     api.getAgentPrompts()
@@ -40,6 +59,23 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
         <p style={{ fontSize: '12px', color: 'var(--ink-3)', margin: '6px 0 12px' }}>
           Global defaults for each agent. A workspace can override any of these in its own settings; blank = built-in behavior.
         </p>
+        <div className="af-engines" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 18px', padding: '10px 12px', marginBottom: '14px', border: '1px solid var(--line-soft)', borderRadius: '9px', background: 'var(--bg-deep)' }}>
+          <span style={{ fontWeight: 600, fontSize: '13px' }}>Engines</span>
+          {ENGINE_TOGGLES.map((e) => (
+            <label key={e.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px' }}>
+              <input
+                type="checkbox"
+                checked={engines?.[e.key].enabled ?? true}
+                disabled={engines === null}
+                onChange={(ev) => toggleEngine(e.key, ev.target.checked)}
+              />
+              {e.label}
+            </label>
+          ))}
+          <span style={{ flexBasis: '100%', fontSize: '12px', color: 'var(--ink-3)' }}>
+            Applies live. A stage configured for a disabled engine runs on the other one (with that engine's global args only); with both off, queued tasks wait.
+          </span>
+        </div>
         {loading ? (
           <div style={{ color: 'var(--ink-3)' }}>Loading…</div>
         ) : (

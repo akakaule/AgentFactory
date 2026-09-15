@@ -7,6 +7,8 @@ vi.mock('../../client/src/api.js', () => ({
   api: {
     getAgentPrompts: vi.fn().mockResolvedValue({ reviewer: 'existing reviewer prompt' }),
     setAgentPrompts: vi.fn().mockResolvedValue({}),
+    getEngineSettings: vi.fn().mockResolvedValue({ claude: { enabled: true }, codex: { enabled: false } }),
+    setEngineSettings: vi.fn().mockResolvedValue({ claude: { enabled: true }, codex: { enabled: true } }),
   },
 }));
 import { api } from '../../client/src/api.js';
@@ -31,6 +33,20 @@ describe('AgentPromptsModal — global agent system prompts', () => {
     expect(sent.reviewer).toBe('existing reviewer prompt — be extra critical');
     expect(sent['worker.implementation']).toBe('write tests first');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('shows the board engine toggles and applies a change immediately', async () => {
+    const user = userEvent.setup();
+    render(<AgentPromptsModal onClose={() => {}} />);
+    const codex = await screen.findByRole('checkbox', { name: 'Codex enabled' });
+    await waitFor(() => expect(codex).not.toBeChecked());
+    expect(screen.getByRole('checkbox', { name: 'Claude enabled' })).toBeChecked();
+
+    await user.click(codex);
+    await waitFor(() => expect(api.setEngineSettings).toHaveBeenCalledWith({ codex: { enabled: true } }));
+    // the server's answer is what the UI reflects
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Codex enabled' })).toBeChecked());
+    expect(api.setAgentPrompts).not.toHaveBeenCalled();
   });
 
   it('"Insert example" fills a field with the sample and Save sends it', async () => {

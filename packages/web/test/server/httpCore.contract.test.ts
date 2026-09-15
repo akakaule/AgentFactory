@@ -110,6 +110,8 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect(core.listSupervisors().map((s) => s.name)).toContain('remote-d');
 
     expect(typeof (await http.resolveAgentPrompt('worker', 'shop'))).toBe('string');
+    core.setEngineSettings({ codex: { enabled: false } });
+    expect(await http.getEngineSettings()).toEqual({ claude: { enabled: true }, codex: { enabled: false } });
     expect(await http.getWorkspacePat('shop')).toBe('sekret');
     await http.resolveGitAuth('shop'); // GitAuth | null — must not throw
 

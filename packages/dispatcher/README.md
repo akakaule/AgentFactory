@@ -75,6 +75,19 @@ Unspecified stages use Claude. Stage args belong to the selected CLI: Codex neve
 receives `claudeArgs`. Unknown configuration keys now fail startup. Agent Prompts
 in the UI configure instructions, not model/engine selection.
 
+### Disabling an engine from the board
+
+The **Agents** modal has an *Engines* row with a *Claude enabled* / *Codex enabled*
+toggle each (stored board-side, `GET|PUT /api/engines`). The dispatcher re-reads it
+every tick, so no config edit or restart is needed when, say, Codex runs out of
+credits:
+
+- a stage whose configured engine is disabled runs on the other engine, using only that
+  engine's global args (`claudeArgs` / `codexArgs`) — its `stageArgs` are model flags
+  for the configured CLI and are dropped for the fallback;
+- with both engines disabled, queued tasks are left untouched (no attempt burned) until
+  one is re-enabled.
+
 Codex uses `exec --json`, a stdin prompt, and task-local MCP configuration. The
 AgentFactory server's tools are pre-approved for its worker protocol, matching
 Claude's existing MCP allowlist; other servers keep their own policies. Its

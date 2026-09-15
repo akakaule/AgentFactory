@@ -32,7 +32,7 @@ export type HttpCore = Pick<
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
-  | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
+  | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
 > & {
@@ -124,6 +124,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     resolveAgentPrompt: async (key, workspace) =>
       ((await req('GET', `/api/agent/prompts/${enc(key)}?workspace=${enc(workspace)}`)) as { prompt: string }).prompt,
     resolveGitAuth: async (workspace) => (await req('GET', `/api/agent/workspaces/${enc(workspace)}/git-auth`)) as never,
+    getEngineSettings: async () => (await req('GET', '/api/agent/engines')) as never,
     getWorkspacePat: async (workspace) =>
       ((await req('GET', `/api/agent/workspaces/${enc(workspace)}/pat`)) as { pat: string | null }).pat,
 

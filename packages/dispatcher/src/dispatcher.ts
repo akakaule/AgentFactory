@@ -1,5 +1,6 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, RetryReservation } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, RetryReservation, EngineSettings } from '@agentfactory/core';
+import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -58,6 +59,10 @@ export class Dispatcher {
   private readonly running = new Map<string, Session>(); // label -> session
   /** UI/test cache only; retry decisions come from core's durable budget. */
   private readonly skipped = new Set<string>(); // task keys observed at the persisted cap
+
+  private engineSettings: EngineSettings = defaultEngineSettings();
+
+  private warnedNoEngine = false;
   /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
    *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
   private readonly settling = new Set<Promise<void>>();
@@ -127,6 +132,7 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
     await this.stopCompletedRepairs();
@@ -141,6 +147,22 @@ export class Dispatcher {
     await this.reapStaleClaims(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
     await Promise.all([...this.settling]); // exits fired during this tick (fast sessions) too
+  }
+
+  /** Board engine toggles, read once per tick. A failed read keeps the previous tick's answer. */
+  private async refreshEngineSettings(): Promise<void> {
+    try {
+      this.engineSettings = await this.deps.core.getEngineSettings();
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not read engine settings; keeping previous: ${(err as Error).message}`);
+    }
+  }
+
+  /** The engine a stage runs on right now: configured → other enabled engine → null (nothing may run). */
+  private engineFor(stage: Stage): { engine: WorkerEngine; configured: WorkerEngine } | null {
+    const configured = this.config.stageEngines?.[stage] ?? 'claude';
+    const engine = resolveEngine(configured, this.engineSettings);
+    return engine ? { engine, configured } : null;
   }
 
   private async reconcileAbandonedReservations(): Promise<void> {
@@ -431,6 +453,14 @@ export class Dispatcher {
       if (task.unmetDependencyCount > 0) continue;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
+      if (!this.engineFor(task.stage)) {
+        // Every engine is switched off on the board: leave the task queued and untouched (no
+        // attempt burned) until an operator re-enables one.
+        if (!this.warnedNoEngine) this.console.warn('[dispatcher] all agent engines are disabled on the board; leaving queued tasks untouched');
+        this.warnedNoEngine = true;
+        continue;
+      }
+      this.warnedNoEngine = false;
       const reservation = await this.deps.core.reserveRetry(task.key, {
         operation: `dispatcher:${task.stage}`,
         maxAttempts: this.config.maxAttempts,
@@ -494,8 +524,8 @@ export class Dispatcher {
   }
 
   /** Global claudeArgs plus any per-stage args (stage args last, so a stage `--model` wins). */
-  private stageClaudeArgs(stage: Stage): string[] {
-    return [...this.config.claudeArgs, ...(this.config.stageArgs?.[stage] ?? [])];
+  private stageClaudeArgs(stageArgs: string[]): string[] {
+    return [...this.config.claudeArgs, ...stageArgs];
   }
 
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
@@ -506,7 +536,13 @@ export class Dispatcher {
       this.console.warn(`[dispatcher] workspace '${workspace}' has no repoPath; cannot spawn for ${key}`);
       return false;
     }
-    const engine = this.config.stageEngines?.[stage] ?? 'claude';
+    const choice = this.engineFor(stage);
+    if (!choice) return false; // toggled off between the poll and the spawn
+    const { engine, configured } = choice;
+    // stageArgs tier the model for the CONFIGURED engine (e.g. a Codex --model); they would be
+    // gibberish to the fallback engine, which therefore runs on its global args only.
+    const stageArgs = engine === configured ? (this.config.stageArgs?.[stage] ?? []) : [];
+    if (engine !== configured) this.console.log(`[dispatcher] ${key}: ${configured} is disabled on the board; falling back to ${engine} for ${stage}`);
     const codexCommand = engine === 'codex' ? this.deps.resolveCodex() : null;
     const label = `${workspace}#${key}-a${attempt}`;
     const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}.log`;
@@ -577,14 +613,14 @@ export class Dispatcher {
 
     const args = engine === 'codex' ? buildCodexArgs({
       mcp: this.deps.mcp, mcpEnv, permissionMode: this.config.permissionMode,
-      codexArgs: [...(this.config.codexArgs ?? []), ...(this.config.stageArgs?.[stage] ?? [])],
+      codexArgs: [...(this.config.codexArgs ?? []), ...stageArgs],
       otel: this.config.otel ? { ...this.config.otel, taskKey: key } : undefined,
       shellEnvKeys,
     }) : buildSpawnArgs({
       prompt: this.prompt,
       permissionMode: this.config.permissionMode,
       mcpConfigPath,
-      claudeArgs: this.stageClaudeArgs(stage),
+      claudeArgs: this.stageClaudeArgs(stageArgs),
       sessionId,
       appendSystemPrompt: systemPrompt,
     });
