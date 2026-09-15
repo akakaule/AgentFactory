@@ -6,6 +6,7 @@ import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { advanceRetryBudget } from '../repo/retry.js';
 
 export function reviewRequestChanges(db: DB, key: string, input: { feedback: string; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
   const { feedback } = parse(feedbackSchema, { feedback: input.feedback });
@@ -19,6 +20,7 @@ export function reviewRequestChanges(db: DB, key: string, input: { feedback: str
     if (row.kind === 'pr-review')
       throw new ValidationError('a pr-review task has no implementation to send back — there is no "request changes" for a PR review');
     const ts = now();
+    advanceRetryBudget(db, row.id, `dispatcher:${row.stage}`, ts, 'requested changes');
     setStatus(db, row.id, 'queued', ts);
     appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: feedback, createdAt: ts, actorUserId });
     appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'in_review', toStatus: 'queued', createdAt: ts, actorUserId });

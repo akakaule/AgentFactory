@@ -9,6 +9,7 @@ import { endSession } from '../repo/agentSessions.js';
 import { insertLinks } from '../repo/links.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { advanceRetryBudget } from '../repo/retry.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -51,6 +52,9 @@ export function submitResult(
     if (row.stage === 'implementation' && row.workspace_verify_command && row.workspace_verify_command.trim().length > 0 && verification === undefined)
       throw new ValidationError(`this workspace requires verification: run \`${row.workspace_verify_command}\` from the worktree root and report its outcome via the \`verification\` field`);
     const ts = now();
+    // A new result is a new review episode. Preserve failures from the prior submission but do
+    // not let a successful review consume the next submission's allowance.
+    advanceRetryBudget(db, row.id, `reviewer:${row.stage}`, ts, 'new submission');
     // applyEdit is the repo primitive shared with updateTask; the backlog-only rule for
     // human edits lives in that op, not here — a description-stage submit IS the edit.
     if (row.stage === 'description') {

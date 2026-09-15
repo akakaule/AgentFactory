@@ -1,5 +1,5 @@
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage } from '@agentfactory/core';
+import type { Task, TaskDetail, Stage, RetryReservation } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
 import { createConsensus, collectBallot, consensusReview } from './consensus.js';
@@ -24,6 +24,8 @@ interface ReviewSession {
   stage: Stage;
   mode: ReviewMode;
   attempt: number;
+  maxAttempts: number;
+  reservationId: string;
   engine: ReviewEngine;
   child: SpawnedChild;
   logWriter: LogWriter;
@@ -44,6 +46,7 @@ interface ReviewSession {
 }
 
 const LOG_TAIL_CHARS = 4000;
+const RETRY_RESERVATION_GRACE_MS = 30_000;
 
 /**
  * The review supervisor. Polls the queue read-only for `in_review` tasks that still need a
@@ -55,10 +58,10 @@ const LOG_TAIL_CHARS = 4000;
  */
 export class Reviewer {
   private readonly running = new Map<string, ReviewSession>(); // label -> session
-  private readonly attempts = new Map<string, number>(); // task key -> attempts used
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
   /** Visualization budget, keyed `${key}@${latestResultAt}` — a new submission gets a fresh
    *  budget, and there is no skip-set for clearRestarted's failure-null forgiveness to resurrect. */
+  /** Visualization retries are durable; this cache only supports the local diagnostic log. */
   private readonly vizAttempts = new Map<string, number>();
   private readonly engineCommands = new Map<ReviewEngine, string>(); // cached resolutions
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -115,11 +118,21 @@ export class Reviewer {
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.reconcileAbandonedReservations();
     await this.enforceTimeouts();
     const served = await this.servedWorkspaces();
     await this.recordHeartbeat(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
     await Promise.all([...this.settling]); // exits fired during this tick too
+  }
+
+  private async reconcileAbandonedReservations(): Promise<void> {
+    if (!this.deps.core.reconcileAbandonedRetryReservations) return;
+    try {
+      await this.deps.core.reconcileAbandonedRetryReservations(RETRY_RESERVATION_GRACE_MS);
+    } catch (err) {
+      this.console.warn(`[reviewer] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
+    }
   }
 
   /** Run a child-exit reap in the background, tracked so tick() can await stragglers. */
@@ -254,7 +267,6 @@ export class Reviewer {
         if (this.hasRunningFor(task.key)) continue;
         const detail = await this.deps.core.getTask(task.key);
         if (!this.needsVisualization(detail)) continue;
-        if ((this.vizAttempts.get(this.vizKeyFor(detail)) ?? 0) >= this.config.maxAttempts) continue;
         if (await this.startVisualization(workspace, task.key)) slots -= 1;
       }
     }
@@ -287,7 +299,6 @@ export class Reviewer {
     for (const task of tasks) {
       if (!this.skipped.has(task.key) || task.failure !== null) continue;
       this.skipped.delete(task.key);
-      this.attempts.delete(task.key);
       this.console.log(`[reviewer] ${task.key} restarted by operator — attempt budget reset`);
     }
   }
@@ -359,20 +370,27 @@ export class Reviewer {
 
   /** Build the prompt + spawn one review/evaluation; returns false (no slot consumed) on a pre-spawn failure. */
   private async startReview(workspace: string, key: string, mode: ReviewMode = 'review'): Promise<boolean> {
-    const attempt = (this.attempts.get(key) ?? 0) + 1;
-    if (attempt > this.config.maxAttempts) {
-      this.skipList(key);
-      return false;
-    }
-
     const engine = this.config.engine;
     const deadlineMs = this.config.consensus?.enabled ? this.deps.now() + this.config.consensus.totalMinutes * 60000 : undefined;
     let prompt: string;
     let stage: Stage;
     let round: ReviewRound | undefined;
+    let detail: TaskDetail;
     try {
-      const detail = await this.deps.core.getTask(key);
+      detail = await this.deps.core.getTask(key);
       stage = detail.stage;
+    } catch (err) {
+      this.console.error(`[reviewer] could not load ${key}: ${(err as Error).message}`);
+      return false;
+    }
+    const operation = mode === 'feedback-eval' ? 'reviewer:feedback-eval' : `reviewer:${stage}`;
+    const reservation = await this.deps.core.reserveRetry(key, { operation, maxAttempts: this.config.maxAttempts });
+    if (reservation === null) {
+      this.skipList(key);
+      return false;
+    }
+    const attempt = reservation.attempt;
+    try {
       if (mode === 'feedback-eval') {
         // critically evaluate the latest forwarded PR-review comment against the branch diff
         const systemPrompt = await this.deps.core.resolveAgentPrompt('delivering-evaluator', detail.workspace);
@@ -411,23 +429,23 @@ export class Reviewer {
       }
     } catch (err) {
       // Couldn't prepare the review (no branch, diff failed, task vanished) — burn an attempt.
-      await this.burnAttempt(key, attempt, `could not prepare ${mode}: ${(err as Error).message}`);
+      await this.burnAttempt(key, attempt, reservation.maxAttempts, `could not prepare ${mode}: ${(err as Error).message}`, reservation.id);
       return false;
     }
 
     if (round) {
-      try { this.launchRoundMember(workspace, key, stage, attempt, round); }
-      catch (err) { await this.burnAttempt(key, attempt, `could not launch review: ${(err as Error).message}`); return false; }
+      try { this.launchRoundMember(workspace, key, stage, attempt, { maxAttempts: reservation.maxAttempts, reservationId: reservation.id }, round); }
+      catch (err) { await this.burnAttempt(key, attempt, reservation.maxAttempts, `could not launch review: ${(err as Error).message}`, reservation.id); return false; }
       return true;
     }
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
-    this.launchSession({ workspace, key, stage, mode, attempt, engine, model: this.config.model, prompt, label, fileBase });
+    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, engine, model: this.config.model, prompt, label, fileBase });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
 
-  private launchRoundMember(workspace: string, key: string, stage: Stage, attempt: number, round: ReviewRound): void {
+  private launchRoundMember(workspace: string, key: string, stage: Stage, attempt: number, budget: { maxAttempts: number; reservationId: string }, round: ReviewRound): void {
     if (this.deps.now() >= (round.deadlineMs ?? Infinity)) throw new Error('consensus total deadline exceeded');
     const index = round.consensus ? round.consensus.ballots.length : round.results.length;
     const member = round.members[index]!;
@@ -436,7 +454,7 @@ export class Reviewer {
     const suffix = `r${attempt}-${index + 1}-${engine}${round.deadlineMs !== undefined ? `-${phase}` : ''}`;
     const prompt = round.consensus ? buildConsensusPrompt(member.prompt, round.consensus, this.config.consensus?.maxPromptChars) : member.prompt;
     if (round.deadlineMs !== undefined && prompt.length > this.config.consensus!.maxPromptChars) throw new Error('consensus prompt exceeds configured limit');
-    this.launchSession({ workspace, key, stage, mode: 'review', attempt, engine, model, reasoningEffort,
+    this.launchSession({ workspace, key, stage, mode: 'review', attempt, maxAttempts: budget.maxAttempts, reservationId: budget.reservationId, engine, model, reasoningEffort,
       prompt, label: `${workspace}#${key}-${suffix}`, fileBase: `${this.deps.logDir}/${key}-review-${suffix}`, round });
     this.console.log(`[reviewer] reviewing ${key} (${stage}, ${phase}) via ${engine}/${model ?? 'default'}${reasoningEffort ? ` (${reasoningEffort})` : ''}, reviewer ${index + 1}/${round.members.length}`);
   }
@@ -454,9 +472,6 @@ export class Reviewer {
     }
     if (!this.needsVisualization(detail)) return false; // superseded between list and load
     const vizKey = this.vizKeyFor(detail);
-    const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
-    if (attempt > this.config.maxAttempts) return false;
-
     const engine = this.config.visualization.engine ?? this.config.engine;
     const model = this.config.visualization.model ?? this.config.model;
     let prompt: string;
@@ -464,13 +479,18 @@ export class Reviewer {
       const { diffRef, diff } = await this.prepareDiff(detail);
       prompt = buildVisualizationPrompt({ task: detail, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
     } catch (err) {
-      this.burnVizAttempt(key, vizKey, attempt, `could not prepare visualization: ${(err as Error).message}`);
+      const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
+      this.burnVizAttempt(key, vizKey, attempt, this.config.maxAttempts, `could not prepare visualization: ${(err as Error).message}`);
       return false;
     }
 
+    const reservation = await this.deps.core.reserveRetry(key, { operation: `visualization:${vizKey}`, maxAttempts: this.config.maxAttempts });
+    if (reservation === null) return false;
+    const attempt = reservation.attempt;
+
     const label = `${workspace}#${key}-viz${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
-    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, engine, model, prompt, label, fileBase, vizKey });
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, engine, model, prompt, label, fileBase, vizKey });
     this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -482,6 +502,8 @@ export class Reviewer {
     stage: Stage;
     mode: ReviewMode;
     attempt: number;
+    maxAttempts: number;
+    reservationId: string;
     engine: ReviewEngine;
     model: string | undefined;
     reasoningEffort?: ReasoningEffort | undefined;
@@ -492,7 +514,7 @@ export class Reviewer {
     fileBase: string;
     vizKey?: string | undefined;
   }): void {
-    const { workspace, key, stage, mode, attempt, engine, model, prompt, label, fileBase, vizKey } = opts;
+    const { workspace, key, stage, mode, attempt, maxAttempts, reservationId, engine, model, prompt, label, fileBase, vizKey } = opts;
     const outputFile = engine === 'codex' ? `${fileBase}.out` : null;
     if (outputFile) this.deps.clearOutput(outputFile);
     const logWriter = this.deps.openLog(`${fileBase}.log`);
@@ -514,6 +536,8 @@ export class Reviewer {
       stage,
       mode,
       attempt,
+      maxAttempts,
+      reservationId,
       engine,
       child,
       logWriter,
@@ -527,6 +551,9 @@ export class Reviewer {
       vizKey,
     };
     this.running.set(label, session);
+    void Promise.resolve(this.deps.core.settleRetry(reservationId, { state: 'running' })).catch((err) => {
+      this.console.warn(`[reviewer] could not mark ${label} running: ${(err as Error).message}`);
+    });
 
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString();
@@ -597,29 +624,29 @@ export class Reviewer {
 
     const verdict = this.readVerdict(session);
     if (this.deps.now() >= (session.round?.deadlineMs ?? Infinity)) {
-      await this.burnAttempt(session.key, session.attempt, 'consensus total deadline exceeded');
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, 'consensus total deadline exceeded', session.reservationId);
       return;
     }
     const completedCodexVerdict = session.outputFile !== null && verdict.trim().length > 0;
     if (session.timedOut && !completedCodexVerdict) {
-      await this.burnAttempt(session.key, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, `timed out after ${this.config.reviewMinutes}m`, session.reservationId);
       return;
     }
 
     if (session.round?.deadlineMs !== undefined && code !== 0 && !session.timedOut) {
-      await this.burnAttempt(session.key, session.attempt, `${session.engine} exited code ${code ?? 'null'} during consensus`);
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, `${session.engine} exited code ${code ?? 'null'} during consensus`, session.reservationId);
       return;
     }
 
     const cliFailure = this.claudeFailure(session, code, verdict);
     if (cliFailure) {
-      await this.burnAttempt(session.key, session.attempt, cliFailure);
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, cliFailure, session.reservationId);
       return;
     }
 
     if (!verdict.trim()) {
       const reason = code === 0 ? 'engine produced no verdict' : `engine exited code ${code ?? 'null'} with no verdict`;
-      await this.burnAttempt(session.key, session.attempt, reason);
+      await this.burnAttempt(session.key, session.attempt, session.maxAttempts, reason, session.reservationId);
       return;
     }
 
@@ -633,13 +660,13 @@ export class Reviewer {
         if (session.round.consensus) collectBallot(session.round.consensus, verdict);
         else collectReview(session.round, verdict);
         if (session.round.results.length < session.round.members.length) {
-          this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, session.round);
+          this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, { maxAttempts: session.maxAttempts, reservationId: session.reservationId }, session.round);
           return;
         }
         if (session.round.deadlineMs !== undefined) {
           session.round.consensus ??= createConsensus(session.round.results);
           if (session.round.consensus.phase !== 'complete') {
-            this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, session.round);
+            this.launchRoundMember(session.workspace, session.key, session.stage, session.attempt, { maxAttempts: session.maxAttempts, reservationId: session.reservationId }, session.round);
             return;
           }
           if (session.round.revision) {
@@ -647,13 +674,14 @@ export class Reviewer {
             const { diff } = await this.prepareDiff(detail);
             if (diff.headSha !== session.round.revision.headSha || diff.baseSha !== session.round.revision.baseSha) {
               this.console.log(`[reviewer] discarded consensus for changed revision of ${session.key}`);
+              await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'revision changed during consensus' });
               return;
             }
           }
           body = consensusReview(session.round.consensus, { key: session.key, fingerprint: session.round.fingerprint, ...session.round.revision });
         } else body = combinedReview(session.round);
       } catch (err) {
-        await this.burnAttempt(session.key, session.attempt, `review round failed: ${(err as Error).message}`);
+        await this.burnAttempt(session.key, session.attempt, session.maxAttempts, `review round failed: ${(err as Error).message}`, session.reservationId);
         return;
       }
     }
@@ -672,9 +700,12 @@ export class Reviewer {
       // delivering task (the human clicks "Apply fix"). The reviewer only posts.
       if (session.round) {
         const detail = await this.deps.core.getTask(session.key);
-        if (this.stopping || reviewFingerprint(detail) !== session.round.fingerprint) return;
+        if (this.stopping || reviewFingerprint(detail) !== session.round.fingerprint) {
+          await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'submission changed before publication' });
+          return;
+        }
         if (this.deps.now() >= (session.round.deadlineMs ?? Infinity)) {
-          await this.burnAttempt(session.key, session.attempt, 'consensus total deadline exceeded before publication');
+          await this.burnAttempt(session.key, session.attempt, session.maxAttempts, 'consensus total deadline exceeded before publication', session.reservationId);
           return;
         }
       }
@@ -682,10 +713,11 @@ export class Reviewer {
     } catch (err) {
       // The review succeeded but the post failed — don't burn an attempt; it still needs
       // review, so the next poll retries.
+      await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'verdict post failed' });
       this.console.error(`[reviewer] failed to post verdict for ${session.key}: ${(err as Error).message}`);
       return;
     }
-    this.attempts.delete(session.key); // reviewed successfully — reset the attempt budget
+    await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'review posted' });
     this.console.log(`[reviewer] posted verdict for ${session.key} (${session.stage}) via ${session.engine}`);
   }
 
@@ -696,27 +728,32 @@ export class Reviewer {
     const raw = this.readVerdict(session);
     const completedCodexOutput = session.outputFile !== null && raw.trim().length > 0;
     if (session.timedOut && !completedCodexOutput) {
-      this.burnVizAttempt(session.key, vizKey, session.attempt, `timed out after ${this.config.reviewMinutes}m`);
+      this.burnVizAttempt(session.key, vizKey, session.attempt, session.maxAttempts, `timed out after ${this.config.reviewMinutes}m`);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'visualization timed out' });
       return;
     }
     const cliFailure = this.claudeFailure(session, code, raw);
     if (cliFailure) {
-      this.burnVizAttempt(session.key, vizKey, session.attempt, cliFailure);
+      this.burnVizAttempt(session.key, vizKey, session.attempt, session.maxAttempts, cliFailure);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: cliFailure });
       return;
     }
     if (!raw.trim()) {
       const reason = code === 0 ? 'engine produced no visualization' : `engine exited code ${code ?? 'null'} with no visualization`;
-      this.burnVizAttempt(session.key, vizKey, session.attempt, reason);
+      this.burnVizAttempt(session.key, vizKey, session.attempt, session.maxAttempts, reason);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason });
       return;
     }
     const extracted = extractHtml(raw);
     if (extracted === null) {
-      this.burnVizAttempt(session.key, vizKey, session.attempt, 'engine did not produce an HTML document');
+      this.burnVizAttempt(session.key, vizKey, session.attempt, session.maxAttempts, 'engine did not produce an HTML document');
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'no HTML document' });
       return;
     }
     const html = sanitizeMermaid(extracted);
     if (html.length > MAX_VISUALIZATION_BYTES) {
-      this.burnVizAttempt(session.key, vizKey, session.attempt, `visualization exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
+      this.burnVizAttempt(session.key, vizKey, session.attempt, session.maxAttempts, `visualization exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
+      await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'visualization too large' });
       return;
     }
     try {
@@ -724,19 +761,21 @@ export class Reviewer {
     } catch (err) {
       // The page exists but the attach failed — don't burn; visualizationGeneratedAt is still
       // stale, so the next poll retries (same philosophy as a failed verdict post).
+      await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'visualization attach failed' });
       this.console.error(`[reviewer] failed to attach visualization for ${session.key}: ${(err as Error).message}`);
       return;
     }
     this.vizAttempts.delete(vizKey);
+    await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'visualization attached' });
     this.console.log(`[reviewer] posted visualization for ${session.key} (${html.length} bytes) via ${session.engine}`);
   }
 
   /** A visualization attempt failed: log-only budget burn, keyed per submission. At the cap the
    *  task simply gets no page until a new submission — never a failure/v1, never the review budget. */
-  private burnVizAttempt(key: string, vizKey: string, attempt: number, reason: string): void {
+  private burnVizAttempt(key: string, vizKey: string, attempt: number, maxAttempts: number, reason: string): void {
     this.vizAttempts.set(vizKey, attempt);
-    this.console.warn(`[reviewer] visualization of ${key} failed (attempt ${attempt}/${this.config.maxAttempts}): ${reason}`);
-    if (attempt >= this.config.maxAttempts) {
+    this.console.warn(`[reviewer] visualization of ${key} failed (attempt ${attempt}/${maxAttempts}): ${reason}`);
+    if (attempt >= maxAttempts) {
       this.console.warn(`[reviewer] giving up on visualization for ${key} until a new submission`);
     }
   }
@@ -754,10 +793,9 @@ export class Reviewer {
    * needs manual review — instead of it silently sitting in_review with no verdict. A later
    * successful review (an ai-review/v1 comment) supersedes the note (see failureByTaskIds).
    */
-  private async burnAttempt(key: string, attempt: number, reason: string): Promise<void> {
-    this.attempts.set(key, attempt);
-    this.console.warn(`[reviewer] review of ${key} failed (attempt ${attempt}/${this.config.maxAttempts}): ${reason}`);
-    const atCap = attempt >= this.config.maxAttempts;
+  private async burnAttempt(key: string, attempt: number, maxAttempts: number, reason: string, reservationId?: string): Promise<void> {
+    this.console.warn(`[reviewer] review of ${key} failed (attempt ${attempt}/${maxAttempts}): ${reason}`);
+    const atCap = attempt >= maxAttempts;
     try {
       await this.deps.core.addComment(key, {
         actor: 'agent',
@@ -766,7 +804,7 @@ export class Reviewer {
           detail: reason,
           source: 'reviewer',
           attempt,
-          maxAttempts: this.config.maxAttempts,
+          maxAttempts,
           body: atCap
             ? 'The automated reviewer is skip-listing this task — review it manually.'
             : 'The automated reviewer will retry on the next poll.',
@@ -775,10 +813,11 @@ export class Reviewer {
     } catch (err) {
       this.console.error(`[reviewer] failed to post failure note for ${key}: ${(err as Error).message}`);
     }
+    if (reservationId) await this.deps.core.settleRetry(reservationId, { state: 'failed', reason });
     if (atCap) {
       this.skipList(key);
       this.console.warn(
-        `[reviewer] ${key} reached maxAttempts (${this.config.maxAttempts}); skip-listing — left for a human reviewer`,
+        `[reviewer] ${key} reached maxAttempts (${maxAttempts}); skip-listing — left for a human reviewer`,
       );
     }
   }

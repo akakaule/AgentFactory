@@ -357,3 +357,34 @@ UPDATE workspace SET updated_at = created_at;
 export const MIGRATION_24_SQL = `
 ALTER TABLE api_token ADD COLUMN is_supervisor INTEGER NOT NULL DEFAULT 0;
 `;
+
+// Migration #25 — durable retry budgets and attempt reservations. Budgets are scoped to a task
+// operation (the supervisors use stage/submission-specific operation names), and generations are
+// advanced only by an explicit operator restart or a new delivery episode. Reservations consume a
+// slot atomically before a process is launched; the stable id makes later settlement idempotent.
+export const MIGRATION_25_SQL = `
+CREATE TABLE IF NOT EXISTS retry_budget (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id       INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  operation     TEXT NOT NULL,
+  generation    INTEGER NOT NULL CHECK (generation > 0),
+  max_attempts INTEGER NOT NULL CHECK (max_attempts > 0),
+  attempts_used INTEGER NOT NULL DEFAULT 0 CHECK (attempts_used >= 0),
+  created_at    TEXT NOT NULL,
+  reset_reason  TEXT,
+  UNIQUE (task_id, operation, generation)
+);
+CREATE INDEX IF NOT EXISTS idx_retry_budget_current ON retry_budget(task_id, operation, generation DESC);
+CREATE INDEX IF NOT EXISTS idx_retry_budget_task ON retry_budget(task_id, operation);
+CREATE TABLE IF NOT EXISTS retry_attempt (
+  id             TEXT PRIMARY KEY,
+  budget_id      INTEGER NOT NULL REFERENCES retry_budget(id) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL CHECK (attempt > 0),
+  state          TEXT NOT NULL CHECK (state IN ('reserved','running','succeeded','failed','cancelled')),
+  reserved_at    TEXT NOT NULL,
+  settled_at     TEXT,
+  terminal_reason TEXT,
+  UNIQUE (budget_id, attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_retry_attempt_budget ON retry_attempt(budget_id, attempt);
+`;

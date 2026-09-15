@@ -173,7 +173,7 @@ describe('delivery ops', () => {
     const failures = t.activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body));
     expect(failures).toHaveLength(1);
     expect(parseFailureComment(failures[0]!.body)).toMatchObject({
-      reason: 'ci_failed', source: 'watcher', attempt: null, maxAttempts: null,
+      reason: 'ci_failed', source: 'watcher', attempt: 1, maxAttempts: 2,
     });
     expect(t.failure).toMatchObject({ reason: 'ci_failed', skipListed: false });
     expect(() => core.failDelivery(key, { reason: 'pr_closed', detail: 'x' })).toThrow(InvalidTransitionError);
@@ -186,6 +186,24 @@ describe('delivery ops', () => {
     core.claimNextTask({ claimedBy: 'w2' });
     core.submitResult(key, { summary: 'fixed' });
     expect(core.getTask(key).failure).toBeNull();
+  });
+
+  it('stops repeated CI repair bounces after two delivery repairs, including after re-approval', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red 1' });
+    core.claimNextTask({ claimedBy: 'w2' });
+    core.submitResult(key, { summary: 'fixed 1' });
+    core.reviewApprove(key);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red 2' });
+
+    const blocked = core.getTask(key);
+    expect(blocked.status).toBe('queued');
+    expect(blocked.failure).toMatchObject({ source: 'watcher', attempt: 2, maxAttempts: 2, skipListed: true });
+    expect(core.claimNextTask({ claimedBy: 'interactive-worker' })).toBeNull();
+
+    core.restartTask(key);
+    expect(core.claimNextTask({ claimedBy: 'interactive-worker' })?.key).toBe(key);
   });
 
   it('beginDelivery requires delivering status', () => {

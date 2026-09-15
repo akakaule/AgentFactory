@@ -10,6 +10,9 @@ import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySu
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
+
+const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
 /** The watcher's reasons for bouncing a delivering task back to the queue. */
 export type DeliveryFailureReason = 'ci_failed' | 'pr_closed' | 'merge_conflict';
@@ -115,10 +118,16 @@ export function failDelivery(
     if (row.status !== 'delivering') throw new InvalidTransitionError(`delivery failure requires delivering (got ${row.status})`);
     assertTransition(row.status, 'queued', 'agent');
     const ts = now();
-    const comment = buildFailureComment({ reason: input.reason, detail: input.detail, source: 'watcher', ...(input.body !== undefined ? { body: input.body } : {}) });
+    const repair = reserveRetryRow(db, row.id, key, { operation: 'delivery', maxAttempts: DEFAULT_DELIVERY_REPAIR_ATTEMPTS }, ts);
+    if (!repair) throw new InvalidTransitionError(`delivery repair budget exhausted for ${key}; operator restart is required`);
+    const comment = buildFailureComment({
+      reason: input.reason, detail: input.detail, source: 'watcher', attempt: repair.attempt, maxAttempts: repair.maxAttempts,
+      ...(input.body !== undefined ? { body: input.body } : {}),
+    });
     appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', body: comment, createdAt: ts });
     setStatus(db, row.id, 'queued', ts); // clears the claimant like every path into 'queued'
     appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'queued', body: input.detail, createdAt: ts });
+    settleRetryRow(db, repair.id, 'failed', ts, input.detail);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

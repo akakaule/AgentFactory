@@ -230,6 +230,14 @@ export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, 
       FROM task_dependency dependency
       JOIN task prerequisite ON prerequisite.id = dependency.depends_on_task_id
       WHERE dependency.task_id = task.id AND prerequisite.status != 'done'
+    )
+    -- A delivery repair budget is task-scoped and must also guard interactive claims. Once it is
+    -- exhausted, only an explicit operator restart can make this queued task eligible again.
+    AND NOT EXISTS (
+      SELECT 1 FROM retry_budget budget
+      WHERE budget.task_id = task.id AND budget.operation = 'delivery'
+        AND budget.generation = (SELECT MAX(latest_budget.generation) FROM retry_budget latest_budget WHERE latest_budget.task_id = task.id AND latest_budget.operation = 'delivery')
+        AND budget.attempts_used >= budget.max_attempts
     )`;
   const filters: string[] = [eligible];
   const params: (string | number)[] = [];

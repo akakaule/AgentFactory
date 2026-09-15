@@ -4,6 +4,20 @@ import type { ReviewConsensus } from './reviewConsensus.js';
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
 
+/** Durable retry accounting is deliberately open-ended so a new supervisor operation can be
+ * added without another schema migration. Callers use names such as `dispatcher:implementation`
+ * and `reviewer:implementation` to give stages/submissions independent budgets. */
+export type RetryOperation = string;
+export type RetryAttemptState = 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export interface RetryBudget {
+  taskKey: string; operation: RetryOperation; generation: number;
+  maxAttempts: number; attemptsUsed: number; remaining: number; exhausted: boolean;
+}
+export interface RetryReservation {
+  id: string; taskKey: string; operation: RetryOperation; generation: number;
+  attempt: number; maxAttempts: number; state: RetryAttemptState; reservedAt: string;
+}
+
 /**
  * Pipeline stage. A task walks the stages in STAGE_ORDER, cycling through the
  * statuses once per stage; approving an in-review doc stage (description/plan)

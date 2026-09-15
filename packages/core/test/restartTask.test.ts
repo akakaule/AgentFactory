@@ -7,6 +7,7 @@ import { submitResult } from '../src/ops/submitResult.js';
 import { addComment } from '../src/ops/addComment.js';
 import { getTask } from '../src/ops/getTask.js';
 import { restartTask } from '../src/ops/restartTask.js';
+import { createCore } from '../src/index.js';
 import { buildFailureComment } from '../src/failure.js';
 import { NotFoundError, InvalidTransitionError } from '../src/errors.js';
 
@@ -63,6 +64,11 @@ describe('restartTask', () => {
   it('restarts a skip-listed reviewer failure without moving the task out of in_review', () => {
     const db = makeTestDb();
     const task = seedReviewerSkipListed(db);
+    const core = createCore(db);
+    core.reserveRetry(task.key, { operation: 'reviewer:implementation', maxAttempts: 2 });
+    core.resetRetryBudget(task.key, 'reviewer:feedback-eval', 2);
+    const feedback = core.reserveRetry(task.key, { operation: 'reviewer:feedback-eval', maxAttempts: 2 })!;
+    core.settleRetry(feedback.id, { state: 'failed' });
     expect(getTask(db, task.key).failure).toMatchObject({ source: 'reviewer', skipListed: true });
 
     const detail = restartTask(db, task.key, null, at(50));
@@ -70,6 +76,8 @@ describe('restartTask', () => {
     expect(detail.status).toBe('in_review');
     expect(detail.failure).toBeNull();
     expect(detail.activity.some((a) => a.body.startsWith('restart/v1'))).toBe(true);
+    expect(core.getRetryBudget(task.key, 'reviewer:implementation')).toMatchObject({ generation: 2, attemptsUsed: 0 });
+    expect(core.getRetryBudget(task.key, 'reviewer:feedback-eval')).toMatchObject({ generation: 1, attemptsUsed: 1 });
   });
 
   it('rejects an in-review task without a current skip-listed reviewer failure', () => {
