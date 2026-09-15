@@ -24,6 +24,16 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     });
   });
 
+  it('preserves dispatched task and stage constraints over HTTP', async () => {
+    const first = core.createTask({ title: 'First', spec: 's', acceptanceCriteria: 'a' });
+    const plan = core.createTask({ title: 'Plan', spec: 's', acceptanceCriteria: 'a', stage: 'plan' });
+    core.updateStatus(first.key, 'queued', 'human');
+    core.updateStatus(plan.key, 'queued', 'human');
+    expect(await http.claimNextTask({ taskKey: plan.key, stage: 'implementation' })).toBeNull();
+    expect((await http.claimNextTask({ taskKey: plan.key, stage: 'plan' }))?.key).toBe(plan.key);
+    expect(core.getTask(first.key).status).toBe('queued');
+  });
+
   it('claims, narrates, and submits a task exactly like a local core', async () => {
     const t = core.createTask({ title: 'Remote work', spec: 'S', acceptanceCriteria: 'A' });
     core.updateStatus(t.key, 'queued', 'human');
@@ -47,6 +57,28 @@ describe('createHttpCore ⇄ buildApp contract', () => {
 
   it('an empty queue resolves null', async () => {
     expect(await http.claimNextTask()).toBeNull();
+  });
+
+  it('completes a merged blocked delivery over HTTP and preserves the stale-observation guard', async () => {
+    const task = core.createTask({ title: 'Delivery repair', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'repair-worker' })!;
+    core.submitResult(task.key, { summary: 'done' });
+    core.updateStatus(task.key, 'delivering', 'human');
+    core.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    core.failDelivery(task.key, { reason: 'ci_failed', detail: 'formatting' });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    core.updateStatus(task.key, 'blocked', 'agent', 'setup failed');
+    const before = core.getTask(task.key);
+    const expected = { status: before.status, branch: before.delivery!.branch,
+      prUrl: before.delivery!.prUrl, stateChangedAt: before.delivery!.stateChangedAt };
+    const observation = { expected, prUrl: 'https://github.com/acme/widgets/pull/42', prId: '#42',
+      prState: 'merged' as const, checksState: 'failing' as const, failing: [{ name: 'verify', url: null }] };
+    expect((await http.recordDeliveryCheck(task.key, observation)).changed).toBe(true);
+    expect((await http.getTask(task.key)).status).toBe('done');
+    // Old poll still has a null PR URL. It must not overwrite the observation just stored.
+    expect(await http.recordDeliveryCheck(task.key, { ...observation, prState: 'open' })).toMatchObject({ skipped: true });
+    expect((await http.getTask(task.key)).delivery?.prState).toBe('merged');
   });
 
   it('reads round-trip: listTasks filters, getTask, listWorkspaces', async () => {

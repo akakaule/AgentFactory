@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -74,7 +74,7 @@ export const api = {
     const qs = q.toString();
     return req<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`);
   },
-  getTask: (key: string) => req<TaskDetail>(`/api/tasks/${key}`),
+  getTask: (key: string) => req<TaskDetailView>(`/api/tasks/${key}`),
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
   getTranscript: (key: string) => req<TranscriptResponse>(`/api/tasks/${key}/transcript`),
   // raw HTML, not JSON — rendered into a sandboxed iframe (srcDoc) by VisualizationModal

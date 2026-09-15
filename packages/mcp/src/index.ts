@@ -15,6 +15,11 @@ const dbPath = norm(process.env['AGENTFACTORY_DB']) ?? './agentfactory.db';
 const defaultWorkspace = norm(process.env['AGENTFACTORY_WORKSPACE']);
 // the workspace pin doubles as the worker label unless an explicit one is given
 const workerLabel = norm(process.env['AGENTFACTORY_WORKER']) ?? defaultWorkspace;
+const taskKey = norm(process.env['AGENTFACTORY_TASK_KEY']);
+const stage = norm(process.env['AGENTFACTORY_STAGE']);
+if (stage !== undefined && stage !== 'description' && stage !== 'plan' && stage !== 'implementation') {
+  throw new Error('AGENTFACTORY_STAGE must be description, plan, or implementation');
+}
 // machine-local clone override for the pinned workspace (#46 remote workers)
 const repoPath = norm(process.env['AGENTFACTORY_REPO_PATH']);
 
@@ -45,7 +50,7 @@ if (boardUrl && boardToken) {
   backend = `db: ${dbPath}`;
 }
 
-const server = buildServer(core, { defaultWorkspace, workerLabel, repoPath });
+const server = buildServer(core, { defaultWorkspace, workerLabel, repoPath, taskKey, stage });
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(

@@ -145,11 +145,11 @@ function safeStringify(v: unknown): string {
 
 /**
  * Parse a raw transcript into ordered, normalized blocks. `engine` selects the dialect; only
- * `claude` is implemented today (codex falls through to the same shape once added). Pure and
+ * Claude session JSONL and Codex exec JSONL are supported. Pure and
  * total: any input — empty, partial, or garbage — yields a (possibly empty) block list, never a throw.
  */
 export function parseTranscript(raw: string, engine: TranscriptEngine = 'claude'): TranscriptBlock[] {
-  void engine; // single dialect today; kept for the codex drop-in
+  if (engine === 'codex') return parseCodexTranscript(raw);
   const lines = raw.split('\n').map(parseLine).filter((l): l is RawLine => l !== null);
   const results = collectResults(lines);
   const blocks: TranscriptBlock[] = [];
@@ -201,6 +201,45 @@ export function parseTranscript(raw: string, engine: TranscriptEngine = 'claude'
           return;
       }
     });
+  }
+  return blocks;
+}
+
+/** Codex exec --json emits item snapshots. Keep the latest snapshot for each item. */
+function parseCodexTranscript(raw: string): TranscriptBlock[] {
+  const items = new Map<string, Record<string, unknown>>();
+  for (const line of raw.split('\n')) {
+    try {
+      const event: unknown = JSON.parse(line);
+      if (!event || typeof event !== 'object') continue;
+      const e = event as Record<string, unknown>;
+      if (typeof e['type'] !== 'string' || !e['type'].startsWith('item.')) continue;
+      const item = e['item'];
+      if (item && typeof item === 'object' && typeof (item as Record<string, unknown>)['id'] === 'string') {
+        const i = item as Record<string, unknown>;
+        items.set(i['id'] as string, i);
+      }
+    } catch { /* partial JSONL tail */ }
+  }
+  const blocks: TranscriptBlock[] = [];
+  for (const [id, item] of items) {
+    const base = { id, role: 'assistant' as const, at: null, sidechain: false };
+    if (item['type'] === 'agent_message' || item['type'] === 'reasoning') {
+      const text = str(item['text']);
+      if (text) blocks.push({ ...base, kind: item['type'] === 'reasoning' ? 'thinking' : 'text', text: clamp(redact(text), MAX_TEXT).text });
+    } else if (item['type'] === 'command_execution') {
+      const output = clamp(redact(str(item['aggregated_output'])), MAX_OUTPUT);
+      const exitCode = numOrNull(item['exit_code']);
+      blocks.push({ ...base, kind: 'bash', command: clamp(redact(str(item['command'])), MAX_INPUT).text,
+        description: null, stdout: output.text || null, stderr: null, exitCode,
+        isError: (exitCode !== null && exitCode !== 0) || item['status'] === 'failed', truncated: output.truncated });
+    } else if (item['type'] === 'mcp_tool_call') {
+      const input = clamp(redact(JSON.stringify(item['arguments'] ?? {})), MAX_INPUT);
+      const result = clamp(redact(JSON.stringify(item['result'] ?? item['error'] ?? null)), MAX_OUTPUT);
+      blocks.push({ ...base, kind: 'tool', name: `${str(item['server'])}.${str(item['tool'])}`,
+        input: input.text, result: result.text === 'null' ? null : result.text,
+        isError: item['status'] === 'failed' || item['error'] != null, truncated: input.truncated || result.truncated });
+    }
   }
   return blocks;
 }

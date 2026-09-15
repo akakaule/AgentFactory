@@ -1,7 +1,7 @@
 # @agentfactory/dispatcher
 
 A small Node supervisor that turns the AgentFactory queue into throughput with **no human
-in the loop**. It polls the DB for queued tasks and spawns **one fresh headless `claude`
+in the loop**. It polls the DB for queued tasks and spawns **one fresh headless Claude or Codex
 session per task** — the session claims the task, works it to `submit_result`, and exits.
 
 Born of the design in
@@ -19,7 +19,9 @@ Born of the design in
   `core.addTaskMetrics` — authoritative numbers, not agent self-estimates.
 
 The **spawned session** claims via `get_next_task`; the dispatcher never claims. N racing
-sessions get N distinct tasks (DB claim atomicity) or `{ task: null }` and exit cleanly.
+sessions are pinned to their intended task key and stage (DB claim atomicity), or
+get `{ task: null }` and exit cleanly. A worker cannot claim another stage while
+using the model selected for its original task.
 
 ## Run
 
@@ -45,6 +47,8 @@ sessions are killed.
 | `pollSeconds` | `15` | Queue poll interval. |
 | `permissionMode` | `acceptEdits` | `claude --permission-mode` for unattended sessions. `bypassPermissions` is supported but for contained environments only. |
 | `claudeArgs` | `[]` | Extra args appended to **every** `claude` invocation, regardless of stage. |
+| `codexArgs` | `[]` | Extra args for Codex workers only. |
+| `stageEngines` | Claude for every stage | Optional `description`, `plan`, `implementation` entries, each `claude` or `codex`. |
 | `stageArgs` | — (optional) | Per-stage extra args — see [Per-stage model selection](#per-stage-model-selection). |
 | `maxSessionMinutes` | `60` | Hard wall-clock cap; the supervisor kills a session that exceeds it (counts as an attempt). |
 | `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left queued for a human. |
@@ -53,6 +57,42 @@ sessions are killed.
 See [`dispatcher.config.example.json`](./dispatcher.config.example.json).
 
 ### Per-stage model selection
+
+Choose the CLI with `stageEngines`, then its model and reasoning using `stageArgs`:
+
+```json
+{
+  "db": "./agentfactory.db",
+  "stageEngines": { "plan": "codex", "implementation": "codex" },
+  "stageArgs": {
+    "plan": ["--model", "gpt-6-astra", "-c", "model_reasoning_effort=\"medium\""],
+    "implementation": ["--model", "gpt-5.6-luna", "-c", "model_reasoning_effort=\"high\""]
+  }
+}
+```
+
+Unspecified stages use Claude. Stage args belong to the selected CLI: Codex never
+receives `claudeArgs`. Unknown configuration keys now fail startup. Agent Prompts
+in the UI configure instructions, not model/engine selection.
+
+Codex uses `exec --json`, a stdin prompt, and task-local MCP configuration. The
+AgentFactory server's tools are pre-approved for its worker protocol, matching
+Claude's existing MCP allowlist; other servers keep their own policies. Its
+`acceptEdits` mapping is workspace-write with network access and no interactive
+approvals; `default`/`plan` use read-only; explicit `bypassPermissions` bypasses
+the sandbox. These are execution permissions, independent of pipeline stage.
+Install/authenticate Codex first. On Windows the npm launcher is resolved and run
+through Node directly; `AGENTFACTORY_CODEX_BIN` may select an executable.
+
+Codex events feed live/final transcripts and measured token totals. Configured
+OTel uses `/v1/logs` with `X-Task-Key` (and optional static bearer header, as the
+reviewer does); stdout usage is skipped when OTel owns accounting.
+
+Rebuild after upgrading code and restart dispatcher/MCP (and the board for remote
+HTTP workers) together. JSON-only changes need a dispatcher restart. Let active
+workers finish before stopping the supervisor, which terminates its children.
+
+The following is the existing Claude-only configuration:
 
 A task walks three pipeline stages — `description` (write the spec + acceptance
 criteria), `plan` (write the implementation plan, read-only), and `implementation`
@@ -84,6 +124,19 @@ stage runs identically (the original behaviour). Only the three stage keys above
 accepted — any other key is rejected at config load.
 
 ## Permissions
+
+Codex workers always receive a narrow build-environment allowlist, including Windows
+`ProgramFiles`, `ProgramFiles(x86)`, `ProgramW6432` and application-data paths, even
+when no managed Git credential is configured. Start the dispatcher from a normal
+shell containing those variables: an allowlist cannot recreate missing parent values.
+Rebuild and restart the dispatcher to load changes to its worker launcher.
+
+For Windows .NET failures, distinguish NuGet `ConfigurationDefaults` / null `path1`
+(missing build-environment paths) from Schannel `SEC_E_NO_CREDENTIALS` (sandbox TLS
+context). `dotnet nuget list source --configfile NuGet.config` tests initialization
+only. Verify HTTPS and restore separately; a build using cached packages and audit
+data does not prove fresh sandbox restores work. Keep certificate validation and
+NuGet audit enabled. Record host verification separately if sandbox TLS fails.
 
 Unattended sessions only get as far as the **target repo's** allowlist permits — the
 session's cwd is the workspace `repoPath`, so that repo's `.claude/settings*.json` applies.

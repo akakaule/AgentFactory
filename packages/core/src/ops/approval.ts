@@ -18,7 +18,7 @@ export interface DeliverySeed { provider: DeliveryProvider; }
  * the next stage and re-queues; the implementation stage closes the task (human-only —
  * the final gate is never automated). With a `delivery` seed the implementation approve
  * routes to 'delivering' instead of 'done' — done then means the watcher verified the PR
- * merged and the pipeline came up green (or a human force-completed). Runs INSIDE an
+ * merged, with actual check results retained (or a human force-completed). Runs INSIDE an
  * already-open transaction: `transaction()` cannot nest, and this body is shared by
  * `reviewApprove` (human) and `addComment`'s auto-approve hook (agent, clean doc-stage
  * reviews — that path never passes a delivery seed).
@@ -50,7 +50,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     if (delivery) upsertDelivery(db, row.id, { provider: delivery.provider, branch: row.branch!, prUrl: latestPrLinkUrl(db, row.id) }, ts);
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: to, createdAt: ts,
-      body: delivery ? 'approved — awaiting PR merge + green checks' : '', actorUserId,
+      body: delivery ? 'approved — awaiting PR merge; check results remain visible' : '', actorUserId,
     });
     return;
   }

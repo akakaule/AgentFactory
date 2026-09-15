@@ -156,7 +156,7 @@ export interface AgentSessionView {
   heartbeatAt: string;             // last-seen-alive (claim / progress / dispatcher tick)
 }
 
-/** Which agent CLI produced a transcript. Only `claude` is parsed today; `codex` is the next drop-in. */
+/** Which agent CLI produced a transcript. */
 export type TranscriptEngine = 'claude' | 'codex';
 
 /**
@@ -208,11 +208,22 @@ export interface SupervisorView {
   staleSeconds: number;      // seconds since the last heartbeat
 }
 
+/** Recorded usage grouped by inferred pipeline stage, reported agent engine, and model. */
+export interface TaskTokenUsage {
+  stage: Stage | null;
+  agent: 'codex' | 'claude' | null;
+  model: string | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+}
+
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number; deliveringMin: number;
   rounds: number; reopened: boolean; claimCount: number; doneAt: string | null;
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
+  /** Task detail only; omitted by older servers and analytics summaries. */
+  tokenBreakdown?: TaskTokenUsage[];
 }
 
 export interface TaskDetail extends Task {

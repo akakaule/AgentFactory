@@ -30,7 +30,13 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   // git-host origin routes to 'delivering' instead of 'done'; the watcher supervisor closes or
   // bounces it, and the human edges keep the board operable when there is no CI / no watcher.
   { from: 'in_review',   to: 'delivering',  by: 'human' }, // approve (ops/reviewApprove.ts routes here)
-  { from: 'delivering',  to: 'done',        by: 'agent' }, // watcher: PR merged + pipeline green
+  { from: 'delivering',  to: 'done',        by: 'agent' }, // watcher: confirmed PR merge
+  // Recovery after a delivery bounce. Only delivery reconciliation may use these edges;
+  // updateStatus blocks raw agent completion, and core requires a current merged delivery.
+  { from: 'queued',      to: 'done',        by: 'agent' },
+  { from: 'in_progress', to: 'done',        by: 'agent' },
+  { from: 'blocked',     to: 'done',        by: 'agent' },
+  { from: 'in_review',   to: 'done',        by: 'agent' },
   { from: 'delivering',  to: 'queued',      by: 'agent' }, // watcher: CI failed / PR closed unmerged
   { from: 'delivering',  to: 'done',        by: 'human' }, // force-complete (no CI configured / watcher down)
   { from: 'delivering',  to: 'queued',      by: 'human' }, // manual pull-back for rework

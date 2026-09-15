@@ -7,34 +7,41 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { reconcileMergedDelivery } from './delivery.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
-  // archived tasks are immutable for state — without this, done → queued would reopen
-  // a task the board no longer shows
-  if (row.archived_at !== null)
-    throw new InvalidTransitionError(`an archived task cannot change status — unarchive it first: ${key}`);
-  // a doc-stage review closes via the approve action (which advances the stage and
-  // re-queues) — a raw status move to done would skip the stage machine entirely
-  if (row.status === 'in_review' && status === 'done' && row.stage !== 'implementation')
-    throw new InvalidTransitionError(`a ${row.stage}-stage review is approved via the approve action, not a status move`);
-  // Kind gating (the TRANSITIONS table has no kind axis): a 'pr-review' task is reviewed and never
-  // implemented, so it must NEVER enter the worker queue — from backlog, a send-back, or a reopen.
-  // (The dispatcher would otherwise claim it and spawn a worker to "implement" a teammate's PR.)
-  if (status === 'queued' && row.kind === 'pr-review')
-    throw new ValidationError('a pr-review task is reviewed, not implemented — it cannot be queued (move it to in_review)');
-  // The straight-into-review edges (born from backlog, rescued from a stray queue, reopened from
-  // done) are pr-review-only — a 'code' task can never skip implementation by jumping to review.
-  if (status === 'in_review' && row.kind !== 'pr-review' && (row.status === 'backlog' || row.status === 'queued' || row.status === 'done'))
-    throw new ValidationError(`only a pr-review task moves straight to review (got kind '${row.kind}')`);
-  // The agent in_review → queued edge exists solely for the doc-stage auto-approve
-  // (ops/approval.ts) — as a raw status move it would let an agent dodge its own review.
-  if (row.status === 'in_review' && status === 'queued' && actor === 'agent')
-    throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
-  assertTransition(row.status, status, actor);
   return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    // archived tasks are immutable for state — without this, done → queued would reopen
+    // a task the board no longer shows
+    if (row.archived_at !== null)
+      throw new InvalidTransitionError(`an archived task cannot change status — unarchive it first: ${key}`);
+    // a doc-stage review closes via the approve action (which advances the stage and
+    // re-queues) — a raw status move to done would skip the stage machine entirely
+    if (row.status === 'in_review' && status === 'done' && row.stage !== 'implementation')
+      throw new InvalidTransitionError(`a ${row.stage}-stage review is approved via the approve action, not a status move`);
+    // Kind gating (the TRANSITIONS table has no kind axis): a 'pr-review' task is reviewed and never
+    // implemented, so it must NEVER enter the worker queue — from backlog, a send-back, or a reopen.
+    // (The dispatcher would otherwise claim it and spawn a worker to "implement" a teammate's PR.)
+    if (status === 'queued' && row.kind === 'pr-review')
+      throw new ValidationError('a pr-review task is reviewed, not implemented — it cannot be queued (move it to in_review)');
+    // The straight-into-review edges (born from backlog, rescued from a stray queue, reopened from
+    // done) are pr-review-only — a 'code' task can never skip implementation by jumping to review.
+    if (status === 'in_review' && row.kind !== 'pr-review' && (row.status === 'backlog' || row.status === 'queued' || row.status === 'done'))
+      throw new ValidationError(`only a pr-review task moves straight to review (got kind '${row.kind}')`);
+    // The agent in_review → queued edge exists solely for the doc-stage auto-approve
+    // (ops/approval.ts) — as a raw status move it would let an agent dodge its own review.
+    if (row.status === 'in_review' && status === 'queued' && actor === 'agent')
+      throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
+    if (status === 'done' && actor === 'agent')
+      throw new InvalidTransitionError('agent completion requires delivery reconciliation, not a raw status move');
+    assertTransition(row.status, status, actor);
     const ts = now();
+    if ((status === 'queued' || status === 'in_progress') && reconcileMergedDelivery(db, row, ts))
+      return toDetail(db, findRowByKey(db, key)!);
+    // An explicit reopen starts new work; old observations cannot authorize its completion.
+    if (row.status === 'done' && status === 'queued') db.prepare('DELETE FROM task_delivery WHERE task_id = ?').run(row.id);
     setStatus(db, row.id, status, ts);
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).

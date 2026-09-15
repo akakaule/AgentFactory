@@ -73,7 +73,7 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
         <FailureChip failure={task.failure} />
         {task.status === 'in_review' && <span className="af-tag review">{I.check({})}Needs review</span>}
         {task.status === 'in_review' && <AiReviewChip review={task.aiReview} />}
-        {task.status === 'delivering' && task.delivery && <DeliveryChip delivery={task.delivery} />}
+        {task.delivery && <DeliveryChip delivery={task.delivery} />}
         <span className="af-meta-i">{I.clock({})}{shortTime(task.updatedAt)}</span>
       </div>
     </div>

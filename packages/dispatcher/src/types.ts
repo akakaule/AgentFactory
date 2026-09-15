@@ -21,6 +21,7 @@ export interface DispatcherCore {
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string): Awaitable<TaskDetail>;
+  completeDelivery(key: string, note: string): Awaitable<TaskDetail>;
   addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;
   // live agent status: keep a running session warm, and end it when the process exits
@@ -55,6 +56,7 @@ export interface SpawnRequest {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  stdin?: string;
 }
 
 export type SpawnFn = (req: SpawnRequest) => SpawnedChild;
@@ -77,6 +79,7 @@ export interface DispatcherDeps {
   spawn: SpawnFn;
   /** Resolves the `claude` CLI command (cached after first call). */
   resolveClaude: () => string;
+  resolveCodex: () => { command: string; args: string[] };
   /** The agentfactory MCP server launch spec, inlined into each session's --mcp-config. */
   mcp: McpServerSpec;
   /** Opens a per-session log file. */

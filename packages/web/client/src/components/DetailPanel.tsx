@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, type ReactElement } from 'react';
-import type { Task, TaskDetail, Activity, LinkKind } from '../types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, LinkKind } from '../types.js';
 import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { api, attachmentUrl } from '../api.js';
 import { timeAgo, shortTime } from '../time.js';
@@ -69,7 +69,7 @@ function ActivityItem({ entry }: { entry: Activity }) {
 }
 
 export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, onClose, onChanged }: Props) {
-  const [task, setTask] = useState<TaskDetail | null>(null);
+  const [task, setTask] = useState<TaskDetailView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -301,7 +301,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
                 />
               )}
 
-              {task.status === 'delivering' && task.delivery && (
+              {task.delivery && (
                 <div className="af-delivery-sec">
                   <div className="hd">
                     <DeliveryChip delivery={task.delivery} />
@@ -320,23 +320,38 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
                       ))}
                     </ul>
                   )}
-                  <div className="af-delivery-acts">
-                    <button
-                      className="af-mini go"
-                      onClick={() => api.setStatus(task.key, 'done').then(afterMutation).catch(() => {})}
-                      title="Force-complete — use when there is no CI or the watcher is down."
-                    >
-                      Mark done
-                    </button>
-                    <button
-                      className="af-mini"
-                      onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
-                      title="Pull the task back to the queue for rework."
-                    >
-                      Re-queue
-                    </button>
-                  </div>
-                  <DeliveringFeedback task={task} onMutated={afterMutation} />
+                  {task.status === 'delivering' && (
+                    <>
+                      <div className="af-delivery-acts">
+                        {task.createPrUrl && (
+                          <a
+                            className="af-mini go"
+                            href={task.createPrUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Opens the git host's create-PR page with this task's branch preselected; the watcher picks the PR up on its next poll."
+                          >
+                            {task.delivery.provider === 'azdo' ? 'Open PR in Azure DevOps' : 'Open PR on GitHub'}
+                          </a>
+                        )}
+                        <button
+                          className="af-mini go"
+                          onClick={() => api.setStatus(task.key, 'done').then(afterMutation).catch(() => {})}
+                          title="Force-complete — use when there is no CI or the watcher is down."
+                        >
+                          Mark done
+                        </button>
+                        <button
+                          className="af-mini"
+                          onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
+                          title="Pull the task back to the queue for rework."
+                        >
+                          Re-queue
+                        </button>
+                      </div>
+                      <DeliveringFeedback task={task} onMutated={afterMutation} />
+                    </>
+                  )}
                 </div>
               )}
 

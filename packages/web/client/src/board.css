@@ -105,6 +105,7 @@
 .af-mini { height: 30px; padding: 0 11px; border-radius: 7px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); }
 .af-mini:hover { color: var(--ink); border-color: #3A4D70; }
 .af-mini.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+a.af-mini { display: inline-flex; align-items: center; text-decoration: none; }
 .af-mini.danger { color: var(--st-blocked); border-color: color-mix(in srgb, var(--st-blocked) 40%, var(--line)); }
 
 /* Bottom tab navigation — mobile only (the responsive block below reveals it; the
@@ -720,6 +721,17 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-mchip.na { color: var(--ink-3); border-style: dashed; }
 .af-mchip .g { color: var(--green); } .af-mchip .r { color: var(--st-blocked); }
 .af-mnone { font-size: 12.5px; color: var(--ink-3); margin-top: 8px; font-style: italic; }
+.af-token-breakdown { margin-top: 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-deep); }
+.af-token-breakdown summary { padding: 11px 12px; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.af-token-breakdown summary:focus-visible, .af-token-table-scroll:focus-visible { outline: 2px solid var(--st-queued); outline-offset: 2px; }
+.af-token-table-scroll { overflow-x: auto; margin: 0 12px; }
+.af-token-breakdown table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.af-token-breakdown th, .af-token-breakdown td { padding: 9px 10px; text-align: left; border-top: 1px solid var(--line-soft); }
+.af-token-breakdown thead th { color: var(--ink-3); font-size: 11px; font-weight: 500; }
+.af-token-breakdown td:nth-last-child(-n+3), .af-token-breakdown thead th:nth-last-child(-n+3) { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.af-token-breakdown .af-token-model { font-family: "IBM Plex Mono", monospace; font-weight: 400; overflow-wrap: anywhere; min-width: 140px; }
+.af-token-subtotal, .af-token-breakdown tfoot { background: var(--panel); font-weight: 600; }
+.af-token-breakdown p { margin: 10px 12px 12px; color: var(--ink-3); font-size: 11.5px; line-height: 1.6; }
 
 @media (max-width: 1080px) {
   .an-kpis { grid-template-columns: repeat(3, 1fr); }

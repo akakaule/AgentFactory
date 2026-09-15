@@ -27,9 +27,14 @@ describe('DeliveryChip', () => {
     expect(screen.getByText('PR #12 · checks running')).toBeInTheDocument();
   });
 
-  it('shows a merged PR as verifying', () => {
+  it('shows a merged PR with its actual check result', () => {
     render(<DeliveryChip delivery={delivery({ prState: 'merged', checksState: 'passing' })} />);
-    expect(screen.getByText('PR #12 merged · verifying')).toBeInTheDocument();
+    expect(screen.getByText('PR #12 merged · checks passing')).toBeInTheDocument();
+  });
+
+  it('shows a merged GitHub PR with failed checks and only one number prefix', () => {
+    render(<DeliveryChip delivery={delivery({ prId: '#3', prState: 'merged', checksState: 'failing' })} />);
+    expect(screen.getByText('PR #3 merged · checks failed')).toBeInTheDocument();
   });
 
   it('shows failed checks with the error tone', () => {

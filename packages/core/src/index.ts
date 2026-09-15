@@ -16,7 +16,7 @@ export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
-export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
+export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
 export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
