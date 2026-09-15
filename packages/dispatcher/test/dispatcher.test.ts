@@ -448,6 +448,91 @@ describe('live agent session', () => {
     await calls[0]!.child.exit(0);
     expect(core.listLiveAgents()).toHaveLength(0); // reap end is idempotent
   });
+
+  it('terminates a repair worker when the watcher completes its merged delivery', async () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'Merged while repairing', spec: 'spec', acceptanceCriteria: 'criteria', workspace: 'ws' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'seed-worker' });
+    core.submitResult(t.key, { summary: 'initial result' });
+    core.updateStatus(t.key, 'delivering', 'human');
+    const approved = core.getTask(t.key);
+    core.beginDelivery(t.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/1' });
+    core.recordDeliveryCheck(t.key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.failDelivery(t.key, { reason: 'ci_failed', detail: 'build failed' });
+
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+
+    core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.completeDelivery(t.key, 'PR merged; checks failing');
+    await d.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(core.getTask(t.key).status).toBe('done');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('terminates a worker whose actual claim completed before the dispatcher observed it', async () => {
+    const core = makeCore();
+    const predictedKey = seedQueued(core, 'ws', 'Predicted');
+    const actual = core.createTask({ title: 'Actual repair', spec: 'spec', acceptanceCriteria: 'criteria', workspace: 'ws' });
+
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    const label = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'other-worker' });
+    core.updateStatus(actual.key, 'queued', 'human');
+    core.claimNextTask({ workspace: 'ws', claimedBy: label });
+    core.submitResult(actual.key, { summary: 'initial result' });
+    core.updateStatus(actual.key, 'delivering', 'human');
+    const approved = core.getTask(actual.key);
+    core.beginDelivery(actual.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/2' });
+    core.recordDeliveryCheck(actual.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.completeDelivery(actual.key, 'PR merged; checks failing');
+
+    expect(core.getTask(predictedKey).status).toBe('in_progress');
+    expect(core.getTask(actual.key).status).toBe('done');
+    expect(calls[0]!.child.killed).toBe(false);
+
+    await d.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(core.getTask(actual.key).status).toBe('done');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('cancels a completed repair even if the task is reopened before the next poll', async () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'Reopened repair', spec: 'spec', acceptanceCriteria: 'criteria', workspace: 'ws' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'seed-worker' });
+    core.submitResult(t.key, { summary: 'initial result' });
+    core.updateStatus(t.key, 'delivering', 'human');
+    const approved = core.getTask(t.key);
+    core.beginDelivery(t.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/3' });
+    core.recordDeliveryCheck(t.key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.failDelivery(t.key, { reason: 'ci_failed', detail: 'build failed' });
+
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    const oldLabel = workerLabel(calls[0]!.req.env);
+    core.claimNextTask({ workspace: 'ws', claimedBy: oldLabel });
+    core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    core.completeDelivery(t.key, 'PR merged; checks failing');
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'new-worker' });
+
+    await d.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(core.getTask(t.key)).toMatchObject({ status: 'in_progress', claimedBy: 'new-worker' });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -48,7 +48,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       finish: [
         'Write the feature description: a rewritten spec (preserve any source-reference lines, e.g. an ADO work-item link, at the top) and objectively verifiable acceptance criteria.',
         'Do NOT touch the repository — no branch, no worktree, no code changes.',
-        'Call submit_result with { summary, spec, acceptanceCriteria }.',
+        'Call submit_result with { summary, claimAt: the claimedAt value from this claim, spec, acceptanceCriteria }.',
       ],
     };
   }
@@ -61,7 +61,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
         `Read the workspace repository at ${fwd(input.repoPath)} (read-only) to ground the plan in the real code.`,
         'Write a step-by-step implementation plan: the files to change, the approach, and a test plan.',
         'Do NOT create a branch or worktree, and make no commits.',
-        'Call submit_result with { summary, plan }.',
+        'Call submit_result with { summary, claimAt: the claimedAt value from this claim, plan }.',
       ],
     };
   }
@@ -113,7 +113,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       `git push -u origin ${branch}`,
       ...prStep,
       `git worktree remove ${wt} && git worktree prune`,
-      `Call submit_result with a branch link (label = the branch name)${github ? `, the PR link (kind 'pr')` : ''}${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
+      `Call submit_result with claimAt (the claimedAt value from this claim), a branch link (label = the branch name)${github ? `, the PR link (kind 'pr')` : ''}${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
     ],
   };
 }

@@ -130,7 +130,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     // ── delivery (watcher) ───────────────────────────────────────────────────
     beginDelivery: async (key, seed) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/begin`, seed)) as never,
     recordDeliveryCheck: async (key, obs) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check`, obs)) as never,
-    completeDelivery: async (key, note) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note })) as never,
+    completeDelivery: async (key, note, expectedStateChangedAt) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note, ...(expectedStateChangedAt !== undefined ? { expectedStateChangedAt } : {}) })) as never,
     failDelivery: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/fail`, input)) as never,
 
     // spec images ride the claim payload as MCP image blocks — the one binary read.

@@ -99,7 +99,7 @@ export type DeliveryChecksState = 'unknown' | 'none' | 'pending' | 'passing' | '
 export interface DeliveryFailingCheck { name: string; url: string | null; }
 
 /**
- * The PR/pipeline state of a 'delivering' task, as last observed by the watcher supervisor
+ * The PR/pipeline state of a task's current approved delivery, as last observed by the watcher supervisor
  * (current-state `task_delivery` row, migration #18 — seeded at approve, updated per poll).
  * External, polled and mutable — persisted, not derived from the activity log; NOT part of
  * getVersion() (ops bump task.updated_at only when the observed state changes). null on a
@@ -271,6 +271,8 @@ export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCrit
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
   summary: string;
+  /** The claimedAt value from the worker's current claim; rejects late submissions from an old execution. */
+  claimAt?: string | undefined;
   links?: LinkInput[];
   // stage deliverables — required/forbidden per the task's stage (see ops/submitResult.ts):
   spec?: string | undefined;               // description stage: the rewritten feature description
