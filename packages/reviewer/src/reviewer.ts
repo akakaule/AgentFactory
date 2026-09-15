@@ -1,6 +1,7 @@
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage, RetryReservation } from '@agentfactory/core';
-import type { ReviewerConfig, ReviewEngine, ReasoningEffort } from './config.js';
+import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings } from '@agentfactory/core';
+import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
+import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
 import { createConsensus, collectBallot, consensusReview } from './consensus.js';
 import { buildConsensusPrompt } from './consensusPrompt.js';
@@ -59,6 +60,10 @@ const RETRY_RESERVATION_GRACE_MS = 30_000;
 export class Reviewer {
   private readonly running = new Map<string, ReviewSession>(); // label -> session
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
+
+  private engineSettings: EngineSettings = defaultEngineSettings();
+
+  private warnedNoEngine = false;
   /** Visualization budget, keyed `${key}@${latestResultAt}` — a new submission gets a fresh
    *  budget, and there is no skip-set for clearRestarted's failure-null forgiveness to resurrect. */
   /** Visualization retries are durable; this cache only supports the local diagnostic log. */
@@ -118,12 +123,45 @@ export class Reviewer {
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.enforceTimeouts();
     const served = await this.servedWorkspaces();
     await this.recordHeartbeat(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
     await Promise.all([...this.settling]); // exits fired during this tick too
+  }
+
+  /** Board engine toggles, read once per tick. A failed read keeps the previous tick's answer. */
+  private async refreshEngineSettings(): Promise<void> {
+    try {
+      this.engineSettings = await this.deps.core.getEngineSettings();
+    } catch (err) {
+      this.console.warn(`[reviewer] could not read engine settings; keeping previous: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * The engine (and the model that belongs to it) a session runs on right now: the configured
+   * engine when the board has it enabled, else the other enabled engine on its default model
+   * (a model name is meaningless to the other CLI), else null — nothing may run.
+   */
+  private engineChoice(configured: ReviewEngine, model: string | undefined): { engine: ReviewEngine; model: string | undefined } | null {
+    const engine = resolveEngine(configured, this.engineSettings);
+    if (!engine) { this.warnNoEngine(); return null; }
+    this.warnedNoEngine = false;
+    return engine === configured ? { engine, model } : { engine, model: undefined };
+  }
+
+  /** The configured reviewer profiles whose engine the board currently allows. */
+  private activeReviewers(): ReviewerProfile[] | undefined {
+    return this.config.reviewers?.filter((p) => this.engineSettings[p.engine].enabled);
+  }
+
+  private warnNoEngine(): void {
+    if (this.warnedNoEngine) return;
+    this.warnedNoEngine = true;
+    this.console.warn('[reviewer] all agent engines are disabled on the board; leaving reviews untouched');
   }
 
   private async reconcileAbandonedReservations(): Promise<void> {
@@ -370,7 +408,29 @@ export class Reviewer {
 
   /** Build the prompt + spawn one review/evaluation; returns false (no slot consumed) on a pre-spawn failure. */
   private async startReview(workspace: string, key: string, mode: ReviewMode = 'review'): Promise<boolean> {
-    const engine = this.config.engine;
+    // Board engine toggles (read each tick). With `reviewers` configured, a review round runs the
+    // members whose engine is enabled — a single remaining member reviews alone, no round; the
+    // single-engine and feedback-eval paths fall back to the other engine on its default model.
+    let engine: ReviewEngine;
+    let model = this.config.model;
+    let reasoningEffort: ReasoningEffort | undefined;
+    let members = mode === 'review' ? this.activeReviewers() : undefined;
+    if (members && members.length === 0) { this.warnNoEngine(); return false; }
+    if (members && members.length === 1) {
+      const solo = members[0]!;
+      ({ engine, model, reasoningEffort } = solo);
+      const off = this.config.reviewers!.filter((p) => !this.engineSettings[p.engine].enabled).map((p) => p.engine);
+      this.console.log(`[reviewer] ${key}: ${[...new Set(off)].join(', ')} disabled on the board; single-reviewer mode via ${engine}`);
+      members = undefined;
+    } else if (members) {
+      engine = this.config.engine;
+      this.warnedNoEngine = false;
+    } else {
+      const choice = this.engineChoice(this.config.engine, this.config.model);
+      if (!choice) return false;
+      if (choice.engine !== this.config.engine) this.console.log(`[reviewer] ${key}: ${this.config.engine} disabled on the board; falling back to ${choice.engine} for ${mode}`);
+      ({ engine, model } = choice);
+    }
     const deadlineMs = this.config.consensus?.enabled ? this.deps.now() + this.config.consensus.totalMinutes * 60000 : undefined;
     let prompt: string;
     let stage: Stage;
@@ -419,9 +479,9 @@ export class Reviewer {
           makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         }
         prompt = makePrompt(engine);
-        if (this.config.reviewers) round = {
+        if (members) round = {
           fingerprint: reviewFingerprint(detail),
-          members: this.config.reviewers.map((profile) => ({ profile, prompt: makePrompt(profile.engine) })),
+          members: members.map((profile) => ({ profile, prompt: makePrompt(profile.engine) })),
           results: [],
           ...(deadlineMs !== undefined ? { deadlineMs } : {}),
           ...(revision ? { revision } : {}),
@@ -440,7 +500,7 @@ export class Reviewer {
     }
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
-    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, engine, model: this.config.model, prompt, label, fileBase });
+    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, engine, model, reasoningEffort, prompt, label, fileBase });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -472,8 +532,11 @@ export class Reviewer {
     }
     if (!this.needsVisualization(detail)) return false; // superseded between list and load
     const vizKey = this.vizKeyFor(detail);
-    const engine = this.config.visualization.engine ?? this.config.engine;
-    const model = this.config.visualization.model ?? this.config.model;
+    const configured = this.config.visualization.engine ?? this.config.engine;
+    const choice = this.engineChoice(configured, this.config.visualization.model ?? this.config.model);
+    if (!choice) return false; // nothing may run; the review pass decides for itself
+    if (choice.engine !== configured) this.console.log(`[reviewer] ${key}: ${configured} disabled on the board; visualizing via ${choice.engine}`);
+    const { engine, model } = choice;
     let prompt: string;
     try {
       const { diffRef, diff } = await this.prepareDiff(detail);

@@ -51,7 +51,7 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="af-overlay">
-      <div className="af-modal" style={{ padding: '16px', maxWidth: '760px' }}>
+      <div className="af-modal" style={{ padding: '18px 20px', width: 'min(94vw, 1180px)', maxWidth: '1180px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0 }}>Agent system prompts</h3>
           <button className="af-x" onClick={onClose}>✕</button>
@@ -79,7 +79,7 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
         {loading ? (
           <div style={{ color: 'var(--ink-3)' }}>Loading…</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '60vh', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '72vh', overflowY: 'auto', paddingRight: '4px' }}>
             {AGENT_PROMPT_FIELDS.map((f) => (
               <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
@@ -98,7 +98,7 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
                   aria-label={f.label}
                   value={values[f.key] ?? ''}
                   onChange={(e) => set(f.key, e.target.value)}
-                  rows={3}
+                  rows={7}
                   placeholder="(inherit built-in behavior)"
                   style={{ padding: '6px 10px', resize: 'vertical', fontFamily: 'inherit' }}
                 />
