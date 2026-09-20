@@ -94,6 +94,50 @@ export interface FailureSummary {
   at: string;                // the failure comment's created_at
 }
 
+export type IntakeMode = 'off' | 'advisory' | 'enforced';
+export type IntakeErrorKind = 'timeout' | 'rate_limit' | 'network' | 'invalid_response' | 'unavailable' | 'input_too_large';
+export type IntakeReadinessPart = 'outcomeClear' | 'scopeBounded' | 'verifiable';
+export type Complexity = 'trivial' | 'small' | 'medium' | 'large' | 'architectural';
+export type Risk = 'low' | 'medium' | 'high' | 'critical';
+
+export interface IntakeProviderMeta { name: string; model: string | null; }
+export interface IntakeUsage { inputTokens: number | null; outputTokens: number | null; }
+export interface IntakeReadiness { probability: number; parts: Partial<Record<IntakeReadinessPart, number>>; }
+export interface IntakeChoice<T extends string> { value: T; probabilities: Record<T, number>; confidence: number | null; }
+export interface IntakeDecisions {
+  readiness: IntakeReadiness;
+  complexity: IntakeChoice<Complexity>;
+  risk: IntakeChoice<Risk>;
+  [key: string]: unknown;
+}
+export interface IntakeAssessmentBase {
+  schema: 'intake/v1'; taskKey: string; sourceRevision: string; attemptId: string | null;
+  stage: Stage; questionSet: string; provider: IntakeProviderMeta; usage: IntakeUsage;
+  assessedAt: string; latencyMs: number;
+}
+export interface IntakeAssessed extends IntakeAssessmentBase { status: 'assessed'; decisions: IntakeDecisions; }
+export interface IntakeUnavailable extends IntakeAssessmentBase {
+  status: 'unavailable'; error: { kind: IntakeErrorKind; detail: string };
+}
+export type IntakeAssessmentV1 = IntakeAssessed | IntakeUnavailable;
+export type IntakeReasonCode = 'readiness_low' | 'outcome_unclear' | 'scope_unbounded' | 'not_verifiable' | 'architectural' | 'risk_at_or_above';
+export interface IntakeReason { code: IntakeReasonCode; message: string; }
+export interface IntakePolicyResult { policyVersion: 'intake-policy/v1'; eligibility: 'eligible' | 'attention_required'; reasons: IntakeReason[]; }
+export interface IntakeSummary {
+  state: 'current' | 'stale' | 'unavailable'; assessment: IntakeAssessmentV1;
+  policy: IntakePolicyResult | null; overridden: boolean;
+}
+export interface IntakeSettings {
+  mode: IntakeMode; workspaces: string[]; sendWorkspacePolicy: boolean;
+  settleSeconds: number; maxPerTick: number; maxAttempts: number;
+  readinessNeedsAttention: boolean; readinessThreshold: number;
+  architecturalNeedsAttention: boolean; riskAttentionLevel: Risk | null; maxHoldMinutes: number;
+}
+export interface TaskIntakeState {
+  key: string; title: string; spec: string; acceptanceCriteria: string; stage: Stage; plan: string | null;
+  links: { kind: LinkKind; label: string }[]; attachmentCount: number; workspacePolicy: string | null;
+}
+
 /** Which git host a workspace's origin points at — the axis the delivery watcher polls. */
 export type DeliveryProvider = 'github' | 'azdo';
 export type DeliveryPrState = 'unknown' | 'not_found' | 'open' | 'merged' | 'closed';
@@ -129,6 +173,7 @@ export interface Task {
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
+  intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
   createdAt: string; updatedAt: string;
 }
 export interface Activity {
@@ -200,7 +245,7 @@ export interface TranscriptResponse {
   blocks: TranscriptBlock[];
 }
 
-export type SupervisorKind = 'dispatcher' | 'reviewer' | 'watcher';
+export type SupervisorKind = 'dispatcher' | 'reviewer' | 'watcher' | 'intake';
 
 /**
  * A headless supervisor (dispatcher/reviewer) as surfaced to the health view. Current-state,

@@ -1,6 +1,8 @@
 export { openDb, type DB } from './db.js';
 export { runMigrations } from './migrate.js';
 export * from './types.js';
+export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
+export { defaultIntakeSettings, normalizeIntakeSettings, parseIntakeSettingsUpdate, intakeEnabledFor, INTAKE_SETTINGS_KEY } from './intakeSettings.js';
 export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 export { getVersion } from './version.js';
@@ -57,6 +59,8 @@ export { attachVisualization, getVisualization, getVisualizationHtml, type Attac
 export { type VisualizationMeta } from './repo/visualizations.js';
 export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 export { type UpsertSupervisor } from './repo/supervisors.js';
+export { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
+export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings, type BeginIntakeAssessmentResult } from './ops/intake.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
 
@@ -106,6 +110,8 @@ import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHear
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
+import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
+import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation } from './types.js';
@@ -195,6 +201,14 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     deleteAttachment: (id: number) => deleteAttachment(db, id),
     getAttachment: (id: number) => getAttachment(db, id),
     getVersion: () => getVersion(db),
+    getIntakeSettings: () => getIntakeSettings(db),
+    setIntakeSettings: (input: unknown) => setIntakeSettings(db, input),
+    recordIntakeAssessment: (key: string, input: unknown) => recordIntakeAssessment(db, key, input),
+    beginIntakeAssessment: (key: string, revision: string, maxAttempts: number) => beginIntakeAssessment(db, key, revision, maxAttempts),
+    intakeHistory: (key: string) => intakeHistory(db, key),
+    overrideIntake: (key: string, input: { expectedRevision: string; reason?: string | undefined; actorUserId?: number | null }) => overrideIntake(db, key, input),
+    queueWithIntakeAcknowledgment: (key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null } = {}) => queueWithIntakeAcknowledgment(db, key, input),
+    intakeRuntimeSettings: () => intakeRuntimeSettings(db),
   };
 }
 export type Core = ReturnType<typeof createCore>;

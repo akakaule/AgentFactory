@@ -13,7 +13,8 @@ export interface AnalyticsTaskRow {
 }
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 export interface FailureEvent { reason: string; workspace: string; at: string; }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; }
+export interface IntakeAnalytics { assessments: number; unavailable: number; unavailableRate: number; latencyP50: number | null; latencyP95: number | null; failuresByKind: Record<string, number>; coverage: { numerator: number; denominator: number }; reassessments: number; overrides: number; authFailuresIncluded: false; }
+export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; intake?: IntakeAnalytics; }
 export interface TokenTrendPoint { date: string; tokensIn: number; tokensOut: number; }
 
 /** Friendly labels for known supervisor failure reasons; unknown reasons render as-is. */
@@ -31,6 +32,7 @@ export interface WorkerStats {
   tokens: number | null; cost: number | null; branch: string | null;
 }
 export interface ComputedAnalytics {
+  intake?: IntakeAnalytics;
   hasData: boolean;
   kpis: {
     done: number; delta: number | null; cycle: number | null; work: number | null;
@@ -227,5 +229,5 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     .sort((a, b) => b.count - a.count);
   const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
 
-  return { hasData: N > 0, kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workers, failures };
+  return { hasData: N > 0, ...(data.intake ? { intake: data.intake } : {}), kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workers, failures };
 }

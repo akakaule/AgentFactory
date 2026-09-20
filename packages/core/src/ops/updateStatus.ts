@@ -10,7 +10,11 @@ import { nowIso } from '../time.js';
 import { reconcileMergedDelivery } from './delivery.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
-  return transaction(db, () => {
+  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note));
+}
+
+/** The caller must hold a write transaction, so related audit writes commit atomically. */
+export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     // archived tasks are immutable for state — without this, done → queued would reopen
@@ -51,5 +55,4 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
     if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
     return toDetail(db, findRowByKey(db, key)!);
-  });
 }

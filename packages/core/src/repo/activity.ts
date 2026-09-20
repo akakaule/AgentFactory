@@ -71,6 +71,30 @@ export function markerCommentsDesc(db: DB, taskId: number, prefix: string): stri
   return rows.map((r) => r.body);
 }
 
+export interface MarkerActivity { id: number; taskId: number; actor: Actor; body: string; createdAt: string; }
+export function intakeMarkerActivities(db: DB, taskId: number): MarkerActivity[] {
+  const rows = db.prepare(
+    `SELECT id, task_id AS taskId, actor, body, created_at AS createdAt FROM activity
+     WHERE task_id = ? AND type = 'comment'
+       AND (lower(ltrim(body)) LIKE 'intake/v1%' OR lower(ltrim(body)) LIKE 'intake-override/v1%' OR lower(ltrim(body)) LIKE 'intake-claim/v1%')
+     ORDER BY id DESC`,
+  ).all(taskId) as unknown as MarkerActivity[];
+  return rows;
+}
+export function intakeMarkerActivitiesByTaskIds(db: DB, taskIds: number[]): Map<number, MarkerActivity[]> {
+  const out = new Map<number, MarkerActivity[]>();
+  if (taskIds.length === 0) return out;
+  const placeholders = taskIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT id, task_id AS taskId, actor, body, created_at AS createdAt FROM activity
+     WHERE task_id IN (${placeholders}) AND type = 'comment'
+       AND (lower(ltrim(body)) LIKE 'intake/v1%' OR lower(ltrim(body)) LIKE 'intake-override/v1%' OR lower(ltrim(body)) LIKE 'intake-claim/v1%')
+     ORDER BY id DESC`,
+  ).all(...taskIds) as unknown as MarkerActivity[];
+  for (const row of rows) out.set(row.taskId, [...(out.get(row.taskId) ?? []), row]);
+  return out;
+}
+
 /**
  * Latest `restart/v1` marker id per task id (one query for the whole list). An operator restart
  * newer than the latest failure note supersedes it (like a fresh result) ⇒ the failure clears.
@@ -140,7 +164,9 @@ export function recentActivity(db: DB, taskId: number, limit: number): Activity[
     `SELECT a.id, a.task_id, a.type, a.actor, a.from_status, a.to_status, a.body, a.created_at,
             a.actor_user_id, u.display_name AS actor_name
      FROM activity a LEFT JOIN app_user u ON u.id = a.actor_user_id
-     WHERE a.task_id = ? ORDER BY a.id DESC LIMIT ?`
+     WHERE a.task_id = ?
+       AND NOT (lower(ltrim(a.body)) LIKE 'intake/v1%' OR lower(ltrim(a.body)) LIKE 'intake-override/v1%' OR lower(ltrim(a.body)) LIKE 'intake-claim/v1%')
+     ORDER BY a.id DESC LIMIT ?`
   ).all(taskId, limit) as Array<{
     id: number; task_id: number; type: ActivityType; actor: Actor;
     from_status: Status | null; to_status: Status | null; body: string; created_at: string;

@@ -38,6 +38,7 @@ const STATUS_LIST_17 = `('backlog','queued','in_progress','in_review','done','bl
 const STATUS_LIST_18 = `('backlog','queued','in_progress','in_review','delivering','done','blocked')`;
 const SUPERVISOR_KIND_LIST_17 = `('dispatcher','reviewer')`;
 const SUPERVISOR_KIND_LIST_18 = `('dispatcher','reviewer','watcher')`;
+const SUPERVISOR_KIND_LIST_26 = `('dispatcher','reviewer','watcher','intake')`;
 
 /** A plain migration runs inside the standard transaction; `fkOff` marks a table-rebuild
  *  migration that needs `PRAGMA foreign_keys = OFF` (which only takes effect OUTSIDE a
@@ -104,7 +105,9 @@ const MIGRATIONS: Migration[] = [
     fkOff: true,
     run: (db) => {
       widenCheck(db, 'task', STATUS_LIST_17, STATUS_LIST_18);
-      widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_17, SUPERVISOR_KIND_LIST_18);
+      const heartbeatSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='supervisor_heartbeat'").get() as { sql: string }).sql;
+      if (!heartbeatSql.includes(SUPERVISOR_KIND_LIST_26))
+        widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_17, SUPERVISOR_KIND_LIST_18);
       db.exec(MIGRATION_18_SQL);
     },
   },
@@ -137,6 +140,12 @@ const MIGRATIONS: Migration[] = [
   // #25 — retry budgets and stable attempt reservations. CREATE IF NOT EXISTS makes this safe
   // for a database that already received the schema from a coordinated/divergent deployment.
   (db) => db.exec(MIGRATION_25_SQL),
+  // #26 — intake supervisor heartbeat kind. Keep the CHECK so direct DB writes remain bounded;
+  // the rebuild copies every live column and preserves existing dispatcher/reviewer/watcher rows.
+  {
+    fkOff: true,
+    run: (db) => widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26),
+  },
 ];
 
 export function runMigrations(db: DB): void {

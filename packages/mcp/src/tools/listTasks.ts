@@ -16,7 +16,7 @@ export function registerListTasks(server: McpServer, core: McpCore, opts: Server
     },
     async ({ status, workspace }) => {
       try {
-        const tasks = await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace });
+        const tasks = (await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace })).map((task) => ({ ...task, intake: null }));
         return { content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }] };
       } catch (err) {
         return toToolError(err);

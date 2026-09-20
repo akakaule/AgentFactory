@@ -1,4 +1,4 @@
-import { isAiReviewMarker, isPrFeedbackMarker, isFeedbackEvalMarker } from '@agentfactory/core';
+import { isAiReviewMarker, isPrFeedbackMarker, isFeedbackEvalMarker, isIntakeMarker } from '@agentfactory/core';
 import type { McpCore, TaskDetail } from './types.js';
 
 type Block =
@@ -20,9 +20,9 @@ type Block =
  * The derived `aiReview` summary is nulled for the same reason — its `items` carry every finding.
  */
 export async function detailContent(core: McpCore, task: TaskDetail, extra?: Record<string, unknown>): Promise<Block[]> {
-  const stripped = (b: string) => isAiReviewMarker(b) || isPrFeedbackMarker(b) || isFeedbackEvalMarker(b);
+  const stripped = (b: string) => isAiReviewMarker(b) || isPrFeedbackMarker(b) || isFeedbackEvalMarker(b) || isIntakeMarker(b);
   const activity = task.activity.filter((a) => !(a.type === 'comment' && stripped(a.body)));
-  const detail: TaskDetail = { ...task, activity, aiReview: null };
+  const detail: TaskDetail = { ...task, activity, aiReview: null, intake: null };
   const payload = extra ? { ...detail, ...extra } : detail;
   const blocks: Block[] = [{ type: 'text', text: JSON.stringify(payload, null, 2) }];
   for (const a of task.attachments) {

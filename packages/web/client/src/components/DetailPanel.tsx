@@ -21,6 +21,7 @@ import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
 import { TaskMetrics } from './TaskMetrics.js';
 import { TaskDependencies } from './TaskDependencies.js';
+import { IntakePanel } from './IntakePanel.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -396,6 +397,8 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
 
               <div className="af-sl">Acceptance criteria</div>
               <div className="af-d-body">{task.acceptanceCriteria}</div>
+
+              <IntakePanel task={task} onChanged={afterMutation} />
 
               {task.originalSpec && (<>
                 <div className="af-sl">Original description</div>

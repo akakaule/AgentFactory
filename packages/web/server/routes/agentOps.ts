@@ -41,6 +41,8 @@ const retryReconcileBody = z.object({ actualKey: z.string().min(1), operation: z
 const retryReconcileAbandonedBody = z.object({ graceMs: z.number().finite().nonnegative() });
 const retryRecordFailureBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive(), attempt: z.number().int().positive(), reason: z.string() });
 const retrySettleBody = z.object({ state: z.enum(['running', 'succeeded', 'failed', 'cancelled']), reason: z.string().optional() });
+const intakeAssessmentBody = z.record(z.unknown());
+const intakeBeginBody = z.object({ revision: z.string().min(1), maxAttempts: z.number().int().positive() });
 
 /**
  * The agent-ops surface (#45): every board operation a worker MCP session or a remote supervisor
@@ -152,6 +154,14 @@ export function agentOpsRoutes(core: Core): Hono {
   });
   r.post('/retry/:id/settle', validated('json', retrySettleBody), (c) =>
     c.json({ settled: core.settleRetry(c.req.param('id'), c.req.valid('json')) }));
+
+  // Intake is service-only and provider-neutral at this boundary. Core validates the complete
+  // assessment and rechecks the task revision/workspace eligibility in one transaction.
+  r.get('/intake/settings', (c) => c.json(core.intakeRuntimeSettings()));
+  r.post('/tasks/:key/intake/assessment', validated('json', intakeAssessmentBody), (c) =>
+    c.json(core.recordIntakeAssessment(c.req.param('key'), c.req.valid('json'))));
+  r.post('/tasks/:key/intake/begin', validated('json', intakeBeginBody), (c) =>
+    c.json(core.beginIntakeAssessment(c.req.param('key'), c.req.valid('json').revision, c.req.valid('json').maxAttempts)));
 
   // ── supervisor surface ─────────────────────────────────────────────────────
   // the system recovery edge (reaper) — NOT an agent in_progress→queued transition

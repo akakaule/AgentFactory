@@ -39,7 +39,7 @@ export const updateBody = z.object({
   workspace: workspaceSlug.optional(),
 });
 export const commentBody = z.object({ body: z.string().min(1) });
-export const statusBody = z.object({ status: StatusEnum, note: z.string().optional() });
+export const statusBody = z.object({ status: StatusEnum, note: z.string().optional(), expectedRevision: z.string().optional(), reason: z.string().optional() });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
 // "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
 export const prReviewedBody = z.object({ review: z.string().optional() });
@@ -47,6 +47,7 @@ export const prReviewedBody = z.object({ review: z.string().optional() });
 export const prFeedbackBody = z.object({ feedback: z.string().min(1), author: z.string().optional(), url: z.string().optional() });
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
 export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
+export const intakeOverrideBody = z.object({ expectedRevision: z.string().min(1), reason: z.string().optional() });
 export const attachmentBody = z.object({
   filename: z.string().min(1),
   mime: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),

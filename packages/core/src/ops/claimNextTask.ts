@@ -8,6 +8,10 @@ import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { featureBranch } from '../branch.js';
 import { nowIso } from '../time.js';
 import { reconcileMergedDelivery } from './delivery.js';
+import { getIntakeSettings } from './intakeSettings.js';
+import { buildIntakeClaimComment, intakeRevision } from '../intake.js';
+import { intakeEnabledFor } from '../intakeSettings.js';
+import { intakeForTask } from '../repo/tasks.js';
 
 export interface ClaimOptions {
   workspace?: string | undefined;
@@ -68,6 +72,19 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
       // claimed_by is cleared on re-queue (analytics: stranded releases per worker)
       body: claimedBy ?? '',
     });
+    const intakeSettings = getIntakeSettings(db);
+    if (intakeEnabledFor(intakeSettings, row.workspace_name)) {
+      const claimedRow = { ...row, status: 'in_progress' as const, claimed_by: claimedBy, claimed_at: ts, updated_at: ts };
+      const currentIntake = intakeForTask(db, claimedRow);
+      appendActivity(db, {
+        taskId: row.id, type: 'comment', actor: 'agent', createdAt: ts,
+        body: buildIntakeClaimComment({
+          sourceRevision: intakeRevision({ title: row.title, spec: row.spec, acceptanceCriteria: row.acceptance_criteria, stage: row.stage, plan: row.plan }),
+          stage: row.stage, assessmentRevision: currentIntake?.state === 'current' ? currentIntake.assessment.sourceRevision : null,
+          policyVersion: 'intake-policy/v1', settings: intakeSettings,
+        }),
+      });
+    }
     // a claim starts a live agent session (any path: dispatcher-spawned or worker-loop);
     // heartbeats/milestones update it, submit/exit ends it
     startSession(db, { taskId: row.id, label: claimedBy, workspace: row.workspace_name, stage: row.stage, now: ts });
