@@ -139,6 +139,14 @@ export function reconcileRetry(
 
   if (row.task_id === taskId && row.operation === input.operation) return reservationFromRow(row, taskKey);
 
+  // The worker claimed a different task than the supervisor predicted. Its execution fence is
+  // tied to the predicted task, so retire that fence before moving the retry accounting; the
+  // actual claim has (or will create) its own execution identity.
+  db.prepare(
+    `UPDATE task_execution SET state = 'cancelled', terminal_reason = 'claim reconciled to another task'
+     WHERE retry_id = ? AND state IN ('reserved','running')`,
+  ).run(id);
+
   const sourceBudget = db.prepare('SELECT id, attempts_used FROM retry_budget WHERE task_id = ? AND operation = ? AND generation = ?')
     .get(row.task_id, row.operation, row.generation) as { id: number; attempts_used: number } | undefined;
   if (!sourceBudget) return null;
@@ -210,12 +218,15 @@ export function settleRetry(db: DB, id: string, state: Extract<RetryAttemptState
   if (row.state !== 'reserved' && row.state !== 'running') return false;
   if (state === 'running') {
     db.prepare(`UPDATE retry_attempt SET state = 'running' WHERE id = ? AND state = 'reserved'`).run(id);
+    db.prepare(`UPDATE task_execution SET state = 'running', started_at = COALESCE(started_at, ?), heartbeat_at = ? WHERE retry_id = ? AND state = 'reserved'`).run(now, now, id);
     return true;
   }
   db.prepare(
     `UPDATE retry_attempt SET state = ?, settled_at = ?, terminal_reason = ?
      WHERE id = ? AND state IN ('reserved','running')`,
   ).run(state, now, reason ?? null, id);
+  db.prepare(`UPDATE task_execution SET state = ?, terminal_reason = ?, heartbeat_at = COALESCE(heartbeat_at, ?) WHERE retry_id = ? AND state IN ('reserved','running')`)
+    .run(state, reason ?? null, now, id);
   if (state === 'cancelled') {
     db.prepare('UPDATE retry_budget SET attempts_used = MAX(0, attempts_used - 1) WHERE id = (SELECT budget_id FROM retry_attempt WHERE id = ?)').run(id);
     // A cancelled reservation never became an attempt. Remove it so the same numbered slot can

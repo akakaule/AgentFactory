@@ -66,6 +66,7 @@ export const updateTaskSchema = z
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');
 export const submitResultSchema = z.object({
   summary: nonEmpty,
+  executionId: z.string().min(1).optional(),
   // stage deliverables; which are required/forbidden depends on the task's stage,
   // which the schema can't see — ops/submitResult.ts enforces the per-stage shape
   spec: nonEmpty.optional(),
@@ -77,10 +78,11 @@ export const submitResultSchema = z.object({
     .array(z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty }))
     .default([]),
 });
-export const commentSchema = z.object({ body: nonEmpty });
+export const commentSchema = z.object({ body: nonEmpty, executionId: z.string().min(1).optional() });
 export const feedbackSchema = z.object({ feedback: nonEmpty });
 export const taskMetricsSchema = z
   .object({
+    executionId: z.string().min(1).optional(),
     model: nonEmpty.optional(),
     tokensIn: z.number().int().nonnegative().optional(),
     tokensOut: z.number().int().nonnegative().optional(),

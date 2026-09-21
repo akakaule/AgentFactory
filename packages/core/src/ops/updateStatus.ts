@@ -7,12 +7,14 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { assertExecutionOwnership } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
 
-export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
+export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string): TaskDetail {
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
+    if (actor === 'agent') assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
     // archived tasks are immutable for state — without this, done → queued would reopen
     // a task the board no longer shows
     if (row.archived_at !== null)

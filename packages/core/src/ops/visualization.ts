@@ -5,6 +5,7 @@ import { findRowByKey } from '../repo/tasks.js';
 import { saveVisualization, visualizationMetaFor, getVisualizationHtml as readVisualizationHtml } from '../repo/visualizations.js';
 import { NotFoundError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { assertExecutionOwnership } from '../repo/execution.js';
 
 /**
  * Standalone entry points for the per-task change visualization (the `/visualize-task` command
@@ -14,15 +15,18 @@ import { nowIso } from '../time.js';
  * than silently no-op'ing.
  */
 
-export interface AttachVisualizationInput { html: string; }
+export interface AttachVisualizationInput { html: string; executionId?: string | undefined; }
 
 /** Store (or replace) a task's change-visualization HTML. Throws NotFoundError for an unknown key. */
 export function attachVisualization(db: DB, key: string, input: AttachVisualizationInput, now: () => string = nowIso): VisualizationMeta {
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task ${key} not found`);
-  const ts = now();
-  transaction(db, () => saveVisualization(db, { taskId: row.id, html: input.html, now: ts }));
-  return { generatedAt: ts, bytes: input.html.length };
+  return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task ${key} not found`);
+    assertExecutionOwnership(db, row.id, key, input.executionId, { requireRunning: true });
+    const ts = now();
+    saveVisualization(db, { taskId: row.id, html: input.html, now: ts });
+    return { generatedAt: ts, bytes: input.html.length };
+  });
 }
 
 /** Presence + meta for a task's visualization, or null when the task/visualization is absent. */

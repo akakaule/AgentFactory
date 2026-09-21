@@ -23,6 +23,10 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
     },
     async ({ workspace }) => {
       try {
+        // A claim starts (or resumes) the worker's current task; never reuse the
+        // previous task's execution fence when polling after release/reclaim.
+        // Pending supervisor reservations are adopted by claimNextTask itself.
+        opts.executionContext?.set(undefined);
         const claimed = await core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel,
           taskKey: opts.taskKey, stage: opts.stage });
         if (claimed === null) {
@@ -35,6 +39,7 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
             ],
           };
         }
+        opts.executionContext?.set(claimed.executionId);
         // branchCreated is the create-vs-reuse signal for the protocol; it must not
         // ride along in the serialized task detail.
         const { branchCreated, ...task } = localizeRepo(claimed, opts);

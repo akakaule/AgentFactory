@@ -26,7 +26,7 @@ const claimRow = (db: DB, key: string) =>
 describe('migration #3: claim columns', () => {
   it('fresh DB → user_version 11, claim columns present and NULL', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
     const key = seedQueued(db);
     expect(claimRow(db, key)).toEqual({ claimed_by: null, claimed_at: null });
   });
@@ -46,7 +46,7 @@ describe('migration #3: claim columns', () => {
     ).run();
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
     expect(claimRow(db, 'AF-1')).toEqual({ claimed_by: null, claimed_at: null });
   });
 });
@@ -104,7 +104,7 @@ describe('branch assignment', () => {
     expect(original).toBe(featureBranch(t.key, 'Original title'));
 
     // submit → request-changes re-queues; the title changes before the reclaim
-    submitResult(db, t.key, { summary: 'done' });
+    submitResult(db, t.key, { summary: 'done', executionId: first!.executionId });
     reviewRequestChanges(db, t.key, { feedback: 'again' });
     db.prepare('UPDATE task SET title = ? WHERE key = ?').run('A completely different title now', t.key);
 
@@ -177,8 +177,8 @@ describe('release + clear-on-queued', () => {
   it('request-changes (in_review → queued) clears the claim', () => {
     const db = makeTestDb();
     const key = seedQueued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
-    submitResult(db, key, { summary: 'done' });
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' });
+    submitResult(db, key, { summary: 'done', executionId: claim!.executionId });
     const requeued = reviewRequestChanges(db, key, { feedback: 'more' });
     expect(requeued).toMatchObject({ claimedBy: null, claimedAt: null });
   });
@@ -186,9 +186,9 @@ describe('release + clear-on-queued', () => {
   it('blocked keeps the claim; blocked → queued clears it', () => {
     const db = makeTestDb();
     const key = seedQueued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' });
 
-    const blocked = updateStatus(db, key, 'blocked', 'agent');
+    const blocked = updateStatus(db, key, 'blocked', 'agent', undefined, null, undefined, claim!.executionId);
     expect(blocked).toMatchObject({ claimedBy: 'worker-1' });
 
     const requeued = updateStatus(db, key, 'queued', 'human');
@@ -198,8 +198,8 @@ describe('release + clear-on-queued', () => {
   it('in_review keeps the claim as provenance', () => {
     const db = makeTestDb();
     const key = seedQueued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
-    const submitted = submitResult(db, key, { summary: 'done' });
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' });
+    const submitted = submitResult(db, key, { summary: 'done', executionId: claim!.executionId });
     expect(submitted).toMatchObject({ claimedBy: 'worker-1' });
   });
 

@@ -19,8 +19,8 @@ const at = (min: number) => () => new Date(BASE + min * 60000).toISOString();
 function driveDone(db: ReturnType<typeof makeTestDb>, claimedBy?: string) {
   const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, at(0));
   updateStatus(db, task.key, 'queued', 'human', at(10));
-  claimNextTask(db, claimedBy ? { claimedBy } : {}, at(30));
-  submitResult(db, task.key, { summary: 'done' }, at(90));
+  const claim = claimNextTask(db, claimedBy ? { claimedBy } : {}, at(30));
+  submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId }, at(90));
   reviewApprove(db, task.key, at(150));
   return task;
 }
@@ -51,9 +51,9 @@ describe('analyticsRows', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, at(0));
     updateStatus(db, task.key, 'queued', 'human', at(10));
-    claimNextTask(db, { claimedBy: 'worker-1' }, at(30)); // implementation-stage session starts here
-    addTaskMetrics(db, task.key, { tokensIn: 8000, tokensOut: 2000 }, at(60));
-    submitResult(db, task.key, { summary: 'done' }, at(90));
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(30)); // implementation-stage session starts here
+    addTaskMetrics(db, task.key, { tokensIn: 8000, tokensOut: 2000, executionId: claim!.executionId }, at(60));
+    submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId }, at(90));
     reviewApprove(db, task.key, at(150));
     expect(analyticsRows(db, at(999)).tasks[0]!.stageTokens).toEqual({ implementation: 10000 });
   });
@@ -94,8 +94,8 @@ describe('analyticsRows', () => {
     // request-changes path on a second task
     const t2 = createTask(db, { title: 'T2', spec: 'S', acceptanceCriteria: 'A' }, at(0));
     updateStatus(db, t2.key, 'queued', 'human', at(10));
-    claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
-    submitResult(db, t2.key, { summary: 'v1' }, at(50));
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
+    submitResult(db, t2.key, { summary: 'v1', executionId: claim!.executionId }, at(50));
     // in_review → queued is request-changes, not a release
     updateStatus(db, t2.key, 'queued', 'human', at(70));
 
@@ -107,9 +107,9 @@ describe('analyticsRows', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, at(0));
     updateStatus(db, task.key, 'queued', 'human', at(10));
-    claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
     const note = (reason: string, attempt: number) =>
-      addComment(db, task.key, { actor: 'agent', body: buildFailureComment({ reason, detail: 'd', source: 'dispatcher', attempt, maxAttempts: 2 }) }, at(40 + attempt));
+      addComment(db, task.key, { actor: 'agent', body: buildFailureComment({ reason, detail: 'd', source: 'dispatcher', attempt, maxAttempts: 2 }), executionId: claim!.executionId }, at(40 + attempt));
     note('timeout', 1);
     note('max_attempts', 2);
     addComment(db, task.key, { actor: 'human', body: 'just a plain comment' }, at(45)); // ignored

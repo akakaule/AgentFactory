@@ -109,7 +109,7 @@ describe('agent ops — the worked loop over HTTP', () => {
   let supervisor: string;
 
   beforeEach(() => {
-    core = openCore(':memory:');
+    core = openCore(':memory:', { autoFence: false });
     app = buildApp(core, { auth: { mode: 'token' } });
     service = core.createApiToken({ label: 'worker-1', isService: true }).token;
     supervisor = core.createApiToken({ label: 'dispatcher-1', isService: true, isSupervisor: true }).token;
@@ -119,13 +119,13 @@ describe('agent ops — the worked loop over HTTP', () => {
     const t = queuedTask(core);
 
     const claim = await post(app, '/api/agent/claim', { claimedBy: 'remote-w1' }, service);
-    const claimed = (await claim.json()) as { key: string; branchCreated: boolean };
+    const claimed = (await claim.json()) as { key: string; branchCreated: boolean; executionId: string };
     expect(claimed.key).toBe(t.key);
 
-    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { message: 'scaffolding', tokensIn: 10 }, service)).status).toBe(200);
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { executionId: claimed.executionId, message: 'scaffolding', tokensIn: 10 }, service)).status).toBe(200);
     expect(core.listLiveAgents()[0]?.phase).toBe('scaffolding');
 
-    const submit = await post(app, `/api/agent/tasks/${t.key}/submit`, { summary: 'did it', links: [] }, service);
+    const submit = await post(app, `/api/agent/tasks/${t.key}/submit`, { executionId: claimed.executionId, summary: 'did it', links: [] }, service);
     expect(submit.status).toBe(200);
     expect(((await submit.json()) as { status: string }).status).toBe('in_review');
   });
@@ -136,15 +136,67 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect(await res.json()).toBeNull();
   });
 
+  it('claims an explicitly reserved task even when it is not the oldest queued task', async () => {
+    const first = queuedTask(core, 'Oldest queued task');
+    const reserved = queuedTask(core, 'Reserved task');
+    const execution = core.reserveExecution(reserved.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'worker-2' });
+    expect(execution).not.toBeNull();
+
+    const res = await post(app, '/api/agent/claim', { claimedBy: 'worker-2', executionId: execution!.id }, service);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { key: string }).key).toBe(reserved.key);
+    expect(core.getTask(first.key).status).toBe('queued');
+  });
+
   it('release-claim performs the system recovery edge', async () => {
     const t = queuedTask(core);
-    core.claimNextTask({ claimedBy: 'w1' });
+    const claim = core.claimNextTask({ claimedBy: 'w1' });
 
-    const res = await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor);
+    const res = await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: claim!.executionId }, supervisor);
     expect(res.status).toBe(200);
     const detail = core.getTask(t.key);
     expect(detail.status).toBe('queued');
     expect(detail.activity.filter((a) => a.type === 'status_change').at(-1)!.body).toContain('system-reap');
+  });
+
+  it('rejects late fenced progress and submit after a replacement claim', async () => {
+    const t = queuedTask(core);
+    const first = (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as Promise<{ executionId: string }>;
+    const firstClaim = await first;
+    expect(firstClaim.executionId).toBeTruthy();
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: firstClaim.executionId }, supervisor)).status).toBe(200);
+    const replacement = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-2' }, service)).json() as { executionId: string };
+    expect(replacement.executionId).not.toBe(firstClaim.executionId);
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { executionId: firstClaim.executionId, message: 'late' }, service)).status).toBe(409);
+    expect((await post(app, `/api/agent/tasks/${t.key}/submit`, { executionId: firstClaim.executionId, summary: 'late', links: [] }, service)).status).toBe(409);
+    expect(core.getTask(t.key).status).toBe('in_progress');
+  });
+
+  it('a restarted supervisor reads the orphan fence to release it; a plain worker token cannot, and an unfenced release is refused', async () => {
+    const t = queuedTask(core);
+    const claim = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as { executionId: string };
+
+    // the fence is a capability: a superseded worker must not be able to look up the live one
+    expect((await get(app, `/api/agent/tasks/${t.key}/execution`, service)).status).toBe(403);
+    // the board's own process-local claim cache must not fence a remote caller on its behalf
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor)).status).toBe(409);
+
+    const seen = await (await get(app, `/api/agent/tasks/${t.key}/execution`, supervisor)).json() as { id: string };
+    expect(seen.id).toBe(claim.executionId);
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: seen.id }, supervisor)).status).toBe(200);
+    expect(core.getTask(t.key).status).toBe('queued');
+    expect(await (await get(app, `/api/agent/tasks/${t.key}/execution`, supervisor)).json()).toBeNull();
+  });
+
+  it('rejects unfenced mutations from the first claimed execution', async () => {
+    const t = queuedTask(core);
+    const claim = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as { executionId: string };
+    expect(claim.executionId).toBeTruthy();
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { message: 'unfenced' }, service)).status).toBe(409);
+    expect((await post(app, `/api/agent/tasks/${t.key}/submit`, { summary: 'unfenced', links: [] }, service)).status).toBe(409);
   });
 
   it('creating a task through the agent surface lands in backlog with actor agent', async () => {
@@ -191,8 +243,8 @@ describe('agent ops — the worked loop over HTTP', () => {
 
   it('service tokens cannot bulk-archive, and create/comment attribute as agent', async () => {
     const t = queuedTask(core);
-    core.claimNextTask({ claimedBy: 'w1' });
-    core.submitResult(t.key, { summary: 'done' });
+    const claim = core.claimNextTask({ claimedBy: 'w1' });
+    core.submitResult(t.key, { summary: 'done', executionId: claim!.executionId });
     core.reviewApprove(t.key);
 
     expect((await post(app, '/api/tasks/archive-done', {}, service)).status).toBe(403);

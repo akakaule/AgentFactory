@@ -17,14 +17,14 @@ import { NotFoundError, ValidationError } from '../src/errors.js';
 const claimed = (db: ReturnType<typeof makeTestDb>) => {
   const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
   updateStatus(db, task.key, 'queued', 'human');
-  claimNextTask(db, { claimedBy: 'worker-1' });
-  return task;
+  const claim = claimNextTask(db, { claimedBy: 'worker-1' });
+  return { ...task, executionId: claim!.executionId };
 };
 
 describe('migration #4', () => {
   it('fresh DB → user_version 11 with the task_metric table', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
     expect(() => db.prepare('SELECT COUNT(*) n FROM task_metric').get()).not.toThrow();
   });
 
@@ -39,9 +39,9 @@ describe('migration #4', () => {
     db.exec('COMMIT');
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
   });
 });
 
@@ -50,7 +50,7 @@ describe('addTaskMetrics', () => {
     const db = makeTestDb();
     const task = claimed(db);
 
-    addTaskMetrics(db, task.key, { model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92, reportedBy: 'wrapper' });
+    addTaskMetrics(db, task.key, { model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92, reportedBy: 'wrapper', executionId: task.executionId });
 
     const detail = getTask(db, task.key);
     expect(detail.metrics).toMatchObject({ model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92 });
@@ -61,8 +61,8 @@ describe('addTaskMetrics', () => {
     const db = makeTestDb();
     const task = claimed(db);
 
-    addTaskMetrics(db, task.key, { model: 'claude-haiku-4-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.10 });
-    addTaskMetrics(db, task.key, { model: 'claude-fable-5', tokensIn: 30000, tokensOut: 5000, costUsd: 0.80 });
+    addTaskMetrics(db, task.key, { model: 'claude-haiku-4-5', tokensIn: 10000, tokensOut: 2000, costUsd: 0.10, executionId: task.executionId });
+    addTaskMetrics(db, task.key, { model: 'claude-fable-5', tokensIn: 30000, tokensOut: 5000, costUsd: 0.80, executionId: task.executionId });
 
     expect(getTask(db, task.key).metrics).toMatchObject({
       model: 'claude-fable-5', tokensIn: 40000, tokensOut: 7000, costUsd: 0.9,
@@ -87,14 +87,14 @@ describe('addTaskMetrics', () => {
     const db = makeTestDb();
     const task = claimed(db);
     const before = getVersion(db);
-    addTaskMetrics(db, task.key, { tokensIn: 5 }, () => '2099-01-01T00:00:00.000Z');
+    addTaskMetrics(db, task.key, { tokensIn: 5, executionId: task.executionId }, () => '2099-01-01T00:00:00.000Z');
     expect(getVersion(db)).not.toBe(before);
   });
 
   it('metric rows cascade away with the task', () => {
     const db = makeTestDb();
     const task = claimed(db);
-    addTaskMetrics(db, task.key, { tokensIn: 5 });
+    addTaskMetrics(db, task.key, { tokensIn: 5, executionId: task.executionId });
     updateStatus(db, task.key, 'queued', 'human'); // release so delete is allowed
     deleteTask(db, task.key);
     expect((db.prepare('SELECT COUNT(*) n FROM task_metric').get() as { n: number }).n).toBe(0);

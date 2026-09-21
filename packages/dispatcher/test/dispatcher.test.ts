@@ -1021,6 +1021,28 @@ describe('stale-claim reaper', () => {
     expect(workerLabel(calls[0]!.req.env)).toBe(`ws#${key}-a2`);
   });
 
+  it('a restarted supervisor reaps an orphan whose execution fence it never saw, and resumes it once', async () => {
+    // autoFence:false = a process that did NOT make the claim (the worker's MCP server did), so
+    // no execution id is cached in this facade — exactly a supervisor after a restart.
+    const core = openCore(':memory:', { autoFence: false });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    const key = seedQueued(core, 'ws', 'KilledTree');
+    const orphan = core.claimNextTask({ workspace: 'ws', claimedBy: `ws#${key}-a1` })!;
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ staleClaimMinutes: 120, maxAttempts: 3 }), makeDeps(core, spawn, { now: staleNow(3 * HOUR), console: makeFakeConsole() }));
+
+    await d.tick();
+    await d.tick(); // a second poll must not spawn a duplicate for the same task
+
+    expect(calls.length).toBe(1);
+    expect(workerLabel(calls[0]!.req.env)).toBe(`ws#${key}-a2`);
+    const resumed = core.claimNextTask({ workspace: 'ws', claimedBy: `ws#${key}-a2`, taskKey: key })!;
+    expect(resumed.executionId).not.toBe(orphan.executionId);
+    // the killed worker's late output is rejected once the replacement holds the claim
+    expect(() => core.submitResult(key, { summary: 'late', executionId: orphan.executionId })).toThrow(InvalidTransitionError);
+    expect(() => core.reportProgress(key, { message: 'late', executionId: orphan.executionId })).toThrow(InvalidTransitionError);
+  });
+
   it('does nothing when staleClaimMinutes is 0', async () => {
     const core = makeCore();
     const key = seedQueued(core, 'ws', 'Disabled');

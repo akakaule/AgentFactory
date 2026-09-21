@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Activity, Actor } from '../types.js';
+import type { Activity, AddCommentInput } from '../types.js';
 import { transaction } from '../transaction.js';
 import { commentSchema, parse } from '../validate.js';
 import { findRowByKey, touch, toDetail } from '../repo/tasks.js';
@@ -9,20 +9,23 @@ import { applyApproval } from './approval.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { reviewSubmissionFingerprint } from '../reviewConsensus.js';
 import { nowIso } from '../time.js';
+import { assertExecutionOwnership } from '../repo/execution.js';
 
 export function addComment(
   db: DB,
   key: string,
-  input: { actor: Actor; body: string; actorUserId?: number | null },
+  input: AddCommentInput,
   now: () => string = nowIso,
 ): Activity {
-  const { body } = parse(commentSchema, { body: input.body });
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
+  const { body } = parse(commentSchema, input);
   return transaction(db, () => {
     const parsed = parseAiReviewComment(body);
-    const current = findRowByKey(db, key);
-    if (!current) throw new NotFoundError(`task not found: ${key}`);
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    // A settled fence may still comment while it is the task's LATEST execution (a recovery note
+    // after release, a note after submit): nothing newer exists, so nothing can be overwritten.
+    if (input.actor === 'agent') assertExecutionOwnership(db, row.id, key, input.executionId, { allowSettledSuccess: true, allowSettledFailure: true });
+    const current = row;
     const submission = parsed?.consensus?.submission;
     if (submission && (submission.key !== key || submission.fingerprint !== reviewSubmissionFingerprint(toDetail(db, current)))) {
       throw new InvalidTransitionError('review submission changed before publication');

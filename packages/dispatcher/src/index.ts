@@ -5,7 +5,7 @@ import { createWriteStream, mkdirSync, readFileSync, writeFileSync, statSync, ex
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError } from '@agentfactory/core';
+import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, AGENT_CAPABILITIES } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
@@ -38,6 +38,10 @@ if (config.board) {
       console.error(`[dispatcher] board token '${id.label}' lacks the supervisor capability (releaseClaim needs it) — mint with: npm run token -- --supervisor`);
       process.exit(1);
     }
+    if (!id.capabilities.includes(AGENT_CAPABILITIES[0])) {
+      console.error(`[dispatcher] board token '${id.label}' is missing ${AGENT_CAPABILITIES[0]}; restart the board and supervisor together before launching workers`);
+      process.exit(1);
+    }
     console.log(`[dispatcher] board ${config.board.url} as '${id.label}' (supervisor)`);
   } catch (err) {
     if (err instanceof NotFoundError) {
@@ -50,14 +54,14 @@ if (config.board) {
   // spawner reads the effective values without re-deriving them.
   config.board.token = token;
   config.board.workerToken = workerToken;
-  core = http;
+  core = http as unknown as import('./types.js').DispatcherCore;
 } else {
   // Absolutise the DB path (relative to the config file) so the dispatcher's poller AND
   // each worker's MCP server — whose cwd is the workspace repo, not here — open the SAME DB.
   // openCore also runs migrations — a board-mode process must never touch schema, which is
   // why this call lives on the db-only branch.
   config.db = resolve(dirname(configPath), config.db!);
-  core = openCore(config.db);
+  core = openCore(config.db) as unknown as import('./types.js').DispatcherCore;
 }
 
 // Resolve the agentfactory MCP server entry from the installed @agentfactory/mcp package

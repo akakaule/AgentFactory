@@ -2,7 +2,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { openCore, createHttpCore, branchDiff, fetchRemoteRef, resolveBoardToken, assertAbsoluteOverrides, NotFoundError } from '@agentfactory/core';
+import { openCore, createHttpCore, branchDiff, fetchRemoteRef, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, AGENT_CAPABILITIES } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Reviewer } from './reviewer.js';
 import { resolveEngineCommand, pickFromWhich } from './engine.js';
@@ -25,6 +25,10 @@ if (config.board) {
     // A plain service token is all the reviewer needs; flag an over-privileged credential
     // (supervisor can release claims / drive delivery) but keep running.
     if (id.supervisor) console.warn(`[reviewer] board token '${id.label}' has the supervisor capability it does not need — prefer a plain service token`);
+    if (!id.capabilities.includes(AGENT_CAPABILITIES[0])) {
+      console.error(`[reviewer] board token '${id.label}' is missing ${AGENT_CAPABILITIES[0]}; restart the board and reviewer together before launching reviews`);
+      process.exit(1);
+    }
     console.log(`[reviewer] board ${config.board.url} as '${id.label}'`);
   } catch (err) {
     if (err instanceof NotFoundError) {
