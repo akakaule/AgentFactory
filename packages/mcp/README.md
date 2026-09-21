@@ -45,6 +45,20 @@ A claim or list with an unknown workspace slug fails loudly (tool error) rather 
 
 ## Claim metadata & stranded claims
 
+Dispatcher workers pinned with `AGENTFACTORY_TASK_KEY`, `AGENTFACTORY_WORKSPACE`,
+`AGENTFACTORY_WORKER` and `AGENTFACTORY_STAGE=implementation` also receive
+`task_git`. Their claim protocol uses its `prepare`, `commit` (with `message`),
+`push`, and `cleanup` actions for Git writes. This supports runtimes whose sandbox
+protects `.git`, without changing the worker's sandbox permissions.
+
+The server derives the repository, branch and worktree from the active owned
+claim. Callers cannot supply commands, paths or remote names. Reclaims preserve
+existing local or published task commits. Cleanup refuses dirty or unpublished
+work and uses native Git removal without force. Git hooks do not run through
+this interface; required checks must run in the worker's verification command.
+Edits, tests and builds continue in the worker sandbox. Rebuild the MCP package
+before retrying a blocked task; the dispatcher starts a fresh MCP process for it.
+
 Every claim records **who** (`claimed_by`) and **when** (`claimed_at`) on the task, shown on the board. The worker's identity comes from the `AGENTFACTORY_WORKER` env var, falling back to the `AGENTFACTORY_WORKSPACE` pin; with neither set, claims are anonymous but still timestamped.
 
 If a worker dies mid-task, the task sits in In Progress with its claim age visible. A human releases it from the web UI (**Release claim**, `in_progress → queued`) — the claim is cleared, all activity history is preserved, and the next claimant picks it up with full context. Agents cannot release claims.

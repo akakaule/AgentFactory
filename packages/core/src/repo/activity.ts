@@ -27,7 +27,7 @@ export function latestAiReviewComments(db: DB, taskIds: number[]): Map<number, {
   const rows = db.prepare(
     `SELECT a.task_id AS taskId, a.id AS id, a.body AS body FROM activity a
      JOIN (SELECT task_id, MAX(id) AS mid FROM activity
-           WHERE type = 'comment' AND lower(body) LIKE 'ai-review/v1%'
+           WHERE type = 'comment' AND (lower(ltrim(body)) LIKE 'ai-review/v1%' OR lower(ltrim(body)) LIKE 'ai-review/v2%')
            GROUP BY task_id) m ON a.id = m.mid
      WHERE a.task_id IN (${placeholders})`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

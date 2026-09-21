@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck } from '../types.js';
+import type { DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, Status } from '../types.js';
 
 export interface DeliveryRow {
   task_id: number; provider: DeliveryProvider; branch: string;
@@ -11,6 +11,8 @@ export interface DeliveryRow {
 
 /** What a watcher poll observed — the delta applied by updateDeliveryObservation. */
 export interface DeliveryObservation {
+  /** Reject a slow poll if the task moved or its delivery was replaced in the meantime. */
+  expected?: { status: Status; branch: string; prUrl: string | null; stateChangedAt: string } | undefined;
   prUrl?: string | null | undefined;
   prId?: string | null | undefined;
   prState: DeliveryPrState;

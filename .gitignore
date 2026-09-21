@@ -24,3 +24,7 @@ logs/
 # agent / codex CLI tooling (skills + config — tooling state, not project code)
 .agents/
 .codex/
+e2e/demo-*/
+e2e/node_modules/
+e2e/.demo-run.json
+e2e/.env.local

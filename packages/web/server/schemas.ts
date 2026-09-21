@@ -18,6 +18,10 @@ export const workspaceUpdateBody = z
 // Global agent system prompts: a map of prompt-key → text (a blank value clears that key). Keys are
 // validated against the known set in core (setGlobalPrompts ignores unknown keys).
 export const agentPromptsBody = z.record(z.string(), z.string());
+export const engineSettingsBody = z.object({
+  claude: z.object({ enabled: z.boolean() }).optional(),
+  codex: z.object({ enabled: z.boolean() }).optional(),
+}).strict();
 export const StageEnum = z.enum(['description', 'plan', 'implementation']);
 const LinkKindEnum = z.enum(['branch', 'pr', 'worktree', 'log', 'url']);
 export const createBody = z.object({

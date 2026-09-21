@@ -1,6 +1,7 @@
 export { openDb, type DB } from './db.js';
 export { runMigrations } from './migrate.js';
 export * from './types.js';
+export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 export { getVersion } from './version.js';
 export { createTask } from './ops/createTask.js';
@@ -11,12 +12,13 @@ export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
-export { reserveExecution, reconcileExecutions, touchExecution, type ReserveExecutionInput } from './ops/execution.js';
+export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
-export { parseRemoteUrl, resolveOriginUrl, type RemoteRef } from './remote.js';
+export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
+export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
@@ -76,7 +78,8 @@ import { updateStatus } from './ops/updateStatus.js';
 import { releaseClaim } from './ops/releaseClaim.js';
 import { restartTask } from './ops/restartTask.js';
 import { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget } from './ops/retry.js';
-import { reserveExecution, reconcileExecutions, touchExecution } from './ops/execution.js';
+import { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution } from './ops/execution.js';
+import { executionById } from './repo/execution.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
@@ -106,6 +109,7 @@ import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHear
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
+import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput } from './types.js';
 
@@ -128,7 +132,15 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
   const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
     if (!autoFence || input.executionId !== undefined) return input;
     const executionId = executionIds.get(key);
-    return executionId === undefined ? input : { ...input, executionId };
+    if (executionId === undefined) return input;
+    // Only a LIVE cached fence is ergonomic. Once it settled (submit, release, reconcile) replaying
+    // it would turn this facade's own later claim-less calls into stale-execution errors.
+    const state = executionById(db, executionId)?.state;
+    if (state !== 'reserved' && state !== 'running') {
+      executionIds.delete(key);
+      return input;
+    }
+    return { ...input, executionId };
   };
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
@@ -149,6 +161,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     reserveExecution: (key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }) => reserveExecution(db, key, input),
     reconcileExecutions: (graceMs: number) => reconcileExecutions(db, graceMs),
     touchExecution: (id: string) => touchExecution(db, id),
+    getCurrentExecution: (key: string) => getCurrentExecution(db, key),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),
     listWorkspaces: () => listWorkspaces(db),
@@ -178,12 +191,14 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     listSupervisors: () => listSupervisors(db),
     activitySince: (sinceId: number, limit?: number) => activitySince(db, sinceId, limit),
     latestActivityId: () => latestActivityId(db),
+    getEngineSettings: () => getEngineSettings(db),
+    setEngineSettings: (partial: unknown) => setEngineSettings(db, partial),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
     addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
-    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, executionId ?? executionIds.get(key)),
-    releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, executionId ?? executionIds.get(key)),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId),
+    releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, fenced(key, { executionId }).executionId),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),
     settleRetry: (id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }) => settleRetry(db, id, input),

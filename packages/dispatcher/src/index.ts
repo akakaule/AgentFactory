@@ -9,6 +9,7 @@ import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, N
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
+import { resolveCodexCommand } from './codex.js';
 import { terminateProcessTree } from './processTree.js';
 import { encodeProjectDir } from './transcript.js';
 import type { DispatcherDeps, LogWriter, McpServerSpec, SpawnFn } from './types.js';
@@ -85,7 +86,7 @@ function winQuote(s: string): string {
   return `"${escaped}"`;
 }
 
-const realSpawn: SpawnFn = ({ command, args, cwd, env }) => {
+const realSpawn: SpawnFn = ({ command, args, cwd, env, stdin }) => {
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)) {
     // Modern Node refuses to spawn a .cmd/.bat without a shell (CVE-2024-27980), and
     // shell:true does NOT quote args (it only concatenates). So drive cmd.exe ourselves
@@ -99,7 +100,12 @@ const realSpawn: SpawnFn = ({ command, args, cwd, env }) => {
     });
   }
   // POSIX, or a Windows .exe — spawn directly; Node applies correct argument quoting.
-  return spawn(command, args, { cwd, env });
+  const child = spawn(command, args, { cwd, env });
+  if (stdin !== undefined) {
+    child.stdin.on('error', () => { /* exit/error handles a CLI closing stdin early */ });
+    child.stdin.end(stdin);
+  }
+  return child;
 };
 
 const openLog = (path: string): LogWriter => {
@@ -186,6 +192,7 @@ const deps: DispatcherDeps = {
   core,
   spawn: realSpawn,
   resolveClaude: () => resolveClaudeCommand({ platform: process.platform, env: process.env, lookup: lookupClaude }),
+  resolveCodex: () => resolveCodexCommand({ platform: process.platform, env: process.env, lookup: lookupClaude, fileExists: existsSync }),
   mcp,
   openLog,
   writeMcp,

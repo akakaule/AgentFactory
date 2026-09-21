@@ -2,7 +2,7 @@ import type { DB } from '../db.js';
 import type { Execution, RetryOperation } from '../types.js';
 import { transaction } from '../transaction.js';
 import { findRowByKey } from '../repo/tasks.js';
-import { createExecution, abandonedExecutionIds, settleExecution, touchExecution as touchExecutionRow } from '../repo/execution.js';
+import { createExecution, abandonedExecutionIds, executionForTask, settleExecution, touchExecution as touchExecutionRow } from '../repo/execution.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
@@ -42,6 +42,17 @@ export function reconcileExecutions(db: DB, graceMs: number, now: () => string =
     }
     return count;
   });
+}
+
+/**
+ * The task's current (reserved/running) execution, or null. A supervisor that did not make the
+ * claim — the stale-claim reaper after a restart — reads this so its release is fenced on the
+ * execution it actually observed instead of being an unfenced write.
+ */
+export function getCurrentExecution(db: DB, key: string): Execution | null {
+  const row = findRowByKey(db, key);
+  if (!row) throw new NotFoundError(`task not found: ${key}`);
+  return executionForTask(db, row.id, key);
 }
 
 /** Refresh a supervisor-owned execution heartbeat without changing task state. */

@@ -75,7 +75,10 @@ export function assertExecutionOwnership(
 ): ExecutionRow | undefined {
   const latest = latestExecution(db, taskId);
   if (executionId === undefined) {
-    if (latest?.owner !== null && latest !== undefined)
+    // An owned execution that is still live fences the task from its very first claim: an
+    // unfenced caller is an old build or a superseded session. With nothing live there is no
+    // owner to protect, so claim-less callers (an interactive review, a producer note) still work.
+    if (latest !== undefined && latest.owner !== null && (latest.state === 'reserved' || latest.state === 'running'))
       throw new InvalidTransitionError(`execution identity is required for ${taskKey}; restart the worker and supervisor together`);
     return undefined;
   }

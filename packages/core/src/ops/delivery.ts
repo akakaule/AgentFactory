@@ -2,8 +2,10 @@ import type { DB } from '../db.js';
 import type { TaskDetail, DeliverySummary, DeliveryProvider } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
-import { findRowByKey, toDetail, setStatus, touch } from '../repo/tasks.js';
+import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
+import { endSession } from '../repo/agentSessions.js';
+import { latestPrLinkUrl } from '../repo/links.js';
 import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation } from '../repo/delivery.js';
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
@@ -45,37 +47,56 @@ export function beginDelivery(db: DB, key: string, seed: { provider: DeliveryPro
 
 /**
  * Record one watcher poll. Always refreshes checked_at; bumps the task (→ getVersion → UI refetch)
- * only when the observed PR/checks state actually changed. Deliberately a no-op once the task has
- * left 'delivering' — a late watcher write races a human override, and the human wins.
+ * only when the observed PR/checks state actually changed. A confirmed merge also completes
+ * the current delivery in this transaction, including during repair. Terminal/archived tasks and stale
+ * observations are ignored so a slow provider response cannot overwrite a newer delivery.
  */
-export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean } {
+export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean; skipped?: boolean } {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    if (row.status !== 'delivering') return { changed: false };
+    if (row.archived_at || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { changed: false, skipped: true };
     const d = deliveryRowFor(db, row.id);
-    if (!d) return { changed: false }; // nothing seeded — the watcher self-heals via beginDelivery first
+    if (!d) return { changed: false, skipped: true }; // nothing seeded
+    const expected = obs.expected;
+    if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
+        expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { changed: false, skipped: true };
     const ts = now();
     const { changed } = updateDeliveryObservation(db, d, obs, ts);
+    if (reconcileMergedDelivery(db, row, ts)) return { changed: true };
     if (changed) touch(db, row.id, ts);
     return { changed };
   });
 }
 
 /**
- * The watcher's happy ending: PR merged + pipeline green ⇒ delivering → done (by 'agent' — the
- * one automated path into done, and it exists only from delivering). `note` records WHY in the
- * status trail (e.g. "PR #42 merged; checks green"). Throws InvalidTransitionError if the task
- * already left delivering (raced a human) — callers treat that as settled, not an error.
+ * Finish a previously observed merged delivery. The stored facts, not a caller's note, authorize
+ * completion. Used to recover legacy queued deliveries before dispatching another worker.
  */
 export function completeDelivery(db: DB, key: string, note: string, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    assertTransition(row.status, 'done', 'agent');
-    const ts = now();
-    setStatus(db, row.id, 'done', ts);
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'done', body: note, createdAt: ts });
+    if (!reconcileMergedDelivery(db, row, now(), note))
+      throw new InvalidTransitionError(`completion requires a current merged delivery: ${key}`);
     return toDetail(db, findRowByKey(db, key)!);
   });
+}
+
+/** Runs inside the caller's transaction (observation, retry, or claim); never nests a transaction. */
+export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?: string): boolean {
+  if (row.archived_at || row.kind !== 'code' || row.stage !== 'implementation' ||
+      !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return false;
+  const d = deliveryRowFor(db, row.id);
+  if (!d || d.pr_state !== 'merged' || !d.pr_url || !d.checked_at || d.branch !== row.branch) return false;
+  // A repair may already have submitted a replacement PR, pending its own approval.
+  const latestPr = latestPrLinkUrl(db, row.id);
+  if (latestPr && latestPr !== d.pr_url) return false;
+  assertTransition(row.status, 'done', 'agent');
+  setStatus(db, row.id, 'done', ts);
+  endSession(db, row.id, ts);
+  const body = `PR ${d.pr_id ?? d.pr_url} merged; checks ${d.checks_state}. Original delivery complete; further CI repair is separate work.`;
+  appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status,
+    toStatus: 'done', body: note ? `${body}\n${note}` : body, createdAt: ts });
+  return true;
 }
 
 /**
@@ -94,6 +115,7 @@ export function failDelivery(
 ): TaskDetail {
   return transaction(db, () => {
     const row = requireRow(db, key);
+    if (row.status !== 'delivering') throw new InvalidTransitionError(`delivery failure requires delivering (got ${row.status})`);
     assertTransition(row.status, 'queued', 'agent');
     const ts = now();
     const repair = reserveRetryRow(db, row.id, key, { operation: 'delivery', maxAttempts: DEFAULT_DELIVERY_REPAIR_ATTEMPTS }, ts);

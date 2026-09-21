@@ -174,6 +174,22 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect(core.getTask(t.key).status).toBe('in_progress');
   });
 
+  it('a restarted supervisor reads the orphan fence to release it; a plain worker token cannot, and an unfenced release is refused', async () => {
+    const t = queuedTask(core);
+    const claim = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as { executionId: string };
+
+    // the fence is a capability: a superseded worker must not be able to look up the live one
+    expect((await get(app, `/api/agent/tasks/${t.key}/execution`, service)).status).toBe(403);
+    // the board's own process-local claim cache must not fence a remote caller on its behalf
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor)).status).toBe(409);
+
+    const seen = await (await get(app, `/api/agent/tasks/${t.key}/execution`, supervisor)).json() as { id: string };
+    expect(seen.id).toBe(claim.executionId);
+    expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: seen.id }, supervisor)).status).toBe(200);
+    expect(core.getTask(t.key).status).toBe('queued');
+    expect(await (await get(app, `/api/agent/tasks/${t.key}/execution`, supervisor)).json()).toBeNull();
+  });
+
   it('rejects unfenced mutations from the first claimed execution', async () => {
     const t = queuedTask(core);
     const claim = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as { executionId: string };

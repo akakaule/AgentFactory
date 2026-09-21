@@ -4,6 +4,7 @@ import { composeFeedback } from '../composeFeedback.js';
 import { composePrReview } from '../composePrReview.js';
 import { CopyButton } from './CopyButton.js';
 import { I } from '../icons.js';
+import { ConsensusDiscussion } from './ConsensusDiscussion.js';
 
 interface Props {
   onApprove: () => void;
@@ -32,11 +33,15 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
   const approveLabel = isPrReview ? 'Mark reviewed'
     : willDeliver ? 'Approve → deliver'
     : APPROVE_LABELS[stage ?? 'implementation'];
-  const items = aiReview?.items ?? [];
+  // The action checklist includes only high-priority findings; keep the full verdict
+  // for approval semantics and retain all findings in the task's review history.
+  const items = (aiReview?.items ?? []).filter((f) => f.severity === 'error');
   const reviewer = aiReview?.reviewer ?? null;
   const reviewPresent = items.length > 0;
   // Break-glass only over a CURRENT review with open findings; pending/clean approve in one click.
-  const hasOpenFindings = aiReview?.verdict === 'findings';
+  const hasOpenFindings = aiReview?.verdict === 'findings' || aiReview?.verdict === 'disputed';
+  const disputes = aiReview?.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0;
+  const openCount = (aiReview?.findings ?? 0) + disputes;
 
   const [note, setNote] = useState('');
   const [composing, setComposing] = useState(false);
@@ -47,9 +52,10 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
   // change — a fresh review round replaces the checklist. For a pr-review, also pre-fill the
   // editable review body with the findings as markdown, so the textarea shows exactly what gets
   // copied onto the PR (WYSIWYG) and the human can edit it before copying.
-  const sig = items.map((f) => f.title).join('|');
+  const sig = JSON.stringify([items, aiReview?.verdict, aiReview?.consensus]);
   useEffect(() => {
     setUnchecked(new Set());
+    setArmed(false);
     if (isPrReview) setNote(composePrReview(items, ''));
   }, [sig]);
 
@@ -88,8 +94,11 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
       {reviewPresent && (
         <div className="af-airev-list">
           <div className="hd">
-            {I.bot({})} AI review · {items.length} finding{items.length === 1 ? '' : 's'}{reviewer ? ` · ${reviewer}` : ''}
+            {I.bot({})} AI review · {items.length} high-priority finding{items.length === 1 ? '' : 's'}{reviewer ? ` · ${reviewer}` : ''}
           </div>
+          {aiReview?.consensus && <div className="af-compose-hint" title={aiReview.consensus.participants.join(' + ')}>
+            Confirmed by all {aiReview.consensus.participants.length} reviewers
+          </div>}
           {items.map((f, i) => (
             <label key={i} className="it">
               {/* code tasks curate findings with checkboxes; a pr-review edits the markdown body below instead */}
@@ -107,12 +116,19 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
         </div>
       )}
 
+      {hasOpenFindings && !reviewPresent && (
+        <div className="af-compose-hint">No high-priority findings.</div>
+      )}
+
+      {aiReview?.consensus && <ConsensusDiscussion consensus={aiReview.consensus} />}
+
       {hasOpenFindings && (
         <div className="af-airev-warn">
           {I.bot({})}
           <span>
             Latest AI review has <strong>{aiReview!.findings} open finding{aiReview!.findings === 1 ? '' : 's'}</strong>.
-            Approving is recorded as an override.
+            {disputes > 0 && <> <strong>{disputes} unresolved dispute{disputes === 1 ? '' : 's'}</strong>.</>}
+            {' '}Approving is recorded as an override.
           </span>
         </div>
       )}
@@ -144,7 +160,7 @@ export function ReviewActions({ onApprove, onRequestChanges, onMarkReviewed, aiR
           style={{ height: 30 }}
           onClick={handleApprove}
         >
-          {I.check({ width: 14, height: 14 })}{armed ? `${isPrReview ? 'Mark reviewed' : 'Override — approve'} anyway (${aiReview!.findings})` : approveLabel}
+          {I.check({ width: 14, height: 14 })}{armed ? `${isPrReview ? 'Mark reviewed' : 'Override — approve'} anyway (${openCount})` : approveLabel}
         </button>
         {/* A PR review has no "send back" — the real request-changes lives on the PR itself; done = review given. */}
         {!isPrReview && !composing && (

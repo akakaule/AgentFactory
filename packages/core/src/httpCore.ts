@@ -29,11 +29,11 @@ export interface BoardIdentity {
  *  only exists on the wire — hence the intersection rather than a wider Pick. */
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
-  | 'claimNextTask' | 'submitResult' | 'createTask' | 'reserveExecution' | 'reconcileExecutions' | 'touchExecution'
+  | 'claimNextTask' | 'submitResult' | 'createTask' | 'reserveExecution' | 'reconcileExecutions' | 'touchExecution' | 'getCurrentExecution'
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
-  | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat'
+  | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
 > & {
@@ -107,6 +107,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     },
     reserveExecution: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/execution/reserve`, input)) as never,
     reconcileExecutions: async (graceMs) => ((await req('POST', '/api/agent/executions/reconcile', { graceMs })) as { count: number }).count,
+    getCurrentExecution: async (key) => (await req('GET', `/api/agent/tasks/${enc(key)}/execution`)) as never,
     touchExecution: async (id) => ((await req('POST', `/api/agent/executions/${enc(id)}/touch`, {})) as { touched: boolean }).touched,
     submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, fenced(key, input))) as never,
     createTask: async (input) => (await req('POST', '/api/agent/tasks', input)) as never,
@@ -138,6 +139,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     resolveAgentPrompt: async (key, workspace) =>
       ((await req('GET', `/api/agent/prompts/${enc(key)}?workspace=${enc(workspace)}`)) as { prompt: string }).prompt,
     resolveGitAuth: async (workspace) => (await req('GET', `/api/agent/workspaces/${enc(workspace)}/git-auth`)) as never,
+    getEngineSettings: async () => (await req('GET', '/api/agent/engines')) as never,
     getWorkspacePat: async (workspace) =>
       ((await req('GET', `/api/agent/workspaces/${enc(workspace)}/pat`)) as { pat: string | null }).pat,
 

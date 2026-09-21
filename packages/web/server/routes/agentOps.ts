@@ -8,7 +8,9 @@ import { requireService, requireSupervisor, principalOf } from '../auth.js';
 // Wire shapes for the ops core does NOT re-validate itself (heartbeat, progress, transcript,
 // delivery observations) — without these a malformed body surfaced as a 500, not a 400.
 // `.passthrough()` keeps core the authority on any extra fields it knows about.
-const claimBody = z.object({ workspace: z.string().min(1).optional(), claimedBy: z.string().min(1).optional(), executionId: z.string().min(1).optional() });
+const claimBody = z.object({ workspace: z.string().min(1).optional(), claimedBy: z.string().min(1).optional(),
+  executionId: z.string().min(1).optional(),
+  taskKey: z.string().min(1).optional(), stage: z.enum(['description', 'plan', 'implementation']).optional() });
 const progressBody = z.object({
   executionId: z.string().min(1).optional(),
   message: z.string().min(1).max(500),
@@ -27,6 +29,10 @@ const heartbeatBody = z.object({
 });
 const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branch: z.string().min(1), prUrl: z.string().nullable().optional() });
 const deliveryCheckBody = z.object({
+  expected: z.object({
+    status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
+    branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
+  }).optional(),
   prUrl: z.string().nullable(), prId: z.string().nullable(),
   prState: z.string(), checksState: z.string(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
@@ -44,6 +50,7 @@ type AgentOpsCore = Core & {
   reportProgress(key: string, input: { message: string; tokensIn?: number; tokensOut?: number; executionId?: string }): void;
   reserveExecution(key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }): unknown;
   reconcileExecutions(graceMs: number): number;
+  getCurrentExecution(key: string): unknown;
   touchExecution(id: string): boolean;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): unknown;
   reconcileRetry(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): unknown;
@@ -92,11 +99,7 @@ export function agentOpsRoutes(core: Core): Hono {
   // ── claim / deliver ────────────────────────────────────────────────────────
   r.post('/claim', validated('json', claimBody), (c) => {
     const b = c.req.valid('json');
-    const input: Parameters<Core['claimNextTask']>[0] = {};
-    if (b.workspace !== undefined) input.workspace = b.workspace;
-    if (b.claimedBy !== undefined) input.claimedBy = b.claimedBy;
-    if (b.executionId !== undefined) input.executionId = b.executionId;
-    const claim = core.claimNextTask(input);
+    const claim = core.claimNextTask({ workspace: b.workspace, claimedBy: b.claimedBy, executionId: b.executionId, taskKey: b.taskKey, stage: b.stage });
     return c.json(claim); // null = queue empty (the caller's idle signal, not an error)
   });
 
@@ -134,6 +137,10 @@ export function agentOpsRoutes(core: Core): Hono {
     const b = c.req.valid('json');
     return c.json(core.updateStatus(c.req.param('key'), b.status as Parameters<Core['updateStatus']>[1], 'agent', null, b.note, b.executionId));
   });
+  // The execution id IS the ownership fence — supervisor-gated so a plain worker token can never
+  // read the current fence and replay it from a superseded session.
+  r.get('/tasks/:key/execution', requireSupervisor, (c) =>
+    c.json(agentCore.getCurrentExecution(c.req.param('key'))));
   r.post('/executions/reconcile', validated('json', executionReconcileBody), (c) =>
     c.json({ count: agentCore.reconcileExecutions(c.req.valid('json').graceMs) }));
   r.post('/executions/:id/touch', (c) => {
@@ -196,6 +203,9 @@ export function agentOpsRoutes(core: Core): Hono {
   });
 
   r.get('/live-agents', (c) => c.json(core.listLiveAgents()));
+
+  // Read-only for agents/supervisors: the board (a human) decides which engines may run.
+  r.get('/engines', (c) => c.json(core.getEngineSettings()));
 
   r.get('/prompts/:key', (c) => {
     const workspace = c.req.query('workspace');

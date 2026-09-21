@@ -38,12 +38,26 @@ describe('execution ownership', () => {
     expect(first?.executionId).toBeTruthy();
 
     releaseClaim(db, task.key, undefined, first!.executionId);
+    // the supervisor's recovery note rides the just-failed fence while it is still the latest
+    expect(() => addComment(db, task.key, { actor: 'agent', body: 'recovery note', executionId: first!.executionId })).not.toThrow();
     const replacement = claimNextTask(db, { claimedBy: 'worker-2' });
     expect(replacement?.executionId).not.toBe(first?.executionId);
 
     expect(() => reportProgress(db, task.key, { message: 'late', executionId: first!.executionId })).toThrow(InvalidTransitionError);
     expect(() => submitResult(db, task.key, { summary: 'late', executionId: first!.executionId })).toThrow(InvalidTransitionError);
-    expect(() => addComment(db, task.key, { actor: 'agent', body: 'recovery note', executionId: first!.executionId })).not.toThrow();
+    // once a replacement holds the claim, even a comment from the old fence is historical output
+    expect(() => addComment(db, task.key, { actor: 'agent', body: 'late note', executionId: first!.executionId })).toThrow(InvalidTransitionError);
+  });
+
+  it('lets a claim-less agent comment once no execution is live, but never while one is', () => {
+    const db = makeTestDb();
+    const task = queued(db);
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' });
+    expect(() => addComment(db, task.key, { actor: 'agent', body: 'unfenced while live' })).toThrow(InvalidTransitionError);
+
+    submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId });
+    // e.g. an interactive /review-task session: it never claimed, so it has no fence to present
+    expect(() => addComment(db, task.key, { actor: 'agent', body: 'interactive review note' })).not.toThrow();
   });
 
   it('rejects unfenced mutations for a supervisor-owned execution', () => {

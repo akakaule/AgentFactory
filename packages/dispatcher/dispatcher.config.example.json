@@ -5,10 +5,11 @@
   "pollSeconds": 15,
   "permissionMode": "acceptEdits",
   "claudeArgs": [],
+  "stageEngines": { "plan": "codex", "implementation": "codex" },
   "stageArgs": {
     "description": ["--model", "haiku"],
-    "plan": ["--model", "haiku"],
-    "implementation": ["--model", "opus"]
+    "plan": ["--model", "gpt-6-astra", "-c", "model_reasoning_effort=\"medium\""],
+    "implementation": ["--model", "gpt-5.6-luna", "-c", "model_reasoning_effort=\"high\""]
   },
   "maxSessionMinutes": 60,
   "maxAttempts": 2

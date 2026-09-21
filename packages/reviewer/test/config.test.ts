@@ -2,6 +2,29 @@ import { describe, it, expect } from 'vitest';
 import { parseConfig, loadConfig } from '../src/config.js';
 
 describe('reviewer config', () => {
+  it('requires multiple profiles and finite bounds when consensus is enabled', () => {
+    expect(() => parseConfig({ db: 'x', consensus: { enabled: true } })).toThrow();
+    const reviewers = [{ engine: 'claude' }, { engine: 'codex' }];
+    expect(parseConfig({ db: 'x', reviewers, consensus: { enabled: true } }).consensus).toMatchObject({ totalMinutes: 30, maxPromptChars: 500000 });
+    expect(() => parseConfig({ db: 'x', reviewers, consensus: { enabled: true, totalMinutes: 0 } })).toThrow();
+  });
+  it('accepts both reviewers with an explicit Astra reasoning effort', () => {
+    const reviewers = [
+      { engine: 'claude', model: 'claude-fable-5-1' },
+      { engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'medium' },
+    ];
+    expect(parseConfig({ db: './x.db', reviewers }).reviewers).toEqual(reviewers);
+  });
+
+  it('rejects empty, duplicate, invalid, or ignored reviewer settings', () => {
+    for (const reviewers of [[], [{ engine: 'unknown' }],
+      [{ engine: 'claude', reasoningEffort: 'medium' }],
+      [{ engine: 'codex', reasoningEffort: 'typo' }],
+      [{ engine: 'codex', typo: true }],
+      [{ engine: 'codex', model: 'gpt-6-astra' }, { engine: 'codex', model: 'gpt-6-astra' }],
+    ]) expect(() => parseConfig({ db: './x.db', reviewers })).toThrow();
+  });
+
   it('applies defaults (codex engine, 60s poll, 20m cap, 120k diff, 2 attempts)', () => {
     const c = parseConfig({ db: './x.db', workspaces: ['ws'] });
     expect(c).toMatchObject({

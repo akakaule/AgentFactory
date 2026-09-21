@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, Execution } from '@agentfactory/core';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, Execution, EngineSettings } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 /**
@@ -18,6 +18,8 @@ export interface ReviewerCore {
   getTask(key: string): Awaitable<TaskDetail>;
   // the configured reviewer/evaluator system prompt (workspace override → global default → '').
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
+  /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
+  getEngineSettings(): Awaitable<EngineSettings>;
   addComment(key: string, input: { actor: Actor; body: string; executionId?: string | undefined }): Awaitable<Activity>;
   reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null | undefined; startImmediately?: boolean | undefined }): Awaitable<Execution | null>;
   reconcileExecutions?(graceMs: number): Awaitable<number>;

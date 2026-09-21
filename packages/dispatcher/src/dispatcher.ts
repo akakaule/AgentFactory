@@ -1,15 +1,18 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey } from '@agentfactory/core';
-import type { DispatcherConfig } from './config.js';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings } from '@agentfactory/core';
+import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
+import type { DispatcherConfig, WorkerEngine } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter, RetryReservationLike } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
 import { parseCliMetrics, hasMetrics, parsePermissionDenials, type ParsedMetrics } from './metrics.js';
+import { buildCodexArgs, parseCodexMetrics, codexFailed } from './codex.js';
 
 /** Live state for one spawned worker session. */
 interface Session {
+  engine: WorkerEngine;
   label: string;
   workspace: string;
-  /** The queued key this session was spawned for (matches the claimed key at maxConcurrent 1). */
+  /** The queued key this session's MCP claim is pinned to. */
   predictedKey: string;
   attempt: number;
   maxAttempts: number;
@@ -24,6 +27,8 @@ interface Session {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
+  /** A merged delivery ended this repair; its process tree is stopping without a retry. */
+  deliveryCompleted?: boolean;
   /** Workspace repo path = the session's `claude` cwd, which fixes its transcript dir. */
   cwd: string;
   /** Forced session id (UUID) — the transcript filename, passed via `--session-id`. */
@@ -48,7 +53,7 @@ interface ReleaseOpts { reason: FailureReason | string; detail: string; body: st
 type LaunchReservation = RetryReservationLike & { executionId?: string | undefined };
 
 /**
- * The supervisor. Polls the queue read-only and spawns one fresh headless `claude`
+ * The supervisor. Polls the queue read-only and spawns one fresh headless worker
  * session per task (the session claims — the dispatcher never does), reaps each exit
  * to record measured metrics, and releases + retries the claim of any session that
  * dies mid-task. All side effects (spawn, clock, logs, console) are injected via deps.
@@ -57,6 +62,10 @@ export class Dispatcher {
   private readonly running = new Map<string, Session>(); // label -> session
   /** UI/test cache only; retry decisions come from core's durable budget. */
   private readonly skipped = new Set<string>(); // task keys observed at the persisted cap
+
+  private engineSettings: EngineSettings = defaultEngineSettings();
+
+  private warnedNoEngine = false;
   /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
    *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
   private readonly settling = new Set<Promise<void>>();
@@ -128,8 +137,10 @@ export class Dispatcher {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
     await this.touchLiveSessions();
     await this.reconcileExecutions();
+    await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
+    await this.stopCompletedRepairs();
     this.enforceTimeouts();
     // Timeout kills emit child exit synchronously on some platforms; finish that reap before
     // polling so a freed slot can be used in this cycle without competing with the old session.
@@ -140,6 +151,22 @@ export class Dispatcher {
     await this.reapStaleClaims(served);
     for (const workspace of served) await this.pollWorkspace(workspace);
     await Promise.all([...this.settling]); // exits fired during this tick (fast sessions) too
+  }
+
+  /** Board engine toggles, read once per tick. A failed read keeps the previous tick's answer. */
+  private async refreshEngineSettings(): Promise<void> {
+    try {
+      this.engineSettings = await this.deps.core.getEngineSettings();
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not read engine settings; keeping previous: ${(err as Error).message}`);
+    }
+  }
+
+  /** The engine a stage runs on right now: configured → other enabled engine → null (nothing may run). */
+  private engineFor(stage: Stage): { engine: WorkerEngine; configured: WorkerEngine } | null {
+    const configured = this.config.stageEngines?.[stage] ?? 'claude';
+    const engine = resolveEngine(configured, this.engineSettings);
+    return engine ? { engine, configured } : null;
   }
 
   private async reconcileAbandonedReservations(): Promise<void> {
@@ -215,11 +242,27 @@ export class Dispatcher {
 
   // -- timeouts --------------------------------------------------------------
 
+  private async stopCompletedRepairs(): Promise<void> {
+    for (const session of this.running.values()) {
+      if (session.settled || session.deliveryCompleted) continue;
+      try {
+        const task = await this.deps.core.getTask(session.predictedKey);
+        if (task.status !== 'done' || task.delivery?.prState !== 'merged') continue;
+        session.deliveryCompleted = true;
+        this.appendLog(session, '\n[dispatcher] PR merged; stopping completed repair and preserving its worktree\n');
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
+      } catch (err) {
+        session.deliveryCompleted = false;
+        this.console.warn(`[dispatcher] could not reconcile completed repair ${session.predictedKey}: ${(err as Error).message}`);
+      }
+    }
+  }
+
   private enforceTimeouts(): void {
     const capMs = this.config.maxSessionMinutes * 60_000;
     const now = this.deps.now();
     for (const session of this.running.values()) {
-      if (session.timedOut || session.settled) continue;
+      if (session.timedOut || session.settled || session.deliveryCompleted) continue;
       if (now - session.startedAtMs > capMs) {
         session.timedOut = true;
         this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m); killing\n`);
@@ -290,8 +333,13 @@ export class Dispatcher {
             reason: 'stale claim reclaimed',
           });
         }
+        // This process never held the orphan's fence (it died with the previous supervisor), so
+        // release against the execution observed now: a replacement claim landing in between has a
+        // different id and makes the release fail closed instead of yanking the new worker.
+        const orphanExecution = await this.deps.core.getCurrentExecution?.(task.key);
         this.console.log(`[dispatcher] reaping stale claim ${task.key} (claimed by ${label}, no heartbeat for ${ageMinutes}m)`);
         await this.releaseClaim(task.key, {
+          ...(orphanExecution ? { executionId: orphanExecution.id } : {}),
           reason: 'stale',
           detail: `claim by \`${label}\` looks abandoned — no heartbeat for ${ageMinutes}m (staleClaimMinutes ${this.config.staleClaimMinutes})`,
           body:
@@ -347,6 +395,20 @@ export class Dispatcher {
     for (const s of this.running.values()) {
       if (s.settled) continue;
       try {
+        if (s.engine === 'codex') {
+          const claimed = await this.findClaimed(s);
+          if (claimed && s.stdout.length > s.transcriptOffset) {
+            const end = s.stdout.lastIndexOf('\n') + 1;
+            if (end > s.transcriptOffset) {
+              await this.deps.core.appendTranscript(claimed.key, {
+                chunk: s.stdout.slice(s.transcriptOffset, end), attempt: s.attempt, sessionId: s.sessionId, engine: 'codex',
+                ...(s.executionId ? { executionId: s.executionId } : {}),
+              });
+              s.transcriptOffset = end;
+            }
+          }
+          continue;
+        }
         if (s.transcriptKey === null) {
           const claimed = await this.findClaimed(s);
           if (!claimed) continue; // not claimed yet — attach once we know the task
@@ -370,6 +432,13 @@ export class Dispatcher {
   /** Persist a session's full transcript at exit so it survives worktree prune + ~/.claude GC. */
   private async persistTranscript(session: Session, key: string): Promise<void> {
     try {
+      if (session.engine === 'codex') {
+        if (session.stdout.trim()) await this.deps.core.saveTranscript(key, {
+          raw: session.stdout, attempt: session.attempt, sessionId: session.sessionId, engine: 'codex',
+          ...(session.executionId ? { executionId: session.executionId } : {}),
+        });
+        return;
+      }
       const path = session.transcriptPath ?? this.deps.findTranscript(session.cwd, session.sessionId);
       if (!path) return;
       const raw = this.deps.readFile(path);
@@ -389,9 +458,27 @@ export class Dispatcher {
     let spawned = 0;
     for (const task of queued) {
       if (spawned >= slots) break;
+      if (task.delivery?.prState === 'merged') {
+        try {
+          await this.deps.core.completeDelivery(task.key, 'Reconciled before dispatch; no implementation worker needed.');
+          continue;
+        } catch (err) {
+          if (!(err instanceof InvalidTransitionError)) throw err;
+          // It may have a replacement PR or have moved since listTasks. Only the former is work.
+          if ((await this.deps.core.getTask(task.key)).status !== 'queued') continue;
+        }
+      }
       if (task.unmetDependencyCount > 0) continue;
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
+      if (!this.engineFor(task.stage)) {
+        // Every engine is switched off on the board: leave the task queued and untouched (no
+        // attempt burned) until an operator re-enables one.
+        if (!this.warnedNoEngine) this.console.warn('[dispatcher] all agent engines are disabled on the board; leaving queued tasks untouched');
+        this.warnedNoEngine = true;
+        continue;
+      }
+      this.warnedNoEngine = false;
       let reservation: LaunchReservation | null;
       if (this.deps.core.reserveExecution) {
         const execution = await this.deps.core.reserveExecution(task.key, {
@@ -461,8 +548,8 @@ export class Dispatcher {
   }
 
   /** Global claudeArgs plus any per-stage args (stage args last, so a stage `--model` wins). */
-  private stageClaudeArgs(stage: Stage): string[] {
-    return [...this.config.claudeArgs, ...(this.config.stageArgs?.[stage] ?? [])];
+  private stageClaudeArgs(stageArgs: string[]): string[] {
+    return [...this.config.claudeArgs, ...stageArgs];
   }
 
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
@@ -477,6 +564,14 @@ export class Dispatcher {
     // Keep the established worker label stable for claim reconciliation and activity analytics.
     // The execution fence and the per-run file suffix provide uniqueness without changing the
     // label contract consumed by existing workers.
+    const choice = this.engineFor(stage);
+    if (!choice) return false; // toggled off between the poll and the spawn
+    const { engine, configured } = choice;
+    // stageArgs tier the model for the CONFIGURED engine (e.g. a Codex --model); they would be
+    // gibberish to the fallback engine, which therefore runs on its global args only.
+    const stageArgs = engine === configured ? (this.config.stageArgs?.[stage] ?? []) : [];
+    if (engine !== configured) this.console.log(`[dispatcher] ${key}: ${configured} is disabled on the board; falling back to ${engine} for ${stage}`);
+    const codexCommand = engine === 'codex' ? this.deps.resolveCodex() : null;
     const label = `${workspace}#${key}-a${attempt}`;
     const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}${identitySuffix}.log`;
     const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}${identitySuffix}.mcp.json`;
@@ -492,6 +587,8 @@ export class Dispatcher {
       AGENTFACTORY_TOKEN: board?.workerToken ?? '',
       AGENTFACTORY_WORKSPACE: workspace,
       AGENTFACTORY_WORKER: label,
+      AGENTFACTORY_TASK_KEY: key,
+      AGENTFACTORY_STAGE: stage,
     };
     if (reservation.executionId) mcpEnv['AGENTFACTORY_EXECUTION_ID'] = reservation.executionId;
     const localRepo = this.config.repoPathOverrides?.[workspace];
@@ -500,21 +597,12 @@ export class Dispatcher {
     // spawn path) strips the JSON's embedded quotes from argv.
     this.deps.writeMcp(mcpConfigPath, buildMcpConfig(this.deps.mcp, mcpEnv));
     const sessionId = this.deps.uuid();
-    const args = buildSpawnArgs({
-      prompt: this.prompt,
-      permissionMode: this.config.permissionMode,
-      mcpConfigPath,
-      claudeArgs: this.stageClaudeArgs(stage),
-      sessionId,
-      // the effective worker system prompt for this stage/workspace (override → global → '')
-      appendSystemPrompt: await this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace),
-    });
+    const systemPrompt = await this.deps.core.resolveAgentPrompt(`worker.${stage}` as AgentPromptKey, workspace);
     const env: NodeJS.ProcessEnv = {
       ...(this.deps.baseEnv ?? {}),
-      AGENTFACTORY_WORKSPACE: workspace,
-      AGENTFACTORY_WORKER: label,
+      ...mcpEnv,
     };
-    if (this.config.otel) {
+    if (this.config.otel && engine === 'claude') {
       // Export token usage over OTLP (captured even for streamed/interactive turns), tagged
       // with the task key so the receiver attributes it to this task.
       env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
@@ -530,6 +618,7 @@ export class Dispatcher {
     // with the managed credential without the secret ever touching the claim payload or `.git/config`.
     // Null (no PAT anywhere) injects nothing — the worker uses ambient git credentials.
     const auth = await this.deps.core.resolveGitAuth(workspace);
+    const shellEnvKeys: string[] = [];
     if (auth) {
       const pairs = gitAuthConfigPairs(auth);
       const n = Number(env['GIT_CONFIG_COUNT'] ?? '0') || 0;
@@ -538,10 +627,39 @@ export class Dispatcher {
         env[`GIT_CONFIG_KEY_${n + i}`] = k;
         env[`GIT_CONFIG_VALUE_${n + i}`] = v;
       });
+      shellEnvKeys.push(...Object.keys(mcpEnv), 'GIT_CONFIG_COUNT');
+      for (let i = 0; i < n + pairs.length; i++) {
+        shellEnvKeys.push(`GIT_CONFIG_KEY_${i}`, `GIT_CONFIG_VALUE_${i}`);
+      }
+      if (auth.provider === 'github') {
+        // Reuse the resolved PAT (including env fallback) for gh, whose API calls
+        // do not use Git's extraheader. Secrets stay in env, never worker argv.
+        const basic = Buffer.from(auth.configValue.slice('Authorization: Basic '.length), 'base64').toString('utf8');
+        env['GH_TOKEN'] = basic.slice(basic.indexOf(':') + 1);
+        shellEnvKeys.push('GH_TOKEN');
+      }
     }
 
-    const child = this.deps.spawn({ command: this.resolveCommand(), args, cwd, env });
+    const args = engine === 'codex' ? buildCodexArgs({
+      mcp: this.deps.mcp, mcpEnv, permissionMode: this.config.permissionMode,
+      codexArgs: [...(this.config.codexArgs ?? []), ...stageArgs],
+      otel: this.config.otel ? { ...this.config.otel, taskKey: key } : undefined,
+      shellEnvKeys,
+    }) : buildSpawnArgs({
+      prompt: this.prompt,
+      permissionMode: this.config.permissionMode,
+      mcpConfigPath,
+      claudeArgs: this.stageClaudeArgs(stageArgs),
+      sessionId,
+      appendSystemPrompt: systemPrompt,
+    });
+
+    const child = this.deps.spawn({
+      command: codexCommand?.command ?? this.resolveCommand(), args: [...(codexCommand?.args ?? []), ...args], cwd, env,
+      ...(engine === 'codex' ? { stdin: [systemPrompt, this.prompt].filter(Boolean).join('\n\n') } : {}),
+    });
     const session: Session = {
+      engine,
       label,
       workspace,
       predictedKey: key,
@@ -581,7 +699,7 @@ export class Dispatcher {
     });
     child.on('exit', (code) => this.trackReap(session, code));
 
-    this.console.log(`[dispatcher] spawned ${label} (cwd ${cwd}, log ${logPath})`);
+    this.console.log(`[dispatcher] spawned ${label} via ${engine} (${stage}, cwd ${cwd}, log ${logPath})`);
     return true;
   }
 
@@ -610,7 +728,7 @@ export class Dispatcher {
     session.logWriter.end();
 
     const claimed = await this.findClaimed(session);
-    const metrics = parseCliMetrics(session.stdout);
+    const metrics = session.engine === 'codex' ? parseCodexMetrics(session.stdout) : parseCliMetrics(session.stdout);
 
     // Persist the whole transcript before anything else — covers success, crash, timeout, and the
     // unclaimed-denial path equally, so a stranded/failed task stays reviewable post-mortem.
@@ -623,6 +741,10 @@ export class Dispatcher {
       const denials = parsePermissionDenials(session.stdout);
       if (denials.length > 0) {
         await this.recordDenial(session, denials);
+      } else if (session.engine === 'codex' && (code !== 0 || codexFailed(session.stdout) || session.timedOut)) {
+        // A Codex startup/model/MCP failure must not spawn forever without a claim.
+        // Reuse the existing bounded pre-claim failure path.
+        await this.recordUnclaimedCodexFailure(session);
       } else if (code !== 0) {
         this.console.warn(`[dispatcher] ${session.label} exited (code ${code ?? 'null'}) without claiming a task`);
       } else {
@@ -673,6 +795,22 @@ export class Dispatcher {
       const note = code === 0 ? '' : ` (exited code ${code ?? 'null'} after advancing)`;
       this.console.log(`[dispatcher] ${session.label} finished ${claimed.key} -> ${claimed.status}${note}`);
     }
+  }
+
+  private async recordUnclaimedCodexFailure(session: Session): Promise<void> {
+    const task = await this.deps.core.getTask(session.predictedKey);
+    if (task.status !== 'queued') { // another worker already took/settled it
+      await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'task already advanced' });
+      return;
+    }
+    await this.deps.core.addComment(task.key, { actor: 'agent', body: buildFailureComment({
+      source: 'dispatcher', reason: session.timedOut ? 'timeout' : 'crashed',
+      detail: 'Codex exited before claiming its task; inspect the worker log',
+      attempt: session.attempt, maxAttempts: session.maxAttempts,
+      body: session.logTail,
+    }), ...(session.executionId ? { executionId: session.executionId } : {}) });
+    await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'codex exited before claiming' });
+    if (session.attempt >= session.maxAttempts) this.skipList(task.key);
   }
 
   /** The task this session claimed — matched on the worker label persisted as claimed_by. */

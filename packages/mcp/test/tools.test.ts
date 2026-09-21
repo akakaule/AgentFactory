@@ -207,6 +207,13 @@ describe('get_task', () => {
 // ai-review/v1 strip — uncurated findings must not reach the implementing agent
 // ---------------------------------------------------------------------------
 describe('ai-review activity strip', () => {
+  it('hides v2 consensus discussion even when its payload is malformed', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Consensus discussion'));
+    core.addComment(t.key, { actor: 'agent', body: 'ai-review/v2\n{ malformed discussion' });
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect(detail.activity.some((a: { body: string }) => a.body.includes('ai-review/v2'))).toBe(false);
+  });
   const REVIEW = 'ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"title":"Unbounded loop"}]}\n```';
 
   type Core = Awaited<ReturnType<typeof makeClient>>['core'];

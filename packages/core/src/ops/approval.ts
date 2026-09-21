@@ -21,7 +21,7 @@ export interface DeliverySeed { provider: DeliveryProvider; }
  * the next stage and re-queues; the implementation stage closes the task (human-only —
  * the final gate is never automated). With a `delivery` seed the implementation approve
  * routes to 'delivering' instead of 'done' — done then means the watcher verified the PR
- * merged and the pipeline came up green (or a human force-completed). Runs INSIDE an
+ * merged, with actual check results retained (or a human force-completed). Runs INSIDE an
  * already-open transaction: `transaction()` cannot nest, and this body is shared by
  * `reviewApprove` (human) and `addComment`'s auto-approve hook (agent, clean doc-stage
  * reviews — that path never passes a delivery seed).
@@ -36,10 +36,10 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
   // The auto path can never hit this — a clean verdict is its precondition (so actorUserId
   // is the approving human here, never the agent).
   const review = aiReviewFor(db, row.id);
-  if (review && review.verdict === 'findings') {
+  if (review && (review.verdict === 'findings' || review.verdict === 'disputed')) {
     appendActivity(db, {
       taskId: row.id, type: 'comment', actor: 'human',
-      body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}`,
+      body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}${review.verdict === 'disputed' ? ` and ${review.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0} unresolved disputes` : ''}`,
       createdAt: ts, actorUserId,
     });
   }
@@ -60,7 +60,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     }
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: to, createdAt: ts,
-      body: delivery ? 'approved — awaiting PR merge + green checks' : '', actorUserId,
+      body: delivery ? 'approved — awaiting PR merge; check results remain visible' : '', actorUserId,
     });
     return;
   }

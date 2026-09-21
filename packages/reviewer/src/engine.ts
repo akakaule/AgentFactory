@@ -1,4 +1,4 @@
-import type { ReviewEngine } from './config.js';
+import type { ReviewEngine, ReasoningEffort } from './config.js';
 
 /**
  * Pick the best CLI path from the raw output of `where`/`which`. On Windows prefer a real
@@ -47,6 +47,8 @@ export function resolveEngineCommand(engine: ReviewEngine, { platform, env, look
 }
 
 export interface EngineOtelOpts {
+  worker?: string;
+  workspace?: string;
   /** The board's base URL (the OTLP path is appended here — codex uses the endpoint verbatim). */
   endpoint: string;
   /** The task this spawn's token usage is attributed to (rides as a literal header value). */
@@ -57,6 +59,7 @@ export interface EngineOtelOpts {
 
 export interface EngineArgsOpts {
   engine: ReviewEngine;
+  reasoningEffort?: ReasoningEffort | undefined;
   /** Optional model override (codex `-m`, claude `--model`). */
   model?: string | undefined;
   /** File codex captures its final message to (`--output-last-message`); ignored for claude. */
@@ -76,10 +79,12 @@ const tomlStr = (s: string): string => `"${s.replace(/\\/g, '\\\\').replace(/"/g
  * values — so the task key must ride as a literal, per-session header. Written without
  * spaces or cmd.exe metacharacters so the value survives the Windows `.cmd`-shim spawn path.
  */
-export function buildOtelOverride({ endpoint, taskKey, token }: EngineOtelOpts): string {
+export function buildOtelOverride({ endpoint, taskKey, token, worker, workspace }: EngineOtelOpts): string {
   const url = `${endpoint.replace(/\/+$/, '')}/v1/logs`;
   const headers = [
     `X-Task-Key=${tomlStr(taskKey)}`,
+    ...(worker ? [`X-AF-Worker=${tomlStr(worker)}`] : []),
+    ...(workspace ? [`X-AF-Workspace=${tomlStr(workspace)}`] : []),
     ...(token ? [`Authorization=${tomlStr(`Bearer ${token}`)}`] : []),
   ].join(',');
   return `otel.exporter={otlp-http={endpoint=${tomlStr(url)},protocol="json",headers={${headers}}}}`;
@@ -89,9 +94,10 @@ export function buildOtelOverride({ endpoint, taskKey, token }: EngineOtelOpts):
  * Build the engine argv. The review prompt rides on STDIN for both engines (diffs exceed
  * command-line limits), so neither carries a prompt argument.
  * - codex: `exec` read-only, no git-repo check, final message captured to a file, prompt via `-`.
- * - claude: headless single-turn text; the verdict is stdout.
+ * - claude: headless read-only review; tool inspection can take multiple turns.
+ *   The supervisor's reviewMinutes bounds runtime; the verdict is stdout.
  */
-export function buildEngineArgs({ engine, model, outputFile, otel }: EngineArgsOpts): string[] {
+export function buildEngineArgs({ engine, model, reasoningEffort, outputFile, otel }: EngineArgsOpts): string[] {
   if (engine === 'codex') {
     const args = [
       'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never',
@@ -99,10 +105,11 @@ export function buildEngineArgs({ engine, model, outputFile, otel }: EngineArgsO
     ];
     if (otel) args.push('-c', buildOtelOverride(otel));
     if (model) args.push('-m', model);
+    if (reasoningEffort) args.push('-c', `model_reasoning_effort=${tomlStr(reasoningEffort)}`);
     args.push('-'); // read the prompt from stdin
     return args;
   }
-  const args = ['-p', '--output-format', 'text', '--max-turns', '1'];
+  const args = ['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config'];
   if (model) args.push('--model', model);
   return args;
 }

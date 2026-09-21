@@ -1,10 +1,11 @@
 # @agentfactory/reviewer
 
 A small Node supervisor that runs AgentFactory's **AI first-pass review** with **no human in
-the loop**. It polls the DB for `in_review` tasks that still need a review and spawns **one
-fresh headless engine session per task** — codex (default) or claude — feeding it the task's
-diff (implementation) or deliverable (description/plan) on STDIN, then posts the engine's
-`ai-review/v1` verdict back as a comment.
+the loop**. It polls the DB for `in_review` tasks that still need a review and runs the
+configured independent reviewers against the task's diff (implementation) or deliverable
+(description/plan). Each receives its prompt on STDIN. The supervisor posts one combined
+`ai-review/v1` verdict after every configured reviewer completes, or an `ai-review/v2`
+consensus verdict when discussion is enabled.
 
 It is the in-repo sibling of the [dispatcher](../dispatcher/README.md): the same poll → spawn →
 reap shape, Core-direct (opens the same SQLite DB), no web server required. It supersedes the
@@ -25,13 +26,47 @@ unchanged). So review is a pure function — read the task, run the engine, post
 
 - **codex** (default) — an independent second opinion on the (typically Claude) dispatcher's
   work: `codex exec --sandbox read-only --skip-git-repo-check --output-last-message <file> -`.
-- **claude** — `claude -p --output-format text --max-turns 1`.
+- **claude** — `claude -p --output-format text --permission-mode plan --strict-mcp-config`.
+  Read-only tool inspection can take multiple turns; `reviewMinutes` bounds the whole session.
+  A one-turn limit would stop a review immediately after its first inspection tool call.
 
-Both run headless in a neutral directory (no repo `.claude/` context, no MCP), read the prompt
+Both run headless from the logs directory, read the prompt
 from STDIN (diffs are large/arbitrary), and produce the verdict text — codex via its captured
 final message, claude via stdout. The `ai-review/v1` marker is prepended if the engine omits it.
+Claude ignores ambient MCP servers and uses plan permissions for read-only inspection. CLI
+error text and nonzero Claude exits are reported as execution failures before parsing a verdict.
 
-## Run
+## Consensus discussion
+
+Set `"consensus": { "enabled": true, "totalMinutes": 30, "maxPromptChars": 500000 }`
+with two or more distinct `reviewers` (at most eight). The example uses Claude Fable and
+GPT-6 Astra at medium reasoning. Consensus is disabled when the setting is omitted.
+
+Each model first reviews independently. Both then evaluate every candidate using the same
+pinned commit snapshot and completed peer evidence. Split votes get one final ballot after
+cross-examination; every phase has a barrier so one model's current ballot cannot influence
+the other's. Confirmed findings require unanimous agreement on the defect and severity.
+Duplicates merge only when every reviewer identifies the same earlier confirmed candidate.
+Disagreements, uncertainty, and late unevaluated findings remain explicit disputes.
+
+The board lists confirmed high-priority findings, shows disputes in a collapsed human-decision
+section, and retains the complete discussion. Disputed reviews remain in review and never
+auto-advance document stages. They are finished reviews, not failed attempts. A human can
+still approve with an audited override. Legacy v1 reviews retain their existing behavior.
+
+`totalMinutes` bounds the entire attempt; `reviewMinutes` still caps each session. A timeout,
+invalid ballot, nonzero process exit, or oversized prompt cannot produce a consensus verdict.
+Typically two reviewers require four sessions, or six with a final ballot; two clean discovery
+results need only two. Token usage varies. Logs and live telemetry identify model and phase;
+durable task token totals retain their existing aggregate format. A restart repeats an unfinished
+attempt. The supervisor checks revision freshness and core validates the submission fingerprint
+inside the publication transaction. No database migration is needed.
+
+Deploy compatible core/web/reviewer builds before enabling consensus, and restart the reviewer
+only when idle. Existing completed reviews are not automatically rerun. For HTTP mode the remote
+board must also have v2 support; deploying only the reviewer is insufficient.
+
+## Run the reviewer
 
 ```sh
 npm run build                            # from the monorepo root
@@ -56,6 +91,7 @@ reviews them) and the web server, all pointed at the same DB.
 | `excludeWorkspaces` | `[]` | Workspace slugs to **never** watch — the opt-out escape hatch. Applied whether or not `workspaces` is set. |
 | `engine` | `codex` | Review engine: `codex` or `claude`. |
 | `model` | — (optional) | Model override (codex `-m`, claude `--model`). |
+| `reviewers` | — (optional) | Ordered profiles `{ engine, model?, reasoningEffort? }`. Runs every profile independently and sequentially against the same submission, then posts one combined verdict. `reasoningEffort` is Codex-only: `low`, `medium`, `high`, `xhigh`, or `max`. When omitted, task reviews use the top-level engine/model. Visualization and feedback evaluation still use their existing engine settings. |
 | `pollSeconds` | `60` | Queue poll interval. |
 | `maxConcurrent` | `1` | Max concurrent reviews **per workspace**. |
 | `reviewMinutes` | `20` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |
@@ -64,6 +100,16 @@ reviews them) and the web server, all pointed at the same DB.
 | `visualization` | `{ "enabled": true }` | Auto-generated HTML change-visualization for in_review **implementation** tasks: one extra one-shot engine session authors the self-contained page (Mermaid diagram + file map), attached to the board before the review runs; the verdict comment links it (`Visualization: /api/tasks/<key>/visualization`). Optional `engine`/`model` override the top-level ones for the viz session only. Failures are log-only — never a `failure/v1`, never the review budget. Set `"enabled": false` to opt out. |
 
 See [`reviewer.config.example.json`](./reviewer.config.example.json).
+
+The example and local configuration use Claude Fable (`claude-fable-5-1`) and GPT-6 Astra
+(`gpt-6-astra`, medium reasoning). Findings from both are retained and labeled with their
+configured model. A clean result requires both valid outputs. A failed or malformed output
+retries the whole round under `maxAttempts`; an unfinished round repeats after supervisor
+restart. `reviewMinutes` applies per model session. `maxConcurrent` still limits concurrent
+task rounds per workspace, with only one model active per round. Each model gets a distinct
+log/output filename and telemetry worker label. Results for a changed submission or a task
+that left review are discarded. Existing completed reviews are not rerun just because the
+configuration changes. Restart the reviewer to load saved configuration changes.
 
 ## Which tasks it reviews
 

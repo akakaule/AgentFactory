@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail } from '../types.js';
+import type { TaskDetail, Stage } from '../types.js';
 import { transaction } from '../transaction.js';
 import { appendActivity } from '../repo/activity.js';
 import { startSession } from '../repo/agentSessions.js';
@@ -7,13 +7,16 @@ import { oldestQueuedRow, heldClaimRow, toDetail } from '../repo/tasks.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { featureBranch } from '../branch.js';
 import { nowIso } from '../time.js';
-import { createExecution, currentExecution, executionById, startExecution } from '../repo/execution.js';
+import { createExecution, currentExecution, executionById, settleExecution, startExecution } from '../repo/execution.js';
 import { InvalidTransitionError } from '../errors.js';
+import { reconcileMergedDelivery } from './delivery.js';
 
 export interface ClaimOptions {
   workspace?: string | undefined;
   claimedBy?: string | undefined;
   executionId?: string | undefined;
+  taskKey?: string | undefined;
+  stage?: Stage | undefined;
 }
 
 /**
@@ -35,6 +38,9 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     if (opts.claimedBy !== undefined) {
       const held = heldClaimRow(db, opts.claimedBy, workspaceId);
       if (held) {
+        if ((opts.taskKey !== undefined && held.key !== opts.taskKey) ||
+            (opts.stage !== undefined && held.stage !== opts.stage)) return null;
+        if (reconcileMergedDelivery(db, held, now())) return null;
         const current = currentExecution(db, held.id);
         if (opts.executionId !== undefined && (!current || current.id !== opts.executionId))
           throw new InvalidTransitionError(`execution ${opts.executionId} is not the current execution for ${held.key}`);
@@ -45,20 +51,32 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
         return { ...toDetail(db, held), branchCreated: false, executionId: execution.id };
       }
     }
-    let row = oldestQueuedRow(db, workspaceId);
     let reservedExecution = opts.executionId === undefined ? null : executionById(db, opts.executionId);
     if (opts.executionId !== undefined && !reservedExecution)
       throw new InvalidTransitionError(`execution ${opts.executionId} does not exist`);
+    let row: ReturnType<typeof oldestQueuedRow>;
     if (reservedExecution) {
       const reservedTask = findQueuedById(db, reservedExecution.task_id);
       if (!reservedTask || (workspaceId !== undefined && reservedTask.workspace_id !== workspaceId) ||
+          (opts.taskKey !== undefined && reservedTask.key !== opts.taskKey) ||
+          (opts.stage !== undefined && reservedTask.stage !== opts.stage) ||
           !['reserved', 'running'].includes(reservedExecution.state) ||
           (opts.claimedBy !== undefined && reservedExecution.owner !== null &&
             reservedExecution.owner !== opts.claimedBy && !opts.claimedBy.startsWith(`${reservedExecution.owner}-a`)))
         throw new InvalidTransitionError(`execution ${opts.executionId} is not claimable`);
+      // The reserved task's delivery merged while it waited: reconciliation completes the task,
+      // so there is nothing left to claim and the reservation is void.
+      if (reconcileMergedDelivery(db, reservedTask, now())) {
+        settleExecution(db, reservedExecution.id, 'cancelled', now(), 'delivery already merged');
+        return null;
+      }
       row = reservedTask;
+    } else {
+      row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage);
+      while (row && reconcileMergedDelivery(db, row, now()))
+        row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage);
     }
-    if (!row && opts.executionId === undefined) {
+    if (!row && opts.executionId === undefined && opts.taskKey === undefined && opts.stage === undefined) {
       const pending = db.prepare(
         `SELECT task_id, owner FROM task_execution WHERE state = 'reserved' AND (owner IS NULL OR ? LIKE owner || '-a%')
          ORDER BY reserved_at ASC, rowid ASC LIMIT 1`,
