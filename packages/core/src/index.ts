@@ -113,6 +113,8 @@ export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
    *  production defaults to shelling `git remote get-url origin` — see remote.ts). */
   resolveOrigin?: ((repoPath: string) => string | null) | undefined;
+  /** Keep HTTP adapters strict: only the request's executionId may fence a mutation. */
+  autoFence?: boolean | undefined;
 }
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
@@ -121,9 +123,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
   // Keep the public in-process facade as ergonomic as the HTTP client: once a claim returns an
   // execution identity, subsequent mutations from that same facade are fenced automatically.
   // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
+  const autoFence = opts.autoFence ?? true;
   const executionIds = new Map<string, string>();
   const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
-    if (input.executionId !== undefined) return input;
+    if (!autoFence || input.executionId !== undefined) return input;
     const executionId = executionIds.get(key);
     return executionId === undefined ? input : { ...input, executionId };
   };
@@ -168,7 +171,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, fenced(key, input)),
     saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, fenced(key, input)),
     getTranscript: (key: string) => getTranscript(db, key),
-    attachVisualization: (key: string, input: AttachVisualizationInput) => attachVisualization(db, key, input),
+    attachVisualization: (key: string, input: AttachVisualizationInput) => attachVisualization(db, key, fenced(key, input)),
     getVisualization: (key: string) => getVisualization(db, key),
     getVisualizationHtml: (key: string) => getVisualizationHtml(db, key),
     recordSupervisorHeartbeat: (input: UpsertSupervisor) => recordSupervisorHeartbeat(db, input),
@@ -177,10 +180,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     latestActivityId: () => latestActivityId(db),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
-    addComment: (key: string, input: AddCommentInput) => addComment(db, key, input),
+    addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, executionId ?? executionIds.get(key)),
-    releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, executionId),
+    releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, executionId ?? executionIds.get(key)),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),
     settleRetry: (id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }) => settleRetry(db, id, input),

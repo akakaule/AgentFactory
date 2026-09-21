@@ -43,6 +43,7 @@ describe('execution ownership', () => {
 
     expect(() => reportProgress(db, task.key, { message: 'late', executionId: first!.executionId })).toThrow(InvalidTransitionError);
     expect(() => submitResult(db, task.key, { summary: 'late', executionId: first!.executionId })).toThrow(InvalidTransitionError);
+    expect(() => addComment(db, task.key, { actor: 'agent', body: 'recovery note', executionId: first!.executionId })).not.toThrow();
   });
 
   it('rejects unfenced mutations for a supervisor-owned execution', () => {
@@ -58,6 +59,15 @@ describe('execution ownership', () => {
     expect(() => submitResult(db, task.key, { summary: 'late identity omitted' })).toThrow(InvalidTransitionError);
     expect(() => addComment(db, task.key, { actor: 'agent', body: 'late identity omitted' })).toThrow(InvalidTransitionError);
     expect(() => attachVisualization(db, task.key, { html: '<p>late identity omitted</p>' })).toThrow(InvalidTransitionError);
+  });
+
+  it('requires an execution identity from the first supervisor-owned claim', () => {
+    const db = makeTestDb();
+    const task = queued(db);
+    claimNextTask(db, { claimedBy: 'worker-1' });
+
+    expect(() => submitResult(db, task.key, { summary: 'unfenced' })).toThrow(InvalidTransitionError);
+    expect(() => reportProgress(db, task.key, { message: 'unfenced' })).toThrow(InvalidTransitionError);
   });
 
   it('settles an identical submit retry without mutating the newer task state', () => {
@@ -92,5 +102,17 @@ describe('execution ownership', () => {
 
     expect(reconcileExecutions(db, 30_000, () => '2020-01-01T00:01:00.000Z')).toBe(1);
     expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(execution.id)).toEqual({ state: 'cancelled' });
+  });
+
+  it('keeps a live pre-claim execution when its heartbeat is fresh', () => {
+    const db = makeTestDb();
+    const task = queued(db);
+    const execution = reserveExecution(db, task.key, {
+      operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'default#AF-1', startImmediately: true,
+    })!;
+    db.prepare("UPDATE task_execution SET reserved_at = '2020-01-01T00:00:00.000Z', heartbeat_at = '2026-09-15T00:00:00.000Z' WHERE id = ?").run(execution.id);
+
+    expect(reconcileExecutions(db, 30_000, () => '2026-09-15T00:00:10.000Z')).toBe(0);
+    expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(execution.id)).toEqual({ state: 'running' });
   });
 });

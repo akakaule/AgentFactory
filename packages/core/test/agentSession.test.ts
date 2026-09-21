@@ -30,10 +30,10 @@ describe('agent_session live tracking', () => {
   it('reportProgress sets the phase, appends to the rolling feed, and records tokens', () => {
     const db = makeTestDb();
     const t = queued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const executionId = claimNextTask(db, { claimedBy: 'worker-1' })!.executionId;
 
-    reportProgress(db, t.key, { message: 'writing tests', tokensIn: 1000, tokensOut: 200 });
-    reportProgress(db, t.key, { message: 'running build' });
+    reportProgress(db, t.key, { message: 'writing tests', tokensIn: 1000, tokensOut: 200, executionId });
+    reportProgress(db, t.key, { message: 'running build', executionId });
 
     const live = listLiveAgents(db)[0]!;
     expect(live.phase).toBe('running build');
@@ -45,11 +45,11 @@ describe('agent_session live tracking', () => {
   it('live tokens reflect the task_metric rollup (OTel/dispatcher) even with no self-report', () => {
     const db = makeTestDb();
     const t = queued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const executionId = claimNextTask(db, { claimedBy: 'worker-1' })!.executionId;
 
     // OTel/dispatcher land usage in task_metric; the agent never calls report_progress with tokens.
-    addTaskMetrics(db, t.key, { tokensIn: 1200, tokensOut: 300, reportedBy: 'otel:claude-code' });
-    addTaskMetrics(db, t.key, { tokensIn: 800, tokensOut: 100, reportedBy: 'otel:claude-code' });
+    addTaskMetrics(db, t.key, { tokensIn: 1200, tokensOut: 300, reportedBy: 'otel:claude-code', executionId });
+    addTaskMetrics(db, t.key, { tokensIn: 800, tokensOut: 100, reportedBy: 'otel:claude-code', executionId });
 
     const live = listLiveAgents(db)[0]!;
     expect(live.tokensIn).toBe(2000); // summed rollup, surfaced on the live row
@@ -59,24 +59,24 @@ describe('agent_session live tracking', () => {
   it('a corrupt recent blob degrades to an empty feed instead of taking down the live view', () => {
     const db = makeTestDb();
     queued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const executionId = claimNextTask(db, { claimedBy: 'worker-1' })!.executionId;
     db.prepare("UPDATE agent_session SET recent = '{not json' WHERE ended_at IS NULL").run();
 
     const live = listLiveAgents(db);
     expect(live).toHaveLength(1);
     expect(live[0]!.recent).toEqual([]);
     // and progress keeps working on top of the corrupt blob (starts a fresh feed)
-    reportProgress(db, live[0]!.key, { message: 'recovered' });
+    reportProgress(db, live[0]!.key, { message: 'recovered', executionId });
     expect(listLiveAgents(db)[0]!.recent.map((m) => m.msg)).toEqual(['recovered']);
   });
 
   it('submit ends the session (drops it from the live view)', () => {
     const db = makeTestDb();
     const t = queued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const executionId = claimNextTask(db, { claimedBy: 'worker-1' })!.executionId;
     expect(listLiveAgents(db)).toHaveLength(1);
 
-    submitResult(db, t.key, { summary: 'done' });
+    submitResult(db, t.key, { summary: 'done', executionId });
     expect(listLiveAgents(db)).toHaveLength(0);
   });
 
@@ -101,10 +101,10 @@ describe('agent_session live tracking', () => {
   it('heartbeat/progress writes do NOT bump getVersion() (no board-refetch thrash)', () => {
     const db = makeTestDb();
     const t = queued(db);
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const executionId = claimNextTask(db, { claimedBy: 'worker-1' })!.executionId;
 
     const v = getVersion(db);
-    reportProgress(db, t.key, { message: 'still working' });
+    reportProgress(db, t.key, { message: 'still working', executionId });
     touchAgentSession(db, t.key);
     expect(getVersion(db)).toBe(v); // agent_session is outside getVersion()'s tables
   });

@@ -71,18 +71,18 @@ export function assertExecutionOwnership(
   taskId: number,
   taskKey: string,
   executionId: string | undefined,
-  opts: { allowSettledSuccess?: boolean; requireRunning?: boolean } = {},
+  opts: { allowSettledSuccess?: boolean; allowSettledFailure?: boolean; requireRunning?: boolean } = {},
 ): ExecutionRow | undefined {
   const latest = latestExecution(db, taskId);
   if (executionId === undefined) {
-    const priorCount = latest === undefined ? 0 : (db.prepare('SELECT COUNT(*) AS count FROM task_execution WHERE task_id = ? AND id <> ?').get(taskId, latest.id) as { count: number }).count;
-    if (latest?.owner !== null && latest !== undefined && priorCount > 0 && (latest.state === 'reserved' || latest.state === 'running'))
+    if (latest?.owner !== null && latest !== undefined)
       throw new InvalidTransitionError(`execution identity is required for ${taskKey}; restart the worker and supervisor together`);
     return undefined;
   }
   const current = currentExecution(db, taskId);
   if (current?.id === executionId && (!opts.requireRunning || current.state === 'running')) return current;
   if (opts.allowSettledSuccess && latest?.id === executionId && latest.state === 'succeeded') return latest;
+  if (opts.allowSettledFailure && latest?.id === executionId && latest.state === 'failed') return latest;
   throw new InvalidTransitionError(`execution ${executionId} is not the current execution for ${taskKey}`);
 }
 
@@ -122,8 +122,8 @@ export function abandonedExecutionIds(db: DB, cutoff: string): string[] {
     `SELECT e.id
        FROM task_execution e
        JOIN task t ON t.id = e.task_id
-      WHERE e.reserved_at <= ?
-        AND (e.state = 'reserved' OR (e.state = 'running' AND t.status = 'queued'))
+      WHERE (e.state = 'reserved' AND e.reserved_at <= ?)
+         OR (e.state = 'running' AND t.status = 'queued' AND (e.heartbeat_at IS NULL OR e.heartbeat_at <= ?))
       ORDER BY e.reserved_at ASC`,
-  ).all(cutoff) as Array<{ id: string }>).map((r) => r.id);
+  ).all(cutoff, cutoff) as Array<{ id: string }>).map((r) => r.id);
 }

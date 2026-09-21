@@ -27,7 +27,7 @@ export function releaseClaim(db: DB, key: string, now: () => string = nowIso, ex
     if (row.status !== 'in_progress')
       throw new InvalidTransitionError(`release requires an in_progress claim (got ${row.status}): ${key}`);
     const current = currentExecution(db, row.id);
-    if (executionId !== undefined && (!current || current.id !== executionId))
+    if (current && (executionId === undefined || current.id !== executionId))
       throw new InvalidTransitionError(`execution ${executionId} is not the current execution for ${key}`);
     assertTransition('in_progress', 'queued', 'human');
     const ts = now();

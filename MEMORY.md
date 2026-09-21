@@ -19,3 +19,6 @@
 - Execution reservation adoption must accept both `reserved` and `running` states; a worker can claim after the supervisor marks the reservation running, and rejecting that state creates a duplicate execution fence.
 - Execution fencing changes must flow through every agent adapter and be checked inside the same transaction as the mutation; retain a versioned capability handshake so supervisors restart together when the protocol changes.
 - MCP claim polling must clear the prior task's execution context before asking for the next task; claim reconciliation can adopt pending reservations without sending a settled fence from the previous task.
+- Once execution records exist, an active claimed task must reject unfenced agent mutations even on its first claim; recovery must judge running pre-claim reservations by heartbeat freshness, not reservation age alone.
+- The HTTP board boundary cannot rely on the process-local createCore execution cache; use strict `autoFence: false` there so only request-carried execution IDs authorize remote mutations, while local facades may retain ergonomic fencing.
+- Recovery diagnostics must carry the failed execution identity; permit only that exact latest failed fence to comment after an atomic release, while state-changing mutations remain running-only.

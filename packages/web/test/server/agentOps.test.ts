@@ -109,7 +109,7 @@ describe('agent ops — the worked loop over HTTP', () => {
   let supervisor: string;
 
   beforeEach(() => {
-    core = openCore(':memory:');
+    core = openCore(':memory:', { autoFence: false });
     app = buildApp(core, { auth: { mode: 'token' } });
     service = core.createApiToken({ label: 'worker-1', isService: true }).token;
     supervisor = core.createApiToken({ label: 'dispatcher-1', isService: true, isSupervisor: true }).token;
@@ -119,13 +119,13 @@ describe('agent ops — the worked loop over HTTP', () => {
     const t = queuedTask(core);
 
     const claim = await post(app, '/api/agent/claim', { claimedBy: 'remote-w1' }, service);
-    const claimed = (await claim.json()) as { key: string; branchCreated: boolean };
+    const claimed = (await claim.json()) as { key: string; branchCreated: boolean; executionId: string };
     expect(claimed.key).toBe(t.key);
 
-    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { message: 'scaffolding', tokensIn: 10 }, service)).status).toBe(200);
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { executionId: claimed.executionId, message: 'scaffolding', tokensIn: 10 }, service)).status).toBe(200);
     expect(core.listLiveAgents()[0]?.phase).toBe('scaffolding');
 
-    const submit = await post(app, `/api/agent/tasks/${t.key}/submit`, { summary: 'did it', links: [] }, service);
+    const submit = await post(app, `/api/agent/tasks/${t.key}/submit`, { executionId: claimed.executionId, summary: 'did it', links: [] }, service);
     expect(submit.status).toBe(200);
     expect(((await submit.json()) as { status: string }).status).toBe('in_review');
   });
@@ -150,9 +150,9 @@ describe('agent ops — the worked loop over HTTP', () => {
 
   it('release-claim performs the system recovery edge', async () => {
     const t = queuedTask(core);
-    core.claimNextTask({ claimedBy: 'w1' });
+    const claim = core.claimNextTask({ claimedBy: 'w1' });
 
-    const res = await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor);
+    const res = await post(app, `/api/agent/tasks/${t.key}/release-claim`, { executionId: claim!.executionId }, supervisor);
     expect(res.status).toBe(200);
     const detail = core.getTask(t.key);
     expect(detail.status).toBe('queued');
@@ -172,6 +172,15 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { executionId: firstClaim.executionId, message: 'late' }, service)).status).toBe(409);
     expect((await post(app, `/api/agent/tasks/${t.key}/submit`, { executionId: firstClaim.executionId, summary: 'late', links: [] }, service)).status).toBe(409);
     expect(core.getTask(t.key).status).toBe('in_progress');
+  });
+
+  it('rejects unfenced mutations from the first claimed execution', async () => {
+    const t = queuedTask(core);
+    const claim = await (await post(app, '/api/agent/claim', { claimedBy: 'worker-1' }, service)).json() as { executionId: string };
+    expect(claim.executionId).toBeTruthy();
+
+    expect((await post(app, `/api/agent/tasks/${t.key}/progress`, { message: 'unfenced' }, service)).status).toBe(409);
+    expect((await post(app, `/api/agent/tasks/${t.key}/submit`, { summary: 'unfenced', links: [] }, service)).status).toBe(409);
   });
 
   it('creating a task through the agent surface lands in backlog with actor agent', async () => {
@@ -218,8 +227,8 @@ describe('agent ops — the worked loop over HTTP', () => {
 
   it('service tokens cannot bulk-archive, and create/comment attribute as agent', async () => {
     const t = queuedTask(core);
-    core.claimNextTask({ claimedBy: 'w1' });
-    core.submitResult(t.key, { summary: 'done' });
+    const claim = core.claimNextTask({ claimedBy: 'w1' });
+    core.submitResult(t.key, { summary: 'done', executionId: claim!.executionId });
     core.reviewApprove(t.key);
 
     expect((await post(app, '/api/tasks/archive-done', {}, service)).status).toBe(403);

@@ -20,7 +20,7 @@ export function addComment(
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    if (input.actor === 'agent') assertExecutionOwnership(db, row.id, key, input.executionId);
+    if (input.actor === 'agent') assertExecutionOwnership(db, row.id, key, input.executionId, { allowSettledFailure: true });
     const ts = now();
     appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     touch(db, row.id, ts);

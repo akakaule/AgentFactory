@@ -394,7 +394,10 @@ export class Dispatcher {
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
       let reservation: LaunchReservation | null;
       if (this.deps.core.reserveExecution) {
-        const execution = await this.deps.core.reserveExecution(task.key, { operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts, owner: `${workspace}#${task.key}` });
+        const execution = await this.deps.core.reserveExecution(task.key, {
+          operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts,
+          owner: `${workspace}#${task.key}`, startImmediately: true,
+        });
         reservation = execution ? ({ ...execution, executionId: execution.id } as LaunchReservation) : null;
       } else {
         reservation = await this.deps.core.reserveRetry(task.key, { operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts });
@@ -781,6 +784,7 @@ export class Dispatcher {
       await this.deps.core.addComment(key, {
         actor: 'agent',
         body: buildFailureComment({ reason: opts.reason, detail: opts.detail, source: 'dispatcher', attempt, maxAttempts, body: opts.body }),
+        ...(opts.executionId ? { executionId: opts.executionId } : {}),
       });
     } catch {
       /* the release is the contract; the board comment is a bonus */
@@ -805,6 +809,7 @@ export class Dispatcher {
             maxAttempts,
             body: 'No further sessions will be spawned until a human intervenes.',
           }),
+          ...(opts.executionId ? { executionId: opts.executionId } : {}),
         });
       } catch {
         /* the console warning is the contract; the board comment is a bonus */

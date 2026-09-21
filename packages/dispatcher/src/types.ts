@@ -30,7 +30,7 @@ export interface DispatcherCore {
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string, now?: () => string, executionId?: string): Awaitable<TaskDetail>;
-  reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null }): Awaitable<ExecutionLike | null>;
+  reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }): Awaitable<ExecutionLike | null>;
   reconcileExecutions?(graceMs: number): Awaitable<number>;
   touchExecution?(id: string): Awaitable<boolean>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;

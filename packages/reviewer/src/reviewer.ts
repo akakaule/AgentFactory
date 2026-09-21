@@ -475,9 +475,9 @@ export class Reviewer {
         operation,
         maxAttempts: this.config.maxAttempts,
         owner: `${workspace}#reviewer`,
-        // Keep the reservation fenced but reserved until the child is actually launched. A
-        // supervisor crash between reservation and spawn can then be reconciled safely.
-        startImmediately: false,
+        // Mark it live before launch so the supervisor heartbeat can keep a slow/remote
+        // pre-claim worker reservation alive; stale heartbeats are still reconciled after a crash.
+        startImmediately: true,
       });
       if (!execution) return null;
       return {
