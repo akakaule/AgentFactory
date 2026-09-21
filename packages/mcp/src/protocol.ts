@@ -111,11 +111,16 @@ export function buildProtocol(input: ProtocolInput): Protocol {
     branch,
     worktree,
     setup: [
-      ...(input.managedGit ? ['Call task_git with { action: "prepare" } before touching code. Use task_git for Git writes; run code edits, read-only Git commands, tests and builds in the task worktree.'] : setup),
+      ...(input.managedGit ? [
+        'Call task_git with { action: "prepare" } before touching code. Use task_git status, diff, and log for Git inspection; shell Git permissions are not required. Run code edits, tests and builds in the assigned worktree.',
+        'On every reclaim inspect status and diff first. Preserve and understand existing edits before committing them; never blindly commit a previous worker\'s changes. Once clean, call task_git merge_default to fetch and merge origin\'s default branch into this task branch.',
+        'If merge_default or status reports a merge in progress, inspect the conflicts, resolve files using ordinary edits, inspect diff, then call continue_merge with a Conventional Commit message. Resume the existing merge after an interruption. Do not push or clean up until the merge is finished. Re-run verification after reconciliation.',
+        'A failed or missing review is not new code feedback. Inspect the current implementation against the task acceptance criteria and curated feedback, complete any remaining work, verify it, and submit for a fresh review. Do not stop solely because the previous review execution failed.',
+      ] : setup),
       'Install dependencies inside the task worktree before building or testing. For an npm repository with package-lock.json, run `npm ci --cache .npm-cache` from the worktree root (keep .npm-cache/ ignored). Do not inherit node_modules or workspace-package links from the parent checkout, and do not repair them with manual junctions. Verify local workspace packages resolve inside this worktree; for projects consuming compiled workspace exports, build before running tests.',
     ],
     finish: [
-      input.managedGit ? 'Call task_git with { action: "commit", message: "<Conventional Commit message>" } to commit all work inside the assigned worktree.' : 'Commit all work inside the worktree.',
+      input.managedGit ? 'Inspect task_git status and diff, then call task_git with { action: "commit", message: "<Conventional Commit message>" } to commit the reviewed work inside the assigned worktree.' : 'Commit all work inside the worktree.',
       verifyStep,
       input.managedGit ? 'Call task_git with { action: "push" } after verification passes.' : `git push -u origin ${branch}`,
       ...prStep,

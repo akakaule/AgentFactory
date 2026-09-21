@@ -39,6 +39,57 @@ async function fixture() {
 }
 
 describe('task-scoped Git lifecycle', { timeout: 30_000 }, () => {
+  it('inspects preserved changes and refuses a dirty merge', async () => {
+    const { call, worktree } = await fixture();
+    await call('prepare');
+    writeFileSync(join(worktree, 'unknown.txt'), 'preserve me');
+    const status = JSON.parse(textOf(await call('status')));
+    expect(status.files).toContainEqual({ status: '??', path: 'unknown.txt' });
+    expect(JSON.parse(textOf(await call('log'))).commits).not.toHaveLength(0);
+    expect(JSON.parse(textOf(await call('diff'))).untracked).toContain('unknown.txt');
+    expect((await call('merge_default')).isError).toBe(true);
+    expect(readFileSync(join(worktree, 'unknown.txt'), 'utf8')).toBe('preserve me');
+  });
+
+  it('returns conflicts, resumes an interrupted merge, and publishes without force', async () => {
+    const { repo, origin, call, worktree, core } = await fixture();
+    writeFileSync(join(repo, 'shared.txt'), 'base\n');
+    git(repo, 'add', 'shared.txt'); git(repo, 'commit', '-m', 'base'); git(repo, 'push');
+    await call('prepare');
+    writeFileSync(join(worktree, 'shared.txt'), 'task\n');
+    await call('commit', { message: 'feat: task change' });
+    await call('push');
+    writeFileSync(join(repo, 'shared.txt'), 'main\n');
+    git(repo, 'add', 'shared.txt'); git(repo, 'commit', '-m', 'main change'); git(repo, 'push');
+    const merged = JSON.parse(textOf(await call('merge_default')));
+    expect(merged.mergeState).toBe('conflicts');
+    expect(merged.conflicts).toEqual(['shared.txt']);
+    expect((await call('continue_merge', { message: 'merge: main' })).isError).toBe(true);
+    expect((await call('push')).isError).toBe(true);
+    expect((await call('cleanup')).isError).toBe(true);
+    expect((await call('commit', { message: 'fix: bypass' })).isError).toBe(true);
+    expect((await call('prepare')).isError).not.toBe(true);
+    expect(JSON.parse(textOf(await call('status'))).mergeHead).toBe(merged.targetSha);
+    writeFileSync(join(worktree, 'shared.txt'), 'resolved\n');
+    expect((await call('continue_merge', { message: 'merge: reconcile main' })).isError).not.toBe(true);
+    expect(git(worktree, 'rev-list', '--parents', '-n', '1', 'HEAD').split(' ')).toHaveLength(3);
+    expect((await call('push')).isError).not.toBe(true);
+    expect(git(origin, 'rev-parse', core.getTask('AF-1').branch!)).toBe(git(worktree, 'rev-parse', 'HEAD'));
+    core.updateStatus('AF-1', 'blocked', 'agent');
+    for (const action of ['status', 'diff', 'log', 'merge_default', 'continue_merge']) expect((await call(action)).isError).toBe(true);
+  }, 90_000);
+
+  it('merges a clean default-branch update idempotently', async () => {
+    const { repo, call, worktree } = await fixture();
+    await call('prepare');
+    writeFileSync(join(repo, 'new.txt'), 'main update');
+    git(repo, 'add', 'new.txt'); git(repo, 'commit', '-m', 'main update'); git(repo, 'push');
+    expect(JSON.parse(textOf(await call('merge_default'))).mergeState).toBe('merged');
+    const head = git(worktree, 'rev-parse', 'HEAD');
+    expect((await call('merge_default')).isError).not.toBe(true);
+    expect(git(worktree, 'rev-parse', 'HEAD')).toBe(head);
+    expect(readFileSync(join(worktree, 'new.txt'), 'utf8')).toBe('main update');
+  });
   it('routes the pinned worker protocol through task_git', async () => {
     const { claim } = await fixture();
     expect(claim.protocol.setup.join('\n')).toContain('task_git');

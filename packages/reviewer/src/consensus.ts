@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseReviewJson } from './reviewJson.js';
 import { candidateOutcome, consensusFindings, consensusVoteSchema, parseConsensusReview, type AiReviewFinding, type ConsensusCandidate, type ReviewConsensus } from '@agentfactory/core';
 
 export interface DiscoveryResult { reviewer: string; body: string; findings: AiReviewFinding[] }
@@ -29,8 +30,7 @@ export function createConsensus(results: DiscoveryResult[]): ConsensusState {
 
 export function collectBallot(state: ConsensusState, body: string): void {
   if (state.phase === 'complete') throw new Error('consensus already complete');
-  const json = body.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? body.trim();
-  const ballot = ballotSchema.parse(JSON.parse(json));
+  const ballot = ballotSchema.parse(parseReviewJson(body));
   const expected = state.candidates.map(c => c.id);
   if (ballot.votes.length !== expected.length || new Set(ballot.votes.map(v => v.id)).size !== expected.length
     || ballot.votes.some(v => !expected.includes(v.id))) throw new Error('ballot must evaluate every candidate exactly once');
