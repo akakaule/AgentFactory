@@ -8,6 +8,7 @@ import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { reconcileMergedDelivery } from './delivery.js';
+import { advanceRetryBudget } from '../repo/retry.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
   return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note));
@@ -54,5 +55,10 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
     if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
+    // A human unblocking or reopening a task hands the worker new work, not another retry of the
+    // rounds that ended there — without a fresh budget the dispatcher silently skips it. (Releasing
+    // a stranded claim above is still a retry and keeps counting.)
+    if (status === 'queued' && actor === 'human' && (row.status === 'blocked' || row.status === 'done'))
+      advanceRetryBudget(db, row.id, `dispatcher:${row.stage}`, ts, 'human re-queue');
     return toDetail(db, findRowByKey(db, key)!);
 }
