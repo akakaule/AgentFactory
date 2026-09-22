@@ -83,10 +83,12 @@ describe('addAttachment / getAttachment', () => {
     expect(() => addAttachment(db, task.key, { ...report, dataBase64: '' })).toThrow(ValidationError);
   });
 
-  it('is backlog-only: the brief is frozen once queued', () => {
+  it('stays editable while queued; the brief is frozen once claimed', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     updateStatus(db, task.key, 'queued', 'human');
+    expect(addAttachment(db, task.key, report).taskId).toBe(task.id);
+    updateStatus(db, task.key, 'in_progress', 'agent');
     expect(() => addAttachment(db, task.key, report)).toThrow(InvalidTransitionError);
   });
 
@@ -98,7 +100,7 @@ describe('addAttachment / getAttachment', () => {
 });
 
 describe('deleteAttachment', () => {
-  it('removes the attachment (backlog-only)', () => {
+  it('removes the attachment', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     const meta = addAttachment(db, task.key, report);
@@ -108,12 +110,15 @@ describe('deleteAttachment', () => {
     expect(getTask(db, task.key).attachments).toHaveLength(0);
   });
 
-  it('rejects deletion once the task left backlog', () => {
+  it('allows deletion while queued, rejects it once claimed', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    const meta = addAttachment(db, task.key, report);
+    const first = addAttachment(db, task.key, report);
+    const second = addAttachment(db, task.key, report);
     updateStatus(db, task.key, 'queued', 'human');
-    expect(() => deleteAttachment(db, meta.id)).toThrow(InvalidTransitionError);
+    deleteAttachment(db, first.id);
+    updateStatus(db, task.key, 'in_progress', 'agent');
+    expect(() => deleteAttachment(db, second.id)).toThrow(InvalidTransitionError);
   });
 
   it('attachment bytes cascade away with the task', () => {

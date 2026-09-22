@@ -251,13 +251,14 @@ describe('tasks REST API', () => {
       expect(core.getTask(created.key).workspace).toBe('default');
     });
 
-    it('editing a non-backlog task → 409', async () => {
+    it('editing an unclaimed queued task → 200; once claimed → 409', async () => {
       const r = await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });
       const created = await r.json() as { key: string };
 
-      // Move to queued
       await post(app, `/api/tasks/${created.key}/status`, { status: 'queued' });
+      expect((await patch(app, `/api/tasks/${created.key}`, { acceptanceCriteria: 'Verifiable AC' })).status).toBe(200);
 
+      core.updateStatus(created.key, 'in_progress', 'agent');
       const res = await patch(app, `/api/tasks/${created.key}`, { title: 'New Title' });
       expect(res.status).toBe(409);
     });

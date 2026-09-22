@@ -201,6 +201,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
             Release claim
           </button>
         </>)}
+        {task.status === 'queued' && !editing && <button className="af-mini" onClick={() => setEditing(true)}>Edit</button>}
         {task.status === 'queued' && task.kind === 'pr-review' && (
           <button
             className="af-mini go"
@@ -364,11 +365,12 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
     </>);
 
     const editForm = (<>
-      {editing && task.status === 'backlog' && (
+      {/* The brief stays editable until claimed; moving workspace is backlog-only (core rule). */}
+      {editing && (task.status === 'backlog' || task.status === 'queued') && (
         <TaskForm
           mode="edit"
           initial={task}
-          workspaces={workspaces}
+          workspaces={task.status === 'backlog' ? workspaces : []}
           initialWorkspace={task.workspace}
           onSubmit={(fields, images, removedIds) =>
             api.updateTask(task.key, fields)
