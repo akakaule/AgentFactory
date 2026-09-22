@@ -21,3 +21,5 @@
 - Capture repair-retry intent before its write transaction so a watcher winning the race into `done` cannot be mistaken for an intentional reopen; when merged completion ends the DB session, the dispatcher must also terminate the matching live child and settle its reservation without releasing or republishing the completed task.
 - Treat each claim's persisted `claimedAt` as its execution fence: carry it through the worker submit protocol and compare it inside the write transaction so a late result cannot replace a newer claim after completion and reopen.
 - Dispatcher cancellation must also recognize a completed claim from durable status activity when a task was reopened before the next poll; current `claimedBy` and delivery rows may already describe only the replacement episode.
+
+- AF-153 cache cleanup (2026-09-23): remove previously tracked .npm-cache files from the index as well as adding the ignore rule; gitignore alone cannot untrack committed files. Preserve unregistered leftover worktree directories before recreating them, and verify git rev-parse --show-toplevel before task Git operations. Verified 1,350 tests, production build and client typecheck.
