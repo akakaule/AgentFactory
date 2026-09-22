@@ -20,7 +20,7 @@ const agentStatusBody = z.object({ status: z.string().min(1), note: z.string().o
 const transcriptAppendBody = z.object({ chunk: z.string().min(1), attempt: z.number().int().positive().optional(), sessionId: z.string().nullable().optional(), engine: z.string().optional() }).passthrough();
 const transcriptSaveBody = z.object({ raw: z.string().min(1), attempt: z.number().int().positive().optional(), sessionId: z.string().nullable().optional(), engine: z.string().optional() }).passthrough();
 const heartbeatBody = z.object({
-  name: z.string().min(1), kind: z.enum(['dispatcher', 'reviewer', 'watcher']),
+  name: z.string().min(1), kind: z.enum(['dispatcher', 'reviewer', 'watcher', 'intake']),
   workspaces: z.array(z.string()), inFlight: z.number().int().nonnegative(), capacity: z.number().int().nonnegative(),
   pollSeconds: z.number().nullable().optional(), version: z.string().nullable().optional(),
 });

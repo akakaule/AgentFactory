@@ -408,10 +408,92 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 
 /* Expanded task detail: the drawer body rendered in a wide, near-full-screen modal shell */
 .af-detail-modal {
-  width: min(1400px, 96vw); height: 94vh; max-width: none; max-height: 94vh;
+  width: calc(100vw - 48px); height: calc(100vh - 48px); max-width: none; max-height: none;
   border-radius: 14px; display: flex; flex-direction: column; overflow: hidden;
 }
 .af-detail-modal .af-drawer-body { flex: 1; }
+
+/* Tabbed layout inside the expanded detail: fixed title + tab strip over one scrolling panel */
+.af-dt-body.af-drawer-body { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; }
+.af-dt-top { flex: none; padding: 16px 26px 0; border-bottom: 1px solid var(--line); }
+.af-dt-top .af-d-title { margin: 10px 0 0; font-size: 24px; }
+.af-dt-strip { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 24px; margin-top: 10px; }
+.af-dt-strip .af-d-tags { margin-bottom: 10px; }
+.af-dt-strip .af-d-tags:empty { display: none; }
+.af-dt-tabs { display: flex; gap: 2px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+.af-dt-tab { position: relative; flex: none; display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 16px; border: 0; border-radius: 8px 8px 0 0; background: none; color: var(--ink-2); font-size: 15px; font-weight: 500; }
+.af-dt-tab:hover { color: var(--ink); background: color-mix(in srgb, var(--card) 60%, transparent); }
+.af-dt-tab[aria-selected="true"] { color: var(--ink); }
+.af-dt-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent-2); }
+.af-dt-tab:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.af-dt-tab .n { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-3); background: var(--bg-deep); border-radius: 99px; padding: 1px 7px; }
+.af-dt-main { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 26px 30px; background: var(--bg); }
+.af-dt-main > .af-sl:first-child, .af-dt-col > .af-sl:first-child { margin-top: 0; }
+.af-dt-sheet { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; align-items: start; }
+.af-dt-col { min-width: 0; }
+.af-dt-col + .af-dt-col { padding-left: 28px; border-left: 1px solid var(--line-soft); }
+.af-dt-col .af-sl { padding-bottom: 7px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; color: var(--ink-2); }
+.af-dt-col .af-intake-panel { margin-top: 24px; }
+/* Overview's Discussion: the comment box sits above the latest entries — keep them apart */
+.af-dt-col .af-cbox { margin-top: 0; }
+.af-dt-col .af-cbox + .af-tl { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+.af-dt-more { margin-top: 12px; padding: 0; border: 0; background: none; color: var(--accent-2); font-size: 14px; }
+.af-dt-more:hover { text-decoration: underline; }
+.af-dt-empty { color: var(--ink-3); font-size: 15px; }
+.af-dt-seg { display: inline-flex; padding: 3px; margin-bottom: 16px; border-radius: 9px; background: var(--bg-deep); border: 1px solid var(--line-soft); }
+.af-dt-seg button { height: 30px; padding: 0 13px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 14px; font-weight: 600; }
+.af-dt-seg button[aria-pressed="true"] { background: var(--card-hi); color: var(--ink); }
+.af-dt-viz { display: flex; height: calc(100vh - 300px); min-height: 420px; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
+.af-dt-main .af-changes-row { margin-bottom: 14px; }
+.af-dt-main .af-tx-row { margin-bottom: 14px; }
+
+/* Roomier type in the expanded detail — two steps up from the drawer's compact scale */
+.af-dt-body .af-sl { font-size: 13px; }
+.af-dt-body .af-d-body { font-size: 15.5px; line-height: 1.6; }
+.af-dt-body .af-result { font-size: 15px; }
+.af-dt-body .af-pill { font-size: 13.5px; }
+.af-dt-body .af-mini { height: 34px; padding: 0 13px; font-size: 14px; }
+/* min-height: ReviewActions pins the approve button's height inline */
+.af-dt-body .af-btn-primary { min-height: 34px; font-size: 14px; }
+.af-dt-body .af-def { font-size: 15px; }
+.af-dt-body .af-def dd.mono { font-size: 14px; }
+.af-dt-body .af-link .lk { font-size: 14.5px; }
+.af-dt-body .af-link .ty { font-size: 13px; }
+.af-dt-body .af-diffstat { font-size: 14px; }
+.af-dt-body .af-trail-stage { font-size: 12px; }
+.af-dt-body .af-trail-chip { font-size: 12.5px; padding: 3px 10px; }
+.af-dt-body .af-trail-arrow { font-size: 13px; }
+.af-dt-body .af-tl-line, .af-dt-body .af-tl-text { font-size: 14.5px; }
+.af-dt-body .af-tl-line .kind, .af-dt-body .af-tl-line .mv { font-size: 13.5px; }
+.af-dt-body .af-tl-time { font-size: 13px; }
+.af-dt-body .af-claimline { font-size: 14.5px; }
+.af-dt-body .af-tx-meta { font-size: 13.5px; }
+.af-dt-body .af-tx-role { font-size: 12px; }
+.af-dt-body .af-tx-text { font-size: 15px; }
+.af-dt-body .af-tx-think { font-size: 14.5px; }
+.af-dt-body .af-tx-cmd { font-size: 14px; }
+.af-dt-body .af-tx-out { font-size: 13.5px; }
+.af-dt-body .af-mchip, .af-dt-body .af-mlegend span, .af-dt-body .af-mnone { font-size: 13.5px; }
+.af-dt-body .af-intake-head, .af-dt-body .af-intake-reasons, .af-dt-body .af-intake-details summary, .af-dt-body .af-intake-parts, .af-dt-body .af-intake-link, .af-dt-body .af-intake-history { font-size: 14px; }
+.af-dt-body .af-intake-head strong { font-size: 15px; }
+.af-dt-body .af-intake-stat .k { font-size: 12px; }
+.af-dt-body .af-intake-stat .v { font-size: 17px; }
+.af-dt-body .af-intake-stat .s { font-size: 13px; }
+
+@media (max-width: 1180px) {
+  .af-dt-sheet { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .af-dt-sheet .af-dt-col:first-child { grid-row: span 2; }
+  .af-dt-sheet .af-dt-col:nth-child(3) { grid-column: 2; margin-top: 24px; }
+}
+@media (max-width: 860px) {
+  .af-dt-sheet { grid-template-columns: minmax(0, 1fr); }
+  .af-dt-sheet .af-dt-col:first-child { grid-row: auto; }
+  .af-dt-sheet .af-dt-col:nth-child(3) { grid-column: auto; margin-top: 0; }
+  .af-dt-col + .af-dt-col { padding-left: 0; border-left: 0; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line-soft); }
+  .af-dt-tabs { margin-left: 0; width: 100%; }
+  .af-dt-top { padding-inline: 16px; }
+  .af-dt-main { padding: 18px 16px 24px; }
+}
 
 .af-diff { display: flex; flex-direction: column; gap: 12px; }
 .af-diff-file { background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }

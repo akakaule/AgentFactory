@@ -83,6 +83,12 @@ describe('buildProtocol stage shapes', () => {
     expect(finish).not.toMatch(/git worktree|git push|git commit/);
   });
 
+  // The board wraps text itself; column-wrapped prose renders as a ragged narrow block there.
+  it.each(['description', 'plan'] as const)('%s stage tells the writer not to hard-wrap prose', (stage) => {
+    const p = buildProtocol({ stage, repoPath: 'c:/Git/App', key: 'AF-4' });
+    expect(p.finish.join(' ')).toMatch(/do NOT hard-wrap/);
+  });
+
   it('implementation stage carries the stage discriminator alongside branch/worktree', () => {
     const p = buildProtocol({
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',

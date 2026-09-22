@@ -33,6 +33,11 @@ export type ProtocolInput =
       github?: { defaultBranch: string | null };
     };
 
+/** Board text fields (spec, acceptance criteria, plan, summary) are rendered with the board's own
+ *  wrapping; prose broken at a column width shows up there as a ragged narrow block. */
+export const NO_HARD_WRAP =
+  'Write prose as flowing text and do NOT hard-wrap it at a column width: a newline only ends a paragraph, a list item or a heading — the board wraps lines itself.';
+
 // Forward slashes only: Windows backslash paths lose their backslashes when the
 // agent pastes them into a POSIX shell; git accepts / on every platform.
 const fwd = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -49,6 +54,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       setup: [],
       finish: [
         'Write the feature description: a rewritten spec (preserve any source-reference lines, e.g. an ADO work-item link, at the top) and objectively verifiable acceptance criteria.',
+        NO_HARD_WRAP,
         'Do NOT touch the repository — no branch, no worktree, no code changes.',
         'Call submit_result with { summary, spec, acceptanceCriteria }.',
       ],
@@ -62,6 +68,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       finish: [
         `Read the workspace repository at ${fwd(input.repoPath)} (read-only) to ground the plan in the real code.`,
         'Write a step-by-step implementation plan: the files to change, the approach, and a test plan.',
+        NO_HARD_WRAP,
         'Do NOT create a branch or worktree, and make no commits.',
         'Call submit_result with { summary, plan }.',
       ],

@@ -600,7 +600,7 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-15" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText('Metrics')).toBeInTheDocument();
+    expect(await screen.findByText('Metrics', { selector: '.af-sl' })).toBeInTheDocument();
     expect(screen.getByText('41k')).toBeInTheDocument();
     expect(screen.getByText('claude-fable-5')).toBeInTheDocument();
   });
@@ -692,7 +692,7 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-13" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText('Changes')).toBeInTheDocument();
+    expect(await screen.findByText('Changes', { selector: '.af-sl' })).toBeInTheDocument();
     await waitFor(() => expect(mocked.getDiff).toHaveBeenCalledWith('AF-13'));
   });
 
@@ -704,7 +704,7 @@ describe('DetailPanel', () => {
     render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
 
     await screen.findByText('This is the spec');
-    expect(screen.queryByText('Changes')).not.toBeInTheDocument();
+    expect(screen.queryByText('Changes', { selector: '.af-sl' })).not.toBeInTheDocument();
     expect(mocked.getDiff).not.toHaveBeenCalled();
   });
 
@@ -850,6 +850,78 @@ describe('DetailPanel', () => {
     await waitFor(() => {
       expect(mocked.getTask.mock.calls.length).toBeGreaterThan(callsAfterMount);
       expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('tabbed layout', () => {
+    it('always opens as the full dialog — no side drawer, no expand toggle', async () => {
+      const mocked = await getApiMock();
+      mocked.getTask.mockResolvedValue(backlogTask);
+      const { container } = render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+      await screen.findByText('This is the spec');
+      expect(screen.getByRole('tablist')).toBeInTheDocument();
+      expect(container.querySelector('.af-drawer')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Expand|Collapse/ })).not.toBeInTheDocument();
+    });
+
+    it('opens on an Overview tab holding the spec, details and dependencies', async () => {
+      const mocked = await getApiMock();
+      mocked.getTask.mockResolvedValue(backlogTask);
+      render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+      await screen.findByText('This is the spec');
+
+      const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
+      expect(tabs).toEqual(['Overview', 'Changes', 'Logs', 'Metrics', 'Activity2']);
+      expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByText('This is the spec')).toBeInTheDocument();
+      expect(screen.getByText('These are the acceptance criteria')).toBeInTheDocument();
+      expect(screen.getByText('c:/git/repo-a')).toBeInTheDocument();
+      expect(screen.getByText('Dependencies')).toBeInTheDocument();
+    });
+
+    it('switches panels: Activity shows the timeline and hides the spec', async () => {
+      const mocked = await getApiMock();
+      mocked.getTask.mockResolvedValue({ ...backlogTask, activity: [...Array.from({ length: 4 }, (_, i) => ({ ...backlogTask.activity[1]!, id: 10 + i, body: `older comment ${i}` })), { ...backlogTask.activity[1]!, id: 20 }] });
+      const user = userEvent.setup();
+      render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+      await screen.findByText('This is the spec');
+
+      // activity arrives oldest-first; Overview only previews the latest entries
+      expect(screen.queryByText('older comment 0')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('tab', { name: /Activity/ }));
+      expect(screen.getByRole('tab', { name: /Activity/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByText('older comment 0')).toBeInTheDocument();
+      expect(screen.queryByText('This is the spec')).not.toBeInTheDocument();
+    });
+
+    it('renders the diff inline on the Changes tab', async () => {
+      const mocked = await getApiMock();
+      mocked.getTask.mockResolvedValue({ ...inReviewTask, links: [{ id: 9, taskId: 2, kind: 'branch', label: 'task/AF-11', url: 'https://example.com/b' }] });
+      mocked.getDiff.mockResolvedValue({
+        branch: 'task/AF-11', baseRef: 'main', commits: 1,
+        diff: ['diff --git a/foo.ts b/foo.ts', '--- a/foo.ts', '+++ b/foo.ts', '@@ -1 +1 @@', '-old line', '+new line', ''].join('\n'),
+      });
+      const user = userEvent.setup();
+      render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+      await screen.findByText('Implementation complete');
+      await user.click(screen.getByRole('tab', { name: 'Changes' }));
+
+      expect(await screen.findByText('new line')).toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: /Changes on/ })).not.toBeInTheDocument();
+    });
+
+    it('moves between tabs with the arrow keys', async () => {
+      const mocked = await getApiMock();
+      mocked.getTask.mockResolvedValue(backlogTask);
+      const user = userEvent.setup();
+      render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+      await screen.findByText('This is the spec');
+
+      screen.getByRole('tab', { name: 'Overview' }).focus();
+      await user.keyboard('{ArrowLeft}');
+      expect(screen.getByRole('tab', { name: /Activity/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: /Activity/ })).toHaveFocus();
     });
   });
 });

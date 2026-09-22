@@ -36,7 +36,21 @@ Example Jev configuration:
 }
 ```
 
-Set `TYPESAFE_API_KEY` only after the provider endpoint and request contract have been independently
-re-verified. The supervisor owns migration 26, which widens the heartbeat kind check to include
-`intake`; it preserves existing heartbeat rows and must be applied by the normal board migration
-process before starting a database-backed supervisor.
+The adapter was checked against https://docs.typesafe.ai/api.md and
+https://docs.typesafe.ai/models.md on 2026-09-20. Questions use typed `noul`/`choice`
+objects; readiness reads the returned `noul` number. A controlled synthetic request
+to the real endpoint succeeded with `jev-1.13.0`, all five decisions, and reported
+usage (569 input / 158 output tokens), and passed core assessment validation.
+
+The board applies migration 26, which widens the heartbeat kind check to include
+`intake` and preserves existing heartbeat rows. Start the board and verify an authenticated
+`GET /api/agent/whoami` before starting intake in board mode.
+
+Configure `intake.config.json` in the repository root (ignored by Git). Store the
+provider key and board service token in the environment named by `apiKeyEnv` and
+`board.tokenEnv`, then run `npm run intake -- intake.config.json`. On Windows,
+existing terminals do not automatically receive newly saved user environment variables;
+open a new terminal or load them explicitly into the launching process.
+
+Use the board's Task Intelligence settings to select Advisory mode and explicitly
+opt in workspaces. Workspace policy text is sent only when the live setting permits it.

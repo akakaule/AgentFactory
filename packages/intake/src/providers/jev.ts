@@ -10,7 +10,11 @@ export class JevTaskIntakeDecisionProvider implements TaskIntakeDecisionProvider
 
   async assess(state: TaskIntakeState, signal: AbortSignal): Promise<ProviderResult> {
     const keys = questionKeysForStage(state.stage);
-    const questions = Object.fromEntries(keys.map((key) => [key, INTAKE_QUESTIONS[key as keyof typeof INTAKE_QUESTIONS]]));
+    const questions = Object.fromEntries(keys.map((key) => {
+      const instructions = INTAKE_QUESTIONS[key as keyof typeof INTAKE_QUESTIONS];
+      const choices = key === 'complexity' ? ['trivial', 'small', 'medium', 'large', 'architectural'] : key === 'risk' ? ['low', 'medium', 'high', 'critical'] : null;
+      return [key, choices ? { type: 'choice', instructions, criteria: Object.fromEntries(choices.map((value) => [value, null])) } : { type: 'noul', instructions }];
+    }));
     const body = { model: this.options.model, state: allowlistedState(state, this.options.sendWorkspacePolicy ?? false), questions };
     let response: Response;
     try {
@@ -19,7 +23,7 @@ export class JevTaskIntakeDecisionProvider implements TaskIntakeDecisionProvider
         body: JSON.stringify(body), signal,
       });
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw new IntakeProviderError('timeout', 'provider request timed out');
+      if (signal.aborted) throw new IntakeProviderError('timeout', 'provider request timed out');
       throw new IntakeProviderError('network', 'provider request failed');
     }
     let payload: unknown = null;
@@ -53,7 +57,7 @@ function mapJevResponse(payload: unknown, state: TaskIntakeState): ProviderResul
     return a as Record<string, unknown>;
   };
   const readinessKeys = state.stage === 'description' ? ['outcomeClear', 'scopeBounded'] : ['outcomeClear', 'scopeBounded', 'verifiable'];
-  const readinessParts = Object.fromEntries(readinessKeys.map((key) => [key, number(answer(key).probability)]));
+  const readinessParts = Object.fromEntries(readinessKeys.map((key) => [key, number(answer(key).noul)]));
   const decisions: IntakeDecisions = {
     readiness: { parts: readinessParts, probability: Math.min(...Object.values(readinessParts)) },
     complexity: choice(answer('complexity'), ['trivial', 'small', 'medium', 'large', 'architectural']),

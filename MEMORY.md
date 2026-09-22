@@ -1,5 +1,17 @@
 # AgentFactory Memory
 
+- Intake acknowledgement UX (2026-09-21): optional human acknowledgment context should not use `window.prompt`; the default action submits no reason, while an explicit inline note field submits trimmed text. Keep both paths covered at the component boundary.
+
+- Board login setup (2026-09-21): enabling AUTH_MODE=token for HTTP supervisors also requires a human browser credential. Provide and verify a user-bound board token via /auth/whoami, separate from service/provider keys; save it as AGENTFACTORY_BOARD_TOKEN and deliver via clipboard without logging it.
+
+- Intake credential repair (2026-09-21): the persisted user-environment board token can differ from the credential held by an already-running healthy process. Probe the persisted credential against whoami without printing it; mint and verify a replacement before saving it and restarting only intake. The launcher reloads saved credentials and avoids duplicate intake launches.
+
+- Intake HTTP heartbeat correction (2026-09-21): adding a supervisor kind to core and SQLite is insufficient; agentOps heartbeat Zod validation must accept it too. Regress a plain service token posting an intake heartbeat through buildApp, and verify live board-mode assessment publication after rollout.
+
+- Intake startup (2026-09-20): wait for a successful authenticated board whoami probe before launching intake; concurrently launching the board and intake can fail the intake startup probe with ECONNREFUSED.
+
+- Jev setup correction (2026-09-20): the official API requires typed question objects (`noul` or `choice`, instructions, choice criteria) and Noul answers use `noul`, not `probability`. Verify the real response using synthetic text before enabling production assessments; fixture-only tests do not establish provider compatibility. AbortSignal.timeout raises TimeoutError and must be classified via signal.aborted.
+
 - Intake review corrections (2026-09-20): verify reported defects before fixing. Regress stale-revision selection, live policy opt-out at the provider boundary, queue guard parity and revision-bound acknowledgment reuse, auth shutdown/refund, malformed/529 retry backoff, and current-revision claim coverage. Queue audit writes must share the existing status operation's validation and transaction; drawer acknowledgments refresh the detail query. Historical coverage must reject mismatched revision references too.
 
 - Delivery recovery clarification (2026-09-14): the user requested implementing the merged-PR retry fix in AgentFactory, not only filing AF-153. A confirmed merge of the current approved delivery should finish the original task even if its recorded checks failed; preserve CI evidence and treat further repair as separate work. This supersedes the earlier rule limiting recovery to metadata refresh outside Delivering. When task wording is ambiguous, retain the implementation request while awaiting clarification instead of substituting a backlog task.
@@ -49,3 +61,4 @@
 - Intake UI refresh (2026-09-20): advisory overrides should refresh the existing task query through DetailPanel's onChanged callback; avoid a full browser reload for a local acknowledgment.
 - Intake retry test setup (2026-09-20): an atomically published assessment has already settled its reservation successfully; exercise transient backoff with a separate revision after explicitly settling its running attempt as failed.
 - Intake settle-window tests (2026-09-20): supervisor selection honors the configured settle window; immediate fixture tests must explicitly set `settleSeconds: 0` instead of assuming newly created tasks are eligible.
+- Headless Git recovery (2026-09-21): shell read permissions are not guaranteed in reclaimed worktrees. Route inspection and default-branch merges through the pinned task_git broker; preserve dirty work and interrupted merges, require current ownership, and block push/cleanup until continuation completes. Test a real headless conflict resolution, not only mocked commands. Reviewer discovery and consensus must both recognize standalone JSON fences; embedded Markdown in findings/evidence must not truncate JSON. Parse failures retain the submission and exhaust the existing bounded reviewer budget, never requeue implementation as feedback.
