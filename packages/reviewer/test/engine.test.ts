@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { resolveEngineCommand, buildEngineArgs, pickFromWhich } from '../src/engine.js';
+// The configured effort must reach the CLI even when the user's default differs.
+it('pins Astra medium reasoning in the actual Codex argv', () => {
+  const args = buildEngineArgs({ engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'medium', outputFile: '/logs/x.out' });
+  expect(args).toContain('gpt-6-astra');
+  expect(args).toContain('model_reasoning_effort="medium"');
+  expect(args[args.indexOf('model_reasoning_effort="medium"') - 1]).toBe('-c');
+  expect(args.at(-1)).toBe('-');
+});
 
 describe('resolveEngineCommand', () => {
   it('prefers the per-engine override env var', () => {
@@ -22,6 +30,18 @@ describe('resolveEngineCommand', () => {
 });
 
 describe('buildEngineArgs', () => {
+  it('attributes Codex review phase sessions through OTLP headers', () => {
+    const args = buildEngineArgs({ engine: 'codex', outputFile: 'out', otel: { endpoint: 'http://board', taskKey: 'AF-1',
+      worker: 'ws#AF-1-r1-2-codex-cross-examination', workspace: 'ws' } });
+    expect(args.join(' ')).toContain('X-AF-Worker="ws#AF-1-r1-2-codex-cross-examination"');
+    expect(args.join(' ')).toContain('X-AF-Workspace="ws"');
+  });
+  it('allows Claude to inspect code and then answer, with read-only permissions and the supervisor time limit', () => {
+    const args = buildEngineArgs({ engine: 'claude', model: 'claude-fable-5-1', outputFile: '' });
+    expect(args).not.toContain('--max-turns');
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan');
+    expect(args).toContain('--strict-mcp-config');
+  });
   it('codex: read-only exec capturing the final message, prompt via stdin (-)', () => {
     expect(buildEngineArgs({ engine: 'codex', outputFile: '/logs/x.out' })).toEqual([
       'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never', '--output-last-message', '/logs/x.out', '-',
@@ -59,16 +79,16 @@ describe('buildEngineArgs', () => {
   it('claude: otel opts are ignored (claude reads OTLP from the environment)', () => {
     expect(
       buildEngineArgs({ engine: 'claude', outputFile: '', otel: { endpoint: 'http://x', taskKey: 'AF-7' } }),
-    ).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
+    ).toEqual(['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config']);
   });
 
-  it('claude: headless single-turn text (verdict on stdout)', () => {
-    expect(buildEngineArgs({ engine: 'claude', outputFile: '' })).toEqual(['-p', '--output-format', 'text', '--max-turns', '1']);
+  it('claude: headless read-only inspection (verdict on stdout)', () => {
+    expect(buildEngineArgs({ engine: 'claude', outputFile: '' })).toEqual(['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config']);
   });
 
   it('claude: appends --model <model>', () => {
     expect(buildEngineArgs({ engine: 'claude', model: 'opus', outputFile: '' })).toEqual([
-      '-p', '--output-format', 'text', '--max-turns', '1', '--model', 'opus',
+      '-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config', '--model', 'opus',
     ]);
   });
 });

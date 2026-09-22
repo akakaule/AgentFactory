@@ -11,14 +11,14 @@ import { advanceRetryBudget } from '../repo/retry.js';
 export function reviewRequestChanges(db: DB, key: string, input: { feedback: string; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
   const { feedback } = parse(feedbackSchema, { feedback: input.feedback });
   const actorUserId = input.actorUserId ?? null;
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
-  if (row.status !== 'in_review') throw new InvalidTransitionError(`request changes requires in_review (got ${row.status})`);
-  // A pr-review task is reviewed, never implemented — it must never reach the worker queue. This path
-  // calls setStatus('queued') directly (bypassing updateStatus's guard), so the kind check lives here too.
-  if (row.kind === 'pr-review')
-    throw new ValidationError('a pr-review task has no implementation to send back — there is no "request changes" for a PR review');
   return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    if (row.status !== 'in_review') throw new InvalidTransitionError(`request changes requires in_review (got ${row.status})`);
+    // A pr-review task is reviewed, never implemented — it must never reach the worker queue. This path
+    // calls setStatus('queued') directly (bypassing updateStatus's guard), so the kind check lives here too.
+    if (row.kind === 'pr-review')
+      throw new ValidationError('a pr-review task has no implementation to send back — there is no "request changes" for a PR review');
     const ts = now();
     advanceRetryBudget(db, row.id, `dispatcher:${row.stage}`, ts, 'requested changes');
     setStatus(db, row.id, 'queued', ts);

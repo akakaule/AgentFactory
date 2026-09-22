@@ -56,6 +56,13 @@ function codexBody() {
 }
 
 describe('POST /v1/logs — OTLP token ingest', () => {
+  it('retains the Codex discussion phase and workspace from supervisor headers', async () => {
+    const core = openCore(':memory:'); const app = buildApp(core);
+    const t = core.createTask({ title: 'Review', spec: 'S', acceptanceCriteria: 'A' });
+    await postLogs(app, codexBody(), { 'x-task-key': t.key, 'x-af-worker': 'ws#AF-1-r1-2-codex-cross-examination', 'x-af-workspace': 'ws' });
+    const payload = await (await app.request('/api/telemetry')).json() as Array<{ worker: string; workspace: string }>;
+    expect(payload[0]).toMatchObject({ worker: 'ws#AF-1-r1-2-codex-cross-examination', workspace: 'ws' });
+  });
   it('Claude api_request + task.key resource attr → summed tokens (incl cache) on task_metric', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRemoteUrl, resolveOriginUrl } from '../src/remote.js';
+import { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl } from '../src/remote.js';
 
 describe('parseRemoteUrl', () => {
   it.each([
@@ -34,6 +34,18 @@ describe('parseRemoteUrl', () => {
     'https://github.com/acme',                      // missing repo segment
   ])('rejects %s', (url) => {
     expect(parseRemoteUrl(url)).toBeNull();
+  });
+});
+
+describe('pullRequestCreateUrl', () => {
+  it('links the Azure DevOps create-PR page with the source branch preselected', () => {
+    expect(pullRequestCreateUrl({ provider: 'azdo', organization: 'acme', project: 'My Project', repo: 'widgets' }, 'feature/AF-1-x'))
+      .toBe('https://dev.azure.com/acme/My%20Project/_git/widgets/pullrequestcreate?sourceRef=feature%2FAF-1-x');
+  });
+
+  it('links the GitHub compare page for the branch', () => {
+    expect(pullRequestCreateUrl({ provider: 'github', owner: 'acme', repo: 'widgets' }, 'feature/AF-1-x'))
+      .toBe('https://github.com/acme/widgets/compare/feature%2FAF-1-x?expand=1');
   });
 });
 

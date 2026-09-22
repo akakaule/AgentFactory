@@ -41,16 +41,16 @@ export function submitResult(
   now: () => string = nowIso,
 ): TaskDetail {
   const { summary, links, spec, acceptanceCriteria, plan, verification } = parse(submitResultSchema, input);
-  const row = findRowByKey(db, key);
-  if (!row) throw new NotFoundError(`task not found: ${key}`);
-  assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
-  assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification);
-  // Verification gate: when the workspace configures a verify command, the implementation stage
-  // must report having run it (attestation — the worktree is gone by submit, so the server can't
-  // re-run it here). No command configured ⇒ no gate, preserving today's behaviour.
-  if (row.stage === 'implementation' && row.workspace_verify_command && row.workspace_verify_command.trim().length > 0 && verification === undefined)
-    throw new ValidationError(`this workspace requires verification: run \`${row.workspace_verify_command}\` from the worktree root and report its outcome via the \`verification\` field`);
   return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
+    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification);
+    // Verification gate: when the workspace configures a verify command, the implementation stage
+    // must report having run it (attestation — the worktree is gone by submit, so the server can't
+    // re-run it here). No command configured ⇒ no gate, preserving today's behaviour.
+    if (row.stage === 'implementation' && row.workspace_verify_command && row.workspace_verify_command.trim().length > 0 && verification === undefined)
+      throw new ValidationError(`this workspace requires verification: run \`${row.workspace_verify_command}\` from the worktree root and report its outcome via the \`verification\` field`);
     const ts = now();
     // A new result is a new review episode. Preserve failures from the prior submission but do
     // not let a successful review consume the next submission's allowance.

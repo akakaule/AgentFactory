@@ -53,6 +53,19 @@ export function parseRemoteUrl(url: string): RemoteRef | null {
 }
 
 /**
+ * The git host's "create a pull request" page for `branch`, with the source branch preselected
+ * (the target defaults to the repo's default branch on both hosts). Azure DevOps has no
+ * CLI-free PR creation in the finish protocol, so the board offers this deep link instead;
+ * GitHub gets the equivalent compare page for the rare case `gh pr create` failed.
+ */
+export function pullRequestCreateUrl(remote: RemoteRef, branch: string): string {
+  const e = encodeURIComponent;
+  return remote.provider === 'github'
+    ? `https://github.com/${e(remote.owner)}/${e(remote.repo)}/compare/${e(branch)}?expand=1`
+    : `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}/_git/${e(remote.repo)}/pullrequestcreate?sourceRef=${e(branch)}`;
+}
+
+/**
  * The workspace repo's `origin` URL, or null when there is no repo/remote/git — never throws.
  * Relative repoPaths (the seeded default workspace's '.') resolve to null: they depend on the
  * calling process's cwd, which is meaningless for a multi-process board — the same fail-open

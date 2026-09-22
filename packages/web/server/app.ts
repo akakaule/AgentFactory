@@ -5,6 +5,7 @@ import { taskRoutes } from './routes/tasks.js';
 import { agentOpsRoutes } from './routes/agentOps.js';
 import { workspaceRoutes } from './routes/workspaces.js';
 import { agentPromptRoutes } from './routes/agentPrompts.js';
+import { engineRoutes } from './routes/engines.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { agentRoutes } from './routes/agents.js';
@@ -18,7 +19,7 @@ import { mapError } from './errors.js';
 import { registerSse } from './sse.js';
 import { createTelemetryStore, type TelemetryStore } from './telemetry.js';
 
-export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: AuthConfig; telemetry?: TelemetryStore } = {}): Hono {
+export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: AuthConfig; telemetry?: TelemetryStore; resolveOrigin?: (repoPath: string) => string | null } = {}): Hono {
   const auth = opts.auth ?? { mode: 'none' };
   // One ring shared between the OTLP receiver (writes) and the /api/telemetry read route.
   const telemetry = opts.telemetry ?? createTelemetryStore();
@@ -40,10 +41,11 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.use('/events', guard);
   app.use('/v1/*', guard); // OTLP ingest — token mode requires a (service) token in OTLP headers
   app.route('/auth', authRoutes(core, auth));
-  app.route('/api/tasks', taskRoutes(core));
+  app.route('/api/tasks', taskRoutes(core, { resolveOrigin: opts.resolveOrigin }));
   app.route('/api/agent', agentOpsRoutes(core)); // #45: service-token agent ops (claim/submit/…)
   app.route('/api/workspaces', workspaceRoutes(core));
   app.route('/api/agent-prompts', agentPromptRoutes(core));
+  app.route('/api/engines', engineRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
   app.route('/api/attachments', attachmentRoutes(core));
   app.route('/api/agents', agentRoutes(core));

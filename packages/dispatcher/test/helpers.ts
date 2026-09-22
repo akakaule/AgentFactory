@@ -138,6 +138,7 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
     core,
     spawn,
     resolveClaude: () => 'claude.exe',
+    resolveCodex: () => ({ command: 'codex.exe', args: [] }),
     mcp: { command: 'node', args: ['/abs/mcp/dist/index.js'] },
     openLog: () => noopLog(),
     writeMcp: overrides.writeMcp ?? (() => {}),

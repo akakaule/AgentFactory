@@ -506,8 +506,9 @@ describe('worker git auth', () => {
     // insteadOf strips the stale embedded credential (remote.origin.url can't be overridden via env)
     expect(env['GIT_CONFIG_KEY_1']).toBe('url.https://github.com/acme/repo.insteadOf');
     expect(env['GIT_CONFIG_VALUE_1']).toBe('https://oldpat@github.com/acme/repo');
-    // the raw PAT rides only inside the base64 header, never as a bare env value
-    expect(JSON.stringify(env)).not.toContain('ghp_secret');
+    // gh uses GH_TOKEN, independently of Git's HTTP header. Neither goes into argv.
+    expect(env['GH_TOKEN']).toBe('ghp_secret');
+    expect(JSON.stringify(calls[0]!.req.args)).not.toContain('ghp_secret');
   });
 
   it('with a bare origin (no embedded credential), injects only the extraheader (no insteadOf)', async () => {
@@ -535,6 +536,36 @@ describe('worker git auth', () => {
 
     await d.tick();
     expect(calls[0]!.req.env['GIT_CONFIG_COUNT']).toBeUndefined();
+  });
+
+  it('forwards the selected workspace PAT into Codex shells instead of an ambient GitHub identity', async () => {
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/acme/repo' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'workspace-secret' });
+    seedQueued(core, 'ws', 'Codex auth');
+    const { spawn, calls } = makeFakeSpawn();
+    const deps = makeDeps(core, spawn);
+    deps.baseEnv = { GH_TOKEN: 'unrelated-token', AZURE_CLIENT_SECRET: 'unrelated-secret' };
+    const d = new Dispatcher(makeConfig({ stageEngines: { implementation: 'codex' } }), deps);
+    await d.tick();
+    const { env, args } = calls[0]!.req;
+    expect(env['GH_TOKEN']).toBe('workspace-secret');
+    const include = args.find(a => a.startsWith('shell_environment_policy.include_only='));
+    expect(include).toContain('GIT_CONFIG_VALUE_0');
+    expect(include).toContain('GH_TOKEN');
+    expect(include).not.toContain('AZURE_CLIENT_SECRET');
+    expect(args.join(' ')).not.toContain('workspace-secret');
+  });
+
+  it('does not use an Azure DevOps PAT as a GitHub CLI credential', async () => {
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://dev.azure.com/acme/project/_git/repo' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'ado-secret' });
+    seedQueued(core, 'ws', 'ADO auth');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+    await d.tick();
+    expect(calls[0]!.req.env['GH_TOKEN']).toBeUndefined();
   });
 });
 

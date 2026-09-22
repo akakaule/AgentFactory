@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { buildProtocol } from '../src/protocol.js';
 
+it.each([true, false])('requires isolated npm workspace dependencies before verification (managed Git: %s)', (managedGit) => {
+  const p = buildProtocol({ stage: 'implementation', repoPath: 'C:/Git/AgentFactory', key: 'AF-147',
+    branch: 'feature/AF-147-notifications', branchCreated: false, managedGit });
+  const setup = p.setup.join('\n');
+  expect(setup).toContain('npm ci --cache .npm-cache');
+  expect(setup).toContain('package-lock.json');
+  expect(setup).toContain('worktree');
+  expect(setup).toContain('parent checkout');
+  expect(setup).toContain('build before running tests');
+});
+
 // Windows repoPaths (c:\Git\...) pasted into a POSIX shell lose their backslashes —
 // the worktree lands at a mangled relative path. The protocol must only ever emit
 // forward-slash paths, quoted in command strings.
@@ -98,12 +109,16 @@ describe('buildProtocol stage shapes', () => {
     expect(p.finish.join('\n')).toContain('verification');
   });
 
-  it('implementation finish falls back to repo tests + build when no verify command is configured', () => {
+  it('implementation finish includes CI lint, formatting and type checks before push by default', () => {
     const p = buildProtocol({
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-7',
       branch: 'feature/AF-7-y', branchCreated: true,
     });
     expect(p.finish.join('\n')).toMatch(/tests and build/i);
+    const verifyIdx = p.finish.findIndex(s => /formatting/.test(s));
+    expect(verifyIdx).toBeGreaterThanOrEqual(0);
+    expect(verifyIdx).toBeLessThan(p.finish.findIndex(s => s.includes('git push')));
+    expect(p.finish[verifyIdx]).toMatch(/lint.*formatting.*type checks/);
   });
 });
 
@@ -115,7 +130,7 @@ describe('buildProtocol worktree base', () => {
 
   it('first claim with a fetchable base: git fetch, then create the branch from that ref', () => {
     const p = impl({ branchCreated: true, base: { ref: 'origin/main', fetch: true } });
-    expect(p.setup).toEqual([
+    expect(p.setup.slice(0, -1)).toEqual([
       'git fetch origin',
       'git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a origin/main',
     ]);
@@ -123,19 +138,19 @@ describe('buildProtocol worktree base', () => {
 
   it('first claim with a no-fetch base (local default, no origin): create from the ref, no fetch', () => {
     const p = impl({ branchCreated: true, base: { ref: 'master', fetch: false } });
-    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a master']);
+    expect(p.setup.slice(0, -1)).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a master']);
   });
 
   it('first claim without a resolvable base: falls back to branching from current HEAD', () => {
     const p = impl({ branchCreated: true });
-    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a']);
+    expect(p.setup.slice(0, -1)).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a']);
   });
 
   it('reclaim ignores any base and reuses the existing branch (no -b, no fetch)', () => {
     const p = impl({ branchCreated: false, base: { ref: 'origin/main', fetch: true } });
     // reuse-first so a real reclaim keeps its commits; create-fallback recovers a branch a
     // prior claim named but died before creating (no base ref on a reclaim → from HEAD).
-    expect(p.setup).toEqual([
+    expect(p.setup.slice(0, -1)).toEqual([
       'git worktree add "c:/Git/App/.worktrees/AF-5" feature/AF-5-a || git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a',
     ]);
   });
@@ -145,14 +160,14 @@ describe('buildProtocol worktree base', () => {
     // `git worktree add -b` ran, so the ref does not exist. The reclaim setup must contain a
     // create fallback so `git worktree add <wt> <branch>` failing does not brick the task.
     const p = impl({ branchCreated: false });
-    expect(p.setup).toHaveLength(1);
+    expect(p.setup.slice(0, -1)).toHaveLength(1);
     expect(p.setup[0]).toContain(' || git worktree add ');
     expect(p.setup[0]!.endsWith('-b feature/AF-5-a')).toBe(true);
   });
 
   it('rejects an unsafe base ref (defense-in-depth) and falls back to current HEAD', () => {
     const p = impl({ branchCreated: true, base: { ref: '--upload-pack=evil', fetch: false } });
-    expect(p.setup).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a']);
+    expect(p.setup.slice(0, -1)).toEqual(['git worktree add "c:/Git/App/.worktrees/AF-5" -b feature/AF-5-a']);
   });
 });
 
@@ -160,6 +175,14 @@ describe('buildProtocol worktree base', () => {
 describe('buildProtocol GitHub PR step', () => {
   const impl = (extra: Record<string, unknown>) =>
     buildProtocol({ stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-8', branch: 'feature/AF-8-pr', branchCreated: true, ...extra } as Parameters<typeof buildProtocol>[0]);
+
+  it('requires an open PR and does not reuse the URL of a merged PR on a repair', () => {
+    const p = impl({ github: { defaultBranch: 'main' } });
+    const step = p.finish.find(s => s.includes('gh pr'))!;
+    expect(step).toContain('--state open');
+    expect(step).toContain('merged');
+    expect(step).not.toContain('gh pr view');
+  });
 
   it('emits a gh pr step after push and before worktree removal, with --base and a pr link', () => {
     const p = impl({ github: { defaultBranch: 'main' } });

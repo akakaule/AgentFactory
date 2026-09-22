@@ -4,15 +4,33 @@ import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
 import { branchDiff } from '../git.js';
-import { refFromLabel, fetchRemoteRef } from '@agentfactory/core';
+import { refFromLabel, fetchRemoteRef, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
 import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
 
 // Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
 // is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
 const MAX_VISUALIZATION_BYTES = 4 * 1024 * 1024;
 
-export function taskRoutes(core: Core) {
+export interface TaskRouteOptions {
+  /** Injectable origin-URL resolver for the create-PR deep link (tests pass a fake). */
+  resolveOrigin?: ((repoPath: string) => string | null) | undefined;
+}
+
+/** A task detail plus the board-only `createPrUrl` affordance (see withCreatePrUrl). */
+export type TaskDetailView = TaskDetail & { createPrUrl?: string };
+
+export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
   const r = new Hono();
+  const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
+
+  // A delivering task whose watcher poll found no PR gets a deep link to the git host's
+  // create-PR page — Azure DevOps has no PR step in the finish protocol (that's gh-only), so
+  // the human opens it in the browser and the watcher picks it up on its next poll.
+  const withCreatePrUrl = (task: TaskDetail): TaskDetailView => {
+    if (task.status !== 'delivering' || task.delivery?.prState !== 'not_found') return task;
+    const remote = parseRemoteUrl(resolveOrigin(task.repoPath) ?? '');
+    return remote ? { ...task, createPrUrl: pullRequestCreateUrl(remote, task.delivery.branch) } : task;
+  };
 
   r.get('/', validated('query', listQuery), (c) => {
     const { status, workspace, archived } = c.req.valid('query');
@@ -24,7 +42,7 @@ export function taskRoutes(core: Core) {
   r.post('/archive-done', rejectService, validated('json', archiveAllBody), (c) =>
     c.json(core.archiveDoneTasks({ workspace: c.req.valid('json').workspace })));
 
-  r.get('/:key', (c) => c.json(core.getTask(c.req.param('key'))));
+  r.get('/:key', (c) => c.json(withCreatePrUrl(core.getTask(c.req.param('key')))));
 
   r.put('/:dependentKey/dependencies/:dependencyKey', (c) =>
     c.json(core.addTaskDependency(

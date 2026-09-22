@@ -90,8 +90,8 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
     for (const rl of payload.resourceLogs ?? []) {
       // Resource attributes the dispatcher stamps once per session (otel block in its config).
       const resourceKey = asStr(attrOf(rl.resource?.attributes, 'task.key'));
-      const workspace = asStr(attrOf(rl.resource?.attributes, 'af.workspace')) ?? null;
-      const worker = asStr(attrOf(rl.resource?.attributes, 'af.worker')) ?? null;
+      const workspace = c.req.header('x-af-workspace')?.trim() || asStr(attrOf(rl.resource?.attributes, 'af.workspace')) || null;
+      const worker = c.req.header('x-af-worker')?.trim() || asStr(attrOf(rl.resource?.attributes, 'af.worker')) || null;
       for (const sl of rl.scopeLogs ?? []) {
         for (const rec of sl.logRecords ?? []) {
           const hit = extract(rec);

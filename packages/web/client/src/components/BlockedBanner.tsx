@@ -22,7 +22,7 @@ export function blockReason(activity: Activity[]): { text: string | null; at: st
   for (let i = byId.length - 1; i >= 0; i--) {
     const a = byId[i]!;
     // skip the structured marker comments (failure/v1, ai-review/v1) — they aren't a human reason
-    if (a.type === 'comment' && a.body.trim() && !/^(failure|ai-review)\/v1/i.test(a.body))
+    if (a.type === 'comment' && a.body.trim() && !/^(failure|ai-review)\/v[12]/i.test(a.body))
       return { text: a.body.trim(), at };
   }
   return { text: null, at };

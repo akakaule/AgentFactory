@@ -8,6 +8,16 @@ import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/
 export const REVIEW_ENGINES = ['codex', 'claude'] as const;
 export type ReviewEngine = (typeof REVIEW_ENGINES)[number];
 
+const reasoningEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+const reviewerProfileSchema = z.object({
+  engine: z.enum(REVIEW_ENGINES),
+  model: z.string().min(1).optional(),
+  reasoningEffort: reasoningEffortSchema.optional(),
+}).strict().refine((p) => p.engine === 'codex' || p.reasoningEffort === undefined,
+  'reasoningEffort is only supported for codex');
+export type ReviewerProfile = z.infer<typeof reviewerProfileSchema>;
+
 /**
  * `reviewer.config.json` schema. Defaults match the design: Codex engine, a 60 s poll,
  * one review at a time, a 20 min per-review cap, 120k diff chars, two attempts.
@@ -35,6 +45,14 @@ export const baseConfigSchema = z.object({
   engine: z.enum(REVIEW_ENGINES).default('codex'),
   /** Optional model override passed to the engine (codex `-m`, claude `--model`). */
   model: z.string().min(1).optional(),
+  /** Ordered independent reviews of each submission; one combined verdict is posted. */
+  reviewers: z.array(reviewerProfileSchema).min(1).refine(
+    (profiles) => new Set(profiles.map((p) => JSON.stringify([p.engine, p.model ?? null]))).size === profiles.length,
+    'reviewers must have distinct engine/model pairs',
+  ).optional(),
+  /** Opt-in discussion: one rebuttal exchange and an overall attempt deadline. */
+  consensus: z.object({ enabled: z.boolean().default(false), totalMinutes: z.number().positive().max(120).default(30),
+    maxPromptChars: z.number().int().min(1000).max(2000000).default(500000) }).strict().optional(),
   /** Queue poll interval, seconds. */
   pollSeconds: z.number().positive().default(60),
   /** Max concurrent review sessions per workspace. */
@@ -80,7 +98,11 @@ export const baseConfigSchema = z.object({
 
 /** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be
  *  `.extend`ed — sibling branches extend `baseConfigSchema` and re-apply `xorDbBoard`. */
-export const configSchema = baseConfigSchema.superRefine(xorDbBoard);
+export const configSchema = baseConfigSchema.superRefine(xorDbBoard).superRefine((config, ctx) => {
+  if (config.consensus?.enabled && ((config.reviewers?.length ?? 0) < 2 || (config.reviewers?.length ?? 0) > 8)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reviewers'], message: 'consensus requires 2–8 distinct reviewer profiles' });
+  }
+});
 
 export type ReviewerConfig = z.infer<typeof baseConfigSchema>;
 
