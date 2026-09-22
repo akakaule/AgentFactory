@@ -7,7 +7,7 @@ const noop = () => {};
 
 const withFinding: AiReviewSummary = {
   verdict: 'findings', findings: 1, reviewer: 'codex',
-  items: [{ severity: 'warning', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: 'no cap' }],
+  items: [{ severity: 'error', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: 'no cap' }],
 };
 
 describe('ReviewActions — pr-review kind', () => {
@@ -29,10 +29,10 @@ describe('ReviewActions — pr-review kind', () => {
 
     render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" aiReview={withFinding} />);
     const ta = screen.getByPlaceholderText(/paste this onto the PR/i) as HTMLTextAreaElement;
-    expect(ta.value).toBe('- **Unbounded loop** — no cap (`src/x.ts:42`) _warning_');
+    expect(ta.value).toBe('- **Unbounded loop** — no cap (`src/x.ts:42`) _error_');
 
     fireEvent.click(screen.getByRole('button', { name: /Copy review for the PR/i }));
-    expect(writeText).toHaveBeenCalledWith('- **Unbounded loop** — no cap (`src/x.ts:42`) _warning_');
+    expect(writeText).toHaveBeenCalledWith('- **Unbounded loop** — no cap (`src/x.ts:42`) _error_');
   });
 
   it('copies the human-edited review verbatim', () => {

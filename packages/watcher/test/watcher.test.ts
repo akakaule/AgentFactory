@@ -8,6 +8,53 @@ const red = { check_runs: [{ name: 'build', status: 'completed', conclusion: 'fa
 const running = { check_runs: [{ name: 'build', status: 'in_progress', conclusion: null, html_url: null, details_url: null }] };
 
 describe('watcher tick', () => {
+  it.each(['queued', 'in_progress', 'blocked', 'in_review'] as const)(
+    'completes a PR merged after a CI bounce while %s without another repair',
+    async (status) => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      let merged = false;
+      const fetchJson = async (url: string) => {
+        const body = url.includes('/pulls') ? (url.includes('/pulls?')
+          ? [ghPr()] : ghPr(merged ? { merged: true, state: 'closed' } : {}))
+          : url.includes('/check-runs') ? red : { statuses: [] };
+        return { status: 200, headers: {}, body };
+      };
+      const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+      await w.tick();
+      expect(core.getTask(key).status).toBe('queued');
+      if (status !== 'queued') core.claimNextTask({ claimedBy: 'repair-worker' });
+      if (status === 'blocked') core.updateStatus(key, 'blocked', 'agent', 'worktree setup failed');
+      if (status === 'in_review') core.submitResult(key, { summary: 'repair' });
+      const before = core.getTask(key);
+      merged = true;
+      await w.tick();
+      await w.tick();
+      const after = core.getTask(key);
+      expect(after.delivery).toMatchObject({ prState: 'merged', checksState: 'failing' });
+      expect(after.status).toBe('done');
+      expect(after.claimedBy).toBe(before.claimedBy);
+      expect(after.activity.slice(0, before.activity.length)).toEqual(before.activity);
+      expect(after.activity.filter(a => a.toStatus === 'done')).toHaveLength(1);
+      expect(core.listLiveAgents()).toEqual([]);
+    },
+  );
+
+  it('completes a repair claim when the merged PR checks turn green', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    const fetchJson = fakeFetch([
+      ['/pulls?head=', { body: [ghPr({ merged: true, state: 'closed' })] }],
+      ['/check-runs', { body: green }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    await new Watcher(makeConfig(), makeDeps(core, fetchJson)).tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', claimedBy: 'repair-worker',
+      delivery: { prState: 'merged', checksState: 'passing' } });
+  });
+
   it('merged PR + green checks → done, with the why in the status trail', async () => {
     const core = makeCore();
     const key = deliverTask(core);

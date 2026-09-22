@@ -69,7 +69,7 @@ describe('updateStatus', () => {
   it('blocked → in_progress (agent): status set, status_change appended', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    db.prepare("UPDATE task SET status='blocked' WHERE key=?").run(task.key);
+    db.prepare("UPDATE task SET status='blocked', branch='feature/t' WHERE key=?").run(task.key);
 
     const detail = updateStatus(db, task.key, 'in_progress', 'agent', fixedNow);
 
@@ -85,7 +85,7 @@ describe('updateStatus', () => {
   it('blocked → queued (human): status set, status_change appended', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    db.prepare("UPDATE task SET status='blocked' WHERE key=?").run(task.key);
+    db.prepare("UPDATE task SET status='blocked', branch='feature/t' WHERE key=?").run(task.key);
 
     const detail = updateStatus(db, task.key, 'queued', 'human', fixedNow);
 
@@ -132,7 +132,7 @@ describe('updateStatus', () => {
   it('blocked → queued (human) completes an already merged delivery instead of retrying it', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    db.prepare("UPDATE task SET status='blocked' WHERE key=?").run(task.key);
+    db.prepare("UPDATE task SET status='blocked', branch='feature/t' WHERE key=?").run(task.key);
     db.prepare(
       `INSERT INTO task_delivery
         (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)
@@ -145,14 +145,14 @@ describe('updateStatus', () => {
     expect(detail.delivery).toMatchObject({ prState: 'merged', checksState: 'failing', prId: '#1' });
     expect(detail.activity.at(-1)).toMatchObject({
       type: 'status_change', fromStatus: 'blocked', toStatus: 'done',
-      body: expect.stringContaining('merge resolved the original task'),
+      body: expect.stringContaining('checks failing'),
     });
   });
 
   it('a retry that started during repair accepts a concurrent merged completion', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    db.prepare("UPDATE task SET status='blocked' WHERE key=?").run(task.key);
+    db.prepare("UPDATE task SET status='blocked', branch='feature/t' WHERE key=?").run(task.key);
     db.prepare(
       `INSERT INTO task_delivery
         (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)
@@ -177,7 +177,7 @@ describe('updateStatus', () => {
   it('delivering → queued (human) still starts an intentional new delivery episode after a merge', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    db.prepare("UPDATE task SET status='delivering' WHERE key=?").run(task.key);
+    db.prepare("UPDATE task SET status='delivering', branch='feature/t' WHERE key=?").run(task.key);
     db.prepare(
       `INSERT INTO task_delivery
         (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)

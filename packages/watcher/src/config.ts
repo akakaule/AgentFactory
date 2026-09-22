@@ -28,11 +28,9 @@ export const baseConfigSchema = z.object({
   /** Poll interval, seconds. */
   pollSeconds: z.number().positive().default(60),
   /**
-   * Pipeline-green semantics. false (default): a merged PR whose head checks did not conclude
-   * red completes the delivery — pre-merge checks are the near-universal gate (branch
-   * protection / ADO build validation), and repos without checks flow through ('none' counts
-   * as green). true: additionally wait for the check runs on the MERGE COMMIT to finish green
-   * after the merge (a red post-merge run bounces the task like any CI failure).
+   * GitHub check-observation target: false (default) reads PR-head checks; true reads merge-commit
+   * checks after merge. A confirmed merge completes the original delivery regardless of this
+   * recorded check state. Further CI repair is separate work, never an automatic implementation retry.
    */
   postMergeChecks: z.boolean().default(false),
   /** Cap for the per-task exponential error backoff, seconds. */

@@ -393,6 +393,29 @@ describe('tasks REST API', () => {
       expect((await res.json() as { status: string }).status).toBe('queued');
     });
 
+    it('GET /:key adds a create-PR deep link once the watcher reports no PR (Azure DevOps origin)', async () => {
+      const ws = core.createWorkspace({ name: 'dis', repoPath: 'C:\\clones\\dis' });
+      const linked = buildApp(core, { resolveOrigin: (p) => (p === ws.repoPath ? 'https://dev.azure.com/acme/ESB/_git/DIS' : null) });
+      const task = core.createTask({ title: 'Deliver D', spec: 'Spec', acceptanceCriteria: 'AC', workspace: 'dis' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(task.key, { summary: 'Done!' });
+      core.updateStatus(task.key, 'delivering', 'human');
+      core.beginDelivery(task.key, { provider: 'azdo', branch: 'feature/AF-1-x' });
+
+      // before the first watcher poll the PR may well exist → no link yet
+      let body = await (await linked.request(`/api/tasks/${task.key}`)).json() as { createPrUrl?: string };
+      expect(body.createPrUrl).toBeUndefined();
+
+      core.recordDeliveryCheck(task.key, { prState: 'not_found', checksState: 'unknown' });
+      body = await (await linked.request(`/api/tasks/${task.key}`)).json() as { createPrUrl?: string };
+      expect(body.createPrUrl).toBe('https://dev.azure.com/acme/ESB/_git/DIS/pullrequestcreate?sourceRef=feature%2FAF-1-x');
+
+      // an unrecognisable origin (or no origin) never breaks the read — the link is simply absent
+      body = await (await app.request(`/api/tasks/${task.key}`)).json() as { createPrUrl?: string };
+      expect(body.createPrUrl).toBeUndefined();
+    });
+
     it('GET /api/tasks?status=delivering returns the delivering task', async () => {
       const key = toDelivering('Deliver C');
       const res = await app.request('/api/tasks?status=delivering');

@@ -155,7 +155,7 @@ describe('azdo provider', () => {
     expect(r.checks.state).toBe('passing');
   });
 
-  it('a merged PR with a lingering pending/notSet status → passing (stale merge-gate, no stranding)', async () => {
+  it('a merged PR retains its pending/notSet status without inventing a passing check', async () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'completed' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'succeeded', context: { name: 'Build' } }, { state: 'notSet', context: { name: 'optional' } }] } }],
@@ -163,10 +163,10 @@ describe('azdo provider', () => {
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
     expect(r.pr).toMatchObject({ state: 'merged' });
-    expect(r.checks.state).toBe('passing'); // stale pending downgraded → the watcher will complete it
+    expect(r.checks.state).toBe('pending'); // merge completion is independent of the recorded checks
   });
 
-  it('a merged PR with a genuinely failed status stays failing (bounces, not done)', async () => {
+  it('a merged PR retains its failed status as evidence', async () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'completed' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'failed', context: { name: 'Build' }, targetUrl: 'https://x' }] } }],
@@ -176,7 +176,7 @@ describe('azdo provider', () => {
     expect(r.checks.state).toBe('failing');
   });
 
-  it('an OPEN PR with a pending status still waits (only merged downgrades)', async () => {
+  it('an OPEN PR with a pending status still waits', async () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'active' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'pending', context: { name: 'Build' } }] } }],

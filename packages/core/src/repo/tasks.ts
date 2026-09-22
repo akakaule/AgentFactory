@@ -9,7 +9,7 @@ import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
 import { parseFailureComment, summarizeFailure } from '../failure.js';
 import { deliveryByTaskIds } from './delivery.js';
-import { tokenAggregateFor } from './metrics.js';
+import { tokenAggregateFor, tokenBreakdownFor } from './metrics.js';
 import { nowIso } from '../time.js';
 import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 
@@ -126,6 +126,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     metrics: {
       ...deriveTaskMetrics(activitySteps(db, r.id), nowIso()),
       ...tokenAggregateFor(db, r.id),
+      tokenBreakdown: tokenBreakdownFor(db, r.id),
     },
   };
 }
@@ -216,7 +217,7 @@ export function heldClaimRow(db: DB, claimedBy: string, workspaceId?: number): T
   ) as TaskRow | undefined;
 }
 
-export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefined {
+export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, stage?: Stage): TaskRow | undefined {
   // archived rows are always done, but the guard makes "never claim an archived task"
   // hold unconditionally rather than by inference. The kind guard is defense in depth:
   // a pr-review task is reviewed, never implemented (updateStatus blocks it from ever
@@ -237,15 +238,11 @@ export function oldestQueuedRow(db: DB, workspaceId?: number): TaskRow | undefin
       WHERE budget.task_id = task.id AND budget.operation = 'delivery'
         AND budget.generation = (SELECT MAX(latest_budget.generation) FROM retry_budget latest_budget WHERE latest_budget.task_id = task.id AND latest_budget.operation = 'delivery')
         AND budget.attempts_used >= budget.max_attempts
-    )
-    -- A watcher may have confirmed the currently approved PR merged while this repair was
-    -- queued. Reconcile that delivery instead of starting another implementation attempt.
-    AND NOT EXISTS (
-      SELECT 1 FROM task_delivery delivery
-      WHERE delivery.task_id = task.id AND delivery.pr_state = 'merged'
     )`;
-  return (workspaceId === undefined
-    ? db.prepare(`${SELECT_TASK} WHERE ${eligible} ORDER BY task.seq ASC LIMIT 1`).get()
-    : db.prepare(`${SELECT_TASK} WHERE ${eligible} AND task.workspace_id = ? ORDER BY task.seq ASC LIMIT 1`).get(workspaceId)
-  ) as TaskRow | undefined;
+  const filters: string[] = [eligible];
+  const params: (string | number)[] = [];
+  if (workspaceId !== undefined) { filters.push('task.workspace_id = ?'); params.push(workspaceId); }
+  if (taskKey !== undefined) { filters.push('task.key = ?'); params.push(taskKey); }
+  if (stage !== undefined) { filters.push('task.stage = ?'); params.push(stage); }
+  return db.prepare(`${SELECT_TASK} WHERE ${filters.join(' AND ')} ORDER BY task.seq ASC LIMIT 1`).get(...params) as TaskRow | undefined;
 }

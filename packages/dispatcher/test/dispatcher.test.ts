@@ -468,7 +468,6 @@ describe('live agent session', () => {
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
 
     core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
-    core.completeDelivery(t.key, 'PR merged; checks failing');
     await d.tick();
 
     expect(calls[0]!.child.killed).toBe(true);
@@ -493,7 +492,6 @@ describe('live agent session', () => {
     const approved = core.getTask(actual.key);
     core.beginDelivery(actual.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/2' });
     core.recordDeliveryCheck(actual.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
-    core.completeDelivery(actual.key, 'PR merged; checks failing');
 
     expect(core.getTask(predictedKey).status).toBe('in_progress');
     expect(core.getTask(actual.key).status).toBe('done');
@@ -504,6 +502,24 @@ describe('live agent session', () => {
     expect(calls[0]!.child.killed).toBe(true);
     expect(core.getTask(actual.key).status).toBe('done');
     expect(calls).toHaveLength(1);
+  });
+
+  it('does not cancel an unrelated actual claim when the predicted task completes', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Predicted repair');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'other-worker' });
+    const actualKey = seedQueued(core, 'ws', 'Actual work');
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    core.submitResult(key, { summary: 'done' });
+    core.updateStatus(key, 'delivering', 'human');
+    core.beginDelivery(key, { provider: 'github', branch: core.getTask(key).branch!, prUrl: 'https://github.com/acme/widgets/pull/4' });
+    core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'passing' });
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(false);
+    expect(core.getTask(actualKey).status).toBe('in_progress');
   });
 
   it('cancels a completed repair even if the task is reopened before the next poll', async () => {
@@ -524,7 +540,6 @@ describe('live agent session', () => {
     const oldLabel = workerLabel(calls[0]!.req.env);
     core.claimNextTask({ workspace: 'ws', claimedBy: oldLabel });
     core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
-    core.completeDelivery(t.key, 'PR merged; checks failing');
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ workspace: 'ws', claimedBy: 'new-worker' });
 
@@ -591,8 +606,9 @@ describe('worker git auth', () => {
     // insteadOf strips the stale embedded credential (remote.origin.url can't be overridden via env)
     expect(env['GIT_CONFIG_KEY_1']).toBe('url.https://github.com/acme/repo.insteadOf');
     expect(env['GIT_CONFIG_VALUE_1']).toBe('https://oldpat@github.com/acme/repo');
-    // the raw PAT rides only inside the base64 header, never as a bare env value
-    expect(JSON.stringify(env)).not.toContain('ghp_secret');
+    // gh uses GH_TOKEN, independently of Git's HTTP header. Neither goes into argv.
+    expect(env['GH_TOKEN']).toBe('ghp_secret');
+    expect(JSON.stringify(calls[0]!.req.args)).not.toContain('ghp_secret');
   });
 
   it('with a bare origin (no embedded credential), injects only the extraheader (no insteadOf)', async () => {
@@ -620,6 +636,36 @@ describe('worker git auth', () => {
 
     await d.tick();
     expect(calls[0]!.req.env['GIT_CONFIG_COUNT']).toBeUndefined();
+  });
+
+  it('forwards the selected workspace PAT into Codex shells instead of an ambient GitHub identity', async () => {
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/acme/repo' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'workspace-secret' });
+    seedQueued(core, 'ws', 'Codex auth');
+    const { spawn, calls } = makeFakeSpawn();
+    const deps = makeDeps(core, spawn);
+    deps.baseEnv = { GH_TOKEN: 'unrelated-token', AZURE_CLIENT_SECRET: 'unrelated-secret' };
+    const d = new Dispatcher(makeConfig({ stageEngines: { implementation: 'codex' } }), deps);
+    await d.tick();
+    const { env, args } = calls[0]!.req;
+    expect(env['GH_TOKEN']).toBe('workspace-secret');
+    const include = args.find(a => a.startsWith('shell_environment_policy.include_only='));
+    expect(include).toContain('GIT_CONFIG_VALUE_0');
+    expect(include).toContain('GH_TOKEN');
+    expect(include).not.toContain('AZURE_CLIENT_SECRET');
+    expect(args.join(' ')).not.toContain('workspace-secret');
+  });
+
+  it('does not use an Azure DevOps PAT as a GitHub CLI credential', async () => {
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://dev.azure.com/acme/project/_git/repo' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    core.updateWorkspace('ws', { pat: 'ado-secret' });
+    seedQueued(core, 'ws', 'ADO auth');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn));
+    await d.tick();
+    expect(calls[0]!.req.env['GH_TOKEN']).toBeUndefined();
   });
 });
 

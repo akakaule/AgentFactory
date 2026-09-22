@@ -23,6 +23,8 @@ export type ProtocolInput =
       branch: string;
       /** true ⇒ branch named this claim (first claim / legacy) ⇒ create with `-b`. */
       branchCreated: boolean;
+      /** Pinned workers use constrained server-side Git operations. */
+      managedGit?: boolean;
       /** What a FIRST claim branches from (latest default branch); ignored on a reclaim. */
       base?: { ref: string; fetch: boolean };
       /** Per-workspace verification command; when set it must pass before push (see git.ts/submitResult). */
@@ -85,20 +87,22 @@ export function buildProtocol(input: ProtocolInput): Protocol {
     setup.push(`git worktree add ${wt} ${branch} || git worktree add ${wt} -b ${branch}`);
   }
   // Verify-before-handoff runs inside the worktree, so it must come BEFORE the worktree is removed.
-  // When the workspace sets no command, fall back to the repo's own tests + build (today's behaviour).
+  // Without a workspace command, discover the CI checks instead of omitting gates such as Prettier.
   const verify = input.verifyCommand && input.verifyCommand.trim().length > 0 ? input.verifyCommand.trim() : null;
   const verifyStep = verify
     ? `Run \`${verify}\` from the worktree root; it MUST pass before you push. Report its outcome via submit_result \`verification\`.`
-    : 'Run the repo tests and build from the worktree root; both must pass before you push.';
+    : 'Read the repository CI workflow and run its locally runnable checks from the worktree root, including lint, formatting and type checks when configured, plus the repo tests and build. All must pass before you push; report any CI-only checks you could not run in the result.';
   // When origin is GitHub, open (or reuse, on a reclaim) the PR right after the push and before
   // the worktree is removed. Idempotent and best-effort — a gh/auth failure must not block the
   // submit (the push itself is what the submit guardrail enforces).
   const github = input.github;
   const prStep = github
     ? [
-        `Open or update the pull request for this branch (best-effort — continue if it fails): ` +
-          `\`gh pr view ${branch} --json url --jq .url 2>/dev/null || gh pr create --head ${branch}${github.defaultBranch ? ` --base ${github.defaultBranch}` : ''} --fill\`. ` +
-          `Pass the resulting URL as a 'pr' link in submit_result.`,
+        `Find an open pull request for this branch (best-effort — continue if it fails): ` +
+          `\`gh pr list --head ${branch} --state open --json url --jq '.[0].url // empty'\`. ` +
+          `Reuse that URL if present. If none is open (including when the previous PR was merged or closed), ` +
+          `run \`gh pr create --head ${branch}${github.defaultBranch ? ` --base ${github.defaultBranch}` : ''} --fill\`. ` +
+          `Pass the open PR URL as a 'pr' link in submit_result; never reuse a merged or closed PR URL for a repair.`,
       ]
     : [];
   return {
@@ -106,13 +110,16 @@ export function buildProtocol(input: ProtocolInput): Protocol {
     stage,
     branch,
     worktree,
-    setup,
+    setup: [
+      ...(input.managedGit ? ['Call task_git with { action: "prepare" } before touching code. Use task_git for Git writes; run code edits, read-only Git commands, tests and builds in the task worktree.'] : setup),
+      'Install dependencies inside the task worktree before building or testing. For an npm repository with package-lock.json, run `npm ci --cache .npm-cache` from the worktree root (keep .npm-cache/ ignored). Do not inherit node_modules or workspace-package links from the parent checkout, and do not repair them with manual junctions. Verify local workspace packages resolve inside this worktree; for projects consuming compiled workspace exports, build before running tests.',
+    ],
     finish: [
-      'Commit all work inside the worktree.',
+      input.managedGit ? 'Call task_git with { action: "commit", message: "<Conventional Commit message>" } to commit all work inside the assigned worktree.' : 'Commit all work inside the worktree.',
       verifyStep,
-      `git push -u origin ${branch}`,
+      input.managedGit ? 'Call task_git with { action: "push" } after verification passes.' : `git push -u origin ${branch}`,
       ...prStep,
-      `git worktree remove ${wt} && git worktree prune`,
+      input.managedGit ? 'Return to the repository root, then call task_git with { action: "cleanup" } to remove the published task worktree.' : `git worktree remove ${wt} && git worktree prune`,
       `Call submit_result with claimAt (the claimedAt value from this claim), a branch link (label = the branch name)${github ? `, the PR link (kind 'pr')` : ''}${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
     ],
   };

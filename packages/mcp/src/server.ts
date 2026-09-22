@@ -8,15 +8,22 @@ import { registerAddComment } from './tools/addComment.js';
 import { registerSubmitResult } from './tools/submitResult.js';
 import { registerUpdateStatus } from './tools/updateStatus.js';
 import { registerReportProgress } from './tools/reportProgress.js';
+import { registerTaskGit } from './tools/taskGit.js';
 
 /** Deploy-time defaults; env is read at the entry point, not in tools. */
 export interface ServerOptions {
   defaultWorkspace?: string | undefined;
   workerLabel?: string | undefined; // recorded as claimed_by on every claim
+  taskKey?: string | undefined; // dispatched workers may only claim their intended task
+  stage?: 'description' | 'plan' | 'implementation' | undefined;
   /** Machine-local clone of the PINNED workspace (#46 remote workers): replaces the
    *  board-central task.repoPath in every path handed to the agent (protocol worktree,
    *  serialized detail) and in the submit guard, which must inspect THIS machine's repo. */
   repoPath?: string | undefined;
+}
+
+export function taskGitEnabled(opts: ServerOptions): boolean {
+  return Boolean(opts.taskKey && opts.defaultWorkspace && opts.workerLabel && opts.stage === 'implementation');
 }
 
 /** Swap the board-central repoPath for the machine-local clone — only for the pinned
@@ -36,5 +43,6 @@ export function buildServer(core: McpCore, opts: ServerOptions = {}): McpServer 
   registerSubmitResult(server, core, opts);
   registerUpdateStatus(server, core);
   registerReportProgress(server, core);
+  registerTaskGit(server, core, opts);
   return server;
 }

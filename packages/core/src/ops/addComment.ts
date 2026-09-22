@@ -2,11 +2,12 @@ import type { DB } from '../db.js';
 import type { Activity, Actor } from '../types.js';
 import { transaction } from '../transaction.js';
 import { commentSchema, parse } from '../validate.js';
-import { findRowByKey, touch } from '../repo/tasks.js';
+import { findRowByKey, touch, toDetail } from '../repo/tasks.js';
 import { appendActivity, recentActivity } from '../repo/activity.js';
 import { parseAiReviewComment } from '../aiReview.js';
 import { applyApproval } from './approval.js';
-import { NotFoundError } from '../errors.js';
+import { NotFoundError, InvalidTransitionError } from '../errors.js';
+import { reviewSubmissionFingerprint } from '../reviewConsensus.js';
 import { nowIso } from '../time.js';
 
 export function addComment(
@@ -19,6 +20,13 @@ export function addComment(
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   return transaction(db, () => {
+    const parsed = parseAiReviewComment(body);
+    const current = findRowByKey(db, key);
+    if (!current) throw new NotFoundError(`task not found: ${key}`);
+    const submission = parsed?.consensus?.submission;
+    if (submission && (submission.key !== key || submission.fingerprint !== reviewSubmissionFingerprint(toDetail(db, current)))) {
+      throw new InvalidTransitionError('review submission changed before publication');
+    }
     const ts = now();
     appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     touch(db, row.id, ts);
@@ -28,9 +36,8 @@ export function addComment(
     // construction), regardless of actor — the reviewer loop posts via HTTP (human) or MCP
     // (agent). Findings, malformed markers, and the implementation stage all escalate to
     // the human gate instead. Reviewers stay advisory; this policy lives here, in core.
-    const parsed = parseAiReviewComment(body);
-    if (parsed && parsed.findings.length === 0 && row.status === 'in_review' && row.stage !== 'implementation') {
-      applyApproval(db, row, 'agent', ts, 'auto-approved: clean AI review');
+    if (parsed && parsed.consensus?.status !== 'disputed' && parsed.findings.length === 0 && current.status === 'in_review' && current.stage !== 'implementation') {
+      applyApproval(db, current, 'agent', ts, 'auto-approved: clean AI review');
     }
     return comment;
   });

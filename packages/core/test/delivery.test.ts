@@ -99,6 +99,36 @@ describe('approve → delivering routing', () => {
 });
 
 describe('delivery ops', () => {
+  it('refreshes an open PR during rework without changing the task status or activity', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    core.updateStatus(key, 'blocked', 'agent', 'setup failed');
+    const before = core.getTask(key);
+    expect(core.recordDeliveryCheck(key, { prState: 'open', checksState: 'failing' }).changed).toBe(true);
+    const after = core.getTask(key);
+    expect(after.status).toBe('blocked');
+    expect(after.claimedBy).toBe('repair-worker');
+    expect(after.activity).toEqual(before.activity);
+    expect(after.delivery?.prState).toBe('open');
+  });
+
+  it('rejects an observation from a previous delivery or task status', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const before = core.getTask(key);
+    const expected = { status: before.status, branch: before.delivery!.branch,
+      prUrl: before.delivery!.prUrl, stateChangedAt: before.delivery!.stateChangedAt };
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    expect(core.recordDeliveryCheck(key, { expected, prState: 'merged', checksState: 'passing' })).toMatchObject({ skipped: true });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    core.submitResult(key, { summary: 'fix', links: [{ kind: 'pr', label: '#43', url: 'https://github.com/acme/widgets/pull/43' }] });
+    core.reviewApprove(key);
+    expect(core.recordDeliveryCheck(key, { expected, prState: 'merged', checksState: 'passing' })).toMatchObject({ skipped: true });
+    expect(core.getTask(key).delivery).toMatchObject({ prState: 'unknown', prUrl: 'https://github.com/acme/widgets/pull/43' });
+  });
+
   it('recordDeliveryCheck bumps the version only when the observed state changes', () => {
     const core = makeCore();
     const key = deliverTask(core);
@@ -134,8 +164,9 @@ describe('delivery ops', () => {
   it('does not claim a queued task whose current delivery is already merged', () => {
     const core = makeCore();
     const key = deliverTask(core);
-    core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
     core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    expect(core.getTask(key).status).toBe('done');
     expect(core.claimNextTask({ claimedBy: 'retry-worker' })).toBeNull();
     expect(core.reserveRetry(key, { operation: 'dispatcher:implementation', maxAttempts: 2 })).toBeNull();
   });
@@ -166,8 +197,8 @@ describe('delivery ops', () => {
     const oldClaim = core.claimNextTask({ claimedBy: 'old-worker' }, () => '2030-08-01T10:00:00.000Z')!;
     core.submitResult(t.key, { summary: 'original', claimAt: oldClaim.claimedAt! });
     core.reviewApprove(t.key);
-    core.recordDeliveryCheck(t.key, { prState: 'merged', checksState: 'passing' });
-    core.completeDelivery(t.key, 'PR merged; checks green');
+    core.recordDeliveryCheck(t.key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'passing' });
+    expect(core.getTask(t.key).status).toBe('done');
 
     core.updateStatus(t.key, 'queued', 'human');
     const newClaim = core.claimNextTask({ claimedBy: 'new-worker' }, () => '2030-08-01T11:00:00.000Z')!;
@@ -180,11 +211,12 @@ describe('delivery ops', () => {
     const core = makeCore();
     const key = deliverTask(core);
     core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
-    const done = core.completeDelivery(key, 'PR #42 merged; checks pending', core.getDelivery(key)!.stateChangedAt);
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'pending' });
+    const done = core.getTask(key);
     expect(done.status).toBe('done');
   });
 
-  it('an active repair submit reconciles a merged delivery and preserves the original result', () => {
+  it('a late repair submission cannot overwrite the completed merged result', () => {
     const core = makeCore();
     const key = deliverTask(core);
     core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
@@ -195,22 +227,25 @@ describe('delivery ops', () => {
       failing: [{ name: 'post-merge build', url: null }],
     });
 
-    const submitted = core.submitResult(key, { summary: 'late repair result' });
+    expect(() => core.submitResult(key, { summary: 'late repair result' })).toThrow(InvalidTransitionError);
+    const submitted = core.getTask(key);
 
     expect(submitted.status).toBe('done');
     expect(submitted.resultSummary).toBe('done');
     expect(submitted.delivery).toMatchObject({ prState: 'merged', checksState: 'failing', prId: '#42' });
     expect(submitted.failure).toMatchObject({ source: 'watcher', reason: 'ci_failed' });
-    expect(submitted.activity.some((a) => a.type === 'comment' && a.body.includes('late repair result'))).toBe(true);
+    expect(submitted.activity.some((a) => a.type === 'comment' && a.body.includes('late repair result'))).toBe(false);
   });
 
   it('completeDelivery closes with an agent status_change carrying the note; a second call throws', () => {
     const core = makeCore();
     const key = deliverTask(core);
-    const done = core.completeDelivery(key, 'PR #1 merged; checks green');
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/1', prId: '#1', prState: 'merged', checksState: 'passing' });
+    const done = core.getTask(key);
     expect(done.status).toBe('done');
     const act = done.activity.filter((a) => a.type === 'status_change').at(-1)!;
-    expect(act).toMatchObject({ actor: 'agent', toStatus: 'done', body: 'PR #1 merged; checks green' });
+    expect(act).toMatchObject({ actor: 'agent', toStatus: 'done' });
+    expect(act.body).toContain('PR #1 merged; checks passing');
     expect(() => core.completeDelivery(key, 'again')).toThrow(InvalidTransitionError);
   });
 

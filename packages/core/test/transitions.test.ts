@@ -13,6 +13,8 @@ const VALID: [string, string, string][] = [
   ['in_review','delivering','human'], // approve with a recognizable git-host origin
   ['delivering','done','agent'], ['delivering','queued','agent'], // watcher: merged+green / CI failed
   ['delivering','done','human'], ['delivering','queued','human'], // force-complete / pull-back
+  ['queued','done','agent'], ['in_progress','done','agent'],
+  ['blocked','done','agent'], ['in_review','done','agent'], // guarded merged-delivery recovery
 ];
 
 describe('isValidTransition', () => {
@@ -20,7 +22,7 @@ describe('isValidTransition', () => {
     for (const [f, t, by] of VALID) expect(isValidTransition(f as any, t as any, by as any)).toBe(true);
   });
   it('rejects correct edges performed by the wrong actor', () => {
-    expect(isValidTransition('in_review','done','agent')).toBe(false);
+    expect(isValidTransition('blocked','done','human')).toBe(false);
     expect(isValidTransition('queued','in_progress','human')).toBe(false);
     expect(isValidTransition('in_progress','queued','agent')).toBe(false); // release is human-only
     expect(isValidTransition('done','queued','agent')).toBe(false); // reopen is human-only

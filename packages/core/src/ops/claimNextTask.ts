@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail } from '../types.js';
+import type { TaskDetail, Stage } from '../types.js';
 import { transaction } from '../transaction.js';
 import { appendActivity } from '../repo/activity.js';
 import { startSession } from '../repo/agentSessions.js';
@@ -7,10 +7,13 @@ import { oldestQueuedRow, heldClaimRow, toDetail } from '../repo/tasks.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { featureBranch } from '../branch.js';
 import { nowIso } from '../time.js';
+import { reconcileMergedDelivery } from './delivery.js';
 
 export interface ClaimOptions {
   workspace?: string | undefined;
   claimedBy?: string | undefined;
+  taskKey?: string | undefined;
+  stage?: Stage | undefined;
 }
 
 /**
@@ -31,9 +34,16 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     // never actually created.
     if (opts.claimedBy !== undefined) {
       const held = heldClaimRow(db, opts.claimedBy, workspaceId);
-      if (held) return { ...toDetail(db, held), branchCreated: false };
+      if (held) {
+        if ((opts.taskKey !== undefined && held.key !== opts.taskKey) ||
+            (opts.stage !== undefined && held.stage !== opts.stage)) return null;
+        if (reconcileMergedDelivery(db, held, now())) return null;
+        return { ...toDetail(db, held), branchCreated: false };
+      }
     }
-    const row = oldestQueuedRow(db, workspaceId);
+    let row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage);
+    while (row && reconcileMergedDelivery(db, row, now()))
+      row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage);
     if (!row) return null;
     const ts = now();
     const claimedBy = opts.claimedBy ?? null;

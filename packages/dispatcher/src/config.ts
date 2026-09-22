@@ -4,6 +4,8 @@ import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/
 /** Permission modes the dispatcher passes through to `claude --permission-mode`. */
 export const PERMISSION_MODES = ['acceptEdits', 'bypassPermissions', 'default', 'plan'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
+export const WORKER_ENGINES = ['claude', 'codex'] as const;
+export type WorkerEngine = (typeof WORKER_ENGINES)[number];
 
 /**
  * `dispatcher.config.json` schema. Defaults match the design: one session per
@@ -45,12 +47,20 @@ export const baseConfigSchema = z.object({
   permissionMode: z.enum(PERMISSION_MODES).default('acceptEdits'),
   /** Extra args appended to every `claude` invocation, for every stage. */
   claudeArgs: z.array(z.string()).default([]),
+  /** Codex-only global args; Claude flags are never forwarded to Codex. */
+  codexArgs: z.array(z.string()).optional(),
+  /** Unspecified stages retain Claude. */
+  stageEngines: z.object({
+    description: z.enum(WORKER_ENGINES).optional(),
+    plan: z.enum(WORKER_ENGINES).optional(),
+    implementation: z.enum(WORKER_ENGINES).optional(),
+  }).strict().optional(),
   /**
-   * Optional per-stage args, appended AFTER `claudeArgs` for a session serving that
+   * Optional per-stage args, appended AFTER the selected engine's global args for a session serving that
    * stage. Lets you tier the model by pipeline stage (e.g. a fast model for the
    * description/plan write-ups, a strong model for implementation). Because they
    * come last, a per-stage `--model` overrides a global one. Any stage you omit
-   * just gets `claudeArgs`.
+   * just gets its engine's global args.
    */
   stageArgs: z
     .object({
@@ -87,7 +97,7 @@ export const baseConfigSchema = z.object({
     })
     .strict()
     .optional(),
-});
+}).strict();
 
 /** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be
  *  `.extend`ed — sibling branches extend `baseConfigSchema` and re-apply `xorDbBoard`. */

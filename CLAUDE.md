@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-AgentFactory is a single-user local task board that serves as the **persistent state store + UI for an external agent loop**. The board never runs an agent itself — separate headless supervisors (`dispatcher`, `reviewer`) spawn `claude -p`/`codex` sessions that talk to the board over MCP, and a third supervisor (`watcher`) verifies delivery (PR merged + pipeline green) over plain REST. The board owns lifecycle rules, state, and review; the agents do the work.
+AgentFactory is a single-user local task board that serves as the **persistent state store + UI for an external agent loop**. The board never runs an agent itself — separate headless supervisors (`dispatcher`, `reviewer`) spawn `claude -p`/`codex` sessions that talk to the board over MCP, and a third supervisor (`watcher`) verifies delivery (PR merge with actual check results retained) over plain REST. The board owns lifecycle rules, state, and review; the agents do the work.
 
 ## Commands
 
@@ -16,6 +16,8 @@ npm run build            # tsc -b across all packages + web client (Vite)
 npm test                 # vitest run (whole workspace)
 npm run test:watch
 ```
+
+In a task worktree, first run `npm ci --cache .npm-cache` from that worktree's root, then `npm run build` before tests. Each worktree needs its own installed workspace links: falling back to the parent checkout's `node_modules/@agentfactory/*` mixes source and compiled exports from different branches. The local ignored npm cache avoids sandbox writes to the user's global npm cache. Use npm to create workspace links; do not construct manual junctions or share the canonical checkout's `node_modules`.
 
 Run a single package's tests / a single file / by name:
 
@@ -50,11 +52,11 @@ Six packages (`packages/*`), npm workspaces, TypeScript project references (`tsc
 - **`web`** — `server/` is a Hono API + SSE (`buildApp` in `server/app.ts`, routes in `server/routes/*`); `client/` is React/Vite. The client polls a cheap version string and refetches on change.
 - **`dispatcher`** — polls the DB for `queued` tasks, spawns **one fresh `claude -p` session per task**, releases crashed/timed-out claims back to the queue. Config: `dispatcher.config.json`.
 - **`reviewer`** — polls `in_review` tasks, spawns **one fresh codex/claude session per task** to post an advisory `ai-review/v1` verdict. Before reviewing an implementation task it also auto-generates the task's HTML change-visualization (one extra one-shot session; attached via the #16 storage, linked from the verdict; `visualization.enabled: false` opts out). Config: `reviewer.config.json`.
-- **`watcher`** — polls `delivering` tasks and verifies delivery on the git host (GitHub/Azure DevOps REST — no LLM, no spawn): PR merged + checks green ⇒ `done`; CI failed / PR closed unmerged ⇒ back to `queued` with a `failure/v1` comment. Config: `watcher.config.json` (auth via `GITHUB_TOKEN` / `AZDO_PAT` env).
+- **`watcher`** — polls current deliveries, including repair states, and verifies delivery on the git host (GitHub/Azure DevOps REST — no LLM, no spawn): current approved PR merged ⇒ `done`; open PR CI failed / PR closed unmerged ⇒ back to `queued` with a `failure/v1` comment. Config: `watcher.config.json` (auth via `GITHUB_TOKEN` / `AZDO_PAT` env).
 
 ### Lifecycle is the core invariant
 
-The task state machine is `packages/core/src/transitions.ts` — a small `TRANSITIONS` table keyed by `(from, to, by: 'human' | 'agent')`. Statuses: `backlog → queued → in_progress → in_review → delivering → done`, plus `blocked` and human-only edges (release a stranded claim, reopen a done task, force-complete/pull-back a delivering task). **Any new state edge goes here first**; ops call `assertTransition`. Agents can never delete or approve — those are human-only. Approving an implementation review routes to `delivering` when the workspace origin is a recognizable git host (`src/remote.ts`); the watcher owns `delivering → done/queued` (the only agent-actor path into `done`, and the MCP `update_status` tool refuses to touch delivering tasks — only the watcher's direct core access uses those edges).
+The task state machine is `packages/core/src/transitions.ts` — a small `TRANSITIONS` table keyed by `(from, to, by: 'human' | 'agent')`. Statuses: `backlog → queued → in_progress → in_review → delivering → done`, plus `blocked` and human-only edges (release a stranded claim, reopen a done task, force-complete/pull-back a delivering task). **Any new state edge goes here first**; ops call `assertTransition`. Agents can never delete or approve — those are human-only. Approving an implementation review routes to `delivering` when the workspace origin is a recognizable git host (`src/remote.ts`); the watcher owns `delivering → done/queued` (merged-delivery reconciliation also recovers queued/in-progress/blocked/review tasks; raw agent completion is forbidden, and the MCP `update_status` tool refuses to touch delivering tasks — only the watcher's direct core access uses those edges).
 
 ### DB migrations
 

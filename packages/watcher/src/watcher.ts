@@ -12,12 +12,13 @@ const AUTH_STATUSES = new Set([203, 401, 403]);
 /**
  * The watcher supervisor: polls every `delivering` task in its workspaces, observes the PR +
  * pipeline on the task's git host, and finishes the close the human approval started —
- * `delivering → done` when the PR merged and the checks came up green, `delivering → queued`
+ * completes the current delivery when its PR merged, including during repair; `delivering → queued`
  * (with a failure/v1 comment carrying the failing checks or merge-conflict detail) when CI
  * failed, the PR has merge conflicts, or the PR was closed unmerged. Pure DB + REST — the one
  * local-git touch is the injected origin resolver, used
  * only to self-heal tasks dragged into delivering without an approve-seeded delivery row.
  *
+ * Core records observations and reconciles merges atomically, retaining the actual check results.
  * Mirrors the Dispatcher's start/stop/safeTick shape minus all spawn/session machinery.
  */
 export class Watcher {
@@ -83,12 +84,8 @@ export class Watcher {
     });
     const servedSet = new Set(served);
     const mine = (t: Task): boolean => servedSet.has(t.workspace);
-    // Keep observing the current approved delivery while it is queued, blocked, or being
-    // repaired. A merged observation must be reconciled before another worker is allowed to claim
-    // the queued row; in-progress work is completed safely and late submission is rejected by core.
-    const observedStatuses = ['delivering', 'queued', 'in_progress', 'blocked', 'in_review'] as const;
-    const tasks = (await Promise.all(observedStatuses.map((status) => core.listTasks({ status }))))
-      .flat().filter(mine).filter((t) => t.status === 'delivering' || t.delivery !== null);
+    const tasks = (await core.listTasks()).filter(t => mine(t) && !t.archivedAt &&
+      (t.status === 'delivering' || (t.delivery && ['queued', 'in_progress', 'blocked', 'in_review'].includes(t.status))));
     try {
       await core.recordSupervisorHeartbeat({
         name: this.config.name, kind: 'watcher', workspaces: served,
@@ -102,7 +99,7 @@ export class Watcher {
       if (this.deps.now() < this.pausedUntil) return;
       // Per-task isolation: checkTask handles provider/transition errors itself, but a core
       // throw (e.g. the task was deleted between listTasks and here) must not abort the
-      // remaining tasks' checks for this tick.
+      // remaining delivering tasks' checks for this tick.
       try {
         await this.checkTask(t.key);
       } catch (err) {
@@ -135,6 +132,7 @@ export class Watcher {
     if ((this.backoffUntil.get(key) ?? 0) > now()) return;
 
     const detail = await core.getTask(key);
+    if (detail.archivedAt || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(detail.status)) return;
     let delivery = detail.delivery;
 
     // Self-heal a raw in_review → delivering drag: approve seeds the delivery row, a drag
@@ -184,52 +182,46 @@ export class Watcher {
 
     const { pr, checks } = result;
     const recorded = await core.recordDeliveryCheck(key, {
-      expectedStateChangedAt: delivery.stateChangedAt,
+      expected: { status: detail.status, branch: delivery.branch, prUrl: delivery.prUrl, stateChangedAt: delivery.stateChangedAt },
       prUrl: pr?.url ?? null,
       prId: pr?.id ?? null,
       prState: pr ? pr.state : 'not_found',
       checksState: checks.state,
       failing: checks.failing,
     });
-    if (!recorded.accepted || recorded.stateChangedAt === null) return; // the task was re-submitted/re-approved while the host was polled
+    if (recorded.skipped) return;
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);
-    const observedStateChangedAt = recorded.stateChangedAt;
+
+    // Recording a merge already reconciles completion atomically in core. Never bounce a merged
+    // PR for historical failed checks or ask a worker to implement the same delivery again.
+    if (pr?.state === 'merged') return;
+    // Only Delivering can bounce an open/closed PR; other states already have a repair owner.
+    if (detail.status !== 'delivering') return;
 
     // Transitions run through core's assertTransition inside a transaction; racing a human
     // override throws InvalidTransitionError — the board already settled it, not an error.
     try {
-      if (pr && pr.state === 'merged') {
-        const checkNote = checks.state === 'passing'
-          ? 'green'
-          : checks.state === 'none'
-            ? 'not configured'
-            : `${checks.state}; merge resolved the original task (CI status retained)`;
-        await core.completeDelivery(key, `PR ${pr.id} merged; checks ${checkNote}`, observedStateChangedAt);
-        console.log(`[watcher] ${key}: delivered — PR ${pr.id} merged, checks ${checks.state}`);
-      } else if (detail.status === 'delivering' && pr && pr.state === 'closed') {
+      if (pr && pr.state === 'closed') {
         await core.failDelivery(key, {
           reason: 'pr_closed',
           detail: `PR ${pr.id} was closed without merging`,
           body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix and reopen a PR from the SAME branch.`,
-          expectedStateChangedAt: observedStateChangedAt,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
-      } else if (detail.status === 'delivering' && pr && pr.mergeConflict) {
+      } else if (pr && pr.mergeConflict) {
         await core.failDelivery(key, {
           reason: 'merge_conflict',
           detail: `PR ${pr.id} has merge conflicts`,
           body: this.mergeConflictBody(pr.url, delivery.branch, pr.mergeConflict.detail),
-          expectedStateChangedAt: observedStateChangedAt,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} has merge conflicts`);
-      } else if (detail.status === 'delivering' && pr && checks.state === 'failing') {
+      } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
         const errors = await this.captureErrors(provider, remote, result);
         await core.failDelivery(key, {
           reason: 'ci_failed',
           detail: `PR ${pr.id} checks failed: ${names}`,
-          body: this.ciFailureBody(pr.url, pr.state, delivery.branch, checks.failing, errors),
-          expectedStateChangedAt: observedStateChangedAt,
+          body: this.ciFailureBody(pr.url, delivery.branch, checks.failing, errors),
         });
         console.log(`[watcher] ${key}: bounced — checks failed (${names})${errors.length ? ` · captured ${errors.length} error line(s)` : ''}`);
       }
@@ -265,16 +257,13 @@ export class Watcher {
     return `PR: ${prUrl} (open, head ${branch})${problem}\n\nResolve the conflict: merge latest base branch into ${branch}, fix the conflicts, run verification, and push to the SAME branch - do not open a new PR.`;
   }
 
-  private ciFailureBody(prUrl: string, prState: 'open' | 'merged' | 'closed', branch: string, failing: DeliveryFailingCheck[], errors: string[]): string {
+  private ciFailureBody(prUrl: string, branch: string, failing: DeliveryFailingCheck[], errors: string[]): string {
     const list = failing.map((f) => `- ${f.name}${f.url ? ` — ${f.url}` : ''}`).join('\n');
     // The concrete errors behind the red checks (build-log issues / check output) — this is what the
     // fixing worker acts on, so it doesn't have to go dig the CI log itself.
     const errorBlock = errors.length ? `\n\nBuild errors:\n\`\`\`text\n${errors.join('\n')}\n\`\`\`` : '';
-    const instruction =
-      prState === 'merged'
-        ? 'The PR is already merged but its checks are red. Fix the failures on a follow-up commit on the SAME branch and open a new PR.'
-        : 'The branch and PR still exist. Fix the failures and push to the SAME branch — do not open a new PR.';
-    return `PR: ${prUrl} (${prState}, head ${branch})\nFailing checks:\n${list}${errorBlock}\n\n${instruction}`;
+    const instruction = 'The branch and PR still exist. Fix the failures and push to the SAME branch — do not open a new PR.';
+    return `PR: ${prUrl} (open, head ${branch})\nFailing checks:\n${list}${errorBlock}\n\n${instruction}`;
   }
 
   private noteFailure(key: string, err: unknown, cred?: { envVar: string; base: string }): void {

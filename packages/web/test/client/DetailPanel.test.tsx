@@ -741,6 +741,23 @@ describe('DetailPanel', () => {
     expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
   });
 
+  it.each(['queued', 'in_progress', 'blocked', 'in_review'] as const)('shows merged PR checks while %s without delivery override buttons', async (status) => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask, status,
+      delivery: {
+        provider: 'github', branch: 'feature/AF-144-fix', prUrl: 'https://github.com/o/r/pull/3', prId: '#3',
+        prState: 'merged', checksState: 'failing', failing: [{ name: 'verify', url: 'https://ci/run/3' }],
+        checkedAt: '2026-09-14T12:22:00Z', stateChangedAt: '2026-09-14T12:22:00Z',
+      },
+    });
+    render(<DetailPanel taskKey={inReviewTask.key} onClose={vi.fn()} onChanged={vi.fn()} />);
+    expect(await screen.findByText('PR #3 merged · checks failed')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'verify' })).toHaveAttribute('href', 'https://ci/run/3');
+    expect(screen.queryByRole('button', { name: 'Mark done' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Re-queue' })).not.toBeInTheDocument();
+  });
+
   it('shows the delivery section with Mark done / Re-queue on a delivering task', async () => {
     const mocked = await getApiMock();
     mocked.setStatus.mockClear();
@@ -770,6 +787,28 @@ describe('DetailPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Mark done' }));
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-21', 'done');
+  });
+
+  it('offers the create-PR deep link on a delivering task whose watcher poll found no PR', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...inReviewTask,
+      key: 'AF-22',
+      status: 'delivering',
+      delivery: {
+        provider: 'azdo', branch: 'feature/AF-22-x', prUrl: null, prId: null,
+        prState: 'not_found', checksState: 'unknown', failing: [],
+        checkedAt: '2026-07-02T00:00:00Z', stateChangedAt: '2026-07-02T00:00:00Z',
+      },
+      createPrUrl: 'https://dev.azure.com/o/p/_git/r/pullrequestcreate?sourceRef=feature%2FAF-22-x',
+    });
+
+    render(<DetailPanel taskKey="AF-22" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const link = await screen.findByRole('link', { name: 'Open PR in Azure DevOps' });
+    expect(link).toHaveAttribute('href', 'https://dev.azure.com/o/p/_git/r/pullrequestcreate?sourceRef=feature%2FAF-22-x');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument();
   });
 
   it('calls onClose when the close button is clicked', async () => {

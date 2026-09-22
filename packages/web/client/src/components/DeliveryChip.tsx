@@ -2,7 +2,7 @@ import type { DeliverySummary } from '../types.js';
 import { I } from '../icons.js';
 
 /**
- * Delivery-state chip for a 'delivering' task — a one-line read of the watcher's last
+ * Delivery-state chip, including while a task is being repaired — a one-line read of the watcher's last
  * observation of the PR + its checks (`task.delivery`). Mirrors AiReviewChip/FailureChip:
  * an inline pill, colour-coded by outcome (failing → error, passing/merged → ok, else neutral).
  * When a PR URL is known the whole chip is a link (stopPropagation so a card click still opens
@@ -12,7 +12,7 @@ export function DeliveryChip({ delivery }: { delivery: DeliverySummary | null })
   if (!delivery) return null;
   const { prState, checksState, prId, prUrl } = delivery;
 
-  const prRef = prId ? `PR #${prId}` : 'PR';
+  const prRef = prId ? `PR #${prId.replace(/^#/, '')}` : 'PR';
   const checksText =
     checksState === 'failing' ? 'checks failed'
     : checksState === 'pending' ? 'checks running'
@@ -22,7 +22,7 @@ export function DeliveryChip({ delivery }: { delivery: DeliverySummary | null })
 
   const label =
     prState === 'not_found' ? 'no PR found'
-    : prState === 'merged' ? `${prRef} merged · verifying`
+    : prState === 'merged' ? `${prRef} merged · ${checksText ?? 'checks unknown'}`
     : prState === 'closed' ? `${prRef} closed`
     : prState === 'open' ? (checksText ? `${prRef} · ${checksText}` : `${prRef} open`)
     : 'checking…'; // 'unknown' — not yet polled

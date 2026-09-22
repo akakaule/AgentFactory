@@ -131,12 +131,7 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       }
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       const checks = combineAdoStatuses(statuses.value ?? []);
-      // A completed (merged) PR already cleared its required branch policies at merge time, and ADO
-      // PR-status records are pre-merge validation that are NOT refreshed post-merge — so a lingering
-      // `pending`/`notSet` status on a merged PR is stale, not a running build. Treat it as passing so
-      // the watcher completes the task instead of stranding it in "merged · verifying". An actively
-      // `failed`/`error` status still surfaces as `failing` → the merged-but-red bounce is unaffected.
-      if (obs.state === 'merged' && checks.state === 'pending') return { pr: obs, checks: { state: 'passing', failing: [] } };
+      // Merge completion is independent of checks; preserve the provider's actual status evidence.
       return { pr: obs, checks };
     },
 

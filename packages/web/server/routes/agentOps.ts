@@ -8,7 +8,8 @@ import { requireService, requireSupervisor, principalOf } from '../auth.js';
 // Wire shapes for the ops core does NOT re-validate itself (heartbeat, progress, transcript,
 // delivery observations) — without these a malformed body surfaced as a 500, not a 400.
 // `.passthrough()` keeps core the authority on any extra fields it knows about.
-const claimBody = z.object({ workspace: z.string().min(1).optional(), claimedBy: z.string().min(1).optional() });
+const claimBody = z.object({ workspace: z.string().min(1).optional(), claimedBy: z.string().min(1).optional(),
+  taskKey: z.string().min(1).optional(), stage: z.enum(['description', 'plan', 'implementation']).optional() });
 const progressBody = z.object({
   message: z.string().min(1).max(500),
   tokensIn: z.number().int().nonnegative().optional(),
@@ -26,6 +27,10 @@ const heartbeatBody = z.object({
 const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branch: z.string().min(1), prUrl: z.string().nullable().optional() });
 const deliveryCheckBody = z.object({
   expectedStateChangedAt: z.string().optional(),
+  expected: z.object({
+    status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
+    branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
+  }).optional(),
   prUrl: z.string().nullable(), prId: z.string().nullable(),
   prState: z.string(), checksState: z.string(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
@@ -75,7 +80,7 @@ export function agentOpsRoutes(core: Core): Hono {
   // ── claim / deliver ────────────────────────────────────────────────────────
   r.post('/claim', validated('json', claimBody), (c) => {
     const b = c.req.valid('json');
-    const claim = core.claimNextTask({ workspace: b.workspace, claimedBy: b.claimedBy });
+    const claim = core.claimNextTask({ workspace: b.workspace, claimedBy: b.claimedBy, taskKey: b.taskKey, stage: b.stage });
     return c.json(claim); // null = queue empty (the caller's idle signal, not an error)
   });
 
@@ -159,6 +164,9 @@ export function agentOpsRoutes(core: Core): Hono {
   });
 
   r.get('/live-agents', (c) => c.json(core.listLiveAgents()));
+
+  // Read-only for agents/supervisors: the board (a human) decides which engines may run.
+  r.get('/engines', (c) => c.json(core.getEngineSettings()));
 
   r.get('/prompts/:key', (c) => {
     const workspace = c.req.query('workspace');

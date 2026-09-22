@@ -1,3 +1,4 @@
+import type { EngineSettings } from '@agentfactory/core';
 import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey, RetryReservation } from '@agentfactory/core';
 
 /** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
@@ -18,9 +19,12 @@ export interface DispatcherCore {
   resolveGitAuth(workspace: string): Awaitable<GitAuth | null>;
   // the effective agent system prompt (workspace override → global default → '') for this role.
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
+  /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
+  getEngineSettings(): Awaitable<EngineSettings>;
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string): Awaitable<TaskDetail>;
+  completeDelivery(key: string, note: string): Awaitable<TaskDetail>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
   reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
@@ -61,6 +65,7 @@ export interface SpawnRequest {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  stdin?: string;
 }
 
 export type SpawnFn = (req: SpawnRequest) => SpawnedChild;
@@ -83,6 +88,7 @@ export interface DispatcherDeps {
   spawn: SpawnFn;
   /** Resolves the `claude` CLI command (cached after first call). */
   resolveClaude: () => string;
+  resolveCodex: () => { command: string; args: string[] };
   /** The agentfactory MCP server launch spec, inlined into each session's --mcp-config. */
   mcp: McpServerSpec;
   /** Opens a per-session log file. */

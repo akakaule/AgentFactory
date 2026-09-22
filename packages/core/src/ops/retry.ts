@@ -5,6 +5,7 @@ import { NotFoundError, ValidationError } from '../errors.js';
 import { findRowByKey } from '../repo/tasks.js';
 import { budgetByTask, reserveRetry as reserveRetryRow, resetRetryBudget as resetRetryBudgetRow, settleRetry as settleRetryRow, reconcileRetry as reconcileRetryRow, reconcileAbandonedRetryReservations as reconcileAbandonedRetryReservationsRow, recordRetryFailure as recordRetryFailureRow } from '../repo/retry.js';
 import { nowIso } from '../time.js';
+import { reconcileMergedDelivery } from './delivery.js';
 
 function assertInput(operation: RetryOperation, maxAttempts: number): void {
   if (!operation.trim()) throw new ValidationError('retry operation is required');
@@ -21,7 +22,9 @@ export function reserveRetry(db: DB, key: string, input: ReserveRetryInput, now:
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    return reserveRetryRow(db, row.id, key, input, now());
+    const ts = now();
+    if (input.operation.startsWith('dispatcher:') && (row.status === 'done' || reconcileMergedDelivery(db, row, ts))) return null;
+    return reserveRetryRow(db, row.id, key, input, ts);
   });
 }
 

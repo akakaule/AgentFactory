@@ -4,33 +4,18 @@ import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
-import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation, type DeliveryRow } from '../repo/delivery.js';
+import { endSession } from '../repo/agentSessions.js';
+import { latestPrLinkUrl } from '../repo/links.js';
+import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation } from '../repo/delivery.js';
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
-import { endSession } from '../repo/agentSessions.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
 /** The watcher's reasons for bouncing a delivering task back to the queue. */
 export type DeliveryFailureReason = 'ci_failed' | 'pr_closed' | 'merge_conflict';
-
-function mergedChecksNote(delivery: DeliveryRow): string {
-  const checks = delivery.checks_state === 'passing'
-    ? 'green'
-    : delivery.checks_state === 'none'
-      ? 'not configured'
-      : `${delivery.checks_state}; merge resolved the original task (CI status retained)`;
-  return `PR ${delivery.pr_id ?? delivery.pr_url ?? 'current'} merged; checks ${checks}`;
-}
-
-/** Complete a delivery while the caller already holds the core write transaction. */
-export function completeDeliveryRow(db: DB, row: TaskRow, delivery: DeliveryRow, ts: string, note = mergedChecksNote(delivery)): void {
-  setStatus(db, row.id, 'done', ts);
-  endSession(db, row.id, ts);
-  appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'done', body: note, createdAt: ts });
-}
 
 // The watcher (its own process) races the web server's human overrides on these rows, so unlike
 // the single-process ops the status read happens INSIDE the BEGIN IMMEDIATE transaction.
@@ -62,42 +47,60 @@ export function beginDelivery(db: DB, key: string, seed: { provider: DeliveryPro
 
 /**
  * Record one watcher poll. Always refreshes checked_at; bumps the task (→ getVersion → UI refetch)
- * only when the observed PR/checks state actually changed. Deliberately a no-op once the task has
- * left the active approval episode — a late watcher write races a human override or a new
- * submission, and the newer lifecycle wins. The watcher may use this to refresh facts while a
- * queued/blocked/in-progress repair is waiting for reconciliation.
+ * only when the observed PR/checks state actually changed. A confirmed merge also completes
+ * the current delivery in this transaction, including during repair. Terminal/archived tasks and stale
+ * observations are ignored so a slow provider response cannot overwrite a newer delivery.
  */
-export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean; accepted: boolean; stateChangedAt: string | null } {
+export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean; skipped?: boolean; accepted: boolean; stateChangedAt: string | null } {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    if (!['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { changed: false, accepted: false, stateChangedAt: null };
+    if (row.archived_at || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     const d = deliveryRowFor(db, row.id);
-    if (!d) return { changed: false, accepted: false, stateChangedAt: null }; // nothing seeded — the watcher self-heals via beginDelivery first
+    if (!d) return { changed: false, skipped: true, accepted: false, stateChangedAt: null }; // nothing seeded
+    const expected = obs.expected;
+    if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
+        expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     const ts = now();
     const { changed, accepted } = updateDeliveryObservation(db, d, obs, ts);
+    if (!accepted) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
+    const stateChangedAt = changed ? ts : d.state_changed_at;
+    if (reconcileMergedDelivery(db, row, ts)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);
-    return { changed, accepted, stateChangedAt: accepted ? (changed ? ts : d.state_changed_at) : null };
+    return { changed, accepted, stateChangedAt };
   });
 }
 
 /**
- * The watcher's happy ending: a current approved PR was merged ⇒ the task is done (by 'agent').
- * This also reconciles queued or active repairs of that delivery; the host's check state remains
- * in the delivery row and in the note. An episode token prevents a slow observation from
- * completing a replacement delivery.
+ * Finish a previously observed merged delivery. The stored facts, not a caller's note, authorize
+ * completion. Used to recover legacy queued deliveries before dispatching another worker.
  */
 export function completeDelivery(db: DB, key: string, note: string, expectedStateChangedAt?: string, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    if (!['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status))
-      throw new InvalidTransitionError(`${row.status} -> done not allowed for agent`);
-    const delivery = deliveryRowFor(db, row.id);
-    if (!delivery || (expectedStateChangedAt !== undefined && delivery.state_changed_at !== expectedStateChangedAt))
+    if (expectedStateChangedAt !== undefined && deliveryRowFor(db, row.id)?.state_changed_at !== expectedStateChangedAt)
       throw new InvalidTransitionError(`stale delivery observation for ${key}`);
-    const ts = now();
-    completeDeliveryRow(db, row, delivery, ts, note);
+    if (!reconcileMergedDelivery(db, row, now(), note))
+      throw new InvalidTransitionError(`completion requires a current merged delivery: ${key}`);
     return toDetail(db, findRowByKey(db, key)!);
   });
+}
+
+/** Runs inside the caller's transaction (observation, retry, or claim); never nests a transaction. */
+export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?: string): boolean {
+  if (row.archived_at || row.kind !== 'code' || row.stage !== 'implementation' ||
+      !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return false;
+  const d = deliveryRowFor(db, row.id);
+  if (!d || d.pr_state !== 'merged' || !d.pr_url || !d.checked_at || d.branch !== row.branch) return false;
+  // A repair may already have submitted a replacement PR, pending its own approval.
+  const latestPr = latestPrLinkUrl(db, row.id);
+  if (latestPr && latestPr !== d.pr_url) return false;
+  assertTransition(row.status, 'done', 'agent');
+  setStatus(db, row.id, 'done', ts);
+  endSession(db, row.id, ts);
+  const body = `PR ${d.pr_id ?? d.pr_url} merged; checks ${d.checks_state}. Original delivery complete; further CI repair is separate work.`;
+  appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status,
+    toStatus: 'done', body: note ? `${body}\n${note}` : body, createdAt: ts });
+  return true;
 }
 
 /**
@@ -116,9 +119,9 @@ export function failDelivery(
 ): TaskDetail {
   return transaction(db, () => {
     const row = requireRow(db, key);
+    if (row.status !== 'delivering') throw new InvalidTransitionError(`delivery failure requires delivering (got ${row.status})`);
     assertTransition(row.status, 'queued', 'agent');
-    const delivery = deliveryRowFor(db, row.id);
-    if (input.expectedStateChangedAt !== undefined && delivery?.state_changed_at !== input.expectedStateChangedAt)
+    if (input.expectedStateChangedAt !== undefined && deliveryRowFor(db, row.id)?.state_changed_at !== input.expectedStateChangedAt)
       throw new InvalidTransitionError(`stale delivery observation for ${key}`);
     const ts = now();
     const repair = reserveRetryRow(db, row.id, key, { operation: 'delivery', maxAttempts: DEFAULT_DELIVERY_REPAIR_ATTEMPTS }, ts);
