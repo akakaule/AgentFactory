@@ -140,6 +140,13 @@ const MIGRATIONS: Migration[] = [
   // #26 — recoverable attention notifications. CREATE IF NOT EXISTS keeps upgrades from a
   // coordinated/divergent deployment safe while the new operation validates all inputs.
   (db) => db.exec(MIGRATION_26_SQL),
+  // #27 reconciles a divergent #26 and widens event types without losing outbox children.
+  { fkOff: true, run: (db) => {
+    db.exec(MIGRATION_26_SQL);
+    widenCheck(db, 'attention_occurrence',
+      "('in_review','failed','skip_listed','supervisor_down','queue_empty')",
+      "('in_review','failed','skip_listed','supervisor_down','queue_empty','blocked','setup_needed','delivery_wait','delivery_stalled')");
+  } },
 ];
 
 export function runMigrations(db: DB): void {

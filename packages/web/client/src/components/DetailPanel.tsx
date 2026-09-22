@@ -16,6 +16,7 @@ import { DeliveryChip } from './DeliveryChip.js';
 import { DeliveringFeedback } from './DeliveringFeedback.js';
 import { FailureBanner } from './FailureBanner.js';
 import { BlockedBanner } from './BlockedBanner.js';
+import { AttentionPanel } from './AttentionPanel.js';
 import { StatusTrail } from './StatusTrail.js';
 import { TaskForm } from './TaskForm.js';
 import { Changes } from './Changes.js';
@@ -250,6 +251,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
                 onMutated={afterMutation}
               />
 
+              <AttentionPanel key={`attention:${task.key}`} taskKey={task.key} />
               {task.status === 'blocked' && (
                 <BlockedBanner
                   activity={task.activity}

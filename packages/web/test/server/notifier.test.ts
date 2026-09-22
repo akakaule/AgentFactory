@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Notifier, notifierConfigFromEnv, type NotifierCore, type NotifyFetch, type NotifyEvent } from '../../server/notifier.js';
-import { buildFailureComment } from '@agentfactory/core';
+import { buildFailureComment, openDb, runMigrations, createCore } from '@agentfactory/core';
 import type { ActivityFeedRow, CaptureNotificationsInput, NotificationOutboxEntry, SupervisorView, Task } from '@agentfactory/core';
 
 function makeFakeCore() {
@@ -189,6 +189,77 @@ describe('Notifier — state events', () => {
 });
 
 describe('Notifier — durable delivery', () => {
+  it('bounds oversized activity while preserving deep links and existing retries', async () => {
+    const db = openDb(':memory:'); runMigrations(db);
+    const core = createCore(db);
+    const fc = makeFakeCore();
+    const ff = makeFakeFetch();
+    const n = new Notifier({ ...cfg(['failed']), appUrl: 'http://board' }, { core: { ...core,
+      activitySince: fc.core.activitySince, latestActivityId: fc.core.latestActivityId }, fetch: ff.fetch });
+    await n.tick();
+    core.captureNotifications({ sourceCursor: 0, destinations: ['http://hook'], maxAttempts: 3,
+      now: '2000-01-01T00:00:00.000Z', occurrences: [
+        { key: 'old-failure', eventType: 'failed', reason: 'failed', target: 'AF-0', text: 'existing retry' },
+      ] });
+    core.settleNotificationOutbox(core.listAllNotificationOutbox()[0]!.id,
+      { ok: false, now: '2000-01-01T00:00:00.000Z', retryAt: '2000-01-01T00:00:00.000Z', error: '500' });
+    fc.push({ body: buildFailureComment({ reason: 'timeout', detail: 'x'.repeat(20000), source: 'dispatcher', attempt: 1, maxAttempts: 3 }) });
+    await n.tick();
+    expect(ff.calls).toHaveLength(2);
+    expect(ff.calls[0]!.text).toBe('existing retry');
+    expect(ff.calls[1]!.text.length).toBeLessThanOrEqual(16384);
+    expect(ff.calls[1]!.text).toContain('http://board/?task=AF-1');
+    expect(ff.calls[1]!.text).toContain('1/3');
+    expect(core.getKv('notify_cursor')).toBe('1');
+    db.close();
+  });
+
+  it('defers document review until findings or a review wait threshold requires a human', async () => {
+    const fc = makeDurableFakeCore(); const ff = makeFakeFetch();
+    const task = { key: 'AF-1', workspace: 'default', title: 'Doc', status: 'in_review' as const,
+      stage: 'plan' as const, updatedAt: new Date().toISOString(), aiReview: null, failure: null };
+    fc.setTasks([task]);
+    const n = new Notifier(cfg(['in_review']), { core: fc.core, fetch: ff.fetch });
+    await n.tick();
+    fc.push({ type: 'status_change', toStatus: 'in_review' });
+    await n.tick();
+    expect(ff.calls).toHaveLength(0);
+    fc.setTasks([{ ...task, updatedAt: '2000-01-01T00:00:00.000Z' }]);
+    await n.tick();
+    expect(ff.calls).toHaveLength(1);
+    expect(fc.outbox[0]!.reason).toBe('review_ready');
+    await new Notifier(cfg(['in_review']), { core: fc.core, fetch: ff.fetch }).tick();
+    expect(ff.calls).toHaveLength(1);
+  });
+
+  it('emits blocked, setup, exhausted and stalled-delivery attention with required actions', async () => {
+    const fc = makeDurableFakeCore(); const ff = makeFakeFetch();
+    fc.setTasks([
+      { key: 'AF-1', title: 'Blocked', status: 'blocked', failure: null },
+      { key: 'AF-2', title: 'Credentials', status: 'queued', failure: { reason: 'spawn_failed', detail: 'missing credentials', skipListed: false, attempt: 1, maxAttempts: 2 } as Task['failure'] },
+      { key: 'AF-3', title: 'Exhausted', status: 'queued', failure: { reason: 'max_attempts', skipListed: true, attempt: 2, maxAttempts: 2 } as Task['failure'] },
+      { key: 'AF-4', title: 'Delivery', status: 'delivering', updatedAt: '2000-01-01T00:00:00Z', delivery: null },
+    ]);
+    await new Notifier(cfg(['skip_listed', 'blocked', 'setup_needed', 'delivery_stalled']), { core: fc.core, fetch: ff.fetch }).tick();
+    expect(fc.outbox.map(o => o.reason).sort()).toEqual(['attempts_exhausted', 'blocked', 'delivery_stalled', 'setup_needed']);
+    expect(ff.calls.every(c => /Action:/.test(c.text))).toBe(true);
+  });
+
+  it('alerts on document findings immediately and clears attention after stage advancement', async () => {
+    const db = openDb(':memory:'); runMigrations(db); const core = createCore(db);
+    const fc = makeFakeCore(); const ff = makeFakeFetch();
+    const task = { key: 'AF-1', workspace: 'default', title: 'Plan', status: 'in_review' as const,
+      stage: 'plan' as const, updatedAt: new Date().toISOString(),
+      aiReview: { verdict: 'findings' as const, findings: 1, reviewer: 'test', items: [] } };
+    fc.setTasks([task]);
+    const n = new Notifier(cfg(['in_review']), { core: { ...core, listTasks: fc.core.listTasks }, fetch: ff.fetch });
+    await n.tick();
+    expect(ff.calls).toHaveLength(1);
+    fc.setTasks([{ ...task, status: 'queued', stage: 'implementation' }]);
+    await n.tick();
+    expect(core.listAttentionOccurrences()[0]!.resolvedAt).not.toBeNull();
+    db.close();
+  });
   it('recovers a receiver that fails twice across notifier restarts', async () => {
     const fc = makeDurableFakeCore();
     const calls: string[] = [];
@@ -273,7 +344,7 @@ describe('notifierConfigFromEnv', () => {
   it('parses comma-separated webhooks and defaults the event set', () => {
     const c = notifierConfigFromEnv({ AF_NOTIFY_WEBHOOKS: 'http://a, http://b' })!;
     expect(c.webhooks).toEqual(['http://a', 'http://b']);
-    expect([...c.events].sort()).toEqual(['in_review', 'skip_listed', 'supervisor_down']);
+    expect([...c.events].sort()).toEqual(['blocked', 'delivery_stalled', 'in_review', 'setup_needed', 'skip_listed', 'supervisor_down']);
     expect(c.pollMs).toBe(15000);
   });
 

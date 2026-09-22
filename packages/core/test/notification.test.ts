@@ -10,6 +10,43 @@ function makeCore() {
 }
 
 describe('recoverable attention notifications', () => {
+  it('keeps human resolution across restarts until the source clears and recurs', () => {
+    const { core, db } = makeCore();
+    const occurrence = { key: 'down', stateKey: 'down', eventType: 'supervisor_down' as const,
+      reason: 'supervisor_unavailable' as const, target: 'dispatcher', text: 'down', active: true };
+    const input = { sourceCursor: 0, destinations: ['http://a'], maxAttempts: 3, now: NOW, occurrences: [occurrence] };
+    core.captureNotifications(input);
+    core.resolveAttention(core.listAttentionOccurrences()[0]!.id);
+    const reopened = createCore(db);
+    reopened.captureNotifications(input);
+    expect(reopened.listAttentionOccurrences()).toHaveLength(1);
+    expect(reopened.listNotificationOutbox(NOW)).toHaveLength(0);
+    reopened.captureNotifications({ ...input, occurrences: [{ ...occurrence, active: false }] });
+    reopened.captureNotifications(input);
+    expect(reopened.listAttentionOccurrences()).toHaveLength(2);
+    expect(reopened.listNotificationOutbox(NOW)).toHaveLength(1);
+  });
+
+  it('normalizes snooze dates so delivery resumes at the requested instant', () => {
+    const { core } = makeCore();
+    core.captureNotifications({ sourceCursor: 0, destinations: ['http://a'], maxAttempts: 3, now: NOW,
+      occurrences: [{ key: 'failure', eventType: 'failed', reason: 'failed', target: 'AF-1', text: 'failure' }] });
+    core.snoozeAttention(core.listAttentionOccurrences()[0]!.id, 'Mon, 14 Sep 2026 19:00:00 GMT');
+    expect(core.listAttentionOccurrences()[0]!.snoozedUntil).toBe('2026-09-14T19:00:00.000Z');
+    expect(core.listNotificationOutbox('2026-09-14T18:59:59.999Z')).toHaveLength(0);
+    expect(core.listNotificationOutbox('2026-09-14T19:00:00.000Z')).toHaveLength(1);
+  });
+
+  it('changes the board version when attention is captured or delivery settles', () => {
+    const { core } = makeCore();
+    const before = core.getVersion();
+    core.captureNotifications({ sourceCursor: 0, destinations: ['http://a'], maxAttempts: 3, now: NOW,
+      occurrences: [{ key: 'failure', eventType: 'failed', reason: 'failed', target: 'AF-1', text: 'failure' }] });
+    expect(core.getVersion()).not.toBe(before);
+    const captured = core.getVersion();
+    core.settleNotificationOutbox(core.listNotificationOutbox(NOW)[0]!.id, { ok: false, now: '2026-09-14T19:00:00.000Z' });
+    expect(core.getVersion()).not.toBe(captured);
+  });
   it('captures an occurrence, per-destination outbox rows, and the source cursor atomically', () => {
     const { core, db } = makeCore();
 

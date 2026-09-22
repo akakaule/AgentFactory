@@ -6,6 +6,7 @@ import type { TaskDetail } from '../../client/src/types.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
+    getAttention: vi.fn().mockResolvedValue({ occurrences: [], outbox: [] }),
     listTasks: vi.fn().mockResolvedValue([]),
     getTask: vi.fn(),
     createTask: vi.fn(),

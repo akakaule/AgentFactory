@@ -1,6 +1,7 @@
 import { useSupervisors } from '../useSupervisors.js';
 import { timeAgo } from '../time.js';
 import { I } from '../icons.js';
+import { AttentionPanel } from './AttentionPanel.js';
 
 /**
  * Health strip for the headless supervisors (dispatcher/reviewer). Answers "is the loop alive?"
@@ -19,7 +20,7 @@ export function SupervisorStrip() {
     );
   }
   return (
-    <div className="af-sup-strip">
+    <div><div className="af-sup-strip">
       {supervisors.map((s) => (
         <div key={s.name} className={'af-sup' + (s.healthy ? '' : ' down')} title={
           `${s.name} (${s.kind}) — ${s.healthy ? 'healthy' : 'not seen in ' + s.staleSeconds + 's'}` +
@@ -34,6 +35,6 @@ export function SupervisorStrip() {
           </span>
         </div>
       ))}
-    </div>
+    </div><AttentionPanel /></div>
   );
 }

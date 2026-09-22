@@ -35,8 +35,11 @@ export function captureNotifications(db: DB, input: CaptureNotificationsInput, n
 
   for (const item of input.occurrences) {
     let occurrenceId: number | null = null;
+    const boundaryKey = item.stateKey ? `notify_state:${item.stateKey}` : null;
+    const boundary = boundaryKey ? db.prepare('SELECT value FROM app_kv WHERE key = ?').get(boundaryKey) as { value: string } | undefined : undefined;
     if (item.active === false) {
       if (item.stateKey) {
+        db.prepare("INSERT INTO app_kv(key, value) VALUES (?, 'inactive') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(boundaryKey!);
         db.prepare('UPDATE attention_occurrence SET resolved_at = COALESCE(resolved_at, ?), last_seen_at = ? WHERE state_key = ? AND resolved_at IS NULL')
           .run(now, now, item.stateKey);
       }
@@ -44,18 +47,13 @@ export function captureNotifications(db: DB, input: CaptureNotificationsInput, n
     }
 
     const existing = db.prepare('SELECT * FROM attention_occurrence WHERE event_key = ?').get(item.key) as OccurrenceRow | undefined;
-    // State keys can reopen after resolution. A static edge key is useful for deduping the open
-    // edge, but it must not make a later down edge reuse the old outbox rows.
-    const reusable = existing && !(item.stateKey && existing.resolved_at) ? existing : undefined;
+    // Acknowledgement is independent of the source boundary. Only an observed inactive -> active
+    // transition starts a new occurrence; conservatively reuse legacy rows without boundary data.
+    const latestState = item.stateKey ? db.prepare('SELECT * FROM attention_occurrence WHERE state_key = ? ORDER BY id DESC LIMIT 1').get(item.stateKey) as OccurrenceRow | undefined : undefined;
+    const reusable = item.stateKey ? (boundary?.value === 'inactive' ? undefined : latestState) : existing;
     if (reusable) {
       occurrenceId = reusable.id;
       db.prepare('UPDATE attention_occurrence SET last_seen_at = ? WHERE id = ? AND resolved_at IS NULL').run(now, reusable.id);
-    } else if (item.stateKey) {
-      const open = db.prepare('SELECT * FROM attention_occurrence WHERE state_key = ? AND resolved_at IS NULL ORDER BY id DESC LIMIT 1').get(item.stateKey) as OccurrenceRow | undefined;
-      if (open) {
-        occurrenceId = open.id;
-        db.prepare('UPDATE attention_occurrence SET last_seen_at = ? WHERE id = ?').run(now, open.id);
-      }
     }
     if (occurrenceId === null) {
       let eventKey = item.key;
@@ -71,6 +69,7 @@ export function captureNotifications(db: DB, input: CaptureNotificationsInput, n
       occurrenceId = Number(result.lastInsertRowid);
     }
     insertOutbox(db, occurrenceId, item.text, input.destinations, input.maxAttempts, now);
+    if (boundaryKey) db.prepare("INSERT INTO app_kv(key, value) VALUES (?, 'active') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(boundaryKey);
   }
   db.prepare("INSERT INTO app_kv(key, value) VALUES ('notify_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run(String(input.sourceCursor));
@@ -139,7 +138,7 @@ export function resolveAttention(db: DB, id: number, now: string): boolean {
   return result.changes > 0;
 }
 
-export function snoozeAttention(db: DB, id: number, until: string): boolean {
-  const result = db.prepare('UPDATE attention_occurrence SET snoozed_until = ? WHERE id = ?').run(until, id);
+export function snoozeAttention(db: DB, id: number, until: string, now: string): boolean {
+  const result = db.prepare('UPDATE attention_occurrence SET snoozed_until = ?, last_seen_at = ? WHERE id = ?').run(until, now, id);
   return result.changes > 0;
 }

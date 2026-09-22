@@ -145,7 +145,7 @@ export interface ActivityFeedRow {
   type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
 }
 
-export type NotificationEventType = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty';
+export type NotificationEventType = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty' | 'blocked' | 'setup_needed' | 'delivery_wait' | 'delivery_stalled';
 export type AttentionReason = 'blocked' | 'review_ready' | 'attempts_exhausted' | 'setup_needed' | 'supervisor_unavailable' | 'delivery_stalled' | 'delivery_wait' | 'failed' | 'queue_empty';
 export type NotificationOutboxState = 'pending' | 'failed' | 'succeeded' | 'permanently_failed';
 

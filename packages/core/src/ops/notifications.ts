@@ -52,5 +52,5 @@ export function resolveAttention(db: DB, id: number, now: () => string = nowIso)
 export function snoozeAttention(db: DB, id: number, until: string): boolean {
   if (!Number.isInteger(id) || id < 1) throw new ValidationError('attention id must be a positive integer');
   if (!until.trim() || Number.isNaN(Date.parse(until))) throw new ValidationError('attention snooze time must be an ISO timestamp');
-  return transaction(db, () => snoozeRow(db, id, until));
+  return transaction(db, () => snoozeRow(db, id, new Date(until).toISOString(), nowIso()));
 }

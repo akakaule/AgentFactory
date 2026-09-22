@@ -1,5 +1,5 @@
 import { parseFailureComment } from '@agentfactory/core';
-import type { ActivityFeedRow, AttentionReason, CaptureNotificationsInput, NotificationOutboxEntry, SupervisorView, Task, Status } from '@agentfactory/core';
+import type { ActivityFeedRow, AttentionReason, CaptureNotificationsInput, NotificationOutboxEntry, NotificationEventType, SupervisorView, Task, Status } from '@agentfactory/core';
 
 /**
  * The unattended-loop notifier. A poll loop in the always-on web process that derives "you're
@@ -14,10 +14,10 @@ import type { ActivityFeedRow, AttentionReason, CaptureNotificationsInput, Notif
  * at-least-once: a timeout after a receiver accepted a POST can duplicate an alert on retry.
  */
 
-export type NotifyEvent = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty';
-export const ALL_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'failed', 'skip_listed', 'supervisor_down', 'queue_empty'];
+export type NotifyEvent = NotificationEventType;
+export const ALL_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'failed', 'skip_listed', 'supervisor_down', 'queue_empty', 'blocked', 'setup_needed', 'delivery_wait', 'delivery_stalled'];
 /** Sensible default: the "needs a human" events, without the noisier transient-failure / queue-empty ones. */
-export const DEFAULT_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'skip_listed', 'supervisor_down'];
+export const DEFAULT_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'skip_listed', 'supervisor_down', 'blocked', 'setup_needed', 'delivery_stalled'];
 
 const CURSOR_KEY = 'notify_cursor';
 
@@ -46,6 +46,8 @@ export interface NotifierConfig {
   maxAttempts?: number;
   retryBaseMs?: number;
   retryMaxMs?: number;
+  reviewWaitMs?: number;
+  deliveryWaitMs?: number;
 }
 
 export interface NotifierDeps {
@@ -68,6 +70,8 @@ export function notifierConfigFromEnv(env: Record<string, string | undefined>): 
   const retryBaseSec = Number(env['AF_NOTIFY_RETRY_BASE_SEC'] ?? '15');
   const retryMaxSec = Number(env['AF_NOTIFY_RETRY_MAX_SEC'] ?? '900');
   const port = env['PORT'] ?? '8787';
+  const reviewWait = Number(env['AF_NOTIFY_REVIEW_WAIT_SEC'] ?? '1800');
+  const deliveryWait = Number(env['AF_NOTIFY_DELIVERY_WAIT_SEC'] ?? '3600');
   return {
     webhooks: [...new Set(webhooks)], events: new Set(chosen),
     pollMs: (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 15) * 1000,
@@ -76,6 +80,8 @@ export function notifierConfigFromEnv(env: Record<string, string | undefined>): 
     maxAttempts: Number.isInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : 5,
     retryBaseMs: Number.isFinite(retryBaseSec) && retryBaseSec > 0 ? retryBaseSec * 1000 : 15000,
     retryMaxMs: Number.isFinite(retryMaxSec) && retryMaxSec > 0 ? retryMaxSec * 1000 : 900000,
+    reviewWaitMs: Number.isFinite(reviewWait) && reviewWait >= 0 ? reviewWait * 1000 : 1800000,
+    deliveryWaitMs: Number.isFinite(deliveryWait) && deliveryWait >= 0 ? deliveryWait * 1000 : 3600000,
   };
 }
 
@@ -164,8 +170,8 @@ export class Notifier {
       const f = parseFailureComment(row.body);
       if (f) {
         const skip = f.reason === 'max_attempts' || (f.attempt !== null && f.maxAttempts !== null && f.attempt >= f.maxAttempts);
-        if (skip) return { type: 'skip_listed', text: this.taskText(`:rotating_light: *${row.taskKey}* skip-listed (${f.reason}) — needs you. ${row.taskTitle}`, row.taskKey) };
-        return { type: 'failed', text: this.taskText(`:warning: *${row.taskKey}* failed: ${f.reason}${f.detail ? ` — ${f.detail}` : ''}`, row.taskKey) };
+        if (skip) return { type: 'skip_listed', text: this.taskText(`:rotating_light: *${row.taskKey}* skip-listed (${f.reason}, attempt ${f.attempt ?? '?'}/${f.maxAttempts ?? '?'}) — needs you. Action: fix the cause, then restart the task. ${row.taskTitle}`, row.taskKey) };
+        return { type: 'failed', text: this.taskText(`:warning: *${row.taskKey}* failed: ${f.reason} (attempt ${f.attempt ?? '?'}/${f.maxAttempts ?? '?'}). Action: automatic retry within the remaining budget; inspect the task if it persists.${f.detail ? ` — ${f.detail}` : ''}`, row.taskKey) };
       }
     }
     return null;
@@ -197,17 +203,23 @@ export class Notifier {
   /** New path: capture all derived events before attempting any network delivery. */
   private async durableTick(): Promise<void> {
     const rows = this.deps.core.activitySince(this.cursor, 200);
+    const tasks = this.deps.core.listTasks();
     const occurrences: CaptureNotificationsInput['occurrences'] = [];
     for (const row of rows) {
+      const task = tasks.find(t => t.key === row.taskKey);
+      // Current task state owns review/blocked/setup/exhaustion edges; activity still captures
+      // transient failures and legacy tasks that cannot be resolved through listTasks.
+      if (task && row.type === 'status_change' && row.toStatus === 'in_review') continue;
       const event = this.classify(row);
       if (!event || !this.cfg.events.has(event.type)) continue;
+      if (task && (event.type === 'skip_listed' || this.needsSetup(task))) continue;
       occurrences.push({
         key: `activity:${row.id}`, eventType: event.type,
         reason: this.reasonFor(event.type), target: row.taskKey, taskKey: row.taskKey, text: event.text,
       });
     }
     const nextCursor = rows.length ? rows[rows.length - 1]!.id : this.cursor;
-    occurrences.push(...this.stateOccurrences());
+    occurrences.push(...this.stateOccurrences(), ...this.taskOccurrences(tasks));
     await this.deps.core.captureNotifications!({
       sourceCursor: nextCursor, destinations: this.cfg.webhooks,
       maxAttempts: this.cfg.maxAttempts ?? 5, occurrences,
@@ -243,20 +255,20 @@ export class Notifier {
     for (const item of ready) {
       const now = new Date().toISOString();
       try {
-        const res = await this.fetchWithTimeout(item.destination, item.text);
+        const res = await this.fetchWithTimeout(item.destination, item.text, item.occurrenceId);
         if (!res.ok) throw new Error(`webhook returned ${res.status}`);
         await this.deps.core.settleNotificationOutbox!(item.id, { ok: true, now });
       } catch (err) {
         const delay = Math.min((this.cfg.retryBaseMs ?? 15000) * 2 ** item.attempts, this.cfg.retryMaxMs ?? 900000);
         const retryAt = new Date(Date.now() + delay).toISOString();
-        const error = err instanceof Error ? err.message : String(err);
+        const error = (err instanceof Error ? err.message : String(err)).slice(0, 2000);
         await this.deps.core.settleNotificationOutbox!(item.id, { ok: false, now, retryAt, error });
         this.console.warn(`[notifier] ${item.destination}: ${error} — retry at ${retryAt}`);
       }
     }
   }
 
-  private async fetchWithTimeout(url: string, text: string): Promise<{ ok: boolean; status: number }> {
+  private async fetchWithTimeout(url: string, text: string, occurrenceId: number): Promise<{ ok: boolean; status: number }> {
     const timeoutMs = this.cfg.timeoutMs ?? 10000;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -269,7 +281,7 @@ export class Notifier {
     try {
       return await Promise.race([
         this.deps.fetch(url, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }), signal: controller.signal,
+          method: 'POST', headers: { 'content-type': 'application/json', 'X-AgentFactory-Event-Id': String(occurrenceId) }, body: JSON.stringify({ text }), signal: controller.signal,
         }),
         timeout,
       ]);
@@ -283,22 +295,67 @@ export class Notifier {
     if (type === 'skip_listed') return 'attempts_exhausted';
     if (type === 'supervisor_down') return 'supervisor_unavailable';
     if (type === 'queue_empty') return 'queue_empty';
+    if (type === 'blocked' || type === 'setup_needed' || type === 'delivery_wait' || type === 'delivery_stalled') return type;
     return 'failed';
+  }
+
+  private needsSetup(task: Task): boolean {
+    return !!task.failure && (task.failure.reason === 'spawn_failed' ||
+      /credentials?|authentication|unauthorized|permission|not found|missing (?:cli|checkout|token)/i.test(task.failure.detail ?? ''));
+  }
+
+  private taskOccurrences(tasks: Task[]): CaptureNotificationsInput['occurrences'] {
+    const out: CaptureNotificationsInput['occurrences'] = [];
+    for (const task of tasks) {
+      const age = Date.now() - Date.parse(task.updatedAt);
+      const reviewReady = task.status === 'in_review' && (task.stage === 'implementation' ||
+        task.aiReview?.verdict === 'findings' || task.aiReview?.verdict === 'disputed' ||
+        task.failure?.skipListed === true || age >= (this.cfg.reviewWaitMs ?? 1800000));
+      const deliveryAge = Date.now() - Date.parse(task.delivery?.stateChangedAt ?? task.updatedAt);
+      const stalled = task.status === 'delivering' && (task.delivery?.checksState === 'failing' ||
+        deliveryAge >= (this.cfg.deliveryWaitMs ?? 3600000));
+      const setup = this.needsSetup(task) && task.status !== 'done';
+      const attempts = task.failure ? ` Attempt ${task.failure.attempt ?? '?'}/${task.failure.maxAttempts ?? '?'}.` : '';
+      const states: Array<[NotifyEvent, boolean, string]> = [
+        ['in_review', reviewReady, 'needs review. Action: inspect the findings and deliverable, then approve or request changes.'],
+        ['blocked', task.status === 'blocked' && !setup, 'is blocked. Automatic work is paused. Action: answer the blocker shown on the task, then unblock it.'],
+        ['setup_needed', setup, `needs setup repair.${attempts} Action: repair credentials, permissions or tool installation before restarting the task.`],
+        ['skip_listed', task.status !== 'done' && task.failure?.skipListed === true && !setup,
+          `is skip-listed and needs you.${attempts} No automatic retries remain. Action: inspect the failure, fix its cause, then restart the task.`],
+        ['delivery_wait', task.status === 'delivering' && !stalled, 'is awaiting delivery. Action: inspect PR checks and merge readiness; the watcher is monitoring.'],
+        ['delivery_stalled', stalled, 'has stalled delivery. Action: inspect the PR and failing or pending checks; resolve the delivery blocker.'],
+      ];
+      for (const [eventType, active, message] of states) {
+        if (!this.cfg.events.has(eventType)) continue;
+        const stateKey = `task:${task.key}:${eventType}`;
+        out.push({ key: stateKey, stateKey, eventType, reason: this.reasonFor(eventType), target: task.key,
+          taskKey: task.key, active, text: this.taskText(`*${task.key}* ${message} ${task.title}`, task.key) });
+      }
+    }
+    return out;
   }
 
   private taskText(text: string, taskKey: string): string {
     const url = this.taskUrl(taskKey);
-    return url ? `${text} — <${url}|open task>` : text;
+    const suffix = url ? ` — <${url}|open task>` : '';
+    return `${text.slice(0, Math.max(0, 16384 - suffix.length))}${suffix}`;
   }
 
   private taskUrl(taskKey: string): string | null {
     const base = this.cfg.appUrl?.trim();
     if (!base) return null;
-    return `${base.replace(/\/+$/, '')}/?task=${encodeURIComponent(taskKey)}`;
+    try {
+      const url = new URL(base);
+      if (!['http:', 'https:'].includes(url.protocol)) return null;
+      url.username = ''; url.password = ''; url.search = ''; url.hash = '';
+      url.pathname = `${url.pathname.replace(/\/+$/, '')}/`;
+      url.searchParams.set('task', taskKey);
+      return url.toString().length <= 2048 ? url.toString() : null;
+    } catch { return null; }
   }
 
   private supervisorText(s: SupervisorView): string {
-    return `:red_circle: supervisor *${s.name}* (${s.kind}) is down — not seen in ${s.staleSeconds}s`;
+    return `:red_circle: supervisor *${s.name.slice(0, 500)}* (${s.kind}) is down — not seen in ${s.staleSeconds}s. Action: inspect its logs and restart the supervisor.`;
   }
 
   private async send(text: string): Promise<void> {
