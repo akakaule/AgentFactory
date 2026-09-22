@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_26_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -137,6 +137,16 @@ const MIGRATIONS: Migration[] = [
   // #25 — retry budgets and stable attempt reservations. CREATE IF NOT EXISTS makes this safe
   // for a database that already received the schema from a coordinated/divergent deployment.
   (db) => db.exec(MIGRATION_25_SQL),
+  // #26 — recoverable attention notifications. CREATE IF NOT EXISTS keeps upgrades from a
+  // coordinated/divergent deployment safe while the new operation validates all inputs.
+  (db) => db.exec(MIGRATION_26_SQL),
+  // #27 reconciles a divergent #26 and widens event types without losing outbox children.
+  { fkOff: true, run: (db) => {
+    db.exec(MIGRATION_26_SQL);
+    widenCheck(db, 'attention_occurrence',
+      "('in_review','failed','skip_listed','supervisor_down','queue_empty')",
+      "('in_review','failed','skip_listed','supervisor_down','queue_empty','blocked','setup_needed','delivery_wait','delivery_stalled')");
+  } },
 ];
 
 export function runMigrations(db: DB): void {

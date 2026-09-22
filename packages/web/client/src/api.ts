@@ -4,6 +4,10 @@ import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
 export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
 export interface WhoAmI { kind: 'user' | 'service' | 'anon'; userId?: number; email?: string; displayName?: string; label?: string; }
+export interface AttentionState {
+  occurrences: Array<{ id: number; target: string; taskKey: string | null; text: string; resolvedAt: string | null; snoozedUntil: string | null }>;
+  outbox: Array<{ id: number; occurrenceId: number; state: string; attempts: number; maxAttempts: number; lastError: string | null }>;
+}
 
 // Bearer token for token-mode (remote/phone) deployments — persisted in localStorage and
 // sent on every request. Absent in local none-mode, so all of this stays inert there.
@@ -66,6 +70,9 @@ const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
 export const attachmentUrl = (id: number) => `/api/attachments/${id}`;
 
 export const api = {
+  getAttention: () => req<AttentionState>('/api/attention'),
+  resolveAttention: (id: number) => req<{ resolved: boolean }>(`/api/attention/${id}/resolve`, body({})),
+  snoozeAttention: (id: number, until: string) => req<{ snoozed: boolean }>(`/api/attention/${id}/snooze`, body({ until })),
   listTasks: (opts: { status?: Status; workspace?: string; archived?: boolean } = {}) => {
     const q = new URLSearchParams();
     if (opts.status) q.set('status', opts.status);

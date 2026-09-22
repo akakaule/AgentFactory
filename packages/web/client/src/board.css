@@ -793,3 +793,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   .af-list { overflow-x: auto; }
   .af-list-inner { padding: 12px; }
 }
+
+.af-attention { margin: 12px 0; font-size: 13px; overflow-wrap: anywhere; }
+.af-attention-item { padding: 12px; margin: 6px 0; border: 1px solid currentColor; border-radius: 8px; }
+.af-attention-delivery { margin-top: 6px; opacity: .8; }
+.af-attention-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

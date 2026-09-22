@@ -1,18 +1,44 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../src/db.js';
 import { runMigrations, widenCheck } from '../src/migrate.js';
+import { MIGRATION_26_SQL } from '../src/schema.js';
 
 const tables = (db: any) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r: any) => r.name);
 
 describe('runMigrations', () => {
+  it('upgrades notification events without losing outbox children or divergent columns', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence;');
+    db.exec(MIGRATION_26_SQL);
+    db.exec("ALTER TABLE attention_occurrence ADD COLUMN external_note TEXT; PRAGMA user_version = 26;");
+    db.prepare(`INSERT INTO attention_occurrence(event_key,event_type,reason,target,text,first_seen_at,last_seen_at,external_note)
+      VALUES ('test','failed','failed','AF-1','test','t','t','preserved')`).run();
+    db.prepare(`INSERT INTO notification_outbox(occurrence_id,destination,text,state,attempts,max_attempts,next_attempt_at,created_at,updated_at)
+      VALUES (1,'http://local','test','pending',0,3,'t','t','t')`).run();
+    runMigrations(db);
+    expect(db.prepare('SELECT external_note FROM attention_occurrence').get()).toEqual({ external_note: 'preserved' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM notification_outbox').get()).toEqual({ n: 1 });
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    db.close();
+  });
+
+  it('reconciles a divergent slot 26 with no notification tables', () => {
+    const db = openDb(':memory:'); runMigrations(db);
+    db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence; PRAGMA user_version = 26;');
+    runMigrations(db);
+    expect(tables(db)).toContain('attention_occurrence');
+    expect(tables(db)).toContain('notification_outbox');
+    db.close();
+  });
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt', 'attention_occurrence', 'notification_outbox']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +143,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -286,7 +312,7 @@ describe('runMigrations', () => {
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
     ).all() as Array<{ name: string }>).map((row) => row.name);
     expect(indexes).toContain('idx_task_dependency_reverse');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
   });
 
   it('enforces the stage CHECK constraint', () => {

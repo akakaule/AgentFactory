@@ -144,6 +144,48 @@ export interface ActivityFeedRow {
   id: number; taskKey: string; taskTitle: string; workspace: string;
   type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
 }
+
+export type NotificationEventType = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty' | 'blocked' | 'setup_needed' | 'delivery_wait' | 'delivery_stalled';
+export type AttentionReason = 'blocked' | 'review_ready' | 'attempts_exhausted' | 'setup_needed' | 'supervisor_unavailable' | 'delivery_stalled' | 'delivery_wait' | 'failed' | 'queue_empty';
+export type NotificationOutboxState = 'pending' | 'failed' | 'succeeded' | 'permanently_failed';
+
+export interface NotificationOccurrenceInput {
+  key: string;
+  stateKey?: string;
+  eventType: NotificationEventType;
+  reason: AttentionReason;
+  target: string;
+  taskKey?: string | null;
+  text: string;
+  active?: boolean;
+}
+
+export interface CaptureNotificationsInput {
+  sourceCursor: number;
+  destinations: string[];
+  maxAttempts: number;
+  occurrences: NotificationOccurrenceInput[];
+  now?: string;
+}
+
+export interface AttentionOccurrence {
+  id: number; key: string; stateKey: string | null; eventType: NotificationEventType;
+  reason: AttentionReason; target: string; taskKey: string | null; text: string;
+  firstSeenAt: string; lastSeenAt: string; resolvedAt: string | null; snoozedUntil: string | null;
+}
+
+export interface NotificationOutboxEntry {
+  id: number; occurrenceId: number; destination: string; text: string;
+  state: NotificationOutboxState; attempts: number; maxAttempts: number;
+  nextAttemptAt: string; lastError: string | null; sentAt: string | null;
+  createdAt: string; updatedAt: string; eventType: NotificationEventType;
+  reason: AttentionReason; target: string; taskKey: string | null;
+}
+
+export interface SettleNotificationInput {
+  ok: boolean; now?: string; retryAt?: string; error?: string;
+}
+
 export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
 
 /** Compact task identity used for the two directions of the dependency graph in TaskDetail. */

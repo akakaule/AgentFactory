@@ -41,7 +41,7 @@ function useChangeTicker(tasks: Task[]): string | null {
 export function App() {
   const [view, setView] = useState<View>('board');
   const [rangeDays, setRangeDays] = useState<number | null>(7);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => new URLSearchParams(window.location.search).get('task'));
   const [creating, setCreating] = useState(false);
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
   const [editWorkspace, setEditWorkspace] = useState<string | null>(null); // which workspace the editor should focus

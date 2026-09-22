@@ -12,6 +12,7 @@ import { agentRoutes } from './routes/agents.js';
 import { supervisorRoutes } from './routes/supervisors.js';
 import { otelRoutes } from './routes/otel.js';
 import { telemetryRoutes } from './routes/telemetry.js';
+import { attentionRoutes } from './routes/attention.js';
 import { authRoutes } from './routes/auth.js';
 import { authMiddleware, type AuthConfig } from './auth.js';
 import { mapError } from './errors.js';
@@ -50,6 +51,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/api/agents', agentRoutes(core));
   app.route('/api/supervisors', supervisorRoutes(core));
   app.route('/api/telemetry', telemetryRoutes(telemetry)); // live OTel feed (read side)
+  app.route('/api/attention', attentionRoutes(core));
   app.route('/v1', otelRoutes(core, telemetry)); // OTLP/HTTP logs receiver → task_metric + live feed (POST /v1/logs)
   registerSse(app, core, opts.sseIntervalMs ?? 1000);
   app.onError((err, c) => {

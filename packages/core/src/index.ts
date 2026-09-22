@@ -59,6 +59,7 @@ export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHear
 export { type UpsertSupervisor } from './repo/supervisors.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
+export { captureNotifications, listAttentionOccurrences, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -106,9 +107,10 @@ import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHear
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
+import { captureNotifications, listAttentionOccurrences, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, CaptureNotificationsInput, SettleNotificationInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
@@ -164,6 +166,13 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     setEngineSettings: (partial: unknown) => setEngineSettings(db, partial),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
+    captureNotifications: (input: CaptureNotificationsInput) => captureNotifications(db, input),
+    listAttentionOccurrences: () => listAttentionOccurrences(db),
+    listNotificationOutbox: (now?: string, limit?: number) => listNotificationOutbox(db, now, limit),
+    listAllNotificationOutbox: () => listAllNotificationOutbox(db),
+    settleNotificationOutbox: (id: number, input: SettleNotificationInput) => settleNotificationOutbox(db, id, input),
+    resolveAttention: (id: number) => resolveAttention(db, id),
+    snoozeAttention: (id: number, until: string) => snoozeAttention(db, id, until),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
