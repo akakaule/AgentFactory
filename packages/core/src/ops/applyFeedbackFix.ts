@@ -8,6 +8,7 @@ import { NotFoundError, ValidationError } from '../errors.js';
 import { parsePrFeedbackComment, parseFeedbackEvalComment, type ParsedPrFeedback, type ParsedFeedbackEval } from '../prFeedback.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
+import { clearDelivery } from '../repo/delivery.js';
 
 /** Compose the human-endorsed feedback the reclaimed worker acts on (the raw AI verdict is stripped
  *  from the claim; this composed `feedback` activity is not). */
@@ -51,6 +52,7 @@ export function applyFeedbackFix(db: DB, key: string, actorUserId: number | null
   return transaction(db, () => {
     const ts = now();
     advanceRetryBudget(db, row.id, 'dispatcher:implementation', ts, 'apply delivery feedback');
+    clearDelivery(db, row.id); // feedback creates a new implementation revision, not a repair of the old approval
     assertTransition('delivering', 'queued', 'human');
     setStatus(db, row.id, 'queued', ts);
     appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: composeFixFeedback(feedback, evalv), createdAt: ts, actorUserId });

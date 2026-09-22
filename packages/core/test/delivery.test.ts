@@ -152,7 +152,92 @@ describe('delivery ops', () => {
     expect(core.getDelivery(key)!.prState).toBe('unknown');
   });
 
-  it('a merged observation closes with an agent status_change; a second completion throws', () => {
+  it('records delivery facts while a queued repair is waiting for reconciliation', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    const result = core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'pending' });
+    expect(result.changed).toBe(true);
+    expect(core.getDelivery(key)).toMatchObject({ prState: 'merged', checksState: 'pending' });
+  });
+
+  it('does not claim a queued task whose current delivery is already merged', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
+    expect(core.getTask(key).status).toBe('done');
+    expect(core.claimNextTask({ claimedBy: 'retry-worker' })).toBeNull();
+    expect(core.reserveRetry(key, { operation: 'dispatcher:implementation', maxAttempts: 2 })).toBeNull();
+  });
+
+  it('rejects an observation fenced to an older approval episode', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const oldEpisode = core.getDelivery(key)!.stateChangedAt;
+    core.updateStatus(key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'new-worker' });
+    core.submitResult(key, { summary: 'replacement' });
+    core.reviewApprove(key);
+    expect(core.getDelivery(key)!.stateChangedAt).not.toBe(oldEpisode);
+    const recorded = core.recordDeliveryCheck(key, {
+      expectedStateChangedAt: oldEpisode,
+      prState: 'merged',
+      checksState: 'passing',
+    });
+    expect(recorded).toMatchObject({ changed: false, accepted: false, stateChangedAt: null });
+    expect(core.getTask(key).status).toBe('delivering');
+    expect(core.getDelivery(key)).toMatchObject({ prState: 'unknown', checksState: 'unknown' });
+  });
+
+  it('rejects a late submission from an old claim after completion and re-claim', () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'T', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const oldClaim = core.claimNextTask({ claimedBy: 'old-worker' }, () => '2030-08-01T10:00:00.000Z')!;
+    core.submitResult(t.key, { summary: 'original', claimAt: oldClaim.claimedAt! });
+    core.reviewApprove(t.key);
+    core.recordDeliveryCheck(t.key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'passing' });
+    expect(core.getTask(t.key).status).toBe('done');
+
+    core.updateStatus(t.key, 'queued', 'human');
+    const newClaim = core.claimNextTask({ claimedBy: 'new-worker' }, () => '2030-08-01T11:00:00.000Z')!;
+
+    expect(() => core.submitResult(t.key, { summary: 'stale repair', claimAt: oldClaim.claimedAt! })).toThrow(/stale claim/);
+    expect(core.getTask(t.key)).toMatchObject({ status: 'in_progress', claimedBy: 'new-worker', claimedAt: newClaim.claimedAt, resultSummary: 'original' });
+  });
+
+  it('allows merged delivery completion from a queued repair', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'pending' });
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+  });
+
+  it('a late repair submission cannot overwrite the completed merged result', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    core.claimNextTask({ claimedBy: 'repair-worker' });
+    core.recordDeliveryCheck(key, {
+      prState: 'merged', checksState: 'failing', prId: '#42',
+      prUrl: 'https://github.com/acme/widgets/pull/42',
+      failing: [{ name: 'post-merge build', url: null }],
+    });
+
+    expect(() => core.submitResult(key, { summary: 'late repair result' })).toThrow(InvalidTransitionError);
+    const submitted = core.getTask(key);
+
+    expect(submitted.status).toBe('done');
+    expect(submitted.resultSummary).toBe('done');
+    expect(submitted.delivery).toMatchObject({ prState: 'merged', checksState: 'failing', prId: '#42' });
+    expect(submitted.failure).toMatchObject({ source: 'watcher', reason: 'ci_failed' });
+    expect(submitted.activity.some((a) => a.type === 'comment' && a.body.includes('late repair result'))).toBe(false);
+  });
+
+  it('completeDelivery closes with an agent status_change carrying the note; a second call throws', () => {
     const core = makeCore();
     const key = deliverTask(core);
     core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/1', prId: '#1', prState: 'merged', checksState: 'passing' });

@@ -25,7 +25,7 @@ describe('merged delivery workers', () => {
     expect(calls).toHaveLength(1); // explicit reopen remains work
   });
 
-  it('stops an active repair after merge completion without requeuing it', async () => {
+  it.each([false, true])('stops an active repair after merge without requeuing it (termination retry: %s)', async (retryTermination) => {
     const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/acme/widgets.git' });
     core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
     const key = seedQueued(core, 'ws', 'Already delivered');
@@ -34,12 +34,23 @@ describe('merged delivery workers', () => {
     core.reviewApprove(key);
     core.failDelivery(key, { reason: 'ci_failed', detail: 'verify failed' });
     const { spawn, calls } = makeFakeSpawn();
-    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    let failuresLeft = retryTermination ? 1 : 0;
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, {
+      console: makeFakeConsole(),
+      terminateProcessTree: (child, signal) => {
+        if (failuresLeft-- > 0) throw new Error('temporary process termination failure');
+        child.kill(signal);
+      },
+    }));
     await d.tick();
     core.claimNextTask({ taskKey: key, claimedBy: calls[0]!.req.env['AGENTFACTORY_WORKER']! });
     core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/42', prId: '#42',
       prState: 'merged', checksState: 'failing', failing: [{ name: 'verify', url: null }] });
     await d.tick();
+    if (retryTermination) {
+      expect(calls[0]!.child.killed).toBe(false);
+      await d.tick();
+    }
     expect(calls[0]!.child.killed).toBe(true);
     expect(core.getTask(key).status).toBe('done');
     expect(d.runningCount()).toBe(0);

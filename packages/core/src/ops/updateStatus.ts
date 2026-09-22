@@ -8,8 +8,10 @@ import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { reconcileMergedDelivery } from './delivery.js';
+import { deliveryRowFor } from '../repo/delivery.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
+  const requestedFrom = findRowByKey(db, key)?.status;
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
@@ -36,12 +38,16 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
       throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
     if (status === 'done' && actor === 'agent')
       throw new InvalidTransitionError('agent completion requires delivery reconciliation, not a raw status move');
+    // A retry already in flight must not reopen a repair that the watcher just completed.
+    if (status === 'queued' && actor === 'human' && requestedFrom !== 'done' && row.status === 'done'
+      && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);
     assertTransition(row.status, status, actor);
     const ts = now();
+    // Pulling an approved delivery back explicitly starts new work, as does reopening done.
+    if (status === 'queued' && actor === 'human' && (row.status === 'delivering' || row.status === 'done'))
+      db.prepare('DELETE FROM task_delivery WHERE task_id = ?').run(row.id);
     if ((status === 'queued' || status === 'in_progress') && reconcileMergedDelivery(db, row, ts))
       return toDetail(db, findRowByKey(db, key)!);
-    // An explicit reopen starts new work; old observations cannot authorize its completion.
-    if (row.status === 'done' && status === 'queued') db.prepare('DELETE FROM task_delivery WHERE task_id = ?').run(row.id);
     setStatus(db, row.id, status, ts);
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).
