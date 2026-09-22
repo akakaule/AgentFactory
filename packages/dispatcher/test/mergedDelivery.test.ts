@@ -25,6 +25,48 @@ describe('merged delivery workers', () => {
     expect(calls).toHaveLength(1); // explicit reopen remains work
   });
 
+  it('spawns a merge-conflict repair even when earlier implementation rounds were skip-listed', async () => {
+    const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/acme/widgets.git' });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    const key = seedQueued(core, 'ws', 'Conflicted');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    for (let i = 0; i < 2; i++) { // two crashed rounds burn the dispatcher budget
+      await d.tick();
+      core.claimNextTask({ taskKey: key, claimedBy: calls[i]!.req.env['AGENTFACTORY_WORKER']! });
+      await calls[i]!.child.exit(1);
+    }
+    expect(d.isSkipListed(key)).toBe(true);
+
+    // an operator finishes the work by hand; it is approved, then main moves and the PR conflicts
+    core.restartTask(key);
+    core.claimNextTask({ taskKey: key, claimedBy: 'interactive' });
+    core.submitResult(key, { summary: 'done by hand' });
+    core.reviewApprove(key);
+    core.failDelivery(key, { reason: 'merge_conflict', detail: 'PR #58 has merge conflicts' });
+
+    await d.tick();
+    expect(calls).toHaveLength(3); // the watcher's bounce is new work, not a third retry
+    expect(d.isSkipListed(key)).toBe(false);
+
+    // two crashed repair rounds skip-list it again; the watcher's FINAL bounce needs a human
+    core.claimNextTask({ taskKey: key, claimedBy: calls[2]!.req.env['AGENTFACTORY_WORKER']! });
+    await calls[2]!.child.exit(1);
+    await d.tick();
+    core.claimNextTask({ taskKey: key, claimedBy: calls[3]!.req.env['AGENTFACTORY_WORKER']! });
+    await calls[3]!.child.exit(1);
+    expect(d.isSkipListed(key)).toBe(true);
+    core.restartTask(key);
+    core.claimNextTask({ taskKey: key, claimedBy: 'interactive' });
+    core.submitResult(key, { summary: 'fixed by hand' });
+    core.reviewApprove(key);
+    core.failDelivery(key, { reason: 'merge_conflict', detail: 'conflicts again' });
+    expect(core.getTask(key).failure).toMatchObject({ source: 'watcher', skipListed: true });
+    await d.tick();
+    expect(calls).toHaveLength(4); // no worker for a task the board will not let it claim
+  });
+
   it('stops an active repair after merge completion without requeuing it', async () => {
     const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/acme/widgets.git' });
     core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });

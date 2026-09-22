@@ -58,7 +58,7 @@ interface ReleaseOpts { reason: FailureReason | string; detail: string; body: st
 export class Dispatcher {
   private readonly running = new Map<string, Session>(); // label -> session
   /** UI/test cache only; retry decisions come from core's durable budget. */
-  private readonly skipped = new Set<string>(); // task keys observed at the persisted cap
+  private readonly skipped = new Map<string, number>(); // task key → when it was observed at the persisted cap (ms)
 
   private engineSettings: EngineSettings = defaultEngineSettings();
 
@@ -480,20 +480,28 @@ export class Dispatcher {
   }
 
   /**
-   * Forget the in-memory attempt budget for any queued task an operator has restarted from the
-   * board. A restart posts a `restart/v1` marker that supersedes the task's failure note, so the
-   * board's derived `failure` goes null — that is our signal to drop the task's skip-list entry and
-   * burned-attempt count and retry it with a fresh budget, without bouncing the dispatcher. A task
-   * still carrying a failure (mid-retry, or genuinely skip-listed) is left alone, so the maxAttempts
-   * guard still holds. (The board-derived `failure` is the single source of truth for "is this
-   * stuck"; the dispatcher's maps merely track live retry state and defer to it.)
+   * Forget the in-memory skip-list entry for any queued task that has moved on since it was
+   * skip-listed, so it is retried (against its persisted budget) without bouncing the dispatcher:
+   * - an operator restart posts a `restart/v1` marker that supersedes the failure note, so the
+   *   board's derived `failure` goes null;
+   * - a newer failure from another supervisor (e.g. the watcher bouncing a PR with merge conflicts)
+   *   means the task came back as new work — core gives that repair a fresh dispatcher budget
+   *   (unless that failure is itself terminal: then the board refuses claims until a human acts).
+   * A task whose latest failure is our own (mid-retry, or genuinely skip-listed) is left alone, so
+   * the maxAttempts guard still holds. (The board-derived `failure` is the single source of truth
+   * for "is this stuck"; the dispatcher's maps merely track live retry state and defer to it.)
    */
   private clearRestarted(queued: Task[]): void {
     for (const task of queued) {
-      if (task.failure !== null) continue; // still failing / never failed — no stale budget to forgive
-      const wasSkipped = this.skipped.delete(task.key);
-      if (wasSkipped) {
+      const skippedAt = this.skipped.get(task.key);
+      if (skippedAt === undefined) continue;
+      const failure = task.failure;
+      if (failure === null) {
+        this.skipped.delete(task.key);
         this.console.log(`[dispatcher] ${task.key} was restarted from the board; cleared attempt budget, will retry`);
+      } else if (failure.source !== 'dispatcher' && !failure.skipListed && Date.parse(failure.at) > skippedAt) {
+        this.skipped.delete(task.key);
+        this.console.log(`[dispatcher] ${task.key} came back after skip-listing (${failure.reason} from ${failure.source ?? 'unknown'}); will retry`);
       }
     }
   }
@@ -925,6 +933,6 @@ export class Dispatcher {
   }
 
   private skipList(key: string): void {
-    this.skipped.add(key);
+    this.skipped.set(key, this.deps.now());
   }
 }

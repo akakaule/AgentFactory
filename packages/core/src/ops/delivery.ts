@@ -10,7 +10,7 @@ import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySu
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
+import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
@@ -128,6 +128,10 @@ export function failDelivery(
     setStatus(db, row.id, 'queued', ts); // clears the claimant like every path into 'queued'
     appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status, toStatus: 'queued', body: input.detail, createdAt: ts });
     settleRetryRow(db, repair.id, 'failed', ts, input.detail);
+    // The repair is new work (merge main, fix CI), not a retry of the earlier implementation
+    // rounds — without a fresh worker budget the dispatcher silently skips it. The delivery
+    // budget above bounds how often this can happen; its final bounce is left for a human.
+    if (repair.attempt < repair.maxAttempts) advanceRetryBudget(db, row.id, `dispatcher:${row.stage}`, ts, 'delivery repair');
     return toDetail(db, findRowByKey(db, key)!);
   });
 }
