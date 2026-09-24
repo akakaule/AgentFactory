@@ -25,7 +25,7 @@ export const AGENT_PROMPT_FIELDS: { key: AgentPromptKey; label: string; hint: st
     label: 'Worker · Implementation',
     hint: 'When writing code.',
     example:
-      "Write the simplest change that satisfies the acceptance criteria and touch only what's necessary. Match the surrounding code's style. Use TDD where it fits — a failing test first, then make it pass. Never weaken types, swallow errors, or leave a TODO in place of a real fix. Run the workspace verify command and get it green before submitting; if you deviate from the plan, explain why in the result summary.",
+      "Write the simplest change that satisfies the acceptance criteria and touch only what's necessary. Match the surrounding code's style. For new features and bug fixes, write the test first, observe the expected failure, then implement and refactor with tests green. Never weaken types, swallow errors, or leave a TODO in place of a real fix. Run the workspace verify command and get it green before submitting; if you deviate from the plan, explain why in the result summary.",
   },
   {
     key: 'reviewer',
