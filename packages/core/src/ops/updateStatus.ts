@@ -8,14 +8,20 @@ import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { reconcileMergedDelivery } from './delivery.js';
+import { deliveryRowFor } from '../repo/delivery.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
-  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note));
+  const requestedFrom = findRowByKey(db, key)?.status;
+  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom));
 }
 
-/** The caller must hold a write transaction, so related audit writes commit atomically. */
-export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
+/**
+ * The caller must hold a write transaction, so related audit writes commit atomically.
+ * `requestedFrom` is the status the caller saw before opening the transaction (defaults to the
+ * current one), letting a stale human retry detect a repair the watcher completed meanwhile.
+ */
+export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status): TaskDetail {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     // archived tasks are immutable for state — without this, done → queued would reopen
@@ -41,12 +47,16 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
       throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
     if (status === 'done' && actor === 'agent')
       throw new InvalidTransitionError('agent completion requires delivery reconciliation, not a raw status move');
+    // A retry already in flight must not reopen a repair that the watcher just completed.
+    if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
+      && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);
     assertTransition(row.status, status, actor);
     const ts = now();
+    // Pulling an approved delivery back explicitly starts new work, as does reopening done.
+    if (status === 'queued' && actor === 'human' && (row.status === 'delivering' || row.status === 'done'))
+      db.prepare('DELETE FROM task_delivery WHERE task_id = ?').run(row.id);
     if ((status === 'queued' || status === 'in_progress') && reconcileMergedDelivery(db, row, ts))
       return toDetail(db, findRowByKey(db, key)!);
-    // An explicit reopen starts new work; old observations cannot authorize its completion.
-    if (row.status === 'done' && status === 'queued') db.prepare('DELETE FROM task_delivery WHERE task_id = ?').run(row.id);
     setStatus(db, row.id, status, ts);
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).

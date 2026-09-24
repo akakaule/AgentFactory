@@ -26,6 +26,7 @@ const heartbeatBody = z.object({
 });
 const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branch: z.string().min(1), prUrl: z.string().nullable().optional() });
 const deliveryCheckBody = z.object({
+  expectedStateChangedAt: z.string().optional(),
   expected: z.object({
     status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
     branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
@@ -34,7 +35,7 @@ const deliveryCheckBody = z.object({
   prState: z.string(), checksState: z.string(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
 }).passthrough();
-const deliveryCompleteBody = z.object({ note: z.string() });
+const deliveryCompleteBody = z.object({ note: z.string(), expectedStateChangedAt: z.string().optional() });
 const deliveryFailBody = z.object({ reason: z.string().min(1), detail: z.string(), body: z.string().optional() }).passthrough();
 const retryReserveBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive() });
 const retryReconcileBody = z.object({ actualKey: z.string().min(1), operation: z.string().min(1), maxAttempts: z.number().int().positive() });
@@ -212,7 +213,7 @@ export function agentOpsRoutes(core: Core): Hono {
   r.post('/tasks/:key/delivery/check', requireSupervisor, validated('json', deliveryCheckBody), (c) =>
     c.json(core.recordDeliveryCheck(c.req.param('key'), c.req.valid('json') as Parameters<Core['recordDeliveryCheck']>[1])));
   r.post('/tasks/:key/delivery/complete', requireSupervisor, validated('json', deliveryCompleteBody), (c) =>
-    c.json(core.completeDelivery(c.req.param('key'), c.req.valid('json').note)));
+    c.json(core.completeDelivery(c.req.param('key'), c.req.valid('json').note, c.req.valid('json').expectedStateChangedAt)));
   r.post('/tasks/:key/delivery/fail', requireSupervisor, validated('json', deliveryFailBody), (c) =>
     c.json(core.failDelivery(c.req.param('key'), c.req.valid('json') as Parameters<Core['failDelivery']>[1])));
 

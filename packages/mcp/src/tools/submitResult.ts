@@ -25,6 +25,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
       inputSchema: {
         key: taskKey,
         summary: z.string().min(1),
+        claimAt: z.string().min(1).optional(),
         spec: z.string().min(1).optional(),
         acceptanceCriteria: z.string().min(1).optional(),
         plan: z.string().min(1).optional(),
@@ -33,7 +34,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
         metrics: MetricsSchema.optional(),
       },
     },
-    async ({ key, summary, spec, acceptanceCriteria, plan, verification, links, metrics }) => {
+    async ({ key, summary, claimAt, spec, acceptanceCriteria, plan, verification, links, metrics }) => {
       try {
         // Verify the finish protocol ran before core flips the status (git stays out of
         // core). Doc stages never touch the repo — nothing to verify. The repoPath override
@@ -48,6 +49,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
           return { isError: true as const, content: [{ type: 'text' as const, text: guard.message ?? 'Submission blocked.' }] };
         }
         const input: SubmitResultInput = { summary, links }; // explicit build for exactOptionalPropertyTypes
+        if (claimAt !== undefined) input.claimAt = claimAt;
         if (spec !== undefined) input.spec = spec;
         if (acceptanceCriteria !== undefined) input.acceptanceCriteria = acceptanceCriteria;
         if (plan !== undefined) input.plan = plan;

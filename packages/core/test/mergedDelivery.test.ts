@@ -26,6 +26,21 @@ function fixture(status: Status = 'blocked') {
 }
 
 describe('merged delivery recovery', () => {
+  it('reconciles a legacy merge before reserving another dispatcher attempt', () => {
+    const { core, key, legacyMerge } = fixture('queued');
+    legacyMerge();
+    expect(core.reserveRetry(key, { operation: 'dispatcher:implementation', maxAttempts: 2 })).toBeNull();
+    expect(core.getTask(key).status).toBe('done');
+  });
+
+  it('retains a late repair summary when submission discovers a legacy merge', () => {
+    const { core, key, legacyMerge } = fixture('in_progress');
+    legacyMerge();
+    const task = core.submitResult(key, { summary: 'late repair result', claimAt: core.getTask(key).claimedAt! });
+    expect(task).toMatchObject({ status: 'done', resultSummary: 'original fix' });
+    expect(task.activity.at(-1)?.body).toContain('late repair result');
+  });
+
   it.each(['delivering', 'queued', 'in_progress', 'blocked', 'in_review'] as const)(
     'finishes %s atomically, retaining checks and ending its session once', (status) => {
       const { core, key } = fixture(status);
