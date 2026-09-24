@@ -1,5 +1,18 @@
 # AgentFactory Memory
 
+- Publishing preference (2026-09-23): the user removed the explicit-ask restriction on pushing and opening PRs. Continue the PR-based flow and Conventional Commits; do not reintroduce the removed confirmation gate for routine task delivery.
+- Handoff correction (2026-09-23): removing a publishing restriction must also unblock the pending task handoff. Push verified feature commits, verify the remote head, clean up the task worktree, and submit the result so completed implementation reaches In Review instead of leaving the board queued or blocked. Check activity attribution before explaining a queue transition.
+
+- AF-147/153 repair (2026-09-23): verify task worktree metadata and git top-level before Git operations; leftover node_modules alone is not a checkout. Preserve stale directories before recreating worktrees. Untrack previously committed npm caches as well as ignoring them. Persist notification source boundaries separately from human acknowledgement; normalize snooze dates, bound alert text before capture, and test receiver recovery with SQLite reopened between retries.
+
+- Agent prompt review correction (2026-09-22): review assembled prompts as well as saved instructions. Description reviews need the saved original spec/criteria, implementation reviews need the approved plan, and plan reviews launched from logs need the absolute machine-local repository path (including overrides). Preserve empty originals, mark missing context explicitly, and verify prompt content at the supervisor spawn boundary. Keep saved implementation instructions and the UI starter consistent with test-first TDD.
+
+- Board launcher follow-up (2026-09-22): fixing relative resolution alone does not fix plain startup when a previous launch polluted AGENTFACTORY_DB with an absolute system32 path. Default the convenience launcher to the repository database regardless of inherited AGENTFACTORY_DB; custom databases require explicit -Database. Test the exact stale environment from the user's report, not only a cleared environment.
+
+- PowerShell launcher paths (2026-09-22): `Path.GetFullPath(relative)` uses the process current directory, which Windows PowerShell does not synchronize with `Set-Location`/`Push-Location`. Resolve database paths with `SessionState.Path.GetUnresolvedProviderPathFromPSPath` after entering the repository. Restore launcher environment variables in `finally`; regression-test with a deliberately different process directory under powershell.exe. An older failed launch may leave AGENTFACTORY_DB pointing at the wrong absolute path; pass `-Database .\agentfactory.db` to override it.
+
+- Intake launcher diagnosis (2026-09-22): a 403 with anonymous task access means the board is running with AUTH_MODE=none and ignores even valid service tokens. Check auth mode before rotating credentials; distinguish 401, 403, and connection failures. Persist AUTH_MODE=token for this board-mode installation and restart the board with it explicitly; verify both saved service and human credentials plus intake heartbeat recovery.
+
 - Intake acknowledgement UX (2026-09-21): optional human acknowledgment context should not use `window.prompt`; the default action submits no reason, while an explicit inline note field submits trimmed text. Keep both paths covered at the component boundary.
 
 - Board login setup (2026-09-21): enabling AUTH_MODE=token for HTTP supervisors also requires a human browser credential. Provide and verify a user-bound board token via /auth/whoami, separate from service/provider keys; save it as AGENTFACTORY_BOARD_TOKEN and deliver via clipboard without logging it.
