@@ -38,7 +38,9 @@ async function fixture() {
   return { repo, origin, core, client, claim, call, worktree: join(repo, '.worktrees', task.key) };
 }
 
-describe('task-scoped Git lifecycle', { timeout: 30_000 }, () => {
+// Real git subprocesses: on Windows with antivirus scanning temp dirs each call costs ~0.5s,
+// so the longer lifecycle cases take 30-80s alone and more under full-suite load.
+describe('task-scoped Git lifecycle', { timeout: 180_000 }, () => {
   it('inspects preserved changes and refuses a dirty merge', async () => {
     const { call, worktree } = await fixture();
     await call('prepare');
