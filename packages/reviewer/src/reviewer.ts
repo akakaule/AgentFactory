@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
@@ -476,7 +477,8 @@ export class Reviewer {
             branch: revision ? `${diffRef}\nRepository: ${this.repoFor(detail)}\nPinned head: ${revision.headSha}\nPinned base tip: ${revision.baseSha}\nInspect these immutable commits with git show; do not inspect the current working tree or edit files.` : diffRef,
             diff, maxDiffChars: this.config.maxDiffChars, systemPrompt });
         } else {
-          makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine, maxDiffChars: this.config.maxDiffChars, systemPrompt });
+          makePrompt = (reviewEngine) => buildReviewPrompt({ task: detail, engine: reviewEngine,
+            repoPath: resolve(this.repoFor(detail)), maxDiffChars: this.config.maxDiffChars, systemPrompt });
         }
         prompt = makePrompt(engine);
         if (members) round = {

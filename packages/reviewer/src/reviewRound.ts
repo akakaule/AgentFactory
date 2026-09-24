@@ -3,6 +3,7 @@ import { reviewSubmissionFingerprint, parseAiReviewComment, type AiReviewFinding
 import type { ReviewerProfile } from './config.js';
 import { ensureMarker } from './review.js';
 import type { ConsensusState } from './consensus.js';
+import { parseReviewJson } from './reviewJson.js';
 
 export interface ReviewRound {
   fingerprint: string;
@@ -32,10 +33,7 @@ export function collectReview(round: ReviewRound, body: string): void {
   const member = round.members[round.results.length];
   if (!member) throw new Error('review round already complete');
   const marked = ensureMarker(body, member.profile.engine);
-  const fenced = marked.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
-  const candidate = fenced ?? marked.slice(marked.indexOf('{'), marked.lastIndexOf('}') + 1);
-  if (!candidate.trim()) throw new Error(`${member.profile.engine} produced no review JSON`);
-  outputSchema.parse(JSON.parse(candidate));
+  outputSchema.parse(parseReviewJson(marked));
   const parsed = parseAiReviewComment(marked);
   if (!parsed) throw new Error('invalid ai-review/v1 output');
   const { engine, model, reasoningEffort } = member.profile;

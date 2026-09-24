@@ -50,3 +50,8 @@ export function assertTransition(from: Status, to: Status, by: Actor): void {
   if (!isValidTransition(from, to, by))
     throw new InvalidTransitionError(`${from} -> ${to} not allowed for ${by}`);
 }
+
+/** A task's brief (title/spec/acceptance criteria/images) stays editable until an agent claims it. */
+export function isBriefEditable(status: Status): boolean {
+  return status === 'backlog' || status === 'queued';
+}

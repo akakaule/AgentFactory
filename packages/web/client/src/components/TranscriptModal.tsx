@@ -107,16 +107,29 @@ interface Props {
 /** The full agent transcript in a modal — opened on demand from the drawer's compact summary.
  *  Clones DiffModal's overlay/escape/close mechanics; `blocks` is passed live so it keeps
  *  updating while an in_progress task streams. */
-export function TranscriptModal({ blocks, bytes, engine, state, onClose }: Props) {
+/** The windowed block list — shared by the modal and the expanded detail's Logs tab. */
+export function TranscriptBlocks({ blocks }: { blocks: TranscriptBlock[] }) {
   const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? blocks : blocks.slice(-WINDOW);
+  const hidden = blocks.length - shown.length;
+  return (
+    <>
+      {hidden > 0 && (
+        <button className="af-mini" onClick={() => setShowAll(true)}>Show all {blocks.length} blocks</button>
+      )}
+      <div className="af-tx-blocks">
+        {shown.map((b) => <BlockView key={b.id} block={b} />)}
+      </div>
+    </>
+  );
+}
+
+export function TranscriptModal({ blocks, bytes, engine, state, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  const shown = showAll ? blocks : blocks.slice(-WINDOW);
-  const hidden = blocks.length - shown.length;
 
   return (
     <div className="af-overlay" onClick={onClose}>
@@ -134,12 +147,7 @@ export function TranscriptModal({ blocks, bytes, engine, state, onClose }: Props
           <button className="af-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="af-txmodal-body">
-          {hidden > 0 && (
-            <button className="af-mini" onClick={() => setShowAll(true)}>Show all {blocks.length} blocks</button>
-          )}
-          <div className="af-tx-blocks">
-            {shown.map((b) => <BlockView key={b.id} block={b} />)}
-          </div>
+          <TranscriptBlocks blocks={blocks} />
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { updateTaskSchema, parse } from '../validate.js';
 import { findRowByKey, findByKey, applyEdit } from '../repo/tasks.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
+import { isBriefEditable } from '../transitions.js';
 import { nowIso } from '../time.js';
 
 export function updateTask(db: DB, key: string, input: UpdateTaskInput, now: () => string = nowIso): Task {
@@ -12,10 +13,13 @@ export function updateTask(db: DB, key: string, input: UpdateTaskInput, now: () 
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    if (row.status !== 'backlog') throw new InvalidTransitionError(`only backlog tasks are editable (got ${row.status})`);
+    if (!isBriefEditable(row.status)) throw new InvalidTransitionError(`only backlog or queued tasks are editable (got ${row.status})`);
     const workspaceId = fields.workspace === undefined
       ? undefined
       : requireWorkspaceByName(db, fields.workspace).id;
+    // Queued tasks may already hold a dispatcher reservation in their workspace: moving stays backlog-only.
+    if (workspaceId !== undefined && workspaceId !== row.workspace_id && row.status !== 'backlog')
+      throw new InvalidTransitionError(`only backlog tasks can move workspace (got ${row.status})`);
     const ts = now();
     applyEdit(db, row.id, fields, ts, workspaceId);
     return findByKey(db, key)!;

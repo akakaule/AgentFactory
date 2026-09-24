@@ -62,7 +62,7 @@ export function submitResult(
     // A new result is a new review episode. Preserve failures from the prior submission but do
     // not let a successful review consume the next submission's allowance.
     advanceRetryBudget(db, row.id, `reviewer:${row.stage}`, ts, 'new submission');
-    // applyEdit is the repo primitive shared with updateTask; the backlog-only rule for
+    // applyEdit is the repo primitive shared with updateTask; the unclaimed-only rule for
     // human edits lives in that op, not here — a description-stage submit IS the edit.
     if (row.stage === 'description') {
       // capture the human's original wording once, before the stage overwrites it (the guard

@@ -105,4 +105,4 @@ Vitest 2.x with a **workspace file** (`vitest.workspace.ts`) — each package ha
 
 - Errors: core throws typed errors (`NotFoundError`, `InvalidTransitionError`, `ValidationError`, `GitError`); the web layer maps them to HTTP via `server/errors.ts`. Map new error types there rather than throwing HTTP from ops.
 - Git: untrusted refs (agent-submitted link labels) are validated against `SAFE_REF` before reaching `git` — keep that guard on any new ref-handling path.
-- Follow Conventional Commits and the PR-based flow. Commit locally; do not push or open PRs without an explicit ask.
+- Follow Conventional Commits and the PR-based flow.

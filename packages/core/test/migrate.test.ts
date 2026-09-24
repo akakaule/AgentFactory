@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +117,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -177,9 +177,12 @@ describe('runMigrations', () => {
     expect(() => db.prepare(
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-2','t','s','a','nonsense',2,1,'2026-01-01','2026-01-01')"
     ).run()).toThrow();
-    // the heartbeat kind CHECK accepts the watcher
+    // the heartbeat kind CHECK accepts the watcher and intake supervisor
     db.prepare(
       "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('w','watcher','default',0,0,'2026-01-01','2026-01-01')"
+    ).run();
+    db.prepare(
+      "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('i','intake','default',0,0,'2026-01-01','2026-01-01')"
     ).run();
     // the four task indexes survived the rebuild
     const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task' AND sql IS NOT NULL").all() as Array<{ name: string }>).map((r) => r.name);
@@ -286,7 +289,7 @@ describe('runMigrations', () => {
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
     ).all() as Array<{ name: string }>).map((row) => row.name);
     expect(indexes).toContain('idx_task_dependency_reverse');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 25 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 26 });
   });
 
   it('enforces the stage CHECK constraint', () => {

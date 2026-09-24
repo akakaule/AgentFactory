@@ -4,6 +4,7 @@ import type { McpCore } from '../types.js';
 import type { AddTaskMetricsInput, SubmitResultInput } from '@agentfactory/core';
 import { LinkSchema, MetricsSchema, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
+import { NO_HARD_WRAP } from '../protocol.js';
 import { checkSubmission } from '../git.js';
 import { localizeRepo, type ServerOptions } from '../server.js';
 
@@ -15,6 +16,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
       description:
         'Attach your deliverable to the task you are working on and move it to In Review. Only valid while the task is In Progress. ' +
         'The payload depends on the task\'s stage (see `protocol.stage` in your claim): a `description`-stage task takes { summary, spec, acceptanceCriteria } (the rewritten feature description); a `plan`-stage task takes { summary, plan } (the implementation plan); an `implementation`-stage task takes { summary, links } as below. Wrong-shape payloads are rejected with the expected fields named. ' +
+        `${NO_HARD_WRAP} ` +
         'For the implementation stage, complete the `protocol.finish` steps first — commit everything, run the verify command, push the branch to origin, and remove the worktree. ' +
         'If the workspace configures a verify command (it appears in `protocol.finish`), pass its reported outcome as `verification` (e.g. "all tests + build green"); the submit is rejected without it. ' +
         'This tool VERIFIES that protocol before accepting: it checks the claim branch exists on origin, that origin is not behind your local commits, and that the task worktree is gone. If a check fails it returns the exact command to run and leaves the task In Progress so you can fix it and resubmit. (Verification is skipped only where it cannot run: a legacy task with no recorded branch, or a workspace whose repo the server cannot reach. Doc stages skip it entirely — they never touch the repo.) ' +

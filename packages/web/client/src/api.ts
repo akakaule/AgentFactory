@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -75,6 +75,9 @@ export const api = {
     return req<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`);
   },
   getTask: (key: string) => req<TaskDetailView>(`/api/tasks/${key}`),
+  getIntakeHistory: (key: string) => req<Activity[]>(`/api/tasks/${key}/intake/history`),
+  getIntakeSettings: () => req<IntakeSettings>('/api/intake/settings'),
+  setIntakeSettings: (settings: IntakeSettings) => req<IntakeSettings>('/api/intake/settings', { method: 'PUT', body: JSON.stringify(settings) }),
   getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
   getTranscript: (key: string) => req<TranscriptResponse>(`/api/tasks/${key}/transcript`),
   // raw HTML, not JSON — rendered into a sandboxed iframe (srcDoc) by VisualizationModal
@@ -117,7 +120,8 @@ export const api = {
     req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'DELETE' }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
-  setStatus: (key: string, status: Status, note?: string) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note })),
+  setStatus: (key: string, status: Status, note?: string, intake?: { expectedRevision?: string; reason?: string }) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note, ...(intake ?? {}) })),
+  overrideIntake: (key: string, expectedRevision: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/intake/override`, body({ expectedRevision, ...(reason ? { reason } : {}) })),
   archive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/archive`, body({})),
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),

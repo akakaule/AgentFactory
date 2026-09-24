@@ -66,3 +66,78 @@ input, textarea, select { font-family: inherit; font-size: 0.875rem; }
 @keyframes af-cardin { from { transform: translateY(6px); } to { transform: none; } }
 @keyframes af-slidein { from { transform: translateX(30px); } to { transform: none; } }
 @keyframes af-flash { 0% { background: rgba(96,165,250,0.18); } 100% { background: transparent; } }
+/* Task Intelligence advisory surfaces */
+.af-intake-panel { margin: 16px 0 4px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-deep); }
+.af-intake-panel.attention { border-color: color-mix(in srgb, var(--active) 30%, var(--line-soft)); background: color-mix(in srgb, var(--active) 9%, var(--bg-deep)); }
+.af-intake-head { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-3); font-size: 12px; }
+.af-intake-head strong { color: var(--ink); font-size: 13px; }
+.af-intake-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.af-intake-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--card); min-width: 0; }
+.af-intake-stat .k { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.af-intake-stat .v { font-size: 15px; font-weight: 600; color: var(--ink); text-transform: capitalize; }
+.af-intake-stat .s { font-size: 11px; color: var(--ink-3); }
+.af-intake-stat.warn .v { color: var(--active-2); }
+.af-intake-muted { color: var(--ink-3); font-size: 13px; }
+.af-intake-reasons { margin: 0 0 8px; padding-left: 18px; color: var(--active-2); font-size: 12px; line-height: 1.5; }
+.af-intake-details summary { cursor: pointer; font-size: 12px; color: var(--ink-2); }
+.af-intake-details summary:hover { color: var(--ink); }
+.af-intake-parts { display: grid; gap: 5px; margin: 8px 0 2px; font-size: 12px; }
+.af-intake-part { display: grid; grid-template-columns: minmax(90px, 160px) 1fr 38px; align-items: center; gap: 10px; color: var(--ink-2); }
+.af-intake-part .bar { height: 4px; border-radius: 99px; background: var(--line-soft); overflow: hidden; }
+.af-intake-part .bar i { display: block; height: 100%; border-radius: 99px; background: var(--accent-2); }
+.af-intake-part .v { text-align: right; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.af-intake-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.af-intake-ack { display: flex; flex: 1 1 280px; flex-direction: column; align-items: flex-end; gap: 8px; }
+.af-intake-note { display: grid; width: min(100%, 420px); gap: 4px; }
+.af-intake-note label { color: var(--ink-2); font-size: 12px; }
+.af-intake-note textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; padding: 7px 9px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 12px; }
+.af-intake-note textarea:focus { border-color: var(--accent-2); outline: 2px solid color-mix(in srgb, var(--accent-2) 25%, transparent); }
+.af-intake-ack-actions { display: flex; align-items: center; gap: 10px; }
+.af-intake-link { padding: 0; border: 0; background: none; font-size: 12px; color: var(--ink-3); cursor: pointer; }
+.af-intake-link:hover { color: var(--ink); text-decoration: underline; }
+.af-intake-history { margin-top: 8px; border-top: 1px solid var(--line-soft); padding-top: 8px; font-size: 12px; color: var(--ink-3); }
+.af-intake-chip { color: var(--active-2); border: 1px solid color-mix(in srgb, var(--active) 30%, var(--line-soft)); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
+/* Task Intelligence settings dialog */
+/* .af-modal (board.css) loads later and sets width — out-specify it */
+.af-modal.af-intake-modal { width: min(640px, 96vw); max-height: min(760px, 92vh); display: flex; flex-direction: column; overflow: hidden; }
+.af-intake-mhead { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+.af-intake-mhead h3 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.3; }
+.af-intake-mhead p { margin: 3px 0 0; max-width: 52ch; font-size: 13px; color: var(--ink-2); }
+.af-intake-mhead .af-x { margin-left: auto; flex: none; }
+.af-intake-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 20px 18px; color: var(--ink-2); font-size: 13px; }
+.af-intake-row { display: flex; align-items: flex-start; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line-soft); }
+.af-intake-row:first-child { border-top: 0; }
+.af-intake-row .txt { flex: 1; min-width: 0; }
+.af-intake-row .af-dt-seg { flex: none; margin-bottom: 0; }
+.af-intake-body .lbl { font-size: 14px; font-weight: 600; color: var(--ink); }
+.af-intake-help { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-3); }
+.af-intake-ws { padding: 16px 0; border-top: 1px solid var(--line-soft); }
+.af-intake-wshead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.af-intake-count { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-3); }
+.af-intake-count b { color: var(--accent-2); font-weight: 600; }
+.af-intake-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; }
+.af-intake-modal .af-intake-tools input { flex: 1; min-width: 160px; width: auto; height: 32px; padding: 0 10px; font-size: 13px; }
+.af-intake-tools .af-intake-link { color: var(--accent-2); font-size: 12.5px; }
+.af-intake-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.af-intake-modal label.af-intake-opt { position: relative; display: flex; align-items: center; gap: 9px; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-deep); color: var(--ink-2); font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.af-intake-modal label.af-intake-opt:hover { border-color: var(--line); color: var(--ink); }
+.af-intake-modal .af-intake-opt input { position: absolute; width: 1px; height: 1px; padding: 0; opacity: 0; pointer-events: none; }
+.af-intake-opt .box { flex: none; display: grid; place-items: center; width: 16px; height: 16px; border: 1.5px solid var(--line); border-radius: 4px; font-size: 11px; color: transparent; }
+.af-intake-opt .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-intake-modal label.af-intake-opt.sel { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 50%, var(--line-soft)); background: color-mix(in srgb, var(--accent) 10%, var(--bg-deep)); }
+.af-intake-opt.sel .box { background: var(--accent); border-color: var(--accent); color: #fff; }
+.af-intake-opt:has(input:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.af-intake-none { grid-column: 1 / -1; padding: 14px 0; color: var(--ink-3); }
+.af-intake-body .dim { opacity: .45; pointer-events: none; }
+.af-intake-switch { flex: none; position: relative; width: 38px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 99px; background: var(--bg-deep); transition: background .15s; }
+.af-intake-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink-2); transition: transform .15s, background .15s; }
+.af-intake-switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+.af-intake-switch[aria-checked="true"]::after { transform: translateX(16px); background: #fff; }
+.af-intake-switch:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.af-intake-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.af-intake-foot .sp { flex: 1; }
+.af-intake-foot .af-mini { height: 34px; }
+.af-intake-foot .af-btn-primary:disabled { opacity: .45; cursor: default; filter: none; }
+.af-intake-dirty { font-size: 12.5px; color: var(--active-2); }
+@media (prefers-reduced-motion: reduce) { .af-intake-switch, .af-intake-switch::after { transition: none; } }
+@media (max-width: 480px) { .af-intake-row { flex-direction: column; gap: 10px; } }

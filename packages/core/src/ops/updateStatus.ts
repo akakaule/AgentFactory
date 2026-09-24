@@ -9,10 +9,19 @@ import { NotFoundError, InvalidTransitionError, ValidationError } from '../error
 import { nowIso } from '../time.js';
 import { reconcileMergedDelivery } from './delivery.js';
 import { deliveryRowFor } from '../repo/delivery.js';
+import { advanceRetryBudget } from '../repo/retry.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
-  return transaction(db, () => {
+  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom));
+}
+
+/**
+ * The caller must hold a write transaction, so related audit writes commit atomically.
+ * `requestedFrom` is the status the caller saw before opening the transaction (defaults to the
+ * current one), letting a stale human retry detect a repair the watcher completed meanwhile.
+ */
+export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status): TaskDetail {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     // archived tasks are immutable for state — without this, done → queued would reopen
@@ -39,7 +48,7 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
     if (status === 'done' && actor === 'agent')
       throw new InvalidTransitionError('agent completion requires delivery reconciliation, not a raw status move');
     // A retry already in flight must not reopen a repair that the watcher just completed.
-    if (status === 'queued' && actor === 'human' && requestedFrom !== 'done' && row.status === 'done'
+    if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
       && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);
     assertTransition(row.status, status, actor);
     const ts = now();
@@ -56,6 +65,10 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
     if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
+    // A human unblocking or reopening a task hands the worker new work, not another retry of the
+    // rounds that ended there — without a fresh budget the dispatcher silently skips it. (Releasing
+    // a stranded claim above is still a retry and keeps counting.)
+    if (status === 'queued' && actor === 'human' && (row.status === 'blocked' || row.status === 'done'))
+      advanceRetryBudget(db, row.id, `dispatcher:${row.stage}`, ts, 'human re-queue');
     return toDetail(db, findRowByKey(db, key)!);
-  });
 }

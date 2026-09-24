@@ -264,6 +264,19 @@ describe('delivery ops', () => {
     expect(() => core.failDelivery(key, { reason: 'pr_closed', detail: 'x' })).toThrow(InvalidTransitionError);
   });
 
+  it('a delivery bounce gives the repair a fresh dispatcher budget (merge conflicts get a worker)', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'dispatcher:implementation', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op);
+    expect(core.reserveRetry(key, op)).toBeNull(); // earlier implementation rounds burned the budget
+
+    core.failDelivery(key, { reason: 'merge_conflict', detail: 'PR #1 has merge conflicts' });
+
+    expect(core.reserveRetry(key, op)).toMatchObject({ generation: 2, attempt: 1 });
+  });
+
   it('a successful re-submission supersedes the delivery failure chip', () => {
     const core = makeCore();
     const key = deliverTask(core);

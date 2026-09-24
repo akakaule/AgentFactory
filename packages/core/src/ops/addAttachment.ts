@@ -5,15 +5,16 @@ import { findRowByKey } from '../repo/tasks.js';
 import { insertAttachment } from '../repo/attachments.js';
 import { attachmentSchema, parse } from '../validate.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
+import { isBriefEditable } from '../transitions.js';
 import { nowIso } from '../time.js';
 
-/** Attach a pasted spec image. Backlog-only — the agent's brief is frozen once queued. */
+/** Attach a pasted spec image. The agent's brief is frozen once the task is claimed. */
 export function addAttachment(db: DB, key: string, input: AddAttachmentInput, now: () => string = nowIso): Attachment {
   const a = parse(attachmentSchema, input);
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
-  if (row.status !== 'backlog')
-    throw new InvalidTransitionError(`attachments can only change while a task is in backlog: ${key} is ${row.status}`);
+  if (!isBriefEditable(row.status))
+    throw new InvalidTransitionError(`attachments can only change while a task is in backlog or queued: ${key} is ${row.status}`);
 
   const bytes = Buffer.from(a.dataBase64, 'base64');
   if (bytes.length === 0) throw new ValidationError('image data is empty');
