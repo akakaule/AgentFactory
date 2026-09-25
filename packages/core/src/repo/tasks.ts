@@ -1,13 +1,14 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps, latestAiReviewComments, latestFailureComments, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds } from './activity.js';
+import { recentActivity, activitySteps, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
-import { parseFailureComment, summarizeFailure } from '../failure.js';
+import { parseFailureComment, summarizeFailure, type ParsedFailure } from '../failure.js';
+import { classifyFailureNote, parseFailureTriageFeedbackComment, summarizeFailureTriage } from '../failureTriage.js';
 import { deliveryByTaskIds } from './delivery.js';
 import { tokenAggregateFor, tokenBreakdownFor } from './metrics.js';
 import { nowIso } from '../time.js';
@@ -45,7 +46,7 @@ export function toTask(r: TaskRow): Task {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
     unmetDependencyCount: r.unmet_dependency_count,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null, delivery: null, intake: null,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null, failureTriage: null, delivery: null, intake: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -88,16 +89,26 @@ export function intakeByTaskIds(db: DB, rows: TaskRow[]): Map<number, IntakeSumm
 }
 
 /**
- * Latest current failure per task id, derived from the latest `failure/v1` comment and whether
- * a result supersedes it (a successful submission clears the failure). Malformed marker
- * comments are skipped. Mirrors aiReviewByTaskIds.
+ * The current failure event of a task: its latest `failure/v1` note (identity = activity id),
+ * the parsed fields, the derived FailureSummary, and the note before it (the failure-triage
+ * evidence rule's input). One shared selection feeds both Task.failure and Task.failureTriage.
  */
-function failureByTaskIds(db: DB, ids: number[]): Map<number, FailureSummary> {
-  const out = new Map<number, FailureSummary>();
+interface CurrentFailureEvent {
+  note: FailureNoteRow; parsed: ParsedFailure; summary: FailureSummary;
+  previous: FailureNoteRow | null; previousInEpisode: boolean;
+}
+
+/**
+ * Current failure per task id, derived from the latest `failure/v1` comment and whether later
+ * progress supersedes it (a successful submission clears the failure). A malformed latest marker
+ * yields no failure — it is not skipped past to an older one. Mirrors aiReviewByTaskIds.
+ */
+function currentFailureEvents(db: DB, ids: number[]): Map<number, CurrentFailureEvent> {
+  const out = new Map<number, CurrentFailureEvent>();
   if (ids.length === 0) return out;
-  const comments = latestFailureComments(db, ids);
-  if (comments.size === 0) return out;
-  const keys = [...comments.keys()];
+  const pairs = latestFailureNotePairs(db, ids);
+  if (pairs.size === 0) return out;
+  const keys = [...pairs.keys()];
   // A failure is cleared by later *progress*: a new result (a worker crash superseded by a
   // successful submission), a new ai-review comment (a reviewer crash superseded by a
   // successful re-review), OR an operator restart/v1 marker (a skip-listed task restarted from
@@ -105,14 +116,51 @@ function failureByTaskIds(db: DB, ids: number[]): Map<number, FailureSummary> {
   const results = latestResultIds(db, keys);
   const reviews = latestAiReviewComments(db, keys);
   const restarts = latestRestartMarkerIds(db, keys);
-  for (const [taskId, { id: failureId, body, createdAt }] of comments) {
-    const parsed = parseFailureComment(body);
+  for (const [taskId, { latest, previous }] of pairs) {
+    const parsed = parseFailureComment(latest.body);
     if (!parsed) continue;
     const progressId = Math.max(results.get(taskId) ?? 0, reviews.get(taskId)?.id ?? 0, restarts.get(taskId) ?? 0);
-    const summary = summarizeFailure(parsed, createdAt, progressId > failureId);
-    if (summary) out.set(taskId, summary);
+    const summary = summarizeFailure(parsed, latest.createdAt, progressId > latest.id);
+    if (!summary) continue;
+    // the latest note is current ⇒ progressId < latest.id, so "no progress between previous and
+    // latest" is exactly "previous is newer than the last progress"
+    out.set(taskId, { note: latest, parsed, summary, previous, previousInEpisode: previous !== null && previous.id > progressId });
   }
   return out;
+}
+
+/** A parsed `failure-triage-feedback/v1` activity, or null when malformed (inert). */
+export function feedbackFromActivity(a: Activity): FailureTriageFeedback | null {
+  const record = parseFailureTriageFeedbackComment(a.body);
+  if (!record) return null;
+  return { ...record, activityId: a.id, actorUserId: a.actorUserId, actorName: a.actorName, at: a.createdAt };
+}
+
+/**
+ * Failure triage per task (spec §7): only for tasks with a current failure that are neither
+ * archived nor done. Two batched reads beyond the failure selection — the feedback markers — and
+ * the rules run in-process.
+ */
+function failureTriageFromEvents(db: DB, rows: TaskRow[], events: Map<number, CurrentFailureEvent>): Map<number, FailureTriageSummary> {
+  const out = new Map<number, FailureTriageSummary>();
+  const eligible = rows.filter((r) => r.archived_at === null && r.status !== 'done' && events.has(r.id));
+  if (eligible.length === 0) return out;
+  const feedback = failureTriageFeedbackActivities(db, eligible.map((r) => r.id));
+  for (const r of eligible) {
+    const event = events.get(r.id)!;
+    const classification = classifyFailureNote(event.note, event.parsed, event.previous, event.previousInEpisode);
+    const human = (feedback.get(r.id) ?? [])
+      .map(feedbackFromActivity)
+      .find((f): f is FailureTriageFeedback => f !== null && f.sourceActivityId === event.note.id) ?? null;
+    out.set(r.id, summarizeFailureTriage(event.note.id, classification, human));
+  }
+  return out;
+}
+
+function failureAndTriage(db: DB, rows: TaskRow[]): { failures: Map<number, FailureSummary>; triage: Map<number, FailureTriageSummary> } {
+  const events = currentFailureEvents(db, rows.map((r) => r.id));
+  const failures = new Map([...events].map(([taskId, event]) => [taskId, event.summary]));
+  return { failures, triage: failureTriageFromEvents(db, rows, events) };
 }
 
 /**
@@ -144,10 +192,12 @@ export function aiReviewFor(db: DB, taskId: number): AiReviewSummary | null {
 
 export function toDetail(db: DB, r: TaskRow): TaskDetail {
   const viz = visualizationMetaFor(db, r.id);
+  const { failures, triage } = failureAndTriage(db, [r]);
   return {
     ...toTask(r),
     aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
-    failure: failureByTaskIds(db, [r.id]).get(r.id) ?? null,
+    failure: failures.get(r.id) ?? null,
+    failureTriage: triage.get(r.id) ?? null,
     delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
     intake: intakeForTask(db, r),
     hasVisualization: viz !== null,
@@ -243,10 +293,10 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const rows = (db.prepare(sql).all as (...a: any[]) => unknown)(...vals) as TaskRow[];
   const ids = rows.map((r) => r.id);
   const reviews = aiReviewByTaskIds(db, ids);
-  const failures = failureByTaskIds(db, ids);
+  const { failures, triage } = failureAndTriage(db, rows);
   const deliveries = deliveryByTaskIds(db, ids);
   const intakes = intakeByTaskIds(db, rows);
-  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
 }
 /** The in_progress task a worker label already holds (oldest first), if any — the claim
  *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of
