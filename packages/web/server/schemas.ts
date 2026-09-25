@@ -48,6 +48,19 @@ export const prFeedbackBody = z.object({ feedback: z.string().min(1), author: z.
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
 export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
 export const intakeOverrideBody = z.object({ expectedRevision: z.string().min(1), reason: z.string().optional() });
+const FailureTriageCategoryEnum = z.enum(['access', 'configuration', 'infrastructure', 'build_test', 'agent_execution', 'delivery', 'unknown']);
+export const failureTriageFeedbackBody = z.object({
+  sourceActivityId: z.number().int().positive(),
+  action: z.enum(['confirm', 'correct']),
+  shownCategory: FailureTriageCategoryEnum,
+  category: FailureTriageCategoryEnum.optional(),
+  note: z.string().max(2000).optional(), // core enforces the 500-char bound on the trimmed note
+});
+export const failureTriageHistoryQuery = z.object({
+  beforeId: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export const activityIdParam = z.object({ activityId: z.coerce.number().int().positive() });
 export const attachmentBody = z.object({
   filename: z.string().min(1),
   mime: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),

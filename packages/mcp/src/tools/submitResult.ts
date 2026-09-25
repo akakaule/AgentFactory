@@ -4,6 +4,7 @@ import type { McpCore } from '../types.js';
 import type { AddTaskMetricsInput, SubmitResultInput } from '@agentfactory/core';
 import { LinkSchema, MetricsSchema, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
+import { withoutFailureTriage } from '../content.js';
 import { NO_HARD_WRAP } from '../protocol.js';
 import { checkSubmission } from '../git.js';
 import { localizeRepo, type ServerOptions } from '../server.js';
@@ -70,7 +71,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
             metricsNote = `\n\n(note: the submit SUCCEEDED — the task is in review — but recording metrics failed: ${(err as Error).message}. Do not resubmit.)`;
           }
         }
-        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) + metricsNote }] };
+        return { content: [{ type: 'text', text: JSON.stringify(withoutFailureTriage(task), null, 2) + metricsNote }] };
       } catch (err) {
         return toToolError(err);
       }

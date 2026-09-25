@@ -63,6 +63,14 @@ export { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings, type BeginIntakeAssessmentResult } from './ops/intake.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
+export {
+  FAILURE_TRIAGE_MARKER, FAILURE_TRIAGE_FEEDBACK_MARKER, FAILURE_TRIAGE_MARKER_PREFIXES, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY,
+  FAILURE_TRIAGE_DISPLAY_VERSION, FAILURE_TRIAGE_NOTE_MAX, isFailureTriageMarker, classifyFailureNote, summarizeFailureTriage,
+  buildFailureTriageFeedbackComment, parseFailureTriageFeedbackComment, type FailureNote, type FailureTriageClassification, type FailureTriageFeedbackRecord,
+} from './failureTriage.js';
+export { classifyByRules, FAILURE_TRIAGE_RULES_VERSION, FAILURE_TRIAGE_PRECEDENCE, FAILURE_TRIAGE_RULE_IDS } from './failureTriageRules.js';
+export { normalizeFailureText, failureEvidenceText, FAILURE_TRIAGE_EVIDENCE_VERSION } from './failureTriageEvidence.js';
+export { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -113,8 +121,9 @@ import { getKv, setKv } from './repo/kv.js';
 import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
+import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, FailureTriageFeedbackInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
@@ -209,6 +218,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     overrideIntake: (key: string, input: { expectedRevision: string; reason?: string | undefined; actorUserId?: number | null }) => overrideIntake(db, key, input),
     queueWithIntakeAcknowledgment: (key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null } = {}) => queueWithIntakeAcknowledgment(db, key, input),
     intakeRuntimeSettings: () => intakeRuntimeSettings(db),
+    /** Advisory failure triage (human ops; the label itself is derived on Task.failureTriage). */
+    recordFailureTriageFeedback: (key: string, input: FailureTriageFeedbackInput & { actorUserId?: number | null }) => recordFailureTriageFeedback(db, key, input),
+    failureTriageHistory: (key: string, opts: { beforeId?: number | undefined; limit?: number | undefined } = {}) => failureTriageHistory(db, key, opts),
+    getFailureTriageSource: (key: string, activityId: number) => getFailureTriageSource(db, key, activityId),
   };
 }
 export type Core = ReturnType<typeof createCore>;

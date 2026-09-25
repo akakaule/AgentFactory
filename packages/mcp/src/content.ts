@@ -1,9 +1,22 @@
-import { isAiReviewMarker, isPrFeedbackMarker, isFeedbackEvalMarker, isIntakeMarker } from '@agentfactory/core';
+import { isAiReviewMarker, isPrFeedbackMarker, isFeedbackEvalMarker, isIntakeMarker, isFailureTriageMarker } from '@agentfactory/core';
+import type { Task } from '@agentfactory/core';
 import type { McpCore, TaskDetail } from './types.js';
 
 type Block =
   | { type: 'text'; text: string }
   | { type: 'image'; data: string; mimeType: string };
+
+/**
+ * Advisory failure triage is operator-facing only: the derived label and its feedback markers
+ * never reach a worker (spec §7). The original failure/v1 note — useful retry context — stays.
+ * Applied to every task-shaped payload the MCP tools return.
+ */
+export function withoutFailureTriage<T extends Task>(task: T): T {
+  const out: T = { ...task, failureTriage: null };
+  const activity = (task as Partial<TaskDetail>).activity;
+  if (activity) (out as Partial<TaskDetail>).activity = activity.filter((a) => !(a.type === 'comment' && isFailureTriageMarker(a.body)));
+  return out;
+}
 
 /**
  * Task detail as tool-result content: the JSON text block followed by one image
@@ -20,9 +33,9 @@ type Block =
  * The derived `aiReview` summary is nulled for the same reason — its `items` carry every finding.
  */
 export async function detailContent(core: McpCore, task: TaskDetail, extra?: Record<string, unknown>): Promise<Block[]> {
-  const stripped = (b: string) => isAiReviewMarker(b) || isPrFeedbackMarker(b) || isFeedbackEvalMarker(b) || isIntakeMarker(b);
+  const stripped = (b: string) => isAiReviewMarker(b) || isPrFeedbackMarker(b) || isFeedbackEvalMarker(b) || isIntakeMarker(b) || isFailureTriageMarker(b);
   const activity = task.activity.filter((a) => !(a.type === 'comment' && stripped(a.body)));
-  const detail: TaskDetail = { ...task, activity, aiReview: null, intake: null };
+  const detail: TaskDetail = { ...task, activity, aiReview: null, intake: null, failureTriage: null };
   const payload = extra ? { ...detail, ...extra } : detail;
   const blocks: Block[] = [{ type: 'text', text: JSON.stringify(payload, null, 2) }];
   for (const a of task.attachments) {

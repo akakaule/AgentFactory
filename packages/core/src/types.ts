@@ -94,6 +94,43 @@ export interface FailureSummary {
   at: string;                // the failure comment's created_at
 }
 
+/**
+ * Advisory failure triage (docs/spec/2026-09-25-failure-triage-design.md): a likely-cause label
+ * for the current failure, derived at read time by local rules (src/failureTriageRules.ts).
+ * Only human feedback is persisted (`failure-triage-feedback/v1` markers). Never changes lifecycle.
+ */
+export type FailureTriageCategory = 'access' | 'configuration' | 'infrastructure' | 'build_test' | 'agent_execution' | 'delivery' | 'unknown';
+export interface FailureTriageRuleResult {
+  version: string;                      // rules version, e.g. 'failure-triage-rules/v1'
+  category: FailureTriageCategory;      // 'unknown' when no rule matched or there is no usable evidence
+  ruleId: string | null;
+  matchedLine: string | null;           // bounded excerpt of the local line that matched
+  alsoMatched: FailureTriageCategory[]; // lower-precedence categories that also matched
+}
+export interface FailureTriageFeedback {
+  activityId: number; sourceActivityId: number;
+  action: 'confirm' | 'correct'; category: FailureTriageCategory;
+  shownCategory: FailureTriageCategory; classifier: 'rules' | 'human'; rulesVersion: string | null;
+  note: string | null; actorUserId: number | null; actorName: string | null; at: string;
+}
+export interface FailureTriageSummary {
+  sourceActivityId: number;          // the current failure/v1 note (the episode identity)
+  evidenceActivityId: number | null; // the note the rules read; null = no usable evidence
+  classifier: 'rules' | 'human';     // who supplied the displayed category
+  category: FailureTriageCategory; label: string; suggestion: string;
+  rules: FailureTriageRuleResult;
+  human: FailureTriageFeedback | null; // latest feedback for this source event
+}
+export interface FailureTriageHistoryItem {
+  sourceActivityId: number; reason: string; source: string | null; at: string;
+  evidenceActivityId: number | null; rules: FailureTriageRuleResult; feedback: FailureTriageFeedback[];
+}
+export interface FailureTriageHistoryPage { items: FailureTriageHistoryItem[]; nextBeforeId: number | null; }
+export interface FailureTriageFeedbackInput {
+  sourceActivityId: number; action: 'confirm' | 'correct'; shownCategory: FailureTriageCategory;
+  category?: FailureTriageCategory | undefined; note?: string | undefined;
+}
+
 export type IntakeMode = 'off' | 'advisory' | 'enforced';
 export type IntakeErrorKind = 'timeout' | 'rate_limit' | 'network' | 'invalid_response' | 'unavailable' | 'input_too_large';
 export type IntakeReadinessPart = 'outcomeClear' | 'scopeBounded' | 'verifiable';
@@ -174,6 +211,7 @@ export interface Task {
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
+  failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
   createdAt: string; updatedAt: string;
 }
 export interface Activity {

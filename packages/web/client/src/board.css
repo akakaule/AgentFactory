@@ -243,6 +243,24 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-fail-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 0; background: none; border: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
 .af-fail-toggle svg { width: 12px; height: 12px; }
 .af-fail-log { margin: 7px 0 0; padding: 8px 10px; max-height: 280px; overflow: auto; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 7px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; line-height: 1.45; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+.af-triage { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--bg-deep); display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+.af-triage-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; line-height: 1.45; }
+.af-triage-row .k { flex: none; width: 84px; font-size: 11px; color: var(--ink-3); }
+.af-triage-row strong { color: var(--ink); font-weight: 600; }
+.af-triage-row .v { flex: 1; min-width: 0; }
+.af-triage.unclear .af-triage-row strong { color: var(--ink-2); font-weight: 500; }
+.af-triage-row.muted { color: var(--ink-3); }
+.af-triage-by { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.af-triage-match { min-width: 0; flex: 1; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
+.af-triage-note { font-size: 11.5px; color: var(--ink-3); }
+.af-triage-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
+.af-triage-form { display: grid; gap: 4px; width: min(100%, 420px); margin-top: 2px; }
+.af-triage-form label { font-size: 11px; color: var(--ink-3); }
+.af-triage-form select, .af-triage-form textarea { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 12px; }
+.af-triage-form textarea { resize: vertical; min-height: 48px; }
+.af-triage-form select:focus, .af-triage-form textarea:focus { border-color: var(--accent-2); outline: 2px solid color-mix(in srgb, var(--accent-2) 25%, transparent); }
+.af-triage-error { margin-top: 4px; font-size: 12px; color: var(--st-blocked); }
+.af-triage-history { margin: 4px 0 0; padding-left: 16px; font-size: 11.5px; color: var(--ink-3); display: grid; gap: 2px; }
 .af-fail-restart { margin-top: 9px; }
 
 /* Blocked-reason banner (drawer) — the agent's reason for the current block, focused above the fold */

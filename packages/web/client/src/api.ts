@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -122,6 +122,10 @@ export const api = {
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
   setStatus: (key: string, status: Status, note?: string, intake?: { expectedRevision?: string; reason?: string }) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note, ...(intake ?? {}) })),
   overrideIntake: (key: string, expectedRevision: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/intake/override`, body({ expectedRevision, ...(reason ? { reason } : {}) })),
+  // Advisory failure triage: exact source note by activity id, cursor-paginated history, human feedback.
+  getFailureTriageSource: (key: string, activityId: number) => req<Activity>(`/api/tasks/${key}/failure-triage/source/${activityId}`),
+  getFailureTriageHistory: (key: string, beforeId?: number) => req<FailureTriageHistoryPage>(`/api/tasks/${key}/failure-triage/history${beforeId ? `?beforeId=${beforeId}` : ''}`),
+  recordFailureTriageFeedback: (key: string, input: FailureTriageFeedbackInput) => req<TaskDetail>(`/api/tasks/${key}/failure-triage/feedback`, body(input)),
   archive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/archive`, body({})),
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
