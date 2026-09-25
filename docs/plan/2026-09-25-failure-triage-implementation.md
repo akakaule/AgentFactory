@@ -35,7 +35,7 @@ A-C ship Phase 1. D-G happen only after a written "go" from step 5. D-F ship off
 
 **Existing files:** `packages/core/src/repo/tasks.ts`, `repo/activity.ts`, `failure.ts`, public exports in `index.ts`; tests under `packages/core/test/`.
 
-1. Write characterization tests for current failure selection: latest failure, later result/review/restart, later unrelated comment, malformed latest failure, whitespace-prefixed markers (the SQL selector matches `lower(body) LIKE 'failure/v1%'` without trimming, while `isFailureMarker` trims), and old notes outside recent activity. Establish current behavior before extracting anything.
+1. Write characterization tests for current failure selection: latest failure, later result/review/restart, later unrelated comment, malformed latest failure, and old notes outside recent activity. (The SQL selector matches `lower(body) LIKE 'failure/v1%'` without trimming while `isFailureMarker` trims, but `addComment` trims every body before storing it, so a whitespace-prefixed marker cannot be written and needs no characterization.) Establish current behavior before extracting anything.
 2. Extract a shared current-failure projection retaining activity ID, timestamp, parsed fields, and body. Reuse it for existing `Task.failure`; do not add a new independent selector with subtly different clearing rules.
 3. Add the episode and evidence-event rule. Build fixtures with `buildFailureComment` using the dispatcher's real arguments. Cover:
    - A final-attempt timeout/crash note (with log) followed by `max_attempts`: the evidence is the timeout/crash note.
