@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openCore, buildFailureComment, type TaskDetail, type FailureTriageHistoryPage, type Activity } from '@agentfactory/core';
+import { openCore, buildFailureComment, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY, type TaskDetail, type FailureTriageHistoryPage, type Activity } from '@agentfactory/core';
+import { FAILURE_TRIAGE_OPTIONS } from '../../client/src/failureTriageMeta.js';
 import { buildApp } from '../../server/app.js';
 
 const LOG = "src/a.ts(3,20): error TS2322: Type 'string' is not assignable to type 'number'.";
@@ -89,5 +90,11 @@ describe('failure triage routes (auth none: single operator)', () => {
     const res = await app.request(`/api/tasks/${key}/failure-triage/feedback`, post(null, { sourceActivityId: source, action: 'confirm', shownCategory: 'build_test' }));
     expect(res.status).toBe(200);
     expect((await res.json() as TaskDetail).failureTriage).toMatchObject({ classifier: 'human', human: { action: 'confirm', actorUserId: null } });
+  });
+});
+
+describe('client failure-triage mirror', () => {
+  it('matches core categories, order, and labels', () => {
+    expect(FAILURE_TRIAGE_OPTIONS).toEqual(FAILURE_TRIAGE_CATEGORIES.map((value) => ({ value, label: FAILURE_TRIAGE_TAXONOMY[value].label })));
   });
 });
