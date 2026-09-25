@@ -9,7 +9,7 @@ import type { z } from 'zod';
  * instead of the schema's carefully worded message. Message shape matches core's parse():
  * issue messages joined with '; '.
  */
-export function validated<T extends z.ZodType, Target extends 'json' | 'query'>(target: Target, schema: T) {
+export function validated<T extends z.ZodType, Target extends 'json' | 'query' | 'param'>(target: Target, schema: T) {
   return zValidator(target, schema, (result) => {
     if (!result.success) throw new ValidationError(result.error.issues.map((i) => i.message).join('; '));
   });

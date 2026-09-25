@@ -267,8 +267,11 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
 
       {task.failure && (
         <FailureBanner
+          taskKey={task.key}
           failure={task.failure}
           activity={task.activity}
+          triage={task.failureTriage ?? null}
+          onChanged={afterMutation}
           {...(task.failure.skipListed
             ? { onRestart: () => {
               const requestedKey = task.key;

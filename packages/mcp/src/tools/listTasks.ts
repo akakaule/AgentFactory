@@ -4,6 +4,7 @@ import type { McpCore } from '../types.js';
 import type { ServerOptions } from '../server.js';
 import { StatusEnum } from '../schemas.js';
 import { toToolError } from '../errors.js';
+import { withoutFailureTriage } from '../content.js';
 
 export function registerListTasks(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
@@ -16,7 +17,7 @@ export function registerListTasks(server: McpServer, core: McpCore, opts: Server
     },
     async ({ status, workspace }) => {
       try {
-        const tasks = (await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace })).map((task) => ({ ...task, intake: null }));
+        const tasks = (await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace })).map((task) => withoutFailureTriage({ ...task, intake: null }));
         return { content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }] };
       } catch (err) {
         return toToolError(err);

@@ -145,8 +145,9 @@ A pure core function `classifyByRules(episode)` returns `{ category, ruleId, mat
    | `build_test` | compiler/analyzer error codes (`error CS1234`, `error TS1234`), `Build FAILED`, failing-test summaries, assertion errors |
 
 3. **Precedence.** When several categories match: `access` → `configuration` → `infrastructure` → `delivery` → `agent_execution` → `build_test`. Causes that explain a downstream build or test failure win, matching the table's boundaries. Other matched categories are recorded in `alsoMatched` for history, never displayed as the label.
-4. **No match** → `unknown`. A bare reason (`timeout`, `crashed`, `ci_failed`, `stale`) never matches on its own, and the supervisors' own boilerplate (for example the dispatcher's timeout wording) must not be a pattern.
-5. **Matched line.** The first matching line, trimmed to 200 characters. It is local text already visible behind "Show source log", so displaying it adds no exposure.
+4. **Stall reasons.** For `timeout` and `stale`, only `access`, `infrastructure`, and `agent_execution` rules apply. A stopped session's log tail shows whatever it was doing when it was stopped; an intermediate compile error the agent was about to fix is not why it timed out.
+5. **No match** → `unknown`. A bare reason (`timeout`, `crashed`, `ci_failed`, `stale`) never matches on its own, and the supervisors' own boilerplate (for example the dispatcher's timeout wording) must not be a pattern.
+6. **Matched line.** The first matching line, bounded to 200 characters around the match. It is local text already visible behind "Show source log", so displaying it adds no exposure.
 
 Rules are evaluated at read time, so a rules-version change relabels existing current failures on deploy. Feedback records the rules version and the category shown when it was given.
 
