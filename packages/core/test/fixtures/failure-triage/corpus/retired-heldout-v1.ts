@@ -1,12 +1,12 @@
 /**
- * Held-out split — never tune rules against these cases. Run it only on frozen rules and report
- * the result as is; a rule change after a held-out run needs a new held-out set to claim
- * independent validation (spec §10).
+ * The v1 held-out split (evaluated once on frozen rules v1, 2026-10-04 — see
+ * docs/2026-10-04-failure-triage-phase1-evaluation.md). Its misses are now known, so it is spent as
+ * independent validation and serves as tuning data from rules v2 on.
  */
 import type { CorpusCase } from './types.js';
 import { CODEX_PREAMBLE, STDIN_WARNING, ciFailed, claudeResult, codexUnclaimed, crash, maxAttempts, prClosed, reviewFailed, timeout } from './shapes.js';
 
-export const HELDOUT: CorpusCase[] = [
+export const RETIRED_HELDOUT_V1: CorpusCase[] = [
   // ── access ──────────────────────────────────────────────────────────────────────────────────
   {
     id: 'h-codex-usage-limit', family: 'model-usage-limit', label: 'access',
