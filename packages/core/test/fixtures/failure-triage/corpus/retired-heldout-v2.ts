@@ -1,7 +1,7 @@
 /**
- * Held-out split v2 — authored independently of the rules (the author did not see the classifier,
- * the tuning set, or the evaluation report). Never tune rules against these cases; run it only on
- * frozen rules and report the result as is.
+ * The v2 held-out split, authored independently of the rules and evaluated once on frozen rules v2
+ * (bc96115). Its misses are now known, so it is spent as independent validation and serves as
+ * tuning data from then on.
  */
 import type { CorpusCase } from './types.js';
 import {
@@ -31,7 +31,7 @@ const cmd = (command: string, output: string, exitCode: number): string =>
 const LEDGER_PASSES = Array.from({ length: 400 }, (_, i) =>
   `  Passed Example.Ledger.Tests.PostingTests.Posts_entry_variant_${String(i).padStart(3, '0')} [${(i % 9) + 1} ms]`);
 
-export const HELDOUT: CorpusCase[] = [
+export const RETIRED_HELDOUT_V2: CorpusCase[] = [
   // ───────────────────────────── access ─────────────────────────────
   {
     id: 'h2-pip-private-index-403',
