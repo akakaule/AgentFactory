@@ -162,3 +162,42 @@ At that point, re-run this plan's step 5 with a fresh held-out set and the provi
    - Timeout tails contain only startup boilerplate. Investigate why the worker's output does not reach the tail.
    - CI bounces often capture no errors (`captureBuildErrors`; ADO PATs need Build (Read)).
 3. **Deploy Phase 1** if it is not already live. Then collect the confirm/correct rate that step 5.3 asks for.
+
+## 8. Addendum: rules v2 (2026-10-04)
+
+Follow-up 1 was carried out on `feat/failure-triage-rules-v2`. The method changed in one important way: to remove the single-author threat in section 5, **each held-out set was written by a separate agent**. That agent read only the corpus types, the note builders, the spec's category table and corpus requirements, and the list of used family names. It never saw the rules, the tuning set, this report, or classifier output. Each held-out file was committed unmodified, after its rules were frozen and before its single run.
+
+**Sequence.**
+1. Retired the v1 held-out set into tuning.
+2. Wrote the first rules v2 (`bc96115`).
+3. Ran held-out v2 (60 cases, `1d58568`). Displayed precision was **84.8% (28/33)**; rules v1 reached 86.2% (25/29) on the same set. Both are below the 90% bar.
+4. Retired held-out v2 into tuning and tightened on tuning (`53aa669`, see below). Tuning reached 95.7% (135/141) across 176 cases.
+5. Ran held-out v3 (60 cases, `802431b`).
+
+**What the tightening changed.** Most wrong labels came from patterns firing on text that wasn't the cause. Rather than adding more regexes, evidence moves to `failure-triage-evidence/v2`:
+- Worker stream logs are unpacked: Claude `tool_result` and Codex command output become real lines, so line-anchored signals match real tool output.
+- The agent's narration, reasoning and prompt are dropped.
+- A successful result keeps only its header; an error result is kept whole.
+- Lines that report a *passing* test are skipped.
+- One rule gained an optional `when` scope, and `ended-without-submit` is limited to crashed sessions that exited with code 0.
+
+**Held-out v3 (independent, 60 cases):**
+
+| Rules | Displayed | Correct | Displayed precision (95% Wilson) | Coverage | Causal recall | Unknown mislabeled |
+| --- | --- | --- | --- | --- | --- | --- |
+| v1 (`cd202c9`, live) | 23 | 18 | 78.3% | 38.3% | 40.9% | 3 |
+| **v2 (`53aa669`)** | 27 | 23 | **85.2% (67.5–94.1%)** | 45.0% | 52.3% | 2 |
+
+**v2's four wrong labels.**
+- An LFS batch authorization failure has no access signal, so `ended-without-submit` decides.
+- A GitHub 5xx during push is labelled `delivery/push-rejected`: the symptom outranks the cause because the 5xx wording isn't matched.
+- An install that hit a network error and then recovered is labelled `infrastructure` anyway (the error was resolved later in the log).
+- One case has two unrelated explicit causes; its author flagged the `unknown` label as debatable.
+
+Per-line rules can't resolve the last three: they need log semantics such as ordering, recovery and causality. The fixture-file and PR-body text addressed to classifiers in held-out v2 stays a known limitation, as do quotes in tool output.
+
+**Live history** (aggregates only, not independent, because these notes motivated the rules). v2 labels 34 of 108 notes (v1: 6), and all 34 match the hand labels. Re-checking showed one hand label in section 4 was wrong: a crash whose full note contains the Codex usage-limit message, which my earlier view had truncated. v2 misses one CI note whose `NU1903` cause appears only in the detail line.
+
+**Status.** No rules version reaches the 90% bar on either independent held-out set. v1, which is live, scores lowest of all on v3. v2 improves on v1 there in both precision and coverage, and matches the live history. The remaining errors are structural rather than missing vocabulary. Read the held-out sets as adversarial: both authors were asked for many decoys and contradictions.
+
+Whether to ship v2 under the bar, keep rule labels hidden until a semantic layer exists, or lower the bar for an advisory label with its matched line visible is a product decision. It is recorded here, not taken.
