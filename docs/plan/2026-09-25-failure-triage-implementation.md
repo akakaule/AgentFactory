@@ -1,6 +1,6 @@
 # Failure triage implementation plan
 
-**Status:** Proposed v2 (revised 2026-09-25 alongside spec v2); documentation only. No implementation, provider calls with task data, or feature enablement performed.
+**Status:** Phase 1 (steps 1-4) merged 2026-09-25. Step 5 evaluated 2026-10-04: **Phase 2 no-go** — see [the Phase 1 evaluation report](../2026-10-04-failure-triage-phase1-evaluation.md); steps 6-9 do not proceed unless its revisit criteria are met.
 **Spec:** [Advisory failure triage](../spec/2026-09-25-failure-triage-design.md)
 **Goal:** Give users an evidence-based likely-cause label beside existing failures, without changing execution behavior. Phase 1 does it with local rules; Phase 2 adds a provider fallback only if Phase 1's evaluation says it is worth it.
 
