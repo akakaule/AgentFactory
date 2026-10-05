@@ -21,6 +21,7 @@
     "watcher:dev": "tsx packages/watcher/src/index.ts",
     "intake": "node packages/intake/dist/index.js",
     "intake:dev": "tsx packages/intake/src/index.ts",
+    "failure-triage:eval": "tsx packages/core/scripts/failure-triage-eval.ts",
     "supervisors": "concurrently -n disp,rev,watch,intake -c blue,magenta,green,cyan \"node packages/dispatcher/dist/index.js dispatcher.config.json\" \"node packages/reviewer/dist/index.js reviewer.config.json\" \"node packages/watcher/dist/index.js watcher.config.json\" \"node packages/intake/dist/index.js intake.config.json\"",
     "supervisors:dev": "concurrently -n disp,rev,watch,intake -c blue,magenta,green,cyan \"npm:dispatcher:dev -- dispatcher.config.json\" \"npm:reviewer:dev -- reviewer.config.json\" \"npm:watcher:dev -- watcher.config.json\" \"npm:intake:dev -- intake.config.json\"",
     "token": "tsx packages/web/server/mintToken.ts"
