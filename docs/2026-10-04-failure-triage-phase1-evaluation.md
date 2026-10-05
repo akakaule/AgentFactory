@@ -200,4 +200,4 @@ Per-line rules can't resolve the last three: they need log semantics such as ord
 
 **Status.** No rules version reaches the 90% bar on either independent held-out set. v1, which is live, scores lowest of all on v3. v2 improves on v1 there in both precision and coverage, and matches the live history. The remaining errors are structural rather than missing vocabulary. Read the held-out sets as adversarial: both authors were asked for many decoys and contradictions.
 
-Whether to ship v2 under the bar, keep rule labels hidden until a semantic layer exists, or lower the bar for an advisory label with its matched line visible is a product decision. It is recorded here, not taken.
+**Decision (2026-10-05): ship v2 as is.** It is better than the live v1 on independent data in both precision and coverage, and the banner already shows the matched line next to every rule label. Hiding labels (the spec's literal remedy below 90%) was considered and declined. The bar stays the target for any later rules or semantic layer.
