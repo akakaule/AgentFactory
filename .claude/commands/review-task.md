@@ -2,7 +2,7 @@
 description: Review one in-review AgentFactory task and post an ai-review/v1 verdict (advisory first-pass review, one task per invocation). Pass `codex` to delegate the review to the Codex CLI; pass a task key (e.g. AF-12) to review a specific task.
 ---
 
-You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a human curates your findings on the board before anything reaches the implementing agent. You never change task status. (Be aware: on **doc stages** (`stage` description/plan) the board auto-advances a task when a clean verdict lands, so a clean call there has consequences — review docs with the same care as code. The implementation gate is always human.)
+You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a human curates your findings on the board before anything reaches the implementing agent. You never change task status. (Be aware: on **doc stages** (`stage` description — the spec — or legacy plan) the board auto-advances a task when a clean verdict lands, so a clean call there has consequences — review docs with the same care as code. The implementation gate is always human.)
 
 ## Pick the task
 
@@ -18,7 +18,7 @@ You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a 
 
 5. What you review depends on the stage:
    - `description` — review the spec + acceptance criteria against the task's intent (title, original activity, attachments): is the description complete and unambiguous, are the acceptance criteria objectively verifiable, is anything invented that the source never asked for? `error` = the description fails its purpose (wrong/missing intent, unverifiable AC).
-   - `plan` — review the `plan` field against the spec + acceptance criteria: does it cover every criterion, is it grounded in the real codebase (files/approach plausible), is the test plan adequate? `error` = the plan would not deliver the spec.
+   - `plan` (legacy) — review the `plan` field against the spec + acceptance criteria: does it cover every criterion, is it grounded in the real codebase (files/approach plausible), is the test plan adequate? `error` = the plan would not deliver the spec.
    - `implementation` — review the diff against the brief: correctness vs the acceptance criteria first, then real bugs, security issues, or broken conventions visible in the diff. Severity: `error` = fails the brief / breaks something, `warning` = likely problem worth a look, `info` = worth knowing, not blocking.
 
    Zero findings is a perfectly good verdict — don't pad.

@@ -53,7 +53,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       stage: input.stage,
       setup: [],
       finish: [
-        'Write the feature description: a rewritten spec (preserve any source-reference lines, e.g. an ADO work-item link, at the top) and objectively verifiable acceptance criteria.',
+        'Write the spec: rewrite the task intent into a spec precise enough to implement directly — implementation follows this stage with no separate plan (preserve any source-reference lines, e.g. an ADO work-item link, at the top) — and objectively verifiable acceptance criteria.',
         NO_HARD_WRAP,
         'Do NOT touch the repository — no branch, no worktree, no code changes.',
         'Call submit_result with { summary, claimAt: the claimedAt value from this claim, spec, acceptanceCriteria }.',

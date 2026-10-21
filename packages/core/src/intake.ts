@@ -133,7 +133,7 @@ export function evaluateIntakePolicy(a: IntakeAssessmentV1, stage: Stage, settin
     reasons.push({ code: weakest === 'outcomeClear' ? 'outcome_unclear' : weakest === 'scopeBounded' ? 'scope_unbounded' : 'not_verifiable', message: messages[weakest] });
   }
   if (settings.architecturalNeedsAttention && stage === 'implementation' && a.decisions.complexity.value === 'architectural')
-    reasons.push({ code: 'architectural', message: 'architectural work needs a reviewed plan before implementation' });
+    reasons.push({ code: 'architectural', message: 'architectural work needs a reviewed spec before implementation' });
   if (settings.riskAttentionLevel && riskRank[a.decisions.risk.value] >= riskRank[settings.riskAttentionLevel])
     reasons.push({ code: 'risk_at_or_above', message: `risk is ${a.decisions.risk.value}` });
   return { policyVersion: INTAKE_POLICY_VERSION, eligibility: reasons.length ? 'attention_required' : 'eligible', reasons };

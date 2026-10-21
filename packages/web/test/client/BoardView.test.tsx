@@ -52,7 +52,7 @@ describe('BoardView', () => {
       claimedBy: 'worker-1', claimedAt: '2024-01-01T00:00:00Z',
     };
     render(<BoardView tasks={[claimed]} onSelect={vi.fn()} />);
-    expect(screen.getByText('Describe')).toBeInTheDocument();
+    expect(screen.getByText('Spec')).toBeInTheDocument();
     expect(screen.queryByText('feature/AF-7-barcode-scanner-intake-form')).not.toBeInTheDocument();
   });
 

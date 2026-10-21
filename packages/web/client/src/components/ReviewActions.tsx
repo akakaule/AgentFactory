@@ -20,8 +20,8 @@ interface Props {
 
 // what the approve click actually does, per stage — doc stages advance, impl closes
 const APPROVE_LABELS: Record<Stage, string> = {
-  description: 'Approve → plan stage',
-  plan: 'Approve → implementation',
+  description: 'Approve → implementation',
+  plan: 'Approve → implementation', // legacy stage
   implementation: 'Approve',
 };
 

@@ -67,6 +67,7 @@ describe('buildProtocol stage shapes', () => {
     const finish = p.finish.join('\n');
     expect(finish).toContain('acceptanceCriteria');
     expect(finish).toContain('submit_result');
+    expect(finish).toContain('Write the spec'); // the spec stage: implementation follows it directly
     expect(finish).not.toMatch(/git /);
   });
 

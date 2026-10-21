@@ -158,7 +158,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
         <span
           className="af-pill"
           style={{ marginLeft: 6, color: STAGE_COLORS[task.stage], background: `color-mix(in srgb, ${STAGE_COLORS[task.stage]} 16%, transparent)` }}
-          title="Pipeline stage: description → plan → implementation"
+          title="Pipeline stage: spec → implementation → PR"
         >
           <span className="d" style={{ background: STAGE_COLORS[task.stage] }}></span>{STAGE_LABELS[task.stage]}
         </span>

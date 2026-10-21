@@ -49,6 +49,11 @@ describe('ReviewActions', () => {
     expect(onApprove).toHaveBeenCalledTimes(1);
   });
 
+  it('labels the spec-stage approve "Approve → implementation" (no plan stage in the flow)', () => {
+    render(<ReviewActions stage="description" kind="code" onApprove={vi.fn()} onRequestChanges={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Approve → implementation' })).toBeInTheDocument();
+  });
+
   it('labels approve "Approve → deliver" when it will route to delivering', async () => {
     const onApprove = vi.fn();
     const user = userEvent.setup();

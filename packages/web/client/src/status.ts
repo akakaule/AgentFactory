@@ -41,8 +41,9 @@ export const STATUS_COLORS: Record<Status, string> = {
 
 // pipeline stage chip — the stage rides the card/drawer as a chip since the board
 // columns stay status-based (a task cycles through them once per stage)
+// 'description' is the spec stage (it writes the spec + acceptance criteria); 'plan' is legacy
 export const STAGE_LABELS: Record<Stage, string> = {
-  description: 'Describe',
+  description: 'Spec',
   plan: 'Plan',
   implementation: 'Implement',
 };
