@@ -16,22 +16,38 @@ export class GitError extends Error { name = 'GitError'; }
 // rather than passed to git. Mirrors SAFE_REF in @agentfactory/core (packages/core/src/git.ts).
 const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
-/** Run a git read. `ok:false` = git ran but exited non-zero; throws GitError only if git is absent. */
-async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string }> {
+/** Run a git read. `ok:false` = git ran but exited non-zero (stderr is the reason, with any
+ *  Authorization value redacted); throws GitError only if git is absent. */
+async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
     const { stdout } = await execFileAsync('git', args, {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
     });
-    return { ok: true, stdout };
+    return { ok: true, stdout, stderr: '' };
   } catch (err) {
-    const e = err as NodeJS.ErrnoException;
+    const e = err as NodeJS.ErrnoException & { stderr?: string };
     // existsSync(repoPath) ran before any spawn, so ENOENT can only mean the binary.
     if (e.code === 'ENOENT') throw new GitError('git executable not found');
-    return { ok: false, stdout: '' };
+    return { ok: false, stdout: '', stderr: redact(e.stderr ?? '') };
   }
+}
+
+function redact(text: string): string {
+  return text.replace(/Basic [A-Za-z0-9+/=]+/g, 'Basic <redacted>').replace(/https?:\/\/[^/@\s]+@/g, 'https://<redacted>@').trim();
+}
+
+/**
+ * `-c` args that authenticate a server-side git read with a resolved workspace credential.
+ * `http.<url>.extraheader` is multi-valued and the dispatcher injects the same header into the
+ * worker's env (GIT_CONFIG_*), which this MCP server inherits — so an empty value first RESETS
+ * the list, else git sends two Authorization headers and GitHub answers 400 "Duplicate header"
+ * (surfacing here as "origin unreachable"). Mirrors the reset `task_git` does for the push.
+ */
+export function authConfigArgs(auth: GitAuth): string[] {
+  return ['-c', `${auth.configKey}=`, '-c', `${auth.configKey}=${auth.configValue}`];
 }
 
 /**
@@ -164,11 +180,15 @@ export async function checkSubmission(opts: { repoPath: string; branch: string |
     // against the bare origin URL — so an expired PAT embedded in the on-disk origin URL can't 401
     // the verify. Without one, fall back to `origin` and whatever ambient credential git resolves.
     const target = auth ? auth.remoteUrl : 'origin';
-    const authArgs = auth ? ['-c', `${auth.configKey}=${auth.configValue}`] : [];
+    const authArgs = auth ? authConfigArgs(auth) : [];
     const ls = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', target, branch]);
     if (!ls.ok) {
-      // configured but unreachable — fail closed; the push needed this same network moments ago
-      failures.push(`origin is configured but unreachable, so the push could not be verified — retry submit once the remote responds.`);
+      // configured but unreachable — fail closed; the push needed this same network moments ago.
+      // Carry git's own reason so an auth failure (401/400) is distinguishable from an outage.
+      const lines = ls.stderr.split(/\r?\n/).filter(Boolean);
+      const diagnostic = lines.filter((l) => /^(fatal|error|remote):/i.test(l));
+      const reason = (diagnostic.length > 0 ? diagnostic : lines).slice(-2).join(' ');
+      failures.push(`origin is configured but unreachable, so the push could not be verified — retry submit once the remote responds.${reason ? `\n      git said: ${reason}` : ''}`);
     } else if (ls.stdout.trim() === '') {
       failures.push(`branch ${branch} is not on origin — push it:\n      git push -u origin ${branch}`);
     } else {

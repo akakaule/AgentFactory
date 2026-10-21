@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkSubmission } from '../src/git.js';
+import { checkSubmission, authConfigArgs } from '../src/git.js';
 import { makeClient, textOf } from './harness.js';
 
 const BRANCH = 'feature/AF-1-test';
@@ -108,6 +108,19 @@ describe('checkSubmission — origin variants', () => {
     const res = await checkSubmission({ repoPath: repo, branch: BRANCH, key: KEY });
     expect(res.ok).toBe(false);
     expect(res.message?.toLowerCase()).toContain('unreachable');
+    // git's own reason rides along (redacted), so a 400/401 is distinguishable from a network outage
+    expect(res.message).toContain('does not appear to be a git repository');
+  });
+
+  it('resets an inherited extraheader before adding the resolved PAT (no duplicate Authorization)', () => {
+    // The dispatcher injects the workspace PAT into the worker env as GIT_CONFIG_* http.<url>.extraheader;
+    // the MCP server inherits it. Adding a second value makes git send two Authorization headers and
+    // GitHub answers 400 "Duplicate header" — which the guard used to report as "unreachable".
+    const auth = { provider: 'github' as const, remoteUrl: 'https://github.com/o/r.git', originUrl: 'https://github.com/o/r.git', configKey: 'http.https://github.com/o/r.git.extraheader', configValue: 'Authorization: Basic Zm9v==' };
+    expect(authConfigArgs(auth)).toEqual([
+      '-c', 'http.https://github.com/o/r.git.extraheader=',
+      '-c', 'http.https://github.com/o/r.git.extraheader=Authorization: Basic Zm9v==',
+    ]);
   });
 
   it('with auth, verifies against auth.remoteUrl (not the literal origin) + carries the extraheader', async () => {

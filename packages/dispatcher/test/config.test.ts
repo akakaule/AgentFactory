@@ -94,6 +94,10 @@ describe('config', () => {
     expect(() => parseConfig({ db: 'x', workspaces: ['a'], permissionMode: 'yolo' })).toThrow();
   });
 
+  it('accepts the auto permission mode (classifier-gated headless sessions)', () => {
+    expect(parseConfig({ db: 'x', workspaces: ['a'], permissionMode: 'auto' }).permissionMode).toBe('auto');
+  });
+
   it('rejects a missing db', () => {
     expect(() => parseConfig({ workspaces: ['a'] })).toThrow();
   });

@@ -56,6 +56,10 @@ describe('Codex worker adapter', () => {
     expect(buildCodexArgs({ ...base, permissionMode: 'plan' })).toContain('read-only');
     expect(buildCodexArgs({ ...base, permissionMode: 'default' })).toContain('read-only');
     expect(buildCodexArgs({ ...base, permissionMode: 'bypassPermissions' })).toContain('--dangerously-bypass-approvals-and-sandbox');
+    // auto has no codex equivalent (claude-only classifier): same sandbox as acceptEdits
+    const auto = buildCodexArgs({ ...base, permissionMode: 'auto' });
+    expect(auto).toContain('workspace-write');
+    expect(auto).toContain('sandbox_workspace_write.network_access=true');
   });
 
   it('resolves a Windows npm launcher without cmd.exe and fails if it cannot', () => {
