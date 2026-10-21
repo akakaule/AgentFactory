@@ -8,7 +8,12 @@ export const HTTP_TIMEOUT_MS = 30_000;
 /** Node's global fetch, folded to the providers' JSON shape (headers lower-cased by undici). */
 export function makeFetchJson(fetchImpl: typeof fetch = fetch, timeoutMs: number = HTTP_TIMEOUT_MS): FetchJson {
   return async (url, init) => {
-    const res = await fetchImpl(url, { headers: init.headers, signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetchImpl(url, {
+      method: init.method ?? 'GET',
+      headers: init.body !== undefined ? { ...init.headers, 'content-type': 'application/json' } : init.headers,
+      ...(init.body !== undefined ? { body: init.body } : {}),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     const headers: Record<string, string> = {};
     res.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
     let body: unknown = null;

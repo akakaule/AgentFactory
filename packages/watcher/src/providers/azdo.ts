@@ -3,7 +3,8 @@ import type { FetchJson, FetchResponse } from '../types.js';
 import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
 
 /**
- * Azure DevOps via REST with a PAT (Code Read scope — the watcher never writes to the host).
+ * Azure DevOps via REST with a PAT. Reads need Code (Read); the one write — opening the PR once a
+ * task is delivering — needs Code (Read & write).
  * PR search is the ado-bridge `Build-AdoPrSearchPath` shape, broadened from status=completed
  * to status=all so open/abandoned PRs classify too. "Checks" are the PR status records
  * (build-validation policies and external status writers post there); a merged/abandoned
@@ -84,8 +85,8 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
     ...(pat ? { Authorization: basicPat(pat) } : {}),
   };
 
-  const guard = (res: FetchResponse, url: string): FetchResponse => {
-    if (res.status === 200) return res;
+  const guard = (res: FetchResponse, url: string, write = false): FetchResponse => {
+    if (res.status === 200 || (write && res.status === 201)) return res;
     // ADO throttling: 429 with Retry-After (also X-RateLimit-Reset on some responses).
     const retryAfter = Number(res.headers['retry-after'] ?? NaN);
     if (res.status === 429) {
@@ -95,14 +96,19 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
     // 203 (Non-Authoritative Information), not a 401 — so 203/401/403 all mean "the PAT is missing,
     // invalid, expired, or lacks Code (Read) for this org/project", not a transient error.
     if (res.status === 203 || res.status === 401 || res.status === 403) {
+      const scope = write ? 'Code (Read & write), needed to open the PR,' : 'Code (Read)';
       throw new ProviderHttpError(
-        `azdo auth failed (${res.status}) — the PAT is missing, invalid, expired, or lacks Code (Read) for this org/project: ${url}`,
+        `azdo auth failed (${res.status}) — the PAT is missing, invalid, expired, or lacks ${scope} for this org/project: ${url}`,
         res.status,
       );
     }
     throw new ProviderHttpError(`azdo ${res.status} for ${url}`, res.status);
   };
   const get = async (url: string): Promise<unknown> => guard(await fetchJson(url, { headers }), url).body;
+  const repoBase = (remote: { organization: string; project: string; repo: string }): string => {
+    const e = encodeURIComponent;
+    return `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}/_apis/git/repositories/${e(remote.repo)}`;
+  };
 
   return {
     key: 'azdo',
@@ -120,8 +126,9 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
           `${base}/pullrequests?searchCriteria.sourceRefName=${e(`refs/heads/${branch}`)}&searchCriteria.status=all&$top=10&api-version=${apiVersion}`,
         )) as { value?: AdoPr[] };
         const prs = list.value ?? [];
-        // a completed (merged) PR wins over an abandoned retry; otherwise the newest id
-        pr = prs.find((p) => p.status === 'completed') ?? prs.sort((a, b) => b.pullRequestId - a.pullRequestId)[0] ?? null;
+        // a completed (merged) PR wins, then the active one, then the newest id (abandoned retries)
+        pr = prs.find((p) => p.status === 'completed') ?? prs.find((p) => p.status === 'active')
+          ?? prs.sort((a, b) => b.pullRequestId - a.pullRequestId)[0] ?? null;
       }
       if (!pr) return { pr: null, checks: { state: 'unknown', failing: [] } };
 
@@ -162,5 +169,28 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       }
       return capExcerpts(messages);
     },
+
+    async openPullRequest(remote, { branch, title, body }): Promise<PrObservation | null> {
+      if (remote.provider !== 'azdo') throw new Error('azdo provider got a non-azdo remote');
+      const base = repoBase(remote);
+      const info = (await get(`${base}?api-version=${apiVersion}`)) as { defaultBranch?: string };
+      if (!info.defaultBranch) throw new ProviderHttpError(`azdo reports no default branch for ${base}`, 0);
+      const url = `${base}/pullrequests?api-version=${apiVersion}`;
+      const res = await fetchJson(url, {
+        headers, method: 'POST',
+        body: JSON.stringify({
+          sourceRefName: `refs/heads/${branch}`,
+          targetRefName: info.defaultBranch,
+          title,
+          description: body.length > MAX_DESCRIPTION ? `${body.slice(0, MAX_DESCRIPTION - 1)}…` : body,
+        }),
+      });
+      // TF401179: an active PR for this source/target pair already exists — the search finds it next tick.
+      if (res.status === 409) return null;
+      return toPr(remote, guard(res, url, true).body as AdoPr);
+    },
   };
 }
+
+/** Azure DevOps rejects a PR description longer than this. */
+const MAX_DESCRIPTION = 4000;

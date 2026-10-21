@@ -21,7 +21,11 @@ export interface FetchResponse {
   headers: Record<string, string>;
   body: unknown;
 }
-export type FetchJson = (url: string, init: { headers: Record<string, string> }) => Promise<FetchResponse>;
+/** GET by default; POST with a JSON `body` string is the one write (opening a PR after approval). */
+export type FetchJson = (
+  url: string,
+  init: { headers: Record<string, string>; method?: 'GET' | 'POST'; body?: string },
+) => Promise<FetchResponse>;
 
 /**
  * Everything the watcher touches outside its own logic, injected for tests —

@@ -43,8 +43,15 @@ export const baseConfigSchema = z.object({
    */
   captureBuildErrors: z.boolean().default(true),
   /**
-   * GitHub REST access. `tokenEnv` names the SHARED token env var (needs repo read scope: PRs +
-   * checks). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
+   * Open the PR once a task is delivering (its implementation review was approved) and no PR exists
+   * for the branch — the worker pushes before review but never opens the PR itself (protocol v7).
+   * Needs a write-scoped credential (see `github` / `azdo`). When off, or when creation fails,
+   * the board's "Open PR" link is the manual way.
+   */
+  createPullRequests: z.boolean().default(true),
+  /**
+   * GitHub REST access. `tokenEnv` names the SHARED token env var (needs Pull requests: Read and
+   * write, to open the PR, plus Checks/Commit statuses read; read-only when createPullRequests is off). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
    * `_`) to give one workspace its own token — e.g. `GITHUB_TOKEN_ACME`. Falls back to the shared var.
    */
   github: z
@@ -55,8 +62,8 @@ export const baseConfigSchema = z.object({
     .strict()
     .default({}),
   /**
-   * Azure DevOps REST access. `patEnv` names the SHARED PAT env var (needs Code (Read) scope — never
-   * write). A PAT authenticates to ONE organization, so workspaces in different orgs/projects need
+   * Azure DevOps REST access. `patEnv` names the SHARED PAT env var (needs Code (Read & write) to
+   * open the PR; Code (Read) when createPullRequests is off). A PAT authenticates to ONE organization, so workspaces in different orgs/projects need
    * their own: set `<patEnv>_<WORKSPACE>` (e.g. `AZDO_PAT_KL_DISCONFIGURATION`) to override per
    * workspace; falls back to the shared `patEnv`.
    */

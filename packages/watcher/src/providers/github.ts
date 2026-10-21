@@ -79,8 +79,8 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const guard = (res: FetchResponse, url: string): FetchResponse => {
-    if (res.status === 200) return res;
+  const guard = (res: FetchResponse, url: string, write = false): FetchResponse => {
+    if (res.status === 200 || (write && res.status === 201)) return res;
     // Primary rate limit: remaining 0 + a reset epoch. Secondary/abuse: 429 or retry-after.
     const remaining = Number(res.headers['x-ratelimit-remaining'] ?? NaN);
     const reset = Number(res.headers['x-ratelimit-reset'] ?? NaN);
@@ -92,8 +92,9 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
     // Auth (not rate limit): a bad/missing token is 401; a token without repo read scope is 403
     // with rate-limit budget remaining. Both mean "fix the token", not "back off and retry".
     if (res.status === 401 || res.status === 403) {
+      const scope = write ? 'Pull requests: write (needed to open the PR)' : 'repo read scope';
       throw new ProviderHttpError(
-        `github auth failed (${res.status}) — the token is missing, invalid, or lacks repo read scope: ${url}`,
+        `github auth failed (${res.status}) — the token is missing, invalid, or lacks ${scope}: ${url}`,
         res.status,
       );
     }
@@ -101,6 +102,8 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
   };
 
   const get = async (url: string): Promise<unknown> => guard(await fetchJson(url, { headers }), url).body;
+  const repoUrl = (remote: { owner: string; repo: string }): string =>
+    `${apiBase}/repos/${encodeURIComponent(remote.owner)}/${encodeURIComponent(remote.repo)}`;
 
   return {
     key: 'github',
@@ -119,8 +122,9 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
         const list = (await get(
           `${repo}/pulls?head=${encodeURIComponent(`${remote.owner}:${branch}`)}&state=all&sort=updated&direction=desc&per_page=10`,
         )) as GitHubPr[];
-        // a merged PR wins over a closed retry; otherwise the most recently updated
-        pr = list.find((p) => p.merged_at !== null) ?? list[0] ?? null;
+        // a merged PR wins, then the open one, then the most recently updated (a closed retry
+        // can be updated more recently than the PR that is still open)
+        pr = list.find((p) => p.merged_at !== null) ?? list.find((p) => p.state === 'open') ?? list[0] ?? null;
       }
       if (!pr) return { pr: null, checks: { state: 'unknown', failing: [] } };
 
@@ -158,6 +162,25 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
         // best-effort: a hiccup here just drops back to check names in the bounce note.
       }
       return capExcerpts(messages);
+    },
+
+    async openPullRequest(remote, { branch, title, body }): Promise<PrObservation | null> {
+      if (remote.provider !== 'github') throw new Error('github provider got a non-github remote');
+      const repo = repoUrl(remote);
+      const info = (await get(repo)) as { default_branch?: string };
+      if (!info.default_branch) throw new ProviderHttpError(`github reports no default branch for ${repo}`, 0);
+      const url = `${repo}/pulls`;
+      const res = await fetchJson(url, {
+        headers, method: 'POST', body: JSON.stringify({ title, head: branch, base: info.default_branch, body }),
+      });
+      if (res.status === 422) {
+        // "A pull request already exists for owner:branch" — the search finds it next tick. Any
+        // other validation failure (e.g. no commits between base and head) is a real error.
+        const messages = ((res.body as { errors?: Array<{ message?: string }> } | null)?.errors ?? []).map((e) => e.message ?? '');
+        if (messages.some((m) => /already exists/i.test(m))) return null;
+        throw new ProviderHttpError(`github 422 opening a PR for ${branch}: ${messages.filter(Boolean).join('; ') || 'validation failed'}`, 422);
+      }
+      return toPr(guard(res, url, true).body as GitHubPr);
     },
   };
 }
