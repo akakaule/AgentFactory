@@ -19,6 +19,7 @@ export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, typ
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, type ParsedAiReview } from './aiReview.js';
 export { parseAcceptanceCriteria, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
 export { buildReviewBrief } from './reviewBrief.js';
+export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';

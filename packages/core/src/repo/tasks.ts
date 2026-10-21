@@ -1,7 +1,7 @@
 import type { DB } from '../db.js';
 import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
+import { recentActivity, activitySteps, criteriaClaimsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
@@ -213,6 +213,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     policy: r.workspace_policy,
     verifyCommand: r.workspace_verify_command,
     activity: recentActivity(db, r.id, RECENT_ACTIVITY_LIMIT),
+    criteriaClaims: criteriaClaimsFor(db, r.id),
     links: linksFor(db, r.id),
     attachments: attachmentsMeta(db, r.id),
     dependencies: dependenciesFor(db, r.id),

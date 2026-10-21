@@ -5,6 +5,7 @@ import { submitResult } from '../src/ops/submitResult.js';
 import { findRowByKey } from '../src/repo/tasks.js';
 import { recentActivity } from '../src/repo/activity.js';
 import { linksFor } from '../src/repo/links.js';
+import { getTask } from '../src/ops/getTask.js';
 import { ValidationError, NotFoundError, InvalidTransitionError } from '../src/errors.js';
 import type { Status } from '../src/types.js';
 
@@ -236,6 +237,86 @@ describe('submitResult — stage deliverables', () => {
     const task = seedInProgress(db, 'plan');
 
     expect(() => submitResult(db, task.key, { summary: 's' }, fixedNow)).toThrow(/plan stage/);
+  });
+});
+
+describe('submitResult — the worker\'s claim per acceptance criterion', () => {
+  const AC = '1. Race — one claim wins\n2. Logs — one line per claim';
+  function inProgress(stage: 'implementation' | 'description' = 'implementation') {
+    const db = makeTestDb();
+    const task = stage === 'description'
+      ? createTask(db, { title: 'T', spec: 'S', stage })
+      : createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: AC });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    return { db, task };
+  }
+  const claimComments = (db: ReturnType<typeof makeTestDb>, id: number) =>
+    recentActivity(db, id, 50).filter(a => a.type === 'comment' && a.body.startsWith('criteria-claims/v1'));
+
+  it('stores the claims as one criteria-claims/v1 comment after the result and exposes them on the detail', () => {
+    const { db, task } = inProgress();
+    const detail = submitResult(db, task.key, { summary: 'done', criteria: [
+      { id: 'ac2', claim: '  One log line per claim; logs.test.ts proves it.  ' },
+      { id: 'AC1', claim: 'The reservation is a unique insert; race.test.ts runs two supervisors.' },
+    ] }, fixedNow);
+    expect(detail.criteriaClaims).toEqual([
+      { id: 'AC2', claim: 'One log line per claim; logs.test.ts proves it.' },
+      { id: 'AC1', claim: 'The reservation is a unique insert; race.test.ts runs two supervisors.' },
+    ]);
+    const comments = claimComments(db, task.id);
+    expect(comments).toHaveLength(1);
+    const result = detail.activity.find(a => a.type === 'result')!;
+    expect(comments[0]!.id).toBeGreaterThan(result.id);
+    expect(comments[0]!.actor).toBe('agent');
+  });
+
+  it('leaving criteria out (or passing none) is allowed and stores nothing', () => {
+    for (const criteria of [undefined, []]) {
+      const { db, task } = inProgress();
+      const detail = submitResult(db, task.key, { summary: 'done', ...(criteria ? { criteria } : {}) }, fixedNow);
+      expect(detail.criteriaClaims).toBeNull();
+      expect(claimComments(db, task.id)).toEqual([]);
+    }
+  });
+
+  it('rejects unknown and duplicate ids with an error that names the valid ids, and changes nothing', () => {
+    const { db, task } = inProgress();
+    expect(() => submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC9', claim: 'x' }] }, fixedNow))
+      .toThrow(new ValidationError('unknown criterion AC9; this task has AC1–AC2'));
+    expect(() => submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC1', claim: 'x' }, { id: 'ac1', claim: 'y' }] }, fixedNow))
+      .toThrow(new ValidationError('criterion AC1 is listed twice; this task has AC1–AC2'));
+    expect(() => submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC1', claim: 'x'.repeat(601) }] }, fixedNow)).toThrow(ValidationError);
+    expect(() => submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC1', claim: '   ' }] }, fixedNow)).toThrow(ValidationError);
+    expect(findRowByKey(db, task.key)!.status).toBe('in_progress');
+    expect(claimComments(db, task.id)).toEqual([]);
+  });
+
+  it('a task whose criteria text has no list still has AC1', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'It works.' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    expect(() => submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC2', claim: 'x' }] }, fixedNow))
+      .toThrow(new ValidationError('unknown criterion AC2; this task has AC1'));
+  });
+
+  it('is rejected on a doc stage, the way verification is', () => {
+    const { db, task } = inProgress('description');
+    expect(() => submitResult(db, task.key, { summary: 'S', spec: 'S2', acceptanceCriteria: AC, criteria: [{ id: 'AC1', claim: 'x' }] }, fixedNow))
+      .toThrow(/plan\/verification\/criteria are not accepted/);
+  });
+
+  it('a newer result without claims clears them; the claims survive a long activity tail', () => {
+    const { db, task } = inProgress();
+    submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC1', claim: 'Proven by race.test.ts.' }] }, fixedNow);
+    const insert = db.prepare("INSERT INTO activity(task_id, type, actor, body, created_at) VALUES (?, 'comment', 'human', ?, ?)");
+    for (let i = 0; i < 60; i++) insert.run(task.id, `note ${i}`, FIXED_TS); // pushes the claims out of the 50-row activity slice
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    expect(submitResult(db, task.key, { summary: 'again', criteria: [{ id: 'AC2', claim: 'Proven by logs.test.ts.' }] }, fixedNow).criteriaClaims)
+      .toEqual([{ id: 'AC2', claim: 'Proven by logs.test.ts.' }]);
+    for (let i = 0; i < 60; i++) insert.run(task.id, `more ${i}`, FIXED_TS);
+    expect(getTask(db, task.key).criteriaClaims).toEqual([{ id: 'AC2', claim: 'Proven by logs.test.ts.' }]);
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(task.key);
+    expect(submitResult(db, task.key, { summary: 'third, no claims' }, fixedNow).criteriaClaims).toBeNull();
   });
 });
 

@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -29,12 +29,19 @@ export type ProtocolInput =
       base?: { ref: string; fetch: boolean };
       /** Per-workspace verification command; when set it must pass before push (see git.ts/submitResult). */
       verifyCommand?: string | null;
+      /** v8: the task's acceptance criteria (core's parseAcceptanceCriteria) — the submit step asks
+       *  for one claim per id. Omitted/empty ⇒ no claims asked for. */
+      criteria?: Array<{ id: string; name: string | null }>;
     };
 
 /** Board text fields (spec, acceptance criteria, plan, summary) are rendered with the board's own
  *  wrapping; prose broken at a column width shows up there as a ragged narrow block. */
 export const NO_HARD_WRAP =
   'Write prose as flowing text and do NOT hard-wrap it at a column width: a newline only ends a paragraph, a list item or a heading — the board wraps lines itself.';
+
+/** The board numbers acceptance criteria AC1…ACn by list position and names each by its prefix. */
+export const NUMBERED_CRITERIA =
+  'Write the acceptance criteria as a numbered list, one verifiable criterion per item, each starting with a short name and a dash (`4. Race — two supervisors …`).';
 
 // Forward slashes only: Windows backslash paths lose their backslashes when the
 // agent pastes them into a POSIX shell; git accepts / on every platform.
@@ -52,6 +59,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       setup: [],
       finish: [
         'Write the spec: rewrite the task intent into a spec precise enough to implement directly — implementation follows this stage with no separate plan (preserve any source-reference lines, e.g. an ADO work-item link, at the top) — and objectively verifiable acceptance criteria.',
+        NUMBERED_CRITERIA,
         NO_HARD_WRAP,
         'Do NOT touch the repository — no branch, no worktree, no code changes.',
         'Call submit_result with { summary, claimAt: the claimedAt value from this claim, spec, acceptanceCriteria }.',
@@ -99,6 +107,17 @@ export function buildProtocol(input: ProtocolInput): Protocol {
     : 'Read the repository CI workflow and run its locally runnable checks from the worktree root, including lint, formatting and type checks when configured, plus the repo tests and build. All must pass before you push; report any CI-only checks you could not run in the result.';
   // v7: no PR step. The worker pushes before review; the watcher opens the PR after the
   // implementation review is approved (GitHub and Azure DevOps alike).
+  // v8: one claim per acceptance criterion rides the submit; the review panel shows it per criterion.
+  const criteria = input.criteria ?? [];
+  const submitWith = [
+    'claimAt (the claimedAt value from this claim)',
+    'a branch link (label = the branch name)',
+    ...(verify ? ['the `verification` outcome'] : []),
+    'best-effort metrics',
+    ...(criteria.length > 0
+      ? [`\`criteria\`: one \`{ id, claim }\` per acceptance criterion, a sentence on how the change meets it and which test proves it. Ids: ${criteria.map((c) => (c.name ? `${c.id} ${c.name}` : c.id)).join(', ')}`]
+      : []),
+  ];
   return {
     version: PROTOCOL_VERSION,
     stage,
@@ -118,7 +137,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       verifyStep,
       input.managedGit ? 'Call task_git with { action: "push" } after verification passes.' : `git push -u origin ${branch}`,
       input.managedGit ? 'Return to the repository root, then call task_git with { action: "cleanup" } to remove the published task worktree.' : `git worktree remove ${wt} && git worktree prune`,
-      `Call submit_result with claimAt (the claimedAt value from this claim), a branch link (label = the branch name)${verify ? ', the `verification` outcome,' : ''} and best-effort metrics. Do not open a pull request: the board opens it after the implementation review is approved.`,
+      `Call submit_result with ${submitWith.slice(0, -1).join(', ')} and ${submitWith.at(-1)!}. Do not open a pull request: the board opens it after the implementation review is approved.`,
     ],
   };
 }

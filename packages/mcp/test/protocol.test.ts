@@ -59,7 +59,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(7);
+    expect(p.version).toBe(8);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -73,7 +73,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(7);
+    expect(p.version).toBe(8);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -95,7 +95,7 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(7);
+    expect(p.version).toBe(8);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
@@ -180,6 +180,27 @@ describe('buildProtocol worktree base', () => {
 
 // Protocol v7: the worker never opens a PR. It pushes before review; the watcher opens the PR
 // after the implementation review is approved (GitHub and Azure DevOps alike).
+describe('buildProtocol: criterion claims (v8)', () => {
+  const impl = (criteria?: Array<{ id: string; name: string | null }>) =>
+    buildProtocol({ stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-9', branch: 'feature/AF-9-x', branchCreated: true, ...(criteria ? { criteria } : {}) });
+
+  it('the submit step asks for one claim per criterion and lists the task\'s ids', () => {
+    const submit = impl([{ id: 'AC1', name: 'Race' }, { id: 'AC2', name: null }, { id: 'AC3', name: 'Logs' }]).finish.find((s) => s.includes('submit_result'))!;
+    expect(submit).toContain('`criteria`: one `{ id, claim }` per acceptance criterion');
+    expect(submit).toContain('which test proves it');
+    expect(submit).toContain('Ids: AC1 Race, AC2, AC3 Logs.');
+  });
+
+  it('asks for no claims when the task has no criteria', () => {
+    for (const p of [impl(), impl([])]) expect(p.finish.join('\n')).not.toContain('`criteria`');
+  });
+
+  it('the spec stage asks for numbered, named acceptance criteria so they parse', () => {
+    const finish = buildProtocol({ stage: 'description', repoPath: 'c:/Git/App', key: 'AF-2' }).finish.join('\n');
+    expect(finish).toContain('Write the acceptance criteria as a numbered list, one verifiable criterion per item, each starting with a short name and a dash (`4. Race — two supervisors …`).');
+  });
+});
+
 describe('buildProtocol: no worker PR step (v7)', () => {
   const impl = (extra: Record<string, unknown>) =>
     buildProtocol({ stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-8', branch: 'feature/AF-8-pr', branchCreated: true, ...extra } as Parameters<typeof buildProtocol>[0]);

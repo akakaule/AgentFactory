@@ -73,6 +73,12 @@ export const submitResultSchema = z.object({
   acceptanceCriteria: nonEmpty.optional(),
   plan: nonEmpty.optional(),
   verification: nonEmpty.optional(), // implementation stage: reported outcome of the workspace verify command
+  // implementation stage: the agent's claim per acceptance criterion; ops/submitResult.ts checks
+  // the ids against the task's parsed criteria (it can name the valid ones)
+  criteria: z.array(z.object({
+    id: z.string().trim().min(1).transform((s) => s.toUpperCase()),
+    claim: z.string().trim().min(1, 'a criterion claim must not be blank').max(600, 'a criterion claim must be at most 600 characters'),
+  }).strict()).optional(),
 
   links: z
     .array(z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty }))

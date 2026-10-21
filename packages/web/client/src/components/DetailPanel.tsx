@@ -8,6 +8,7 @@ import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { CopyButton } from './CopyButton.js';
 import { composePrReview } from '../composePrReview.js';
+import { parseCriteriaClaims } from '../criteriaClaims.js';
 import { LiveSection } from './LiveSection.js';
 import { TranscriptSection } from './TranscriptSection.js';
 import { VisualizationFrame } from './VisualizationModal.js';
@@ -54,6 +55,22 @@ function uniqueDisplayLinks(links: TaskDetail['links']): TaskDetail['links'] {
   });
 }
 
+/** An activity body: an ai-review/v2 discussion and the agent's criterion claims collapse to a
+ *  summary line (their raw JSON is long); everything else renders as written. */
+function ActivityBody({ body }: { body: string }) {
+  if (/^ai-review\/v2\b/i.test(body.trimStart()))
+    return <details className="af-tl-text"><summary>{body.split('\n')[0]}</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{body}</pre></details>;
+  const claims = parseCriteriaClaims(body);
+  if (claims)
+    return (
+      <details className="af-tl-text af-tl-claims">
+        <summary>Reported on {claims.length} acceptance {claims.length === 1 ? 'criterion' : 'criteria'}</summary>
+        <ul>{claims.map((c) => <li key={c.id}><strong>{c.id}</strong> {c.claim}</li>)}</ul>
+      </details>
+    );
+  return <div className="af-tl-text">{body}</div>;
+}
+
 function ActivityItem({ entry }: { entry: Activity }) {
   // prefer the attributed human name (Phase 1 actor_user_id); fall back to the machine axis
   const who = entry.actorName ?? (entry.actor === 'agent' ? 'agent' : 'you');
@@ -67,9 +84,7 @@ function ActivityItem({ entry }: { entry: Activity }) {
             <span className="mv"> · {STATUS_LABELS[entry.fromStatus]} → {STATUS_LABELS[entry.toStatus]}</span>
           )}
         </div>
-        {entry.body && (/^ai-review\/v2\b/i.test(entry.body.trimStart())
-          ? <details className="af-tl-text"><summary>{entry.body.split('\n')[0]}</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{entry.body}</pre></details>
-          : <div className="af-tl-text">{entry.body}</div>)}
+        {entry.body && <ActivityBody body={entry.body} />}
       </div>
       <span className="af-tl-time">{shortTime(entry.createdAt)}</span>
     </div>

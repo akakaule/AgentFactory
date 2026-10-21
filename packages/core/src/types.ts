@@ -405,7 +405,14 @@ export interface TaskDetail extends Task {
   hasVisualization: boolean;
   visualizationGeneratedAt: string | null;
   metrics: TaskMetricsView;
+  // the implementing agent's claim per acceptance criterion from the latest result
+  // (criteria-claims/v1, src/criteriaClaims.ts); null when that result reported none.
+  // Always set by the board; optional so older servers' payloads still type.
+  criteriaClaims?: CriterionClaim[] | null;
 }
+
+/** The implementing agent's claim for one acceptance criterion (id AC1…ACn from parseAcceptanceCriteria). */
+export interface CriterionClaim { id: string; claim: string }
 
 export interface CreateTaskInput {
   title: string; spec: string;
@@ -437,6 +444,7 @@ export interface SubmitResultInput {
   acceptanceCriteria?: string | undefined; // description stage: verifiable acceptance criteria
   plan?: string | undefined;               // plan stage: the implementation plan
   verification?: string | undefined;       // implementation/harden: reported outcome of the workspace verify command
+  criteria?: CriterionClaim[] | undefined;   // implementation: the agent's claim per acceptance criterion
 }
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;

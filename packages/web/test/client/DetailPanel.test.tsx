@@ -834,6 +834,19 @@ describe('DetailPanel', () => {
     expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument();
   });
 
+  it('shows the agent\'s criterion claims as a summary line, not raw JSON', async () => {
+    const mocked = await getApiMock();
+    const body = 'criteria-claims/v1\n\n```json\n{"claims":[{"id":"AC1","claim":"race.test.ts proves it."},{"id":"AC2","claim":"One log line."}]}\n```';
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, activity: [{ ...backlogTask.activity[1]!, id: 30, actor: 'agent', body }] });
+    const user = userEvent.setup();
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const summary = await screen.findByText('Reported on 2 acceptance criteria');
+    expect(screen.queryByText(/"claims"/)).toBeNull();
+    await user.click(summary);
+    expect(screen.getByText('race.test.ts proves it.')).toBeVisible();
+  });
+
   it('calls onClose when the close button is clicked', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(backlogTask);

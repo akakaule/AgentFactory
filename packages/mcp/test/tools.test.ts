@@ -125,7 +125,7 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(7);
+    expect(payload.protocol.version).toBe(8);
     expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
@@ -426,6 +426,23 @@ describe('submit_result', () => {
     });
     expect(res.isError).toBeFalsy();
     expect(core.getTask(t.key).metrics).toMatchObject({ tokensIn: null, tokensOut: null, costUsd: null, model: null });
+  });
+
+  it('the claim lists the criterion ids and the submit takes one claim per criterion', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ title: 'Claims', spec: 's', acceptanceCriteria: '1. Race — one claim wins\n2. Logs — one line' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const claimed = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(claimed.protocol.finish.join('\n')).toContain('Ids: AC1 Race, AC2 Logs.');
+
+    const wrong = await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'done', criteria: [{ id: 'AC3', claim: 'x' }] } });
+    expect(wrong.isError).toBe(true);
+    expect(textOf(wrong)).toContain('unknown criterion AC3; this task has AC1–AC2');
+
+    const ok = await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'done', criteria: [{ id: 'AC1', claim: 'race.test.ts proves it.' }] } });
+    expect(ok.isError).toBeFalsy();
+    expect(JSON.parse(textOf(ok)).criteriaClaims).toEqual([{ id: 'AC1', claim: 'race.test.ts proves it.' }]); // the agent's own data stays
+    expect(core.getTask(t.key).criteriaClaims).toEqual([{ id: 'AC1', claim: 'race.test.ts proves it.' }]);
   });
 
   it('returns isError when submitting result on a backlog task', async () => {
