@@ -130,7 +130,8 @@ export const api = {
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
   restart: (key: string) => req<TaskDetail>(`/api/tasks/${key}/restart`, body({})),
-  approve: (key: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body({})),
+  // reason: required by the server when approving over must-fix issues or open decisions
+  approve: (key: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body(reason ? { reason } : {})),
   markPrReviewed: (key: string, review: string) => req<TaskDetail>(`/api/tasks/${key}/pr-reviewed`, body({ review })),
   requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
 };

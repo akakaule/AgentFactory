@@ -458,6 +458,28 @@ describe('tasks REST API', () => {
       expect(body.status).toBe('done');
     });
 
+    it('approving over a must-fix issue needs a reason: 400 without one, 200 with one recorded', async () => {
+      const task = core.createTask({ title: 'Task', spec: 'Spec', acceptanceCriteria: '1. Race — one claim wins' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(task.key, { summary: 'Done!' });
+      core.addComment(task.key, { actor: 'agent', body: 'ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"severity":"error","title":"AC1 race"}]}\n```' });
+
+      for (const body of [{}, { reason: '   ' }]) {
+        const res = await post(app, `/api/tasks/${task.key}/approve`, body);
+        expect(res.status).toBe(400);
+        expect((await res.json() as { message: string }).message).toMatch(/needs a reason/);
+      }
+      expect((await post(app, `/api/tasks/${task.key}/approve`, { reason: 'x'.repeat(2001) })).status).toBe(400);
+      expect(core.getTask(task.key).status).toBe('in_review');
+
+      const res = await post(app, `/api/tasks/${task.key}/approve`, { reason: 'Covered by the lock in AF-12.' });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; activity: Array<{ body: string }> };
+      expect(body.status).toBe('done');
+      expect(body.activity.map((a) => a.body)).toContain('override: approved over 1 must-fix\n\nReason: Covered by the lock in AF-12.');
+    });
+
     it('approving a non-in_review task → 409', async () => {
       const r = await post(app, '/api/tasks', { title: 'Task', spec: 'Spec', acceptanceCriteria: 'AC' });
       const created = await r.json() as { key: string };

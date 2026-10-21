@@ -119,7 +119,7 @@ describe('reviewApprove override logging', () => {
     const override = getTask(db, task.key).activity.find((a) => a.type === 'comment' && a.body.startsWith('override:'));
     expect(override).toBeDefined();
     expect(override!.actor).toBe('human');
-    expect(override!.body).toBe('override: approved over 2 open AI findings');
+    expect(override!.body).toBe('override: approved over 2 minor issues'); // warnings only: no reason needed
   });
 
   it('does not log an override for a clean approval', () => {

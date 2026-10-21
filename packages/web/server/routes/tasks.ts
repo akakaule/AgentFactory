@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { validated } from '../validate.js';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, approveBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
 import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
@@ -185,7 +185,9 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
   // The restart/v1 marker clears the derived failure and resets the owning supervisor's budget.
   r.post('/:key/restart', rejectService, (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c))));
 
-  r.post('/:key/approve', rejectService, (c) => c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c))));
+  // a reason is required (core enforces it) when approving over must-fix issues or open decisions
+  r.post('/:key/approve', rejectService, validated('json', approveBody), (c) =>
+    c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c), c.req.valid('json').reason ?? null)));
 
   r.post('/:key/request-changes', rejectService, validated('json', feedbackBody), (c) =>
     c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));

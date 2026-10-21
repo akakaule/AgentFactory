@@ -197,7 +197,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
      *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
     addPrFeedback: (key: string, input: AddPrFeedbackInput) => addPrFeedback(db, key, input),
     applyFeedbackFix: (key: string, actorUserId: number | null = null) => applyFeedbackFix(db, key, actorUserId),
-    reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin),
+    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),

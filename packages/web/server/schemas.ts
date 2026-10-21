@@ -41,6 +41,11 @@ export const updateBody = z.object({
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum, note: z.string().optional(), expectedRevision: z.string().optional(), reason: z.string().optional() });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
+// Approve: the human's reason for approving over must-fix issues or open decisions (core decides
+// when one is required). Blank normalizes to absent so core's message, not zod's, explains it.
+export const approveBody = z.object({
+  reason: z.string().max(2000, 'reason must be at most 2000 characters').transform((s) => s.trim() || undefined).optional(),
+});
 // "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
 export const prReviewedBody = z.object({ review: z.string().optional() });
 // A human's PR-review comment forwarded onto a delivering task for critical evaluation.

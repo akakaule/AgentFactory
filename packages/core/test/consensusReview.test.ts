@@ -60,7 +60,8 @@ describe('consensus review safety', () => {
     core.addComment(t.key, { actor: 'agent', body: consensusBody() });
     expect(core.getTask(t.key)).toMatchObject({ status: 'in_review', stage: 'description', aiReview: { verdict: 'disputed' } });
     expect(core.listTasks({ status: 'in_review' })[0]?.aiReview?.verdict).toBe('disputed');
-    core.reviewApprove(t.key);
-    expect(core.getTask(t.key).activity.some(a => a.body.includes('override:') && a.body.includes('dispute'))).toBe(true);
+    expect(() => core.reviewApprove(t.key)).toThrow(/needs a reason/); // the dispute is an open decision
+    core.reviewApprove(t.key, null, 'The guard covers it.');
+    expect(core.getTask(t.key).activity.some(a => a.body === 'override: approved over 1 open decision\n\nReason: The guard covers it.')).toBe(true);
   });
 });
