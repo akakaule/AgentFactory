@@ -54,6 +54,18 @@ describe('derived aiReview field', () => {
     expect(listTasks(db, { status: 'in_review' })[0]!.aiReview).toMatchObject({ verdict: 'findings', findings: 2 });
   });
 
+  it('carries the review brief on detail and summary, built against the task criteria', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    expect(getTask(db, task.key).reviewBrief).toBeNull();
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2) }, at(95));
+
+    const brief = getTask(db, task.key).reviewBrief!;
+    expect(brief).toMatchObject({ headline: 'minor', reviewers: ['codex'], counts: { should: 2 } });
+    expect(brief.criteria.map((r) => [r.id, r.text, r.status])).toEqual([['AC1', 'A', 'clear']]);
+    expect(listTasks(db, { status: 'in_review' })[0]!.reviewBrief).toEqual(brief);
+  });
+
   it('reads clean at zero findings', () => {
     const db = makeTestDb();
     const task = driveToReview(db);

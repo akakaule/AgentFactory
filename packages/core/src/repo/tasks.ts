@@ -7,6 +7,7 @@ import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
+import { buildReviewBrief } from '../reviewBrief.js';
 import { parseFailureComment, summarizeFailure, type ParsedFailure } from '../failure.js';
 import { classifyFailureNote, parseFailureTriageFeedbackComment, summarizeFailureTriage } from '../failureTriage.js';
 import { deliveryByTaskIds } from './delivery.js';
@@ -46,7 +47,7 @@ export function toTask(r: TaskRow): Task {
     id: r.id, key: r.key, title: r.title, spec: r.spec, acceptanceCriteria: r.acceptance_criteria,
     status: r.status, stage: r.stage, kind: r.kind, resultSummary: r.result_summary, seq: r.seq, workspace: r.workspace_name,
     unmetDependencyCount: r.unmet_dependency_count,
-    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, failure: null, failureTriage: null, delivery: null, intake: null,
+    claimedBy: r.claimed_by, claimedAt: r.claimed_at, archivedAt: r.archived_at, aiReview: null, reviewBrief: null, failure: null, failureTriage: null, delivery: null, intake: null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -193,9 +194,11 @@ export function aiReviewFor(db: DB, taskId: number): AiReviewSummary | null {
 export function toDetail(db: DB, r: TaskRow): TaskDetail {
   const viz = visualizationMetaFor(db, r.id);
   const { failures, triage } = failureAndTriage(db, [r]);
+  const aiReview = aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null;
   return {
     ...toTask(r),
-    aiReview: aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null,
+    aiReview,
+    reviewBrief: buildReviewBrief(aiReview, r.acceptance_criteria, r.stage),
     failure: failures.get(r.id) ?? null,
     failureTriage: triage.get(r.id) ?? null,
     delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
@@ -296,7 +299,7 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const { failures, triage } = failureAndTriage(db, rows);
   const deliveries = deliveryByTaskIds(db, ids);
   const intakes = intakeByTaskIds(db, rows);
-  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, reviewBrief: buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage), failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
 }
 /** The in_progress task a worker label already holds (oldest first), if any — the claim
  *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of

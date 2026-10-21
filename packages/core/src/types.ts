@@ -67,7 +67,11 @@ export interface AiReviewFinding {
   file: string | null;
   line: number | null;
   title: string;
-  detail: string | null;
+  detail: string | null; // the problem (newer reviewers keep the remedy in `fix`)
+  // the acceptance-criterion ids (AC<n>) this finding puts at risk; [] = outside the criteria,
+  // absent = not reported (a reviewer from before criterion links)
+  criteria?: string[] | undefined;
+  fix?: string | undefined; // the change that resolves it
 }
 
 /** clean = current review, no findings; findings = current review with N>0; pending = a result is newer than the latest review. */
@@ -84,6 +88,56 @@ export interface AiReviewSummary {
   reviewer: string | null;
   items: AiReviewFinding[];
   consensus?: ReviewConsensus;
+}
+
+/**
+ * The AI review as the human decides on it (docs/spec/2026-10-21-review-decision-panel-design.md
+ * §5): each distinct issue once, grouped by what it needs from the human, and each acceptance
+ * criterion's status. Derived at read time from the AiReviewSummary — see src/reviewBrief.ts.
+ */
+export type ReviewHeadline = 'changes_needed' | 'your_call' | 'minor' | 'clean' | 'pending';
+export type ReviewGroup = 'must' | 'call' | 'should' | 'fyi';
+export type ReviewDispute = 'severity' | 'validity' | 'unverified';
+export interface ReviewOpinion {
+  reviewer: string;
+  decision: 'confirm' | 'reject' | 'uncertain';
+  severity: AiReviewSeverity | null;
+  reason: string | null;
+  evidence: string;
+}
+/** A consensus candidate shown by reference: a merged duplicate or a rejected candidate. */
+export interface ReviewCandidateRef { id: string; title: string; source: string; opinions: ReviewOpinion[] }
+export interface ReviewIssue {
+  id: string;                       // consensus candidate id; v1: F1…Fn by position
+  group: ReviewGroup;
+  dispute: ReviewDispute | null;    // set only when group is 'call'
+  title: string;
+  problem: string | null;           // finding.detail
+  fix: string | null;
+  file: string | null;
+  line: number | null;
+  criteria: string[] | null;        // null = unknown (legacy review, no id in the title)
+  source: string | null;            // the reviewer who raised it
+  opinions: ReviewOpinion[];        // [] for a single-reviewer (v1) review
+  merged: ReviewCandidateRef[];
+}
+export interface ReviewCriterionRow {
+  id: string;
+  name: string | null;
+  text: string;
+  status: 'not_met' | 'your_call' | 'concerns' | 'clear';
+  issueIds: string[];
+}
+export interface ReviewBrief {
+  headline: ReviewHeadline;
+  reviewers: string[];              // consensus participants, or [reviewer] for v1
+  headSha: string | null;           // consensus.submission.headSha
+  counts: { must: number; call: number; should: number; fyi: number; merged: number; rejected: number };
+  issues: ReviewIssue[];            // must, call, should, fyi; candidate order within a group
+  rejected: ReviewCandidateRef[];
+  criteria: ReviewCriterionRow[];   // [] unless the stage is implementation and items parsed
+  generalCriteria: string | null;   // the criteria text outside the list, shown with the rows
+  unlinked: number;                 // open issues whose criteria is null (counted only with rows)
 }
 
 /**
@@ -215,6 +269,7 @@ export interface Task {
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
+  reviewBrief?: ReviewBrief | null; // derived from aiReview + acceptance criteria; null with no review (and in agent payloads)
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in

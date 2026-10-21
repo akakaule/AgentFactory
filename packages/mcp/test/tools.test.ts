@@ -254,6 +254,33 @@ describe('ai-review activity strip', () => {
     const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
     expect(payload.key).toBe(t.key);
     expect(payload.aiReview).toBeNull();
+    expect(payload.reviewBrief).toBeNull();
+  });
+
+  it('get_task, list_tasks, submit_result and update_status never carry the review brief or the review comments', async () => {
+    const { client, core } = await makeClient();
+    const t = reviewedTask(core);
+    expect(core.getTask(t.key).reviewBrief?.issues.map((i) => i.title)).toEqual(['Unbounded loop']); // board sees it
+    const reviewComment = (a: { type: string; body: string }) => a.type === 'comment' && a.body.startsWith('ai-review/');
+
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect([detail.aiReview, detail.reviewBrief]).toEqual([null, null]);
+    const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: {} })));
+    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[null, null]]);
+
+    // a second round: the agent's own submit and status responses carry the full detail
+    core.reviewRequestChanges(t.key, { feedback: 'fix the loop' });
+    core.claimNextTask();
+    const submitted = JSON.parse(textOf(await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'fixed' } })));
+    expect(submitted.status).toBe('in_review');
+    expect([submitted.aiReview, submitted.reviewBrief]).toEqual([null, null]);
+    expect(submitted.activity.some(reviewComment)).toBe(false);
+
+    core.reviewRequestChanges(t.key, { feedback: 'again' });
+    core.claimNextTask();
+    const blocked = JSON.parse(textOf(await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'blocked', note: 'stuck' } })));
+    expect([blocked.aiReview, blocked.reviewBrief]).toEqual([null, null]);
+    expect(blocked.activity.some(reviewComment)).toBe(false);
   });
 
   it('get_task also hides the delivering-feedback markers (pr-feedback/v1, feedback-eval/v1)', async () => {

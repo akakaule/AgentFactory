@@ -62,6 +62,22 @@ describe('parseAiReviewComment', () => {
     expect(parsed!.findings).toEqual([{ severity: null, file: null, line: null, title: 'kept', detail: null }]);
   });
 
+  it('keeps criterion links (cleaned) and the fix; absent keys stay absent', () => {
+    const parsed = parseAiReviewComment(review('2 findings', {
+      reviewer: 'codex', verdict: 'findings',
+      findings: [
+        { severity: 'error', title: 'Race', detail: 'Two claims win.', fix: '  Lock the row.  ', criteria: ['ac4', 'AC4', 'AC 9', 'Race', 7, 'AC12'] },
+        { severity: 'warning', title: 'Outside', criteria: [], fix: '   ' },
+        { severity: 'info', title: 'Legacy', criteria: 'AC1' },
+      ],
+    }));
+    expect(parsed!.findings).toEqual([
+      { severity: 'error', file: null, line: null, title: 'Race', detail: 'Two claims win.', criteria: ['AC4', 'AC12'], fix: 'Lock the row.' },
+      { severity: 'warning', file: null, line: null, title: 'Outside', detail: null, criteria: [] },
+      { severity: 'info', file: null, line: null, title: 'Legacy', detail: null },
+    ]);
+  });
+
   it('degrades to null when the JSON is malformed or lacks a findings array', () => {
     expect(parseAiReviewComment('ai-review/v1 oops\n{ not json')).toBeNull();
     expect(parseAiReviewComment('ai-review/v1 no array\n{"verdict":"clean"}')).toBeNull();

@@ -53,6 +53,23 @@ function extractJson(text: string): unknown {
 }
 
 const SEVERITIES: readonly string[] = ['info', 'warning', 'error'];
+const CRITERION_ID = /^AC\d+$/;
+const MAX_CRITERIA = 10;
+
+/**
+ * A finding's criterion ids, cleaned: uppercased, deduped, non-ids dropped, at most 10. `[]` is
+ * kept (the reviewer says it is outside the criteria); a non-array is undefined (not reported).
+ */
+export function normalizeCriteria(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ids = raw.filter((v): v is string => typeof v === 'string').map((v) => v.trim().toUpperCase()).filter((v) => CRITERION_ID.test(v));
+  return [...new Set(ids)].slice(0, MAX_CRITERIA);
+}
+
+/** A finding's remedy, or undefined when blank. */
+export function normalizeFix(raw: unknown): string | undefined {
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
+}
 
 function normalizeFinding(raw: unknown): AiReviewFinding | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -64,7 +81,10 @@ function normalizeFinding(raw: unknown): AiReviewFinding | null {
   const file = typeof o.file === 'string' && o.file.trim() ? o.file.trim() : null;
   const line = typeof o.line === 'number' && Number.isFinite(o.line) ? Math.trunc(o.line) : null;
   const detail = typeof o.detail === 'string' && o.detail.trim() ? o.detail.trim() : null;
-  return { severity, file, line, title, detail };
+  // absent keys stay absent: the consensus schema is strict and these findings become candidates
+  const criteria = normalizeCriteria(o.criteria);
+  const fix = normalizeFix(o.fix);
+  return { severity, file, line, title, detail, ...(criteria !== undefined ? { criteria } : {}), ...(fix !== undefined ? { fix } : {}) };
 }
 
 /**
