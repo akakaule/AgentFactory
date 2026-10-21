@@ -40,12 +40,14 @@ export function buildCodexArgs(opts: {
   shellEnvKeys?: string[];
 }): string[] {
   const config = (value: string): string[] => ['-c', value];
+  // codex has no classifier mode: `auto` gets the same workspace sandbox as acceptEdits
+  const writes = opts.permissionMode === 'acceptEdits' || opts.permissionMode === 'auto';
   return [
     'exec', '--json', '--color', 'never',
     ...(opts.permissionMode === 'bypassPermissions'
       ? ['--dangerously-bypass-approvals-and-sandbox']
-      : ['--sandbox', opts.permissionMode === 'acceptEdits' ? 'workspace-write' : 'read-only', ...config('approval_policy="never"')]),
-    ...(opts.permissionMode === 'acceptEdits' ? config('sandbox_workspace_write.network_access=true') : []),
+      : ['--sandbox', writes ? 'workspace-write' : 'read-only', ...config('approval_policy="never"')]),
+    ...(writes ? config('sandbox_workspace_write.network_access=true') : []),
     ...config('shell_environment_policy.inherit="all"'),
     ...config(`shell_environment_policy.include_only=${arr([...CORE_SHELL_ENV, ...(opts.shellEnvKeys ?? [])])}`),
     ...config(`mcp_servers.agentfactory.command=${str(opts.mcp.command)}`),

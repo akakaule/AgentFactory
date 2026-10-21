@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
 
-/** Permission modes the dispatcher passes through to `claude --permission-mode`. */
-export const PERMISSION_MODES = ['acceptEdits', 'bypassPermissions', 'default', 'plan'] as const;
+/** Permission modes the dispatcher passes through to `claude --permission-mode`. `auto` lets
+ *  Claude's classifier approve routine commands (npm ci / build / test) a headless session
+ *  could otherwise only run via an explicit allow rule — a denied prompt blocks the task. */
+export const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'plan'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const WORKER_ENGINES = ['claude', 'codex'] as const;
 export type WorkerEngine = (typeof WORKER_ENGINES)[number];
@@ -45,6 +47,9 @@ export const baseConfigSchema = z.object({
   pollSeconds: z.number().positive().default(15),
   /** `claude --permission-mode` for unattended sessions. */
   permissionMode: z.enum(PERMISSION_MODES).default('acceptEdits'),
+  /** Permission mode for Codex workers only; defaults to `permissionMode`. `bypassPermissions`
+   *  maps to `--dangerously-bypass-approvals-and-sandbox` (codex has no classifier mode). */
+  codexPermissionMode: z.enum(PERMISSION_MODES).optional(),
   /** Extra args appended to every `claude` invocation, for every stage. */
   claudeArgs: z.array(z.string()).default([]),
   /** Codex-only global args; Claude flags are never forwarded to Codex. */

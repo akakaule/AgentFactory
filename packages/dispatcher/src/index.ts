@@ -210,7 +210,7 @@ const wsDesc = config.workspaces
   : `all${config.excludeWorkspaces.length ? ` except [${config.excludeWorkspaces.join(', ')}]` : ''}`;
 console.log(
   `[dispatcher] starting — ${config.board ? `board ${config.board.url}` : `db ${config.db}`}, workspaces ${wsDesc}, ` +
-    `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s, permission ${config.permissionMode}`,
+    `maxConcurrent ${config.maxConcurrent}, poll ${config.pollSeconds}s, permission ${config.permissionMode}${config.codexPermissionMode ? ` (codex ${config.codexPermissionMode})` : ''}`,
 );
 console.log(`[dispatcher] mcp entry ${mcpEntry}; logs ${logDir}`);
 

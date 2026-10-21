@@ -48,6 +48,30 @@ describe('stage engine selection', () => {
     }
   });
 
+  it('codexPermissionMode overrides permissionMode for Codex workers only', async () => {
+    const core = makeCore();
+    seedQueuedStage(core, 'ws', 'Plan', 'plan');
+    seedQueuedStage(core, 'ws', 'Implement', 'implementation');
+    const cfg = parseConfig({
+      db: ':memory:', workspaces: ['ws'], maxConcurrent: 2,
+      permissionMode: 'auto', codexPermissionMode: 'bypassPermissions',
+      stageEngines: { plan: 'codex' },
+    });
+    const fake = makeFakeSpawn();
+    const deps = { ...makeDeps(core, fake.spawn), resolveCodex: () => ({ command: 'codex.exe', args: [] }) };
+    await new Dispatcher(cfg, deps).tick();
+    const requests = fake.calls.map(c => c.req);
+    const codex = requests.find(r => r.command === 'codex.exe');
+    const claude = requests.find(r => r.command !== 'codex.exe');
+    expect(codex?.args).toContain('--dangerously-bypass-approvals-and-sandbox');
+    expect(codex?.args).not.toContain('--sandbox');
+    expect(claude?.args).toContain('auto');
+    expect(claude?.args).not.toContain('bypassPermissions');
+    // without the override codex follows permissionMode
+    expect(parseConfig({ db: 'x', permissionMode: 'auto' }).codexPermissionMode).toBeUndefined();
+    expect(() => parseConfig({ db: 'x', codexPermissionMode: 'yolo' })).toThrow();
+  });
+
   it('bounds Codex failures before claim even when the CLI exits zero', async () => {
     const core = makeCore();
     const key = seedQueuedStage(core, 'ws', 'Plan', 'plan');
