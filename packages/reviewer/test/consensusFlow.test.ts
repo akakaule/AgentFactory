@@ -26,7 +26,7 @@ describe('supervised consensus', () => {
     const s = setup('description'); await s.r.tick(); await s.finish(aiReviewBody(0));
     expect(s.core.getTask(s.key).status).toBe('in_review');
     await s.finish(aiReviewBody(0));
-    expect(s.core.getTask(s.key)).toMatchObject({ status: 'queued', stage: 'plan' });
+    expect(s.core.getTask(s.key)).toMatchObject({ status: 'queued', stage: 'implementation' });
     expect(s.calls).toHaveLength(2);
   });
   it('rejects a malformed discussion ballot without publishing a partial review', async () => {

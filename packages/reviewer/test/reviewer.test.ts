@@ -274,7 +274,7 @@ describe('posting verdicts', () => {
 
     const t = core.getTask(key);
     expect(t.status).toBe('queued'); // advanced off in_review by the add_comment hook
-    expect(t.stage).toBe('plan'); // description → plan
+    expect(t.stage).toBe('implementation'); // spec (description) → implementation
   });
 
   it('an IMPLEMENTATION verdict posts but stays in_review (human-gated)', async () => {
