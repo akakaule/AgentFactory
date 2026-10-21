@@ -109,6 +109,18 @@ describe('derived aiReview field', () => {
   });
 });
 
+describe('review brief on list reads', () => {
+  it('is built only for tasks in review; the detail always has it', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2) }, at(95));
+    expect(listTasks(db)[0]!.reviewBrief).not.toBeNull();
+    reviewApprove(db, task.key, at(150)); // minor issues: no reason needed
+    expect(listTasks(db)[0]!.reviewBrief).toBeNull();
+    expect(getTask(db, task.key).reviewBrief?.headline).toBe('minor');
+  });
+});
+
 describe('reviewApprove override logging', () => {
   it('appends an override comment when approving over open findings', () => {
     const db = makeTestDb();

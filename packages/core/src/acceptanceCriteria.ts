@@ -7,8 +7,9 @@
 export interface AcceptanceCriterion { id: string; name: string | null; text: string }
 export interface ParsedCriteria { items: AcceptanceCriterion[]; general: string | null }
 
-// a numbered (`1.` / `1)`) or bulleted (`-` `*` `•`, optionally `- [ ]` / `- [x]`) list line
-const LIST_LINE = /^([ \t]*)(?:\d+[.)]|[-*•])[ \t]+(?:\[[ xX]\][ \t]+)?(.*)$/;
+// a numbered (`1.` / `1)`), bulleted (`-` `*` `•`, optionally `- [ ]` / `- [x]`) or labelled
+// (`AC1 —`, `AC2:`, `AC 3.`) list line
+const LIST_LINE = /^([ \t]*)(?:\d+[.)]|[-*•]|AC ?\d+(?:[ \t]*[—–:.)-])?)[ \t]+(?:\[[ xX]\][ \t]+)?(.*)$/;
 // the name is the short prefix before the first separator: "Race — two supervisors …"
 const NAME_SEPARATOR = / [—–-] |: /;
 const NAME_MAX = 48;

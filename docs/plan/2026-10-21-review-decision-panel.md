@@ -29,6 +29,18 @@ Reading the code turned up three changes to §9. None changes behaviour the spec
 3. **Order: 1 → 2 → 4 → 5 → 3.** The UI lands last, so it ships against the final contract: fix,
    reason and claims. Slices 1–2 already work on today's data, as the spec says.
 
+4. **After the code review** (one `/code-review` pass, 8 findings, all verified):
+   - The reason rule is for code tasks only. pr-review "Mark reviewed" shares `applyApproval`.
+   - A raw `in_review → done/delivering` status move is refused under the same condition.
+   - `list_tasks` keeps a content-free verdict, so `/review-task` can still find unreviewed tasks.
+   - List reads build the brief for `in_review` rows only.
+   - `AC<n>` label lines parse as items (AF-45 and AF-78 write criteria that way).
+   - The issue card's agreement line follows the votes: a merged duplicate that raises the group is
+     named instead of claiming the reviewers agree on the raised group.
+   - The claims read skips a look-alike claims comment that doesn't parse.
+   - The drawer keys the panel by task. (The reported carry-over didn't reproduce: a task switch
+     already unmounts the panel while the drawer reloads.)
+
 Each slice is one commit (Conventional Commits). Each runs RED → GREEN on its focused tests, then
 `npm test`, `npm run build` and `npm -w packages/web run typecheck:client`.
 

@@ -305,6 +305,13 @@ describe('submitResult — the worker\'s claim per acceptance criterion', () => 
       .toThrow(/plan\/verification\/criteria are not accepted/);
   });
 
+  it('a later claims comment that does not parse does not hide the real claims', () => {
+    const { db, task } = inProgress();
+    submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC1', claim: 'Proven by race.test.ts.' }] }, fixedNow);
+    db.prepare("INSERT INTO activity(task_id, type, actor, body, created_at) VALUES (?, 'comment', 'agent', 'criteria-claims/v1 (see above)', ?)").run(task.id, FIXED_TS);
+    expect(getTask(db, task.key).criteriaClaims).toEqual([{ id: 'AC1', claim: 'Proven by race.test.ts.' }]);
+  });
+
   it('a newer result without claims clears them; the claims survive a long activity tail', () => {
     const { db, task } = inProgress();
     submitResult(db, task.key, { summary: 'done', criteria: [{ id: 'AC1', claim: 'Proven by race.test.ts.' }] }, fixedNow);

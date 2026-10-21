@@ -7,6 +7,8 @@ export const HEADLINE_TITLE: Record<ReviewHeadline, string> = {
 };
 export const GROUP_LABEL: Record<ReviewGroup, string> = { must: 'Must fix', call: 'Your call', should: 'Should fix', fyi: 'FYI' };
 export const SEVERITY_LABEL: Record<AiReviewSeverity, string> = { error: 'Must fix', warning: 'Should fix', info: 'FYI' };
+/** The group an agreed severity puts an issue in (mirrors core's reviewBrief). */
+export const SEVERITY_GROUP: Record<AiReviewSeverity, ReviewGroup> = { error: 'must', warning: 'should', info: 'fyi' };
 export const ROW_STATUS_LABEL: Record<ReviewCriterionRow['status'], string> = {
   not_met: 'Not met', your_call: 'Your call', concerns: 'Concerns', clear: 'Nothing flagged',
 };

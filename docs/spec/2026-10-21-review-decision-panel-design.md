@@ -80,8 +80,9 @@ export function parseAcceptanceCriteria(text: string): ParsedCriteria;
 
 Rules:
 
-- **Items.** An item starts at a list line: numbered (`1.`, `1)`) or a bullet (`-`, `*`, `•`,
-  `- [ ]`, `- [x]`), indented no deeper than the first item.
+- **Items.** An item starts at a list line: numbered (`1.`, `1)`), a bullet (`-`, `*`, `•`,
+  `- [ ]`, `- [x]`) or a criterion label (`AC1 —`, `AC2:`, `AC 3.`, as in AF-45 and AF-78),
+  indented no deeper than the first item.
 - **What belongs to an item.** More deeply indented lines (nested bullets) and non-blank
   continuation lines belong to the current item. A blank line followed by a non-list line ends the
   item.
@@ -189,10 +190,14 @@ criteria?: Array<{ id: string; claim: string }>   // claim: 1–600 characters
 - **`ops/approval.ts`.** `applyApproval` gains a last parameter, `overrideReason: string | null =
   null`. Inside the transaction it builds the brief (§5) from `aiReviewFor` and the row's
   `acceptance_criteria` and `stage`.
-  - If the actor is human, the headline is `changes_needed` or `your_call`, and the reason is
-    blank, it throws `ValidationError('approving over must-fix issues or open decisions needs a
-    reason')`. `server/errors.ts` already maps that to HTTP 400.
+  - If the actor is human, the task is a code task, the headline is `changes_needed` or
+    `your_call`, and the reason is blank, it throws `ValidationError('approving over must-fix
+    issues or open decisions needs a reason')`. `server/errors.ts` already maps that to HTTP 400.
   - The auto-approve path only runs on clean reviews, so it never reaches this check.
+  - pr-review tasks are exempt: their "Mark reviewed" (`reviewPrReviewed`) shares
+    `applyApproval`, and their review lives on the PR.
+  - A human's raw status move `in_review → done` or `→ delivering` is an approval too:
+    `updateStatus` refuses it under the same condition and points at the approve action.
 - **The override comment.** It is still written under today's condition (verdict `findings` or
   `disputed`).
   - Its body becomes `override: approved over <must> must-fix, <call> open decision(s) and <n>
@@ -218,8 +223,9 @@ export function buildReviewBrief(review: AiReviewSummary | null, acceptanceCrite
 ```
 
 - The function is pure and returns null when there is no review.
-- It is attached as `Task.reviewBrief` wherever `aiReview` is attached: `listRows` and `toDetail` in
-  `repo/tasks.ts`.
+- It is attached as `Task.reviewBrief` in `toDetail`, and in `listRows` for tasks in `in_review`
+  only (the cards that show it). Elsewhere the list carries null, so a busy board doesn't re-derive
+  every brief or send its evidence twice on each refetch.
 - It's computed in core because the approve check (§4.4) needs the same rules, and the web client
   can import core's types but not its runtime.
 
@@ -570,8 +576,11 @@ Uncurated findings must not reach the implementing agent. `Task.reviewBrief` car
 so it is nulled together with `aiReview`:
 
 - in `detailContent`;
-- in the shared `withoutFailureTriage` sanitizer that `list_tasks` and `submit_result` use. This also
-  closes an existing gap: `list_tasks` returns `aiReview` without stripping it.
+- in one shared sanitizer, `forAgent`, which `list_tasks`, `submit_result` and `update_status` use.
+  It also drops the review marker comments from `activity`, as `detailContent` does. This closes
+  an existing gap: `list_tasks` returned `aiReview` with every finding.
+- `list_tasks` keeps a content-free `aiReview`, `{ verdict, findings, reviewer, items: [] }`, because
+  `/review-task` picks its tasks from it (no review, or pending). No finding text is in it.
 
 `criteriaClaims` is the agent's own data and stays.
 

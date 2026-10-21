@@ -336,6 +336,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
       )}
       {reviewing && (
         <ReviewPanel
+          key={task.key}
           task={task}
           willDeliver={task.stage === 'implementation' && task.branch != null}
           onApprove={(reason) => api.approve(task.key, reason).then(afterMutation)}

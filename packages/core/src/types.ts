@@ -269,7 +269,7 @@ export interface Task {
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
   archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
-  reviewBrief?: ReviewBrief | null; // derived from aiReview + acceptance criteria; null with no review (and in agent payloads)
+  reviewBrief?: ReviewBrief | null; // derived from aiReview + acceptance criteria; null with no review, on list reads outside in_review, and in agent payloads
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in

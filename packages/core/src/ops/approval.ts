@@ -17,6 +17,21 @@ const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
  *  under this provider (reviewApprove computes it from the workspace's origin URL). */
 export interface DeliverySeed { provider: DeliveryProvider; }
 
+/**
+ * Approving a code task over must-fix issues or open decisions is a deliberate call — the human
+ * records why. Minor issues only stay one click, so warnings don't train people to type filler.
+ * A pr-review task keeps its plain "Mark reviewed": its review lives on the PR, not here.
+ */
+function needsReason(row: TaskRow, brief: ReviewBrief | null): boolean {
+  return row.kind === 'code' && (brief?.headline === 'changes_needed' || brief?.headline === 'your_call');
+}
+
+/** Whether approving this in-review task needs a reason — for paths that approve outside
+ *  applyApproval (a raw in_review → done status move). */
+export function approvalNeedsReason(db: DB, row: TaskRow): boolean {
+  return needsReason(row, buildReviewBrief(aiReviewFor(db, row.id), row.acceptance_criteria, row.stage));
+}
+
 /** "2 must-fix, 3 open decisions and 2 minor issues" — the non-zero parts of the brief. Nothing
  *  parses this; the override comment is for the human reading the activity log. */
 function openIssuesPhrase(brief: ReviewBrief): string {
@@ -54,9 +69,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
   const review = aiReviewFor(db, row.id);
   const brief = buildReviewBrief(review, row.acceptance_criteria, row.stage);
   const reason = overrideReason?.trim() || null;
-  // Approving over must-fix issues or open decisions is a deliberate call — the human records why.
-  // Minor issues only stay one click, so warnings don't train people to type filler.
-  if (actor === 'human' && (brief?.headline === 'changes_needed' || brief?.headline === 'your_call') && reason === null)
+  if (actor === 'human' && needsReason(row, brief) && reason === null)
     throw new ValidationError('approving over must-fix issues or open decisions needs a reason');
   if (review && brief && (review.verdict === 'findings' || review.verdict === 'disputed')) {
     appendActivity(db, {

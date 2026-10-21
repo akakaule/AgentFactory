@@ -233,13 +233,18 @@ export function latestResultIds(db: DB, taskIds: number[]): Map<number, number> 
  * activity is a bounded slice that a busy review thread can push the comment out of.
  */
 export function criteriaClaimsFor(db: DB, taskId: number): CriterionClaim[] | null {
-  const row = db.prepare(
+  const rows = db.prepare(
     `SELECT body FROM activity
      WHERE task_id = ? AND type = 'comment' AND actor = 'agent' AND lower(body) LIKE 'criteria-claims/v1%'
        AND id > COALESCE((SELECT MAX(id) FROM activity WHERE task_id = ? AND type = 'result'), 0)
-     ORDER BY id DESC LIMIT 1`
-  ).get(taskId, taskId) as { body: string } | undefined;
-  return row ? parseCriteriaClaims(row.body) : null;
+     ORDER BY id DESC`
+  ).all(taskId, taskId) as Array<{ body: string }>;
+  // newest first; a look-alike comment that doesn't parse (e.g. a plain add_comment) is skipped
+  for (const row of rows) {
+    const claims = parseCriteriaClaims(row.body);
+    if (claims) return claims;
+  }
+  return null;
 }
 /** Full status history projection for metrics derivation (no limit, id order). */
 export function activitySteps(db: DB, taskId: number): ActivityStep[] {

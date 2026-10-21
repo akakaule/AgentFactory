@@ -65,6 +65,16 @@ describe('parseAcceptanceCriteria', () => {
     expect(items.map((i) => i.name)).toEqual([null, 'Tight', 'Works', null]);
   });
 
+  it('AC<n> label lines are items too (criteria written as "AC1 — …")', () => {
+    const { items, general } = parseAcceptanceCriteria('Each criterion is verifiable.\n\nAC1 — Backfilled: every row has a nominee\nAC2: Indexed — the query uses the index\nAC 3. Logged\nACME — not a criterion label');
+    expect(items.map((i) => [i.id, i.name, i.text])).toEqual([
+      ['AC1', 'Backfilled', 'Backfilled: every row has a nominee'],
+      ['AC2', 'Indexed', 'Indexed — the query uses the index'],
+      ['AC3', null, 'Logged\nACME — not a criterion label'],
+    ]);
+    expect(general).toBe('Each criterion is verifiable.');
+  });
+
   it('text without a list becomes a single AC1; empty text gives no items', () => {
     expect(parseAcceptanceCriteria('The export matches the old format byte for byte.\nIt runs nightly.')).toEqual({
       items: [{ id: 'AC1', name: null, text: 'The export matches the old format byte for byte.\nIt runs nightly.' }],

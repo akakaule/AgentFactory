@@ -1,5 +1,5 @@
 import { isAiReviewMarker, isPrFeedbackMarker, isFeedbackEvalMarker, isIntakeMarker, isFailureTriageMarker } from '@agentfactory/core';
-import type { Task } from '@agentfactory/core';
+import type { AiReviewSummary, Task } from '@agentfactory/core';
 import type { McpCore, TaskDetail } from './types.js';
 
 type Block =
@@ -28,6 +28,14 @@ export function forAgent<T extends Task>(task: T): T {
   const activity = (task as Partial<TaskDetail>).activity;
   if (activity) (out as Partial<TaskDetail>).activity = activity.filter((a) => !(a.type === 'comment' && hiddenFromAgent(a.body)));
   return out;
+}
+
+/**
+ * A review's verdict and finding count, with no finding content — what `list_tasks` keeps so an
+ * MCP reviewer (/review-task) can tell which in-review tasks still need a review (none, or pending).
+ */
+export function verdictOnly(review: AiReviewSummary | null): AiReviewSummary | null {
+  return review ? { verdict: review.verdict, findings: review.findings, reviewer: review.reviewer, items: [] } : null;
 }
 
 /**

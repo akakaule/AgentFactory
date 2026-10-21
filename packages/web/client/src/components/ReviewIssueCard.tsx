@@ -1,6 +1,6 @@
-import type { ReviewCriterionRow, ReviewIssue } from '../types.js';
+import type { AiReviewSeverity, ReviewCriterionRow, ReviewGroup, ReviewIssue, ReviewOpinion } from '../types.js';
 import type { ReviewDecision } from '../composeReviewFeedback.js';
-import { GROUP_LABEL, clip, criterionLabel, joinNames, locationOf, opinionVerdict } from '../reviewText.js';
+import { GROUP_LABEL, SEVERITY_GROUP, SEVERITY_LABEL, clip, criterionLabel, joinNames, locationOf, opinionVerdict } from '../reviewText.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -19,15 +19,36 @@ interface Props {
 
 const DECISIONS: Array<[ReviewDecision, string]> = [['must', 'Must fix'], ['should', 'Should fix'], ['dismiss', 'Dismiss']];
 
-/** How the reviewers stand on the issue (spec §6.5 "Agreement"). */
+/** The severity every vote confirms, or null when the votes differ. */
+function agreedSeverity(opinions: ReviewOpinion[]): AiReviewSeverity | null {
+  const s = opinions[0]?.severity ?? null;
+  return s !== null && opinions.every((o) => o.decision === 'confirm' && o.severity === s) ? s : null;
+}
+/** The group these votes alone would give (core's rule: agreed severity, else your call). */
+const groupOfVotes = (opinions: ReviewOpinion[]): ReviewGroup => {
+  const s = agreedSeverity(opinions);
+  return s ? SEVERITY_GROUP[s] : 'call';
+};
+
+/** How the reviewers stand on the issue (spec §6.5 "Agreement"). Read from the votes, not the
+ *  group: a merged duplicate can raise the group above what the issue's own votes say. */
 function Agreement({ issue, names, onEvidence }: Pick<Props, 'issue' | 'names' | 'onEvidence'>) {
   const name = (r: string | null) => (r ? names.get(r) ?? r : 'the reviewer');
   if (issue.opinions.length === 0) return <div className="af-rv-agree">{`Reported by ${issue.source ?? 'the reviewer'}`}</div>;
   if (issue.dispute === 'unverified')
     return <div className="af-rv-agree">{`Raised late by ${name(issue.source)}; no reviewer has verified it yet.`}</div>;
-  if (issue.dispute === null)
-    return <div className="af-rv-agree">{I.check({})}{`${joinNames(issue.opinions.map((o) => name(o.reviewer)))} agree: ${GROUP_LABEL[issue.group].toLowerCase()}`}</div>;
-  return (
+  const agreed = agreedSeverity(issue.opinions);
+  const raisedBy = groupOfVotes(issue.opinions) === issue.group ? undefined
+    : issue.merged.find((m) => m.opinions.length > 0 && groupOfVotes(m.opinions) === issue.group);
+  const raised = raisedBy && (
+    <div className="af-rv-agree">{`${raisedBy.id}, a merged duplicate, ${agreedSeverity(raisedBy.opinions)
+      ? `is confirmed as ${GROUP_LABEL[issue.group].toLowerCase()}` : 'is disputed, so it is your call'}`}</div>
+  );
+  if (agreed) return <>
+    <div className="af-rv-agree">{I.check({})}{`${joinNames(issue.opinions.map((o) => name(o.reviewer)))} agree: ${SEVERITY_LABEL[agreed].toLowerCase()}`}</div>
+    {raised}
+  </>;
+  return <>
     <div className="af-rv-sides">
       {issue.opinions.map((o) => (
         <div key={o.reviewer} className={'af-rv-side ' + o.decision}>
@@ -38,7 +59,8 @@ function Agreement({ issue, names, onEvidence }: Pick<Props, 'issue' | 'names' |
         </div>
       ))}
     </div>
-  );
+    {raised}
+  </>;
 }
 
 /** One distinct issue: what is wrong, how to fix it, where the reviewers stand, and the human's decision. */

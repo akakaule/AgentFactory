@@ -265,8 +265,11 @@ describe('ai-review activity strip', () => {
 
     const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
     expect([detail.aiReview, detail.reviewBrief]).toEqual([null, null]);
+    // list_tasks keeps the verdict and count, never a finding: an MCP reviewer (/review-task) uses it
+    // to tell which in-review tasks still need a review
     const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: {} })));
-    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[null, null]]);
+    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[{ verdict: 'findings', findings: 1, reviewer: 'codex', items: [] }, null]]);
+    expect(JSON.stringify(listed)).not.toContain('Unbounded loop');
 
     // a second round: the agent's own submit and status responses carry the full detail
     core.reviewRequestChanges(t.key, { feedback: 'fix the loop' });

@@ -300,7 +300,9 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const { failures, triage } = failureAndTriage(db, rows);
   const deliveries = deliveryByTaskIds(db, ids);
   const intakes = intakeByTaskIds(db, rows);
-  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null, reviewBrief: buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage), failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
+  // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
+  return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
+    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
 }
 /** The in_progress task a worker label already holds (oldest first), if any — the claim
  *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of
