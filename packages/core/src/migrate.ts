@@ -147,8 +147,16 @@ const MIGRATIONS: Migration[] = [
     run: (db) => widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26),
   },
   // #27 — execution ownership. CREATE IF NOT EXISTS keeps the append-only migration safe for
-  // databases that received the schema from a coordinated deployment.
-  (db) => db.exec(MIGRATION_27_SQL),
+  // databases that received the schema from a coordinated deployment. The pre-merge AF-146 branch
+  // shipped this table as #26, so a DB migrated by it skipped main's #26 intake widening: replay
+  // it here (widenCheck is a no-op once the intake kind is present).
+  {
+    fkOff: true,
+    run: (db) => {
+      widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26);
+      db.exec(MIGRATION_27_SQL);
+    },
+  },
 ];
 
 export function runMigrations(db: DB): void {
