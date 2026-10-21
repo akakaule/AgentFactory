@@ -64,7 +64,7 @@ See `packages/dispatcher/README.md` for the config reference (workspaces, concur
 
 ### Run the reviewer (unattended AI review)
 
-Beside the dispatcher, the **reviewer** turns the `in_review` column into automated first-pass review with no human in the loop. It polls for tasks that still need a review and spawns **one fresh headless engine session per task** — **codex** by default (an independent second opinion on the dispatcher's Claude work) or claude — feeding the diff (implementation) or deliverable (description/plan) on STDIN and posting an `ai-review/v1` verdict back. It is advisory: a clean doc-stage verdict auto-advances the task; findings and the implementation stage stay for the human gate.
+Beside the dispatcher, the **reviewer** turns the `in_review` column into automated first-pass review with no human in the loop. It polls for tasks that still need a review and spawns **one fresh headless engine session per task** — **codex** by default (an independent second opinion on the dispatcher's Claude work) or claude — feeding the diff (implementation) or deliverable (the spec, or a legacy plan) on STDIN and posting an `ai-review/v1` verdict back. It is advisory: a clean doc-stage verdict auto-advances the task; findings and the implementation stage stay for the human gate.
 
 ```bash
 npm run reviewer -- path/to/reviewer.config.json
