@@ -17,7 +17,7 @@ describe('durable retry budgets', () => {
     for (let i = 0; i < 2; i++) { // two worker rounds that each ended blocked
       const r = core.reserveRetry(key, op)!;
       core.claimNextTask({ taskKey: key, claimedBy: `w${i}` });
-      core.updateStatus(key, 'blocked', 'agent', undefined, null, 'needs a human');
+      core.updateStatus(key, 'blocked', 'agent', null, 'needs a human');
       core.settleRetry(r.id, { state: 'succeeded', reason: 'task advanced to blocked' });
       if (i === 0) core.updateStatus(key, 'queued', 'human');
     }

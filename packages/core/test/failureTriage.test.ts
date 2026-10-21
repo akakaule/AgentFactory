@@ -5,6 +5,7 @@ import { updateStatus } from '../src/ops/updateStatus.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { addComment } from '../src/ops/addComment.js';
 import { restartTask } from '../src/ops/restartTask.js';
+import { getCurrentExecution } from '../src/ops/execution.js';
 import { getTask } from '../src/ops/getTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
 import { getVersion } from '../src/version.js';
@@ -37,7 +38,9 @@ function inProgress(db: DB, title = 'T') {
   claimNextTask(db, { claimedBy: 'worker-1' }, at(2));
   return task;
 }
-const note = (db: DB, key: string, body: string, min: number) => addComment(db, key, { actor: 'agent', body }, at(min)).id;
+/** Posted like a supervisor note: fenced by the task's live execution, if any. */
+const note = (db: DB, key: string, body: string, min: number) =>
+  addComment(db, key, { actor: 'agent', body, executionId: getCurrentExecution(db, key)?.id }, at(min)).id;
 const triage = (db: DB, key: string) => getTask(db, key).failureTriage;
 
 describe('failure triage projection', () => {

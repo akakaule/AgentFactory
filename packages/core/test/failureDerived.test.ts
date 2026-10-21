@@ -92,8 +92,8 @@ describe('derived failure field', () => {
   it('a newer malformed marker hides an older well-formed failure', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }) }, at(95));
-    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 broken\n{ not json' }, at(96));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }), executionId: task.executionId }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 broken\n{ not json', executionId: task.executionId }, at(96));
     expect(getTask(db, task.key).failure).toBeNull();
     expect(listTasks(db).find((t) => t.key === task.key)!.failure).toBeNull();
   });
@@ -101,7 +101,7 @@ describe('derived failure field', () => {
   it('a later unrelated comment does not clear the failure', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }), executionId: task.executionId }, at(95));
     addComment(db, task.key, { actor: 'human', body: 'looking into it' }, at(96));
     expect(getTask(db, task.key).failure).toMatchObject({ reason: 'crashed' });
   });
@@ -109,15 +109,15 @@ describe('derived failure field', () => {
   it('a later ai-review marker clears a failure (a reviewer crash superseded by a review)', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'review_failed' }) }, at(95));
-    addComment(db, task.key, { actor: 'agent', body: 'ai-review/v1\n```json\n{"verdict":"findings","items":[{"severity":"minor","title":"x"}]}\n```' }, at(96));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'review_failed' }), executionId: task.executionId }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: 'ai-review/v1\n```json\n{"verdict":"findings","items":[{"severity":"minor","title":"x"}]}\n```', executionId: task.executionId }, at(96));
     expect(getTask(db, task.key).failure).toBeNull();
   });
 
   it('still surfaces a failure older than the recent-activity window', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }), executionId: task.executionId }, at(95));
     for (let i = 0; i < 60; i++) addComment(db, task.key, { actor: 'human', body: `note ${i}` }, at(100 + i));
     const detail = getTask(db, task.key);
     expect(detail.activity.some((a) => a.body.startsWith('failure/v1'))).toBe(false);
