@@ -56,7 +56,7 @@ export function parseRemoteUrl(url: string): RemoteRef | null {
  * The git host's "create a pull request" page for `branch`, with the source branch preselected
  * (the target defaults to the repo's default branch on both hosts). Azure DevOps has no
  * CLI-free PR creation in the finish protocol, so the board offers this deep link instead;
- * GitHub gets the equivalent compare page for the rare case `gh pr create` failed.
+ * GitHub gets the equivalent compare page — the manual fallback when the watcher could not open the PR.
  */
 export function pullRequestCreateUrl(remote: RemoteRef, branch: string): string {
   const e = encodeURIComponent;

@@ -21,7 +21,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
         'For the implementation stage, complete the `protocol.finish` steps first — commit everything, run the verify command, push the branch to origin, and remove the worktree. ' +
         'If the workspace configures a verify command (it appears in `protocol.finish`), pass its reported outcome as `verification` (e.g. "all tests + build green"); the submit is rejected without it. ' +
         'This tool VERIFIES that protocol before accepting: it checks the claim branch exists on origin, that origin is not behind your local commits, and that the task worktree is gone. If a check fails it returns the exact command to run and leaves the task In Progress so you can fix it and resubmit. (Verification is skipped only where it cannot run: a legacy task with no recorded branch, or a workspace whose repo the server cannot reach. Doc stages skip it entirely — they never touch the repo.) ' +
-        "Include links to where the work lives: the branch you worked in (kind 'branch', label = the branch name), plus a PR link if one exists. " +
+        "Include links to where the work lives: the branch you worked in (kind 'branch', label = the branch name). Do not open a pull request — the board opens it after the implementation review is approved. " +
         'If you know (or can estimate) your session usage, include best-effort `metrics` ({ model, tokensIn, tokensOut, costUsd }) — they power the board\'s analytics. Omit anything you don\'t know; unreported is shown as n/a, never zero.',
       inputSchema: {
         key: taskKey,

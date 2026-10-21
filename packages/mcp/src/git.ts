@@ -93,31 +93,6 @@ export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: stri
   return null;
 }
 
-// origin points at github.com — https://github.com/…, git@github.com:…, ssh://git@github.com/….
-// Host-anchored (the host segment must BE github.com) so a path like notgithub.com never matches.
-function isGitHubUrl(url: string): boolean {
-  return /^(?:https?:\/\/|ssh:\/\/)?(?:[^@/]+@)?github\.com[/:]/i.test(url);
-}
-
-/**
- * When the repo's `origin` is a GitHub remote, the default branch to target a PR at (null when
- * it can't be resolved — the caller then lets `gh` pick the repo default). Returns null when
- * origin is absent, non-GitHub, or the repo/git is unreachable. Read-only and safe-degrading
- * like resolveWorktreeBase: detection must never block a claim.
- */
-export async function detectGitHubRemote(repoPath: string): Promise<{ defaultBranch: string | null } | null> {
-  if (!existsSync(repoPath)) return null;
-  let url: { ok: boolean; stdout: string };
-  try {
-    url = await runGit(repoPath, ['remote', 'get-url', 'origin']);
-  } catch (err) {
-    if (err instanceof GitError) return null; // git absent
-    throw err;
-  }
-  if (!url.ok || !isGitHubUrl(url.stdout.trim())) return null;
-  return { defaultBranch: await resolveDefaultBranchName(repoPath) };
-}
-
 export interface SubmitGuardResult { ok: boolean; message?: string; }
 
 /** A linked worktree under <repo>/.worktrees/<key> still exists (case/sep-insensitive). */

@@ -5,7 +5,7 @@ import { localizeRepo, taskGitEnabled, type ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
 import { detailContent } from '../content.js';
 import { buildProtocol } from '../protocol.js';
-import { resolveWorktreeBase, detectGitHubRemote } from '../git.js';
+import { resolveWorktreeBase } from '../git.js';
 
 export function registerGetNextTask(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
@@ -51,15 +51,10 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
           if (branchCreated) {
             try { base = (await resolveWorktreeBase(task.repoPath)) ?? undefined; } catch { base = undefined; }
           }
-          // A PR step is relevant on first claim AND reclaim, so detect GitHub regardless of
-          // branchCreated. Detection problems must never block a claim → fall back to no PR step.
-          let github: { defaultBranch: string | null } | undefined;
-          try { github = (await detectGitHubRemote(task.repoPath)) ?? undefined; } catch { github = undefined; }
           protocol = buildProtocol({
             stage: task.stage, repoPath: task.repoPath, key: task.key, branch: task.branch, branchCreated,
             managedGit: taskGitEnabled(opts),
             ...(base ? { base } : {}),
-            ...(github ? { github } : {}),
             ...(task.verifyCommand ? { verifyCommand: task.verifyCommand } : {}),
           });
         }

@@ -59,7 +59,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(6);
+    expect(p.version).toBe(7);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -73,7 +73,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(6);
+    expect(p.version).toBe(7);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -95,7 +95,7 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(6);
+    expect(p.version).toBe(7);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
@@ -178,41 +178,27 @@ describe('buildProtocol worktree base', () => {
   });
 });
 
-// When origin is GitHub, the finish protocol opens/updates a PR after the push.
-describe('buildProtocol GitHub PR step', () => {
+// Protocol v7: the worker never opens a PR. It pushes before review; the watcher opens the PR
+// after the implementation review is approved (GitHub and Azure DevOps alike).
+describe('buildProtocol: no worker PR step (v7)', () => {
   const impl = (extra: Record<string, unknown>) =>
     buildProtocol({ stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-8', branch: 'feature/AF-8-pr', branchCreated: true, ...extra } as Parameters<typeof buildProtocol>[0]);
 
-  it('requires an open PR and does not reuse the URL of a merged PR on a repair', () => {
-    const p = impl({ github: { defaultBranch: 'main' } });
-    const step = p.finish.find(s => s.includes('gh pr'))!;
-    expect(step).toContain('--state open');
-    expect(step).toContain('merged');
-    expect(step).not.toContain('gh pr view');
+  it('emits no gh pr step and asks for no PR link, plain or managed git', () => {
+    for (const p of [impl({}), impl({ managedGit: true })]) {
+      const all = [...p.setup, ...p.finish].join('\n');
+      expect(all).not.toContain('gh pr');
+      expect(all).not.toContain("(kind 'pr')");
+    }
   });
 
-  it('emits a gh pr step after push and before worktree removal, with --base and a pr link', () => {
-    const p = impl({ github: { defaultBranch: 'main' } });
-    if (p.stage !== 'implementation') throw new Error('expected implementation protocol');
-    const prIdx = p.finish.findIndex((s) => s.includes('gh pr'));
+  it('still pushes before removing the worktree and submitting (push before review)', () => {
+    const p = impl({});
     const pushIdx = p.finish.findIndex((s) => s.includes('git push'));
     const removeIdx = p.finish.findIndex((s) => s.includes('git worktree remove'));
-    expect(prIdx).toBeGreaterThan(pushIdx);
-    expect(prIdx).toBeLessThan(removeIdx);
-    expect(p.finish[prIdx]).toContain('gh pr create --head feature/AF-8-pr --base main --fill');
-    expect(p.finish.join('\n')).toContain("the PR link (kind 'pr')");
-  });
-
-  it('omits --base when the default branch is unknown (gh picks the repo default)', () => {
-    const p = impl({ github: { defaultBranch: null } });
-    const pr = p.finish.find((s) => s.includes('gh pr'))!;
-    expect(pr).toContain('gh pr create --head feature/AF-8-pr --fill');
-    expect(pr).not.toContain('--base');
-  });
-
-  it('emits no gh pr step when origin is not GitHub', () => {
-    const p = impl({});
-    expect(p.finish.join('\n')).not.toContain('gh pr');
-    expect(p.finish.join('\n')).not.toContain("(kind 'pr')");
+    const submitIdx = p.finish.findIndex((s) => s.includes('submit_result'));
+    expect(pushIdx).toBeGreaterThanOrEqual(0);
+    expect(pushIdx).toBeLessThan(removeIdx);
+    expect(removeIdx).toBeLessThan(submitIdx);
   });
 });

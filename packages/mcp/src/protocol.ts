@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -29,8 +29,6 @@ export type ProtocolInput =
       base?: { ref: string; fetch: boolean };
       /** Per-workspace verification command; when set it must pass before push (see git.ts/submitResult). */
       verifyCommand?: string | null;
-      /** Set when origin is a GitHub remote ⇒ emit a finish step that opens/updates the PR. */
-      github?: { defaultBranch: string | null };
     };
 
 /** Board text fields (spec, acceptance criteria, plan, summary) are rendered with the board's own
@@ -99,19 +97,8 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   const verifyStep = verify
     ? `Run \`${verify}\` from the worktree root; it MUST pass before you push. Report its outcome via submit_result \`verification\`.`
     : 'Read the repository CI workflow and run its locally runnable checks from the worktree root, including lint, formatting and type checks when configured, plus the repo tests and build. All must pass before you push; report any CI-only checks you could not run in the result.';
-  // When origin is GitHub, open (or reuse, on a reclaim) the PR right after the push and before
-  // the worktree is removed. Idempotent and best-effort — a gh/auth failure must not block the
-  // submit (the push itself is what the submit guardrail enforces).
-  const github = input.github;
-  const prStep = github
-    ? [
-        `Find an open pull request for this branch (best-effort — continue if it fails): ` +
-          `\`gh pr list --head ${branch} --state open --json url --jq '.[0].url // empty'\`. ` +
-          `Reuse that URL if present. If none is open (including when the previous PR was merged or closed), ` +
-          `run \`gh pr create --head ${branch}${github.defaultBranch ? ` --base ${github.defaultBranch}` : ''} --fill\`. ` +
-          `Pass the open PR URL as a 'pr' link in submit_result; never reuse a merged or closed PR URL for a repair.`,
-      ]
-    : [];
+  // v7: no PR step. The worker pushes before review; the watcher opens the PR after the
+  // implementation review is approved (GitHub and Azure DevOps alike).
   return {
     version: PROTOCOL_VERSION,
     stage,
@@ -130,9 +117,8 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       input.managedGit ? 'Inspect task_git status and diff, then call task_git with { action: "commit", message: "<Conventional Commit message>" } to commit the reviewed work inside the assigned worktree.' : 'Commit all work inside the worktree.',
       verifyStep,
       input.managedGit ? 'Call task_git with { action: "push" } after verification passes.' : `git push -u origin ${branch}`,
-      ...prStep,
       input.managedGit ? 'Return to the repository root, then call task_git with { action: "cleanup" } to remove the published task worktree.' : `git worktree remove ${wt} && git worktree prune`,
-      `Call submit_result with claimAt (the claimedAt value from this claim), a branch link (label = the branch name)${github ? `, the PR link (kind 'pr')` : ''}${verify ? ', the `verification` outcome,' : ''} and best-effort metrics.`,
+      `Call submit_result with claimAt (the claimedAt value from this claim), a branch link (label = the branch name)${verify ? ', the `verification` outcome,' : ''} and best-effort metrics. Do not open a pull request: the board opens it after the implementation review is approved.`,
     ],
   };
 }
