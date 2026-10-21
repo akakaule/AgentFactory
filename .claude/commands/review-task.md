@@ -32,7 +32,7 @@ You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a 
 
 ## Post the verdict
 
-7. Post EXACTLY ONE comment via `add_comment`, in this format — the `ai-review/v1` marker line is the contract: the board parses it into the chip + findings checklist, and MCP strips marked comments from agent payloads so uncurated findings never leak:
+7. Post EXACTLY ONE comment via `add_comment`, in this format — the `ai-review/v1` marker line is the contract: the board parses it into the review panel, and MCP strips marked comments from agent payloads so uncurated findings never leak:
 
    ````
    ai-review/v1 — <N> findings (<engine>)
@@ -40,9 +40,12 @@ You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a 
    ```json
    { "reviewer": "claude" | "codex", "verdict": "clean" | "findings",
      "findings": [ { "severity": "error" | "warning" | "info", "file": "<path>", "line": <n>,
-                     "title": "<short title>", "detail": "<why it matters / what to change>" } ] }
+                     "title": "<short title>", "criteria": ["AC<n>", ...],
+                     "detail": "<what is wrong and why it matters>", "fix": "<the change that resolves it>" } ] }
    ```
    ````
+
+   `criteria` lists the acceptance criteria the finding puts at risk, by position: the first criterion in the task's numbered list is `AC1`, the next `AC2`, and so on (a criteria text with no list is a single `AC1`). Use `[]` when the finding is outside them, and always `[]` at the doc stages, where the criteria are the deliverable. Keep `detail` to the problem and put the remedy in `fix`.
 
    Zero findings → first line `ai-review/v1 — clean (<engine>)`, `verdict: "clean"`, `findings: []`.
 8. If a codex run produced output missing the marker, prepend the marker line yourself before posting — a marked-but-malformed review degrades safely; an unmarked one leaks into the implementer's brief.
