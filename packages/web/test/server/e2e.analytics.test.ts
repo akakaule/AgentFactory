@@ -46,7 +46,7 @@ describe('e2e: a worked loop lands in the analytics', () => {
     const app = buildApp(coreHuman);
 
     // ── Task 1: full loop with one feedback round + reported usage ───────────
-    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a' });
+    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a', stage: 'implementation' });
     const t = await created.json() as { key: string };
     await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' });
 
@@ -64,7 +64,7 @@ describe('e2e: a worked loop lands in the analytics', () => {
     expect(rep.status).toBe(201);
 
     // ── Task 2: claimed, then stranded and released by the human ────────────
-    const c2 = await post(app, '/api/tasks', { title: 'T2', spec: 's', acceptanceCriteria: 'a' });
+    const c2 = await post(app, '/api/tasks', { title: 'T2', spec: 's', acceptanceCriteria: 'a', stage: 'implementation' });
     const t2 = await c2.json() as { key: string };
     await post(app, `/api/tasks/${t2.key}/status`, { status: 'queued' });
     worker.claimNextTask({ claimedBy: 'worker-2' });

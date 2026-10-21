@@ -699,10 +699,10 @@ describe('create_task', () => {
     expect(JSON.parse(textOf(res)).workspace).toBe('team-a');
   });
 
-  it('requires acceptanceCriteria unless the stage is description', async () => {
+  it('requires acceptanceCriteria at the implementation stage only', async () => {
     const { client } = await makeClient();
-    // default (implementation) stage without AC → rejected with the field named
-    const bad = await client.callTool({ name: 'create_task', arguments: { title: 'No AC', spec: 'spec' } });
+    // explicit implementation stage without AC → rejected with the field named
+    const bad = await client.callTool({ name: 'create_task', arguments: { title: 'No AC', spec: 'spec', stage: 'implementation' } });
     expect(bad.isError).toBe(true);
     expect(textOf(bad).toLowerCase()).toContain('acceptancecriteria');
     // description stage writes its own AC → accepted without it
@@ -710,5 +710,12 @@ describe('create_task', () => {
     const task = JSON.parse(textOf(ok));
     expect(task.status).toBe('backlog');
     expect(task.stage).toBe('description');
+  });
+
+  it('defaults a new task to the spec (description) stage — the default flow', async () => {
+    const { client } = await makeClient();
+    const res = await client.callTool({ name: 'create_task', arguments: { title: 'Idea', spec: 'raw intent' } });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(textOf(res)).stage).toBe('description');
   });
 });

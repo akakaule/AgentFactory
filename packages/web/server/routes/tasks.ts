@@ -124,8 +124,13 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
 
   // Producer bridges (service tokens) legitimately create tasks here — but the seed activity
   // must be attributed to the actor the token implies, not blanket-recorded as human.
-  r.post('/', validated('json', createBody), (c) =>
-    c.json(core.createTask({ ...c.req.valid('json'), actor: actorOf(c) }), 201));
+  r.post('/', validated('json', createBody), (c) => {
+    const body = c.req.valid('json');
+    // Default flow: a code task sent without a stage enters at the spec (description) stage. A
+    // pr-review task's only stage is implementation — core's own default — so it is left unset.
+    const stage = body.stage ?? (body.kind === 'pr-review' ? undefined : 'description');
+    return c.json(core.createTask({ ...body, ...(stage ? { stage } : {}), actor: actorOf(c) }), 201);
+  });
 
   r.patch('/:key', validated('json', updateBody), (c) => {
     const b = c.req.valid('json');

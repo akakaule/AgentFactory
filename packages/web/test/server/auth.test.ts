@@ -62,7 +62,7 @@ describe('auth: token mode', () => {
   });
 
   it('attributes a human approve over HTTP to the token user', async () => {
-    const created = await (await app.request('/api/tasks', postJson(token, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }))).json() as { key: string };
+    const created = await (await app.request('/api/tasks', postJson(token, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' }))).json() as { key: string };
     // walk to in_review the legal way, then approve via HTTP with the user's token
     core.updateStatus(created.key, 'queued', 'human');
     core.claimNextTask();
