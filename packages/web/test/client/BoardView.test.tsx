@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardView, canDropTask } from '../../client/src/views/BoardView.js';
 import type { Task } from '../../client/src/types.js';
+import { af146Brief, AF146_CRITERIA } from './fixtures/reviewBrief.js';
 
 function makeTask(key: string, title: string, status: Task['status']): Task {
   return {
@@ -56,22 +57,20 @@ describe('BoardView', () => {
     expect(screen.queryByText('feature/AF-7-barcode-scanner-intake-form')).not.toBeInTheDocument();
   });
 
-  it('shows the AI-review findings chip on an in_review card', () => {
-    const reviewed = {
-      ...makeTask('AF-8', 'Reviewed task', 'in_review'),
-      aiReview: { verdict: 'findings' as const, findings: 2, reviewer: 'codex', items: [] },
-    };
+  it('shows the review verdict chip and the criteria strip on an in_review card', () => {
+    const reviewed = { ...makeTask('AF-8', 'Reviewed task', 'in_review'), acceptanceCriteria: AF146_CRITERIA, reviewBrief: af146Brief({ links: true }) };
     render(<BoardView tasks={[reviewed]} onSelect={vi.fn()} />);
-    expect(screen.getByText('AI review: 2 findings')).toBeInTheDocument();
+    expect(screen.getByText('Changes needed')).toBeInTheDocument();
+    expect(screen.getByText('2 must fix · 3 your call')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /^Criteria: AC1 nothing flagged, AC2 your call, .*AC6 not met/ })).toBeInTheDocument();
+    expect(screen.getByText('2 of 8 criteria not met')).toBeInTheDocument();
   });
 
-  it('shows a pending chip when a resubmission is awaiting re-review', () => {
-    const pending = {
-      ...makeTask('AF-9', 'Pending task', 'in_review'),
-      aiReview: { verdict: 'pending' as const, findings: 2, reviewer: 'codex', items: [] },
-    };
-    render(<BoardView tasks={[pending]} onSelect={vi.fn()} />);
-    expect(screen.getByText('AI review: pending')).toBeInTheDocument();
+  it('a pr-review card gets the chip only, and a pending review reads pending', () => {
+    const pr = { ...makeTask('AF-9', 'PR review', 'in_review'), kind: 'pr-review' as const, reviewBrief: af146Brief({ links: true, superseded: true }) };
+    render(<BoardView tasks={[pr]} onSelect={vi.fn()} />);
+    expect(screen.getByText('Review pending')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /^Criteria:/ })).toBeNull();
   });
 
   it('renders a column for every status in lifecycle order', () => {

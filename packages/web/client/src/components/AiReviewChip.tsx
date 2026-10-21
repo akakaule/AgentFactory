@@ -1,29 +1,22 @@
-import type { AiReviewSummary } from '../types.js';
+import type { ReviewBrief } from '../types.js';
+import { chipText, reviewSentence } from '../reviewText.js';
 import { I } from '../icons.js';
 
 /**
- * The automated-review verdict chip, derived from the latest `ai-review/v1` comment.
- * Renders nothing when no AI review is present; green "clean" at zero findings, amber
- * "N findings" when open, grey "pending" when a newer result is awaiting re-review.
- * Shared by the in_review card and the drawer.
+ * The AI review's verdict, from the review brief: "Changes needed", "Your call · 3", "Minor issues · 2",
+ * "No issues found" or "Review pending", with the verdict sentence as its tooltip. Renders nothing
+ * when no AI review is present. Shared by the board card and the drawer.
  */
-export function AiReviewChip({ review }: { review: AiReviewSummary | null }) {
-  if (!review) return null;
-  const { verdict, findings } = review;
-  const disputes = review.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0;
-  const high = review.items.filter(f => f.severity === 'error').length;
-  const other = findings - high;
-  const label = verdict === 'pending' ? 'pending'
-    : verdict === 'clean' ? 'clean'
-    : review.consensus ? `${high} agreed high-priority${disputes ? ` · ${disputes} disputed` : ''}${other ? ` · ${other} other confirmed` : ''}`
-    : `${findings} finding${findings === 1 ? '' : 's'}`;
-  const title = verdict === 'pending' ? 'Automated AI review: a newer result is awaiting re-review'
-    : verdict === 'clean' ? 'Automated AI review: no findings'
-    : `Automated AI review: ${findings} open finding${findings === 1 ? '' : 's'}${disputes ? ` and ${disputes} unresolved disputes` : ''}`;
+export function AiReviewChip({ brief }: { brief: ReviewBrief | null | undefined }) {
+  if (!brief) return null;
+  const { label, detail } = chipText(brief);
   return (
-    <span className={'af-airev' + (verdict === 'clean' ? ' clean' : verdict === 'pending' ? ' pending' : '')} title={title}>
-      {I.bot({})}
-      <span className="tx">AI review: {label}</span>
-    </span>
+    <>
+      <span className={'af-airev af-rv-chip ' + brief.headline} title={reviewSentence(brief)}>
+        {I.bot({})}
+        <span className="tx">{label}</span>
+      </span>
+      {detail && <span className="af-rv-chipdetail">{detail}</span>}
+    </>
   );
 }

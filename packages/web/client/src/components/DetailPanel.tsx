@@ -6,6 +6,7 @@ import { timeAgo, shortTime } from '../time.js';
 import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
+import { ReviewPanel } from './ReviewPanel.js';
 import { CopyButton } from './CopyButton.js';
 import { composePrReview } from '../composePrReview.js';
 import { parseCriteriaClaims } from '../criteriaClaims.js';
@@ -71,6 +72,17 @@ function ActivityBody({ body }: { body: string }) {
   return <div className="af-tl-text">{body}</div>;
 }
 
+/** The latest result summary at the top of the review's second column, clamped until expanded. */
+function WorkerSummary({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  const long = text.split('\n').length > 6 || text.length > 480;
+  return (<>
+    <div className="af-sl">Worker's summary</div>
+    <div className={'af-result' + (long && !all ? ' af-rv-clamp' : '')}>{text}</div>
+    {long && <button className="af-dt-more" onClick={() => setAll(!all)}>{all ? 'Show less' : 'Show all'}</button>}
+  </>);
+}
+
 function ActivityItem({ entry }: { entry: Activity }) {
   // prefer the attributed human name (Phase 1 actor_user_id); fall back to the machine axis
   const who = entry.actorName ?? (entry.actor === 'agent' ? 'agent' : 'you');
@@ -132,7 +144,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // a diff/transcript/visualization modal layered on top handles its own Escape — don't double-close
-      if (document.querySelector('.af-diffmodal, .af-txmodal, .af-vizmodal')) return;
+      if (document.querySelector('.af-diffmodal, .af-txmodal, .af-vizmodal, .af-rv-overlay')) return;
       onClose();
     };
     window.addEventListener('keydown', onKey);
@@ -306,22 +318,29 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
       {task.status === 'in_progress' && <LiveSection taskKey={task.key} />}
     </>);
 
+    // A code task in review gets the review panel (spec §6.2); a pr-review keeps its own actions,
+    // and every other status keeps the plain verdict chip.
+    const reviewing = task.status === 'in_review' && task.kind === 'code';
     const aiReviewRow = (<>
-      {task.aiReview && (
-        <div className="af-airev-row"><AiReviewChip review={task.aiReview} /></div>
+      {!reviewing && task.reviewBrief && (
+        <div className="af-airev-row"><AiReviewChip brief={task.reviewBrief} /></div>
       )}
     </>);
 
     const reviewActions = (<>
-      {task.status === 'in_review' && (
+      {task.status === 'in_review' && task.kind === 'pr-review' && (
         <ReviewActions
           aiReview={task.aiReview ?? undefined}
-          stage={task.stage}
-          kind={task.kind}
-          willDeliver={task.stage === 'implementation' && task.kind === 'code' && task.branch != null}
-          onApprove={() => api.approve(task.key).then(afterMutation).catch(() => {})}
           onMarkReviewed={(review) => api.markPrReviewed(task.key, review).then(afterMutation).catch(() => {})}
-          onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation).catch(() => {})}
+        />
+      )}
+      {reviewing && (
+        <ReviewPanel
+          task={task}
+          willDeliver={task.stage === 'implementation' && task.branch != null}
+          onApprove={(reason) => api.approve(task.key, reason).then(afterMutation)}
+          onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation)}
+          onOpenChanges={() => setTab('changes')}
         />
       )}
     </>);
@@ -414,7 +433,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
     </>);
 
     const result = (<>
-      {task.resultSummary && (<>
+      {!reviewing && task.resultSummary && (<>
         <div className="af-sl">Result summary</div>
         <div className="af-result">{task.resultSummary}</div>
       </>)}
@@ -434,9 +453,12 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
       )}
     </>);
 
+    // while the review panel shows the criteria table, each row expands to the full text
     const criteria = (<>
-      <div className="af-sl">Acceptance criteria</div>
-      <div className="af-d-body">{task.acceptanceCriteria}</div>
+      {!(reviewing && (task.reviewBrief?.criteria.length ?? 0) > 0) && (<>
+        <div className="af-sl">Acceptance criteria</div>
+        <div className="af-d-body">{task.acceptanceCriteria}</div>
+      </>)}
     </>);
 
     const original = (<>
@@ -561,7 +583,9 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
             <div className="af-dt-sheet">
               <div className="af-dt-col">
                 {banners}{aiReviewRow}{reviewActions}{delivery}{editForm}
-                {journey}{result}{spec}{criteria}{original}{plan}
+                {reviewing
+                  ? <>{spec}{criteria}{original}{plan}{journey}</>
+                  : <>{journey}{result}{spec}{criteria}{original}{plan}</>}
                 <div className="af-sl">Discussion</div>
                 {comment}
                 <div className="af-tl">
@@ -574,6 +598,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
                 )}
               </div>
               <div className="af-dt-col">
+                {reviewing && task.resultSummary && <WorkerSummary text={task.resultSummary} />}
                 {details}{intake}{metrics}
               </div>
               <div className="af-dt-col">

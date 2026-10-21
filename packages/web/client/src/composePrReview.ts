@@ -18,8 +18,8 @@ function findingBullet(f: AiReviewFinding): string {
 
 /**
  * Compose a clean, PR-ready markdown review the human copies and pastes onto the PR itself.
- * Unlike composeFeedback (which attributes each line `[reviewer-<name>]` for the implementing
- * agent), this is written for the PR author: the human's note leads, followed by a bulleted
+ * Unlike composeReviewFeedback (the curated send-back body for the implementing agent), this
+ * is written for the PR author: the human's note leads, followed by a bulleted
  * list of the SELECTED findings. Unselected findings never appear. Returns '' when there is
  * nothing to say (no note, no findings) so the caller can disable the copy action.
  */

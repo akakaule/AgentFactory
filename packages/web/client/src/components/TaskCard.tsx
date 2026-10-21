@@ -1,5 +1,5 @@
 import type { DragEvent } from 'react';
-import type { Task } from '../types.js';
+import type { ReviewCriterionRow, Task } from '../types.js';
 import { STATUS_COLORS, STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { shortTime } from '../time.js';
 import { taskBranch } from '../branch.js';
@@ -7,6 +7,7 @@ import { AiReviewChip } from './AiReviewChip.js';
 import { FailureChip } from './FailureChip.js';
 import { DeliveryChip } from './DeliveryChip.js';
 import { IntakeChip } from './IntakeChip.js';
+import { CriteriaStrip, notMetCaption } from './ReviewCriteria.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -74,10 +75,23 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
         <FailureChip failure={task.failure} />
         <IntakeChip task={task} />
         {task.status === 'in_review' && <span className="af-tag review">{I.check({})}Needs review</span>}
-        {task.status === 'in_review' && <AiReviewChip review={task.aiReview} />}
+        {task.status === 'in_review' && <AiReviewChip brief={task.reviewBrief} />}
         {task.delivery && <DeliveryChip delivery={task.delivery} />}
         <span className="af-meta-i">{I.clock({})}{shortTime(task.updatedAt)}</span>
       </div>
+      {task.status === 'in_review' && task.kind === 'code' && <CardCriteria rows={task.reviewBrief?.criteria ?? []} />}
+    </div>
+  );
+}
+
+/** Each acceptance criterion's review status at a glance; only implementation reviews have rows. */
+function CardCriteria({ rows }: { rows: ReviewCriterionRow[] }) {
+  if (rows.length === 0) return null;
+  const caption = notMetCaption(rows);
+  return (
+    <div className="af-rv-cardstrip">
+      <CriteriaStrip rows={rows} />
+      {caption && <span className="cap">{caption}</span>}
     </div>
   );
 }
