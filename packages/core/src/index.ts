@@ -1,6 +1,8 @@
 export { openDb, type DB } from './db.js';
 export { runMigrations } from './migrate.js';
 export * from './types.js';
+export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
+export { defaultIntakeSettings, normalizeIntakeSettings, parseIntakeSettingsUpdate, intakeEnabledFor, INTAKE_SETTINGS_KEY } from './intakeSettings.js';
 export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 export { getVersion } from './version.js';
@@ -57,9 +59,19 @@ export { attachVisualization, getVisualization, getVisualizationHtml, type Attac
 export { type VisualizationMeta } from './repo/visualizations.js';
 export { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 export { type UpsertSupervisor } from './repo/supervisors.js';
+export { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
+export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings, type BeginIntakeAssessmentResult } from './ops/intake.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
 export { captureNotifications, listAttentionOccurrences, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
+export {
+  FAILURE_TRIAGE_MARKER, FAILURE_TRIAGE_FEEDBACK_MARKER, FAILURE_TRIAGE_MARKER_PREFIXES, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY,
+  FAILURE_TRIAGE_DISPLAY_VERSION, FAILURE_TRIAGE_NOTE_MAX, isFailureTriageMarker, classifyFailureNote, summarizeFailureTriage,
+  buildFailureTriageFeedbackComment, parseFailureTriageFeedbackComment, type FailureNote, type FailureTriageClassification, type FailureTriageFeedbackRecord,
+} from './failureTriage.js';
+export { classifyByRules, FAILURE_TRIAGE_RULES_VERSION, FAILURE_TRIAGE_PRECEDENCE, FAILURE_TRIAGE_RULE_IDS } from './failureTriageRules.js';
+export { normalizeFailureText, failureEvidenceText, FAILURE_TRIAGE_EVIDENCE_VERSION } from './failureTriageEvidence.js';
+export { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 
 import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
@@ -108,9 +120,12 @@ import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
 import { captureNotifications, listAttentionOccurrences, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
+import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
+import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
+import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, CaptureNotificationsInput, SettleNotificationInput } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, CaptureNotificationsInput, SettleNotificationInput, FailureTriageFeedbackInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
@@ -193,8 +208,8 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),
-    completeDelivery: (key: string, note: string) => completeDelivery(db, key, note),
-    failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined }) => failDelivery(db, key, input),
+    completeDelivery: (key: string, note: string, expectedStateChangedAt?: string) => completeDelivery(db, key, note, expectedStateChangedAt),
+    failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined }) => failDelivery(db, key, input),
     reviewPrReviewed: (key: string, input: { review?: string | undefined; actorUserId?: number | null }) => reviewPrReviewed(db, key, input),
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
@@ -204,6 +219,18 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     deleteAttachment: (id: number) => deleteAttachment(db, id),
     getAttachment: (id: number) => getAttachment(db, id),
     getVersion: () => getVersion(db),
+    getIntakeSettings: () => getIntakeSettings(db),
+    setIntakeSettings: (input: unknown) => setIntakeSettings(db, input),
+    recordIntakeAssessment: (key: string, input: unknown) => recordIntakeAssessment(db, key, input),
+    beginIntakeAssessment: (key: string, revision: string, maxAttempts: number) => beginIntakeAssessment(db, key, revision, maxAttempts),
+    intakeHistory: (key: string) => intakeHistory(db, key),
+    overrideIntake: (key: string, input: { expectedRevision: string; reason?: string | undefined; actorUserId?: number | null }) => overrideIntake(db, key, input),
+    queueWithIntakeAcknowledgment: (key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null } = {}) => queueWithIntakeAcknowledgment(db, key, input),
+    intakeRuntimeSettings: () => intakeRuntimeSettings(db),
+    /** Advisory failure triage (human ops; the label itself is derived on Task.failureTriage). */
+    recordFailureTriageFeedback: (key: string, input: FailureTriageFeedbackInput & { actorUserId?: number | null }) => recordFailureTriageFeedback(db, key, input),
+    failureTriageHistory: (key: string, opts: { beforeId?: number | undefined; limit?: number | undefined } = {}) => failureTriageHistory(db, key, opts),
+    getFailureTriageSource: (key: string, activityId: number) => getFailureTriageSource(db, key, activityId),
   };
 }
 export type Core = ReturnType<typeof createCore>;

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { validated } from '../validate.js';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
 import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
@@ -43,6 +43,26 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     c.json(core.archiveDoneTasks({ workspace: c.req.valid('json').workspace })));
 
   r.get('/:key', (c) => c.json(withCreatePrUrl(core.getTask(c.req.param('key')))));
+  r.get('/:key/intake/history', (c) => c.json(core.intakeHistory(c.req.param('key'))));
+  r.post('/:key/intake/override', rejectService, validated('json', intakeOverrideBody), (c) => {
+    const b = c.req.valid('json');
+    return c.json(core.overrideIntake(c.req.param('key'), { expectedRevision: b.expectedRevision, ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c) }));
+  });
+
+  // Advisory failure triage (human-only; the label itself rides Task.failureTriage). Feedback
+  // identity comes from the principal, never the body.
+  r.get('/:key/failure-triage/history', rejectService, validated('query', failureTriageHistoryQuery), (c) =>
+    c.json(core.failureTriageHistory(c.req.param('key'), c.req.valid('query'))));
+  r.get('/:key/failure-triage/source/:activityId', rejectService, validated('param', activityIdParam), (c) =>
+    c.json(core.getFailureTriageSource(c.req.param('key'), c.req.valid('param').activityId)));
+  r.post('/:key/failure-triage/feedback', rejectService, validated('json', failureTriageFeedbackBody), (c) => {
+    const b = c.req.valid('json');
+    return c.json(core.recordFailureTriageFeedback(c.req.param('key'), {
+      sourceActivityId: b.sourceActivityId, action: b.action, shownCategory: b.shownCategory,
+      ...(b.category !== undefined ? { category: b.category } : {}), ...(b.note !== undefined ? { note: b.note } : {}),
+      actorUserId: actorUserIdOf(c),
+    }));
+  });
 
   r.put('/:dependentKey/dependencies/:dependencyKey', (c) =>
     c.json(core.addTaskDependency(
@@ -127,8 +147,16 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     // not masquerade as a human in the activity log (the agent surface is the preferred route).
     c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
-  r.post('/:key/status', rejectService, validated('json', statusBody), (c) =>
-    c.json(core.updateStatus(c.req.param('key'), c.req.valid('json').status, 'human', actorUserIdOf(c), c.req.valid('json').note)));
+  r.post('/:key/status', rejectService, validated('json', statusBody), (c) => {
+    const b = c.req.valid('json');
+    if (b.status === 'queued' && core.getTask(c.req.param('key')).status === 'backlog') {
+      return c.json(core.queueWithIntakeAcknowledgment(c.req.param('key'), {
+        ...(b.expectedRevision !== undefined ? { expectedRevision: b.expectedRevision } : {}),
+        ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),
+      }));
+    }
+    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note));
+  });
 
   r.post('/:key/metrics', validated('json', metricsBody), (c) => {
     const b = c.req.valid('json');

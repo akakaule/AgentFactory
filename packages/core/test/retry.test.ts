@@ -10,6 +10,25 @@ function queued(core: ReturnType<typeof createCore>, title = 'Retry me'): string
 }
 
 describe('durable retry budgets', () => {
+  it('a human re-queue of a blocked task gives the worker a fresh budget; releasing a claim does not', () => {
+    const core = createCore(makeTestDb());
+    const key = queued(core);
+    const op = { operation: 'dispatcher:implementation', maxAttempts: 2 } as const;
+    for (let i = 0; i < 2; i++) { // two worker rounds that each ended blocked
+      const r = core.reserveRetry(key, op)!;
+      core.claimNextTask({ taskKey: key, claimedBy: `w${i}` });
+      core.updateStatus(key, 'blocked', 'agent', undefined, null, 'needs a human');
+      core.settleRetry(r.id, { state: 'succeeded', reason: 'task advanced to blocked' });
+      if (i === 0) core.updateStatus(key, 'queued', 'human');
+    }
+    core.updateStatus(key, 'queued', 'human'); // the human unblocked it: new work
+    expect(core.reserveRetry(key, op)).toMatchObject({ generation: 3, attempt: 1 });
+
+    core.claimNextTask({ taskKey: key, claimedBy: 'w9' });
+    core.updateStatus(key, 'queued', 'human'); // releasing a stranded claim is still a retry
+    expect(core.getRetryBudget(key, 'dispatcher:implementation')).toMatchObject({ generation: 3, attemptsUsed: 1 });
+  });
+
   it('persists spent attempts when a new core/supervisor instance is created', () => {
     const db = makeTestDb();
     const first = createCore(db);

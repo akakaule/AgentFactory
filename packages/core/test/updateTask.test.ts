@@ -83,17 +83,27 @@ describe('updateTask', () => {
     expect(updated.createdAt).not.toBe(FIXED_NOW);
   });
 
-  it('rejects non-backlog task with InvalidTransitionError and does NOT modify the row', () => {
+  it('edits the brief of an unclaimed queued task', () => {
     const db = makeTestDb();
     const original = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
-    db.prepare("UPDATE task SET status = ? WHERE key = ?").run('queued', original.key);
+    db.prepare("UPDATE task SET status = 'queued' WHERE id = ?").run(original.id);
+
+    const updated = updateTask(db, original.key, { title: 'T2', spec: 'S2', acceptanceCriteria: 'A2', workspace: 'default' });
+
+    expect(updated).toMatchObject({ title: 'T2', spec: 'S2', acceptanceCriteria: 'A2', status: 'queued', workspace: 'default' });
+  });
+
+  it('rejects a claimed task with InvalidTransitionError and does NOT modify the row', () => {
+    const db = makeTestDb();
+    const original = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    db.prepare("UPDATE task SET status = ? WHERE key = ?").run('in_progress', original.key);
 
     expect(() => updateTask(db, original.key, { title: 'X' })).toThrow(InvalidTransitionError);
 
     // Row should be unmodified (title still 'T')
     const row = db.prepare('SELECT * FROM task WHERE key = ?').get(original.key) as { title: string; status: string };
     expect(row.title).toBe('T');
-    expect(row.status).toBe('queued');
+    expect(row.status).toBe('in_progress');
   });
 
   it('rejects empty payload {} with ValidationError', () => {

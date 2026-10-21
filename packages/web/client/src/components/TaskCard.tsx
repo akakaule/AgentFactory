@@ -6,6 +6,7 @@ import { taskBranch } from '../branch.js';
 import { AiReviewChip } from './AiReviewChip.js';
 import { FailureChip } from './FailureChip.js';
 import { DeliveryChip } from './DeliveryChip.js';
+import { IntakeChip } from './IntakeChip.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -71,6 +72,7 @@ export function TaskCard({ task, onOpen, showWorkspace, wsHue, dragging, onDragS
         {task.claimedAt && task.stage === 'implementation' && <span className="af-chip">{I.branch({})}<span className="tx">{taskBranch(task.key, task.title)}</span></span>}
         {/* surfaces a supervisor failure (timeout/crash/denial/out-of-attempts) right on the card */}
         <FailureChip failure={task.failure} />
+        <IntakeChip task={task} />
         {task.status === 'in_review' && <span className="af-tag review">{I.check({})}Needs review</span>}
         {task.status === 'in_review' && <AiReviewChip review={task.aiReview} />}
         {task.delivery && <DeliveryChip delivery={task.delivery} />}

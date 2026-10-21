@@ -9,7 +9,7 @@ interface BudgetRow {
   attempts_used: number; created_at: string;
 }
 
-interface AttemptRow {
+export interface AttemptRow {
   id: string; task_id: number; operation: string; generation: number; attempt: number;
   max_attempts: number; state: RetryAttemptState; reserved_at: string;
 }
@@ -19,6 +19,20 @@ function reservationFromRow(row: AttemptRow, taskKey: string): RetryReservation 
     id: row.id, taskKey, operation: row.operation, generation: row.generation,
     attempt: row.attempt, maxAttempts: row.max_attempts, state: row.state, reservedAt: row.reserved_at,
   };
+}
+
+export function activeRetryAttempt(db: DB, taskId: number, operation: RetryOperation): AttemptRow | null {
+  const row = db.prepare(
+    `SELECT a.id, b.task_id, b.operation, b.generation, a.attempt, b.max_attempts, a.state, a.reserved_at
+       FROM retry_attempt a JOIN retry_budget b ON b.id = a.budget_id
+      WHERE b.task_id = ? AND b.operation = ? AND a.state IN ('reserved','running') ORDER BY a.attempt DESC LIMIT 1`,
+  ).get(taskId, operation) as AttemptRow | undefined;
+  return row ?? null;
+}
+
+export function markRetryRunning(db: DB, reservation: RetryReservation): RetryReservation {
+  db.prepare(`UPDATE retry_attempt SET state = 'running' WHERE id = ? AND state = 'reserved'`).run(reservation.id);
+  return { ...reservation, state: 'running' };
 }
 
 function nextAttempt(db: DB, budgetId: number): number {

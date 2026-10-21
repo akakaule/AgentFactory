@@ -1,0 +1,7 @@
+{
+  "db": "./agentfactory.db",
+  "pollSeconds": 30,
+  "provider": {
+    "name": "fixture"
+  }
+}

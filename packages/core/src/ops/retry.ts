@@ -3,8 +3,9 @@ import type { RetryAttemptState, RetryBudget, RetryOperation, RetryReservation }
 import { transaction } from '../transaction.js';
 import { NotFoundError, ValidationError } from '../errors.js';
 import { findRowByKey } from '../repo/tasks.js';
-import { budgetByTask, reserveRetry as reserveRetryRow, resetRetryBudget as resetRetryBudgetRow, settleRetry as settleRetryRow, reconcileRetry as reconcileRetryRow, reconcileAbandonedRetryReservations as reconcileAbandonedRetryReservationsRow, recordRetryFailure as recordRetryFailureRow } from '../repo/retry.js';
+import { budgetByTask, reserveRetry as reserveRetryRow, resetRetryBudget as resetRetryBudgetRow, settleRetry as settleRetryRow, reconcileRetry as reconcileRetryRow, reconcileAbandonedRetryReservations as reconcileAbandonedRetryReservationsRow, recordRetryFailure as recordRetryFailureRow, activeRetryAttempt, markRetryRunning } from '../repo/retry.js';
 import { nowIso } from '../time.js';
+import { reconcileMergedDelivery } from './delivery.js';
 
 function assertInput(operation: RetryOperation, maxAttempts: number): void {
   if (!operation.trim()) throw new ValidationError('retry operation is required');
@@ -16,12 +17,25 @@ export interface SettleRetryInput { state: Extract<RetryAttemptState, 'running' 
 export interface ReconcileRetryInput { actualKey: string; operation: RetryOperation; maxAttempts: number; }
 export interface RecordRetryFailureInput { operation: RetryOperation; maxAttempts: number; attempt: number; reason: string; }
 
+export function beginRetry(db: DB, key: string, input: ReserveRetryInput, now: () => string = nowIso): RetryReservation | null | 'busy' {
+  assertInput(input.operation, input.maxAttempts);
+  return transaction(db, () => {
+    const row = findRowByKey(db, key);
+    if (!row) throw new NotFoundError(`task not found: ${key}`);
+    if (activeRetryAttempt(db, row.id, input.operation)) return 'busy';
+    const reservation = reserveRetryRow(db, row.id, key, input, now());
+    return reservation ? markRetryRunning(db, reservation) : null;
+  });
+}
+
 export function reserveRetry(db: DB, key: string, input: ReserveRetryInput, now: () => string = nowIso): RetryReservation | null {
   assertInput(input.operation, input.maxAttempts);
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    return reserveRetryRow(db, row.id, key, input, now());
+    const ts = now();
+    if (input.operation.startsWith('dispatcher:') && (row.status === 'done' || reconcileMergedDelivery(db, row, ts))) return null;
+    return reserveRetryRow(db, row.id, key, input, ts);
   });
 }
 

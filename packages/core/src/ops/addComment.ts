@@ -9,6 +9,8 @@ import { applyApproval } from './approval.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { reviewSubmissionFingerprint } from '../reviewConsensus.js';
 import { nowIso } from '../time.js';
+import { isIntakeMarker } from '../intake.js';
+import { isFailureTriageMarker } from '../failureTriage.js';
 
 export function addComment(
   db: DB,
@@ -17,6 +19,8 @@ export function addComment(
   now: () => string = nowIso,
 ): Activity {
   const { body } = parse(commentSchema, { body: input.body });
+  if (isIntakeMarker(body)) throw new InvalidTransitionError('intake markers can only be written by dedicated core operations');
+  if (isFailureTriageMarker(body)) throw new InvalidTransitionError('failure-triage markers can only be written by dedicated core operations');
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   return transaction(db, () => {

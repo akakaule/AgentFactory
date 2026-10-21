@@ -389,12 +389,12 @@ CREATE TABLE IF NOT EXISTS retry_attempt (
 CREATE INDEX IF NOT EXISTS idx_retry_attempt_budget ON retry_attempt(budget_id, attempt);
 `;
 
-// Migration #26 — durable attention occurrences and one outbox row per destination. The source
+// Migration #27 — durable attention occurrences and one outbox row per destination. The source
 // cursor is still kept in app_kv, but capture + cursor advancement happen in one core transaction;
 // outbox state survives board and notifier restarts. `state_key` groups an open edge (such as a
 // supervisor going down) so resolving it permits a later occurrence without duplicate alerts on
 // every poll. Payload text is bounded by the core operation before it reaches this table.
-export const MIGRATION_26_SQL = `
+export const MIGRATION_27_SQL = `
 CREATE TABLE IF NOT EXISTS attention_occurrence (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   event_key      TEXT NOT NULL UNIQUE,

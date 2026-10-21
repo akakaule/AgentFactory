@@ -73,6 +73,9 @@ function implementationPrompt(
     'visible in the diff. Do not pad; zero findings is a perfectly good verdict. Severity:',
     '"error" = will not meet the brief / breaks something, "warning" = likely problem worth a look,',
     '"info" = worth knowing, not blocking.',
+    'Compare the implementation with the approved plan when present. Assess material deviations',
+    'in migration, compatibility, and verification decisions against the summary and actual diff;',
+    'allow justified improvements and do not report a deviation solely because it differs from the plan.',
     ...systemPromptSection(systemPrompt),
     '',
     outputContract(engine),
@@ -86,6 +89,9 @@ function implementationPrompt(
     '=== ACCEPTANCE CRITERIA ===',
     task.acceptanceCriteria,
     '',
+    '=== APPROVED IMPLEMENTATION PLAN ===',
+    task.plan ?? '(no approved plan recorded; review against the spec and acceptance criteria)',
+    '',
     "=== SUBMITTED RESULT (implementer's own summary - verify, don't trust) ===",
     latestResult(task),
     '',
@@ -98,19 +104,27 @@ function implementationPrompt(
 }
 
 /** Doc-stage prompt (description/plan): the deliverable is the task's own fields, not a diff. */
-function docPrompt(task: TaskDetail, engine: ReviewEngine, systemPrompt: string | undefined): string {
+function docPrompt(task: TaskDetail, engine: ReviewEngine, systemPrompt: string | undefined, repoPath: string): string {
   let charge: string;
   let deliverable: string[];
   if (task.stage === 'description') {
     charge = [
       "Review the FEATURE DESCRIPTION below (spec + acceptance criteria) against the task's",
-      "intent (title, source links in the spec, the author's summary). Is the description",
+      'original request and original acceptance criteria below. Use these as the baseline for intent;',
+      "the rewrite and author's summary are not substitutes for the original. Is the description",
       'complete and unambiguous? Are the acceptance criteria objectively verifiable? Does it',
       'invent scope the source never asked for? "error" = the description fails its purpose',
       '(wrong or missing intent, unverifiable criteria), "warning" = a gap worth a look,',
       '"info" = worth knowing, not blocking.',
+      'If an original field was not recorded, state that limitation; do not invent its contents.',
     ].join('\n');
     deliverable = [
+      '=== ORIGINAL REQUEST (comparison baseline) ===',
+      task.originalSpec ?? '(original request not recorded)',
+      '',
+      '=== ORIGINAL ACCEPTANCE CRITERIA (comparison baseline) ===',
+      task.originalAcceptanceCriteria ?? '(original acceptance criteria not recorded)',
+      '',
       '=== SPEC (the deliverable under review) ===',
       task.spec,
       '',
@@ -120,11 +134,18 @@ function docPrompt(task: TaskDetail, engine: ReviewEngine, systemPrompt: string 
   } else {
     charge = [
       "Review the IMPLEMENTATION PLAN below against the task's spec and acceptance criteria.",
+      'Inspect the relevant files read-only in the workspace repository below before judging feasibility.',
+      'Resolve relative file paths against that repository, not your session working directory.',
+      'Do not edit files, change branches, or create commits. If inspection is unavailable, state the limitation',
+      'and do not claim that repository facts have been verified.',
       'Does the plan cover every acceptance criterion? Is it concrete (files, approach, test',
       'plan) and plausible for the codebase it names? "error" = the plan would not deliver',
       'the spec, "warning" = a gap worth a look, "info" = worth knowing, not blocking.',
     ].join('\n');
     deliverable = [
+      '=== WORKSPACE REPOSITORY (read-only inspection) ===',
+      repoPath,
+      '',
       '=== SPEC ===',
       task.spec,
       '',
@@ -158,6 +179,8 @@ function docPrompt(task: TaskDetail, engine: ReviewEngine, systemPrompt: string 
 export interface ReviewPromptInput {
   task: TaskDetail;
   engine: ReviewEngine;
+  /** Machine-local repository path resolved by the supervisor; defaults to task.repoPath. */
+  repoPath?: string | undefined;
   /** Implementation stage: the feature branch name and its merge-base diff. */
   branch?: string | undefined;
   diff?: BranchDiff | undefined;
@@ -177,7 +200,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     if (!branch || !diff) throw new Error(`implementation review needs a branch + diff for ${task.key}`);
     return implementationPrompt(task, engine, branch, diff, maxDiffChars, systemPrompt);
   }
-  return docPrompt(task, engine, systemPrompt);
+  return docPrompt(task, engine, systemPrompt, input.repoPath ?? task.repoPath);
 }
 
 /**

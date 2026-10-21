@@ -41,6 +41,54 @@ function detail(over: Partial<TaskDetail> = {}): TaskDetail {
 }
 
 describe('buildReviewPrompt', () => {
+  it('description: compares the rewrite with the saved original request and criteria', () => {
+    const p = buildReviewPrompt({ task: detail({ stage: 'description',
+      originalSpec: 'Preserve offline access', originalAcceptanceCriteria: 'Works without a network',
+    }), engine: 'codex' });
+    expect(p).toContain('=== ORIGINAL REQUEST');
+    expect(p).toContain('Preserve offline access');
+    expect(p).toContain('Works without a network');
+    expect(p).toContain('the spec');
+    expect(p).toContain('the acceptance criteria');
+  });
+
+  it('description: explicitly marks missing originals instead of substituting the rewrite', () => {
+    const p = buildReviewPrompt({ task: detail({ stage: 'description',
+      originalSpec: null, originalAcceptanceCriteria: null,
+    }), engine: 'codex' });
+    expect(p).toContain('(original request not recorded)');
+    expect(p).toContain('(original acceptance criteria not recorded)');
+  });
+
+  it('description: preserves an intentionally empty original without treating it as missing', () => {
+    const p = buildReviewPrompt({ task: detail({ stage: 'description',
+      originalSpec: '', originalAcceptanceCriteria: '',
+    }), engine: 'codex' });
+    expect(p).toContain('=== ORIGINAL REQUEST');
+    expect(p).not.toContain('(original request not recorded)');
+    expect(p).not.toContain('(original acceptance criteria not recorded)');
+  });
+
+  it('implementation: supplies the approved plan for checking material deviations', () => {
+    const p = buildReviewPrompt({ task: detail({ plan: 'Migrate existing records before adding the constraint' }),
+      engine: 'codex', branch: 'feature/x', diff: { baseRef: 'main', diff: 'D', commits: 1 } });
+    expect(p).toContain('=== APPROVED IMPLEMENTATION PLAN ===');
+    expect(p).toContain('Migrate existing records before adding the constraint');
+    expect(p).toContain('justified improvements');
+  });
+
+  it('implementation: permits direct implementation tasks with no approved plan', () => {
+    const p = buildReviewPrompt({ task: detail({ plan: null }), engine: 'codex',
+      branch: 'feature/x', diff: { baseRef: 'main', diff: 'D', commits: 1 } });
+    expect(p).toContain('(no approved plan recorded; review against the spec and acceptance criteria)');
+  });
+
+  it('plan: identifies the repository and requires read-only inspection', () => {
+    const p = buildReviewPrompt({ task: detail({ stage: 'plan', repoPath: '/target/repository' }), engine: 'claude' });
+    expect(p).toContain('/target/repository');
+    expect(p).toContain('Inspect the relevant files read-only');
+  });
+
   it('implementation: includes the diff, branch line, result summary, and the contract', () => {
     const p = buildReviewPrompt({
       task: detail(),

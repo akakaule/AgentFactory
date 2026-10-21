@@ -20,6 +20,26 @@ function setup(stage: 'implementation' | 'description' = 'implementation', codex
 }
 
 describe('two-model task review', () => {
+  it('bounds truncated-output retries and preserves the submission in review', async () => {
+    const { core, key, calls, r } = setup();
+    const before = core.getTask(key);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await r.tick();
+      const call = calls[attempt];
+      if (!call) break;
+      call.child.emitStdout('ai-review/v1\n```json\n{"verdict":\n```');
+      await call.child.exit(0);
+    }
+    const count = calls.length;
+    await r.tick();
+    expect(calls).toHaveLength(count);
+    expect(count).toBe(2);
+    const after = core.getTask(key);
+    expect(after.status).toBe('in_review');
+    expect(after.aiReview).toBeNull();
+    expect(after.failure?.reason).toBe('review_failed');
+    expect(after.activity.filter(a => a.type === 'result')).toEqual(before.activity.filter(a => a.type === 'result'));
+  });
   it.each([0, 1])('reports the real Claude turn-limit error instead of a JSON error (exit %i)', async (exitCode) => {
     const { core, key, calls, r } = setup();
     await r.tick();

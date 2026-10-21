@@ -5,6 +5,17 @@ import { buildApp } from '../../server/app.js';
 const bearer = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });
 
 describe('GET /api/supervisors', () => {
+  it('accepts intake heartbeats from a plain service token over HTTP', async () => {
+    const core = openCore(':memory:');
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const token = core.createApiToken({ label: 'intake', isService: true }).token;
+    const res = await app.request('/api/agent/supervisors/heartbeat', {
+      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'intake', kind: 'intake', workspaces: ['default'], inFlight: 0, capacity: 5, pollSeconds: 30 }),
+    });
+    expect(res.status).toBe(200);
+    expect(core.listSupervisors()).toEqual([expect.objectContaining({ kind: 'intake', healthy: true })]);
+  });
   it('lists supervisors with a derived healthy flag', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core);

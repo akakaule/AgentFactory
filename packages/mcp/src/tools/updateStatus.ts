@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpCore } from '../types.js';
 import { AgentStatusEnum, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
+import { withoutFailureTriage } from '../content.js';
 
 export function registerUpdateStatus(server: McpServer, core: McpCore): void {
   server.registerTool(
@@ -30,7 +31,7 @@ export function registerUpdateStatus(server: McpServer, core: McpCore): void {
           };
         }
         const task = await core.updateStatus(key, status, 'agent', null, note);
-        return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(withoutFailureTriage(task), null, 2) }] };
       } catch (err) {
         return toToolError(err);
       }

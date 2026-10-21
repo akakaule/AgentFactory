@@ -10,4 +10,5 @@ export default defineWorkspace([
   'packages/dispatcher/vitest.config.ts',
   'packages/reviewer/vitest.config.ts',
   'packages/watcher/vitest.config.ts',
+  'packages/intake/vitest.config.ts',
 ]);

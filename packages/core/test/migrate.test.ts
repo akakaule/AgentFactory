@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../src/db.js';
 import { runMigrations, widenCheck } from '../src/migrate.js';
-import { MIGRATION_26_SQL } from '../src/schema.js';
+import { MIGRATION_27_SQL } from '../src/schema.js';
 
 const tables = (db: any) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r: any) => r.name);
@@ -11,7 +11,7 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence;');
-    db.exec(MIGRATION_26_SQL);
+    db.exec(MIGRATION_27_SQL);
     db.exec("ALTER TABLE attention_occurrence ADD COLUMN external_note TEXT; PRAGMA user_version = 26;");
     db.prepare(`INSERT INTO attention_occurrence(event_key,event_type,reason,target,text,first_seen_at,last_seen_at,external_note)
       VALUES ('test','failed','failed','AF-1','test','t','t','preserved')`).run();
@@ -36,9 +36,24 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt', 'attention_occurrence', 'notification_outbox']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+  });
+
+  it('reconciles a pre-merge attention-branch DB at slot 27 that never received the intake heartbeat kind', () => {
+    const db = openDb(':memory:'); runMigrations(db);
+    // The attention branch used slots #26/#27 before main's #26 (intake heartbeat) landed, so its
+    // DBs carry the widened attention schema at user_version 27 but the narrow heartbeat CHECK.
+    db.exec('PRAGMA foreign_keys = OFF');
+    widenCheck(db, 'supervisor_heartbeat', "('dispatcher','reviewer','watcher','intake')", "('dispatcher','reviewer','watcher')");
+    db.exec('PRAGMA foreign_keys = ON; PRAGMA user_version = 27;');
+    db.prepare("INSERT INTO supervisor_heartbeat(name,kind,started_at,last_seen_at) VALUES ('w','watcher','t','t')").run();
+    runMigrations(db);
+    db.prepare("INSERT INTO supervisor_heartbeat(name,kind,started_at,last_seen_at) VALUES ('i','intake','t','t')").run();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM supervisor_heartbeat').get()).toEqual({ n: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    db.close();
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -143,7 +158,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -203,9 +218,12 @@ describe('runMigrations', () => {
     expect(() => db.prepare(
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-2','t','s','a','nonsense',2,1,'2026-01-01','2026-01-01')"
     ).run()).toThrow();
-    // the heartbeat kind CHECK accepts the watcher
+    // the heartbeat kind CHECK accepts the watcher and intake supervisor
     db.prepare(
       "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('w','watcher','default',0,0,'2026-01-01','2026-01-01')"
+    ).run();
+    db.prepare(
+      "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('i','intake','default',0,0,'2026-01-01','2026-01-01')"
     ).run();
     // the four task indexes survived the rebuild
     const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task' AND sql IS NOT NULL").all() as Array<{ name: string }>).map((r) => r.name);
@@ -312,7 +330,7 @@ describe('runMigrations', () => {
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
     ).all() as Array<{ name: string }>).map((row) => row.name);
     expect(indexes).toContain('idx_task_dependency_reverse');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
   });
 
   it('enforces the stage CHECK constraint', () => {

@@ -66,6 +66,7 @@ export const updateTaskSchema = z
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');
 export const submitResultSchema = z.object({
   summary: nonEmpty,
+  claimAt: nonEmpty.optional(),
   // stage deliverables; which are required/forbidden depends on the task's stage,
   // which the schema can't see — ops/submitResult.ts enforces the per-stage shape
   spec: nonEmpty.optional(),

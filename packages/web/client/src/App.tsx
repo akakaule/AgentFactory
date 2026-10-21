@@ -16,6 +16,7 @@ import { WorkspacesModal } from './components/WorkspacesModal.js';
 import { AgentPromptsModal } from './components/AgentPromptsModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate } from './components/TokenGate.js';
+import { IntakeSettingsPanel } from './components/IntakeSettingsPanel.js';
 import { Mark, I } from './icons.js';
 
 type View = 'board' | 'list' | 'archive' | 'analytics' | 'live' | 'telemetry';
@@ -46,6 +47,7 @@ export function App() {
   const [managingWorkspaces, setManagingWorkspaces] = useState(false);
   const [editWorkspace, setEditWorkspace] = useState<string | null>(null); // which workspace the editor should focus
   const [managingPrompts, setManagingPrompts] = useState(false); // global agent system-prompt editor
+  const [managingIntake, setManagingIntake] = useState(false);
   const [wsFilter, setWsFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [lastWorkspace, setLastWorkspace] = useState('default');
@@ -72,6 +74,14 @@ export function App() {
     (!q || t.key.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) || t.spec.toLowerCase().includes(q)));
 
   const moveTask = (key: string, to: Status) => {
+    const task = tasks.find((candidate) => candidate.key === key);
+    const attention = task?.status === 'backlog' && to === 'queued' && task.intake?.state === 'current' && task.intake.policy?.eligibility === 'attention_required';
+    if (attention) {
+      const confirmed = window.confirm('Task Intelligence flagged this task. Queue it anyway?');
+      if (!confirmed) return;
+      api.setStatus(key, to, undefined, { expectedRevision: task.intake!.assessment.sourceRevision }).then(refetch).catch(() => {});
+      return;
+    }
     api.setStatus(key, to).then(refetch).catch(() => {});
   };
 
@@ -106,6 +116,9 @@ export function App() {
         />
         <button className="af-mini" title="Configure agent system prompts" onClick={() => setManagingPrompts(true)}>
           {I.bot({ width: 14, height: 14 })} Agents
+        </button>
+        <button className="af-mini" title="Configure task intelligence" onClick={() => setManagingIntake(true)}>
+          Task Intelligence
         </button>
         {taskChrome && (
           <label className="af-search">
@@ -196,6 +209,7 @@ export function App() {
           onClose={() => { setManagingWorkspaces(false); setEditWorkspace(null); }}
         />
       )}
+      {managingIntake && <IntakeSettingsPanel workspaces={workspaces} onSaved={refetch} onClose={() => setManagingIntake(false)} />}
 
       {managingPrompts && <AgentPromptsModal onClose={() => setManagingPrompts(false)} />}
 

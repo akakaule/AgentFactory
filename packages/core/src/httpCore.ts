@@ -35,6 +35,7 @@ export type HttpCore = Pick<
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
+  | 'recordIntakeAssessment' | 'beginIntakeAssessment' | 'intakeRuntimeSettings'
 > & {
   whoami(): Promise<BoardIdentity>;
 };
@@ -111,6 +112,11 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     recordRetryFailure: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/retry/record-failure`, input); },
     settleRetry: async (id, input) => ((await req('POST', `/api/agent/retry/${enc(id)}/settle`, input)) as { settled: boolean }).settled,
 
+    // ── task intake supervisor surface ─────────────────────────────────────
+    intakeRuntimeSettings: async () => (await req('GET', '/api/agent/intake/settings')) as never,
+    recordIntakeAssessment: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/intake/assessment`, input)) as never,
+    beginIntakeAssessment: async (key, revision, maxAttempts) => (await req('POST', `/api/agent/tasks/${enc(key)}/intake/begin`, { revision, maxAttempts })) as never,
+
     // ── transcript / session / metrics ───────────────────────────────────────
     appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, input); },
     saveTranscript: async (key, input) => { await req('PUT', `/api/agent/tasks/${enc(key)}/transcript`, input); },
@@ -131,7 +137,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     // ── delivery (watcher) ───────────────────────────────────────────────────
     beginDelivery: async (key, seed) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/begin`, seed)) as never,
     recordDeliveryCheck: async (key, obs) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check`, obs)) as never,
-    completeDelivery: async (key, note) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note })) as never,
+    completeDelivery: async (key, note, expectedStateChangedAt) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note, ...(expectedStateChangedAt !== undefined ? { expectedStateChangedAt } : {}) })) as never,
     failDelivery: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/fail`, input)) as never,
 
     // spec images ride the claim payload as MCP image blocks — the one binary read.

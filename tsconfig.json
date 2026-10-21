@@ -6,6 +6,7 @@
     { "path": "packages/web" },
     { "path": "packages/dispatcher" },
     { "path": "packages/reviewer" },
-    { "path": "packages/watcher" }
+    { "path": "packages/watcher" },
+    { "path": "packages/intake" }
   ]
 }
