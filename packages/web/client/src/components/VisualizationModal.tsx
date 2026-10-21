@@ -13,7 +13,8 @@ interface Props {
  *  NO `allow-same-origin` makes the frame an opaque origin, so Mermaid's CDN script runs but the
  *  page can't reach the parent DOM or same-origin cookies. Clones TranscriptModal/DiffModal's
  *  overlay + Escape + close mechanics. */
-export function VisualizationModal({ taskKey, generatedAt, onClose }: Props) {
+/** Fetch + sandboxed iframe — shared by the modal and the expanded detail's Changes tab. */
+export function VisualizationFrame({ taskKey }: { taskKey: string }) {
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +26,23 @@ export function VisualizationModal({ taskKey, generatedAt, onClose }: Props) {
     return () => { alive = false; };
   }, [taskKey]);
 
+  return (
+    <>
+      {error && <div className="af-viz-msg">Couldn't load visualization: {error}</div>}
+      {!error && html == null && <div className="af-viz-msg">Loading…</div>}
+      {html != null && (
+        <iframe
+          className="af-viz-frame"
+          sandbox="allow-scripts"
+          srcDoc={html}
+          title="Change visualization"
+        />
+      )}
+    </>
+  );
+}
+
+export function VisualizationModal({ taskKey, generatedAt, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -47,16 +65,7 @@ export function VisualizationModal({ taskKey, generatedAt, onClose }: Props) {
           <button className="af-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="af-vizmodal-body">
-          {error && <div className="af-viz-msg">Couldn't load visualization: {error}</div>}
-          {!error && html == null && <div className="af-viz-msg">Loading…</div>}
-          {html != null && (
-            <iframe
-              className="af-viz-frame"
-              sandbox="allow-scripts"
-              srcDoc={html}
-              title="Change visualization"
-            />
-          )}
+          <VisualizationFrame taskKey={taskKey} />
         </div>
       </div>
     </div>

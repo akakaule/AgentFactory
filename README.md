@@ -36,6 +36,16 @@ npm run web:dev
 
 The server stores its data in `agentfactory.db` (override with the `AGENTFACTORY_DB` env var — the path is resolved relative to the working directory, so point both the web server and the MCP server at the same absolute path).
 
+### Start the board with token authentication (Windows)
+
+```powershell
+.\start-board.ps1
+```
+
+Starts the board at http://localhost:8787 with `AUTH_MODE=token`, even in an older terminal. Sign in with your existing human board token; supervisors use their own service tokens. Keep the terminal open and press Ctrl+C to stop.
+
+The launcher builds missing output automatically. Use `.\start-board.ps1 -Build` to rebuild after code changes. It defaults to the repository's `agentfactory.db`, ignoring inherited `AGENTFACTORY_DB` values; use `-Database C:\data\agentfactory.db` for a different database. It respects `PORT`, or you can pass `-Port 8788`. If the port is occupied, it reports the owning process instead of starting another board.
+
 ### Run MCP server (dev mode)
 
 ```bash

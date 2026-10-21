@@ -104,6 +104,87 @@ export interface FailureSummary {
   at: string;                // the failure comment's created_at
 }
 
+/**
+ * Advisory failure triage (docs/spec/2026-09-25-failure-triage-design.md): a likely-cause label
+ * for the current failure, derived at read time by local rules (src/failureTriageRules.ts).
+ * Only human feedback is persisted (`failure-triage-feedback/v1` markers). Never changes lifecycle.
+ */
+export type FailureTriageCategory = 'access' | 'configuration' | 'infrastructure' | 'build_test' | 'agent_execution' | 'delivery' | 'unknown';
+export interface FailureTriageRuleResult {
+  version: string;                      // rules version, e.g. 'failure-triage-rules/v1'
+  category: FailureTriageCategory;      // 'unknown' when no rule matched or there is no usable evidence
+  ruleId: string | null;
+  matchedLine: string | null;           // bounded excerpt of the local line that matched
+  alsoMatched: FailureTriageCategory[]; // lower-precedence categories that also matched
+}
+export interface FailureTriageFeedback {
+  activityId: number; sourceActivityId: number;
+  action: 'confirm' | 'correct'; category: FailureTriageCategory;
+  shownCategory: FailureTriageCategory; classifier: 'rules' | 'human'; rulesVersion: string | null;
+  note: string | null; actorUserId: number | null; actorName: string | null; at: string;
+}
+export interface FailureTriageSummary {
+  sourceActivityId: number;          // the current failure/v1 note (the episode identity)
+  evidenceActivityId: number | null; // the note the rules read; null = no usable evidence
+  classifier: 'rules' | 'human';     // who supplied the displayed category
+  category: FailureTriageCategory; label: string; suggestion: string;
+  rules: FailureTriageRuleResult;
+  human: FailureTriageFeedback | null; // latest feedback for this source event
+}
+export interface FailureTriageHistoryItem {
+  sourceActivityId: number; reason: string; source: string | null; at: string;
+  evidenceActivityId: number | null; rules: FailureTriageRuleResult; feedback: FailureTriageFeedback[];
+}
+export interface FailureTriageHistoryPage { items: FailureTriageHistoryItem[]; nextBeforeId: number | null; }
+export interface FailureTriageFeedbackInput {
+  sourceActivityId: number; action: 'confirm' | 'correct'; shownCategory: FailureTriageCategory;
+  category?: FailureTriageCategory | undefined; note?: string | undefined;
+}
+
+export type IntakeMode = 'off' | 'advisory' | 'enforced';
+export type IntakeErrorKind = 'timeout' | 'rate_limit' | 'network' | 'invalid_response' | 'unavailable' | 'input_too_large';
+export type IntakeReadinessPart = 'outcomeClear' | 'scopeBounded' | 'verifiable';
+export type Complexity = 'trivial' | 'small' | 'medium' | 'large' | 'architectural';
+export type Risk = 'low' | 'medium' | 'high' | 'critical';
+
+export interface IntakeProviderMeta { name: string; model: string | null; }
+export interface IntakeUsage { inputTokens: number | null; outputTokens: number | null; }
+export interface IntakeReadiness { probability: number; parts: Partial<Record<IntakeReadinessPart, number>>; }
+export interface IntakeChoice<T extends string> { value: T; probabilities: Record<T, number>; confidence: number | null; }
+export interface IntakeDecisions {
+  readiness: IntakeReadiness;
+  complexity: IntakeChoice<Complexity>;
+  risk: IntakeChoice<Risk>;
+  [key: string]: unknown;
+}
+export interface IntakeAssessmentBase {
+  schema: 'intake/v1'; taskKey: string; sourceRevision: string; attemptId: string | null;
+  stage: Stage; questionSet: string; provider: IntakeProviderMeta; usage: IntakeUsage;
+  assessedAt: string; latencyMs: number;
+}
+export interface IntakeAssessed extends IntakeAssessmentBase { status: 'assessed'; decisions: IntakeDecisions; }
+export interface IntakeUnavailable extends IntakeAssessmentBase {
+  status: 'unavailable'; error: { kind: IntakeErrorKind; detail: string };
+}
+export type IntakeAssessmentV1 = IntakeAssessed | IntakeUnavailable;
+export type IntakeReasonCode = 'readiness_low' | 'outcome_unclear' | 'scope_unbounded' | 'not_verifiable' | 'architectural' | 'risk_at_or_above';
+export interface IntakeReason { code: IntakeReasonCode; message: string; }
+export interface IntakePolicyResult { policyVersion: 'intake-policy/v1'; eligibility: 'eligible' | 'attention_required'; reasons: IntakeReason[]; }
+export interface IntakeSummary {
+  state: 'current' | 'stale' | 'unavailable'; assessment: IntakeAssessmentV1;
+  policy: IntakePolicyResult | null; overridden: boolean;
+}
+export interface IntakeSettings {
+  mode: IntakeMode; workspaces: string[]; sendWorkspacePolicy: boolean;
+  settleSeconds: number; maxPerTick: number; maxAttempts: number;
+  readinessNeedsAttention: boolean; readinessThreshold: number;
+  architecturalNeedsAttention: boolean; riskAttentionLevel: Risk | null; maxHoldMinutes: number;
+}
+export interface TaskIntakeState {
+  key: string; title: string; spec: string; acceptanceCriteria: string; stage: Stage; plan: string | null;
+  links: { kind: LinkKind; label: string }[]; attachmentCount: number; workspacePolicy: string | null;
+}
+
 /** Which git host a workspace's origin points at — the axis the delivery watcher polls. */
 export type DeliveryProvider = 'github' | 'azdo';
 export type DeliveryPrState = 'unknown' | 'not_found' | 'open' | 'merged' | 'closed';
@@ -111,7 +192,7 @@ export type DeliveryChecksState = 'unknown' | 'none' | 'pending' | 'passing' | '
 export interface DeliveryFailingCheck { name: string; url: string | null; }
 
 /**
- * The PR/pipeline state of a 'delivering' task, as last observed by the watcher supervisor
+ * The PR/pipeline state of a task's current approved delivery, as last observed by the watcher supervisor
  * (current-state `task_delivery` row, migration #18 — seeded at approve, updated per poll).
  * External, polled and mutable — persisted, not derived from the activity log; NOT part of
  * getVersion() (ops bump task.updated_at only when the observed state changes). null on a
@@ -139,6 +220,8 @@ export interface Task {
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
+  intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
+  failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
   createdAt: string; updatedAt: string;
 }
 export interface Activity {
@@ -210,7 +293,7 @@ export interface TranscriptResponse {
   blocks: TranscriptBlock[];
 }
 
-export type SupervisorKind = 'dispatcher' | 'reviewer' | 'watcher';
+export type SupervisorKind = 'dispatcher' | 'reviewer' | 'watcher' | 'intake';
 
 /**
  * A headless supervisor (dispatcher/reviewer) as surfaced to the health view. Current-state,
@@ -295,6 +378,8 @@ export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
   summary: string;
   executionId?: string | undefined;
+  /** The claimedAt value from the worker's current claim; rejects late submissions from an old execution. */
+  claimAt?: string | undefined;
   links?: LinkInput[];
   // stage deliverables — required/forbidden per the task's stage (see ops/submitResult.ts):
   spec?: string | undefined;               // description stage: the rewritten feature description

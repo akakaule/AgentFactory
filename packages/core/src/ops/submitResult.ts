@@ -7,11 +7,11 @@ import { findRowByKey, toDetail, setStatus, setResultSummary, setPlan, applyEdit
 import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { insertLinks } from '../repo/links.js';
-import { NotFoundError, ValidationError } from '../errors.js';
+import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
+import { reconcileMergedDelivery } from './delivery.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { assertExecutionOwnership, currentExecution, latestExecution, settleExecution } from '../repo/execution.js';
-import { InvalidTransitionError } from '../errors.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -42,7 +42,7 @@ export function submitResult(
   input: SubmitResultInput,
   now: () => string = nowIso,
 ): TaskDetail {
-  const { summary, links, spec, acceptanceCriteria, plan, verification, executionId } = parse(submitResultSchema, input);
+  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, executionId } = parse(submitResultSchema, input);
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
@@ -59,16 +59,22 @@ export function submitResult(
     if (executionId !== undefined && current === undefined)
       throw new InvalidTransitionError(`execution ${executionId} is not running`);
     assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
+    if (claimAt !== undefined && row.claimed_at !== claimAt) throw new InvalidTransitionError(`stale claim for ${key}`);
     // Verification gate: when the workspace configures a verify command, the implementation stage
     // must report having run it (attestation — the worktree is gone by submit, so the server can't
     // re-run it here). No command configured ⇒ no gate, preserving today's behaviour.
     if (row.stage === 'implementation' && row.workspace_verify_command && row.workspace_verify_command.trim().length > 0 && verification === undefined)
       throw new ValidationError(`this workspace requires verification: run \`${row.workspace_verify_command}\` from the worktree root and report its outcome via the \`verification\` field`);
     const ts = now();
+    if (reconcileMergedDelivery(db, row, ts)) {
+      appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent',
+        body: `repair result retained after merged delivery: ${summary}`, createdAt: ts });
+      return toDetail(db, findRowByKey(db, key)!);
+    }
     // A new result is a new review episode. Preserve failures from the prior submission but do
     // not let a successful review consume the next submission's allowance.
     advanceRetryBudget(db, row.id, `reviewer:${row.stage}`, ts, 'new submission');
-    // applyEdit is the repo primitive shared with updateTask; the backlog-only rule for
+    // applyEdit is the repo primitive shared with updateTask; the unclaimed-only rule for
     // human edits lives in that op, not here — a description-stage submit IS the edit.
     if (row.stage === 'description') {
       // capture the human's original wording once, before the stage overwrites it (the guard

@@ -10,6 +10,8 @@ import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { reviewSubmissionFingerprint } from '../reviewConsensus.js';
 import { nowIso } from '../time.js';
 import { assertExecutionOwnership } from '../repo/execution.js';
+import { isIntakeMarker } from '../intake.js';
+import { isFailureTriageMarker } from '../failureTriage.js';
 
 export function addComment(
   db: DB,
@@ -17,7 +19,9 @@ export function addComment(
   input: AddCommentInput,
   now: () => string = nowIso,
 ): Activity {
-  const { body } = parse(commentSchema, input);
+  const { body } = parse(commentSchema, { body: input.body });
+  if (isIntakeMarker(body)) throw new InvalidTransitionError('intake markers can only be written by dedicated core operations');
+  if (isFailureTriageMarker(body)) throw new InvalidTransitionError('failure-triage markers can only be written by dedicated core operations');
   return transaction(db, () => {
     const parsed = parseAiReviewComment(body);
     const row = findRowByKey(db, key);

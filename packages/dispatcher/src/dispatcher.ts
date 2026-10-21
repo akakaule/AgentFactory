@@ -27,8 +27,6 @@ interface Session {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
-  /** A merged delivery ended this repair; its process tree is stopping without a retry. */
-  deliveryCompleted?: boolean;
   /** Workspace repo path = the session's `claude` cwd, which fixes its transcript dir. */
   cwd: string;
   /** Forced session id (UUID) — the transcript filename, passed via `--session-id`. */
@@ -39,6 +37,10 @@ interface Session {
   transcriptOffset: number;
   /** The task key the transcript attaches to (the resolved claim); null until claimed. */
   transcriptKey: string | null;
+  /** The task actually claimed by this worker, once observed. */
+  claimedKey: string | null;
+  /** Set when a completed merged delivery cancels this worker before it can publish. */
+  cancelled: boolean;
 }
 
 const LOG_TAIL_CHARS = 4000;
@@ -61,7 +63,7 @@ type LaunchReservation = RetryReservationLike & { executionId?: string | undefin
 export class Dispatcher {
   private readonly running = new Map<string, Session>(); // label -> session
   /** UI/test cache only; retry decisions come from core's durable budget. */
-  private readonly skipped = new Set<string>(); // task keys observed at the persisted cap
+  private readonly skipped = new Map<string, number>(); // task key → when it was observed at the persisted cap (ms)
 
   private engineSettings: EngineSettings = defaultEngineSettings();
 
@@ -137,10 +139,11 @@ export class Dispatcher {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
     await this.touchLiveSessions();
     await this.reconcileExecutions();
+    await this.cancelCompletedSessions();
+    await Promise.all([...this.settling]);
     await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
-    await this.stopCompletedRepairs();
     this.enforceTimeouts();
     // Timeout kills emit child exit synchronously on some platforms; finish that reap before
     // polling so a freed slot can be used in this cycle without competing with the old session.
@@ -242,27 +245,11 @@ export class Dispatcher {
 
   // -- timeouts --------------------------------------------------------------
 
-  private async stopCompletedRepairs(): Promise<void> {
-    for (const session of this.running.values()) {
-      if (session.settled || session.deliveryCompleted) continue;
-      try {
-        const task = await this.deps.core.getTask(session.predictedKey);
-        if (task.status !== 'done' || task.delivery?.prState !== 'merged') continue;
-        session.deliveryCompleted = true;
-        this.appendLog(session, '\n[dispatcher] PR merged; stopping completed repair and preserving its worktree\n');
-        this.deps.terminateProcessTree(session.child, 'SIGKILL');
-      } catch (err) {
-        session.deliveryCompleted = false;
-        this.console.warn(`[dispatcher] could not reconcile completed repair ${session.predictedKey}: ${(err as Error).message}`);
-      }
-    }
-  }
-
   private enforceTimeouts(): void {
     const capMs = this.config.maxSessionMinutes * 60_000;
     const now = this.deps.now();
     for (const session of this.running.values()) {
-      if (session.timedOut || session.settled || session.deliveryCompleted) continue;
+      if (session.timedOut || session.settled || session.cancelled) continue;
       if (now - session.startedAtMs > capMs) {
         session.timedOut = true;
         this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m); killing\n`);
@@ -381,6 +368,27 @@ export class Dispatcher {
         if (s.executionId && this.deps.core.touchExecution) await this.deps.core.touchExecution(s.executionId);
       } catch {
         /* best-effort — a missing live row (not yet claimed / already ended) is fine */
+      }
+    }
+  }
+
+  /** Stop a worker whose approved delivery was completed by another supervisor while it ran. */
+  private async cancelCompletedSessions(): Promise<void> {
+    for (const session of this.running.values()) {
+      if (session.settled || session.cancelled) continue;
+      const claimed = await this.findClaimed(session);
+      const key = claimed?.key ?? session.claimedKey ?? session.predictedKey;
+      const task = await this.tryGetTask(key);
+      const merged = task?.status === 'done' && task.delivery?.prState === 'merged';
+      if (!merged && !claimed?.mergedCompletion) continue;
+
+      session.cancelled = true;
+      this.appendLog(session, '\n[dispatcher] merged delivery completed elsewhere; terminating repair worker\n');
+      try {
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
+      } catch (err) {
+        session.cancelled = false;
+        this.console.warn(`[dispatcher] could not stop completed repair ${key}: ${(err as Error).message}`);
       }
     }
   }
@@ -504,20 +512,28 @@ export class Dispatcher {
   }
 
   /**
-   * Forget the in-memory attempt budget for any queued task an operator has restarted from the
-   * board. A restart posts a `restart/v1` marker that supersedes the task's failure note, so the
-   * board's derived `failure` goes null — that is our signal to drop the task's skip-list entry and
-   * burned-attempt count and retry it with a fresh budget, without bouncing the dispatcher. A task
-   * still carrying a failure (mid-retry, or genuinely skip-listed) is left alone, so the maxAttempts
-   * guard still holds. (The board-derived `failure` is the single source of truth for "is this
-   * stuck"; the dispatcher's maps merely track live retry state and defer to it.)
+   * Forget the in-memory skip-list entry for any queued task that has moved on since it was
+   * skip-listed, so it is retried (against its persisted budget) without bouncing the dispatcher:
+   * - an operator restart posts a `restart/v1` marker that supersedes the failure note, so the
+   *   board's derived `failure` goes null;
+   * - a newer failure from another supervisor (e.g. the watcher bouncing a PR with merge conflicts)
+   *   means the task came back as new work — core gives that repair a fresh dispatcher budget
+   *   (unless that failure is itself terminal: then the board refuses claims until a human acts).
+   * A task whose latest failure is our own (mid-retry, or genuinely skip-listed) is left alone, so
+   * the maxAttempts guard still holds. (The board-derived `failure` is the single source of truth
+   * for "is this stuck"; the dispatcher's maps merely track live retry state and defer to it.)
    */
   private clearRestarted(queued: Task[]): void {
     for (const task of queued) {
-      if (task.failure !== null) continue; // still failing / never failed — no stale budget to forgive
-      const wasSkipped = this.skipped.delete(task.key);
-      if (wasSkipped) {
+      const skippedAt = this.skipped.get(task.key);
+      if (skippedAt === undefined) continue;
+      const failure = task.failure;
+      if (failure === null) {
+        this.skipped.delete(task.key);
         this.console.log(`[dispatcher] ${task.key} was restarted from the board; cleared attempt budget, will retry`);
+      } else if (failure.source !== 'dispatcher' && !failure.skipListed && Date.parse(failure.at) > skippedAt) {
+        this.skipped.delete(task.key);
+        this.console.log(`[dispatcher] ${task.key} came back after skip-listing (${failure.reason} from ${failure.source ?? 'unknown'}); will retry`);
       }
     }
   }
@@ -679,6 +695,8 @@ export class Dispatcher {
       transcriptPath: null,
       transcriptOffset: 0,
       transcriptKey: null,
+      claimedKey: null,
+      cancelled: false,
     };
     this.running.set(label, session);
     try {
@@ -735,6 +753,13 @@ export class Dispatcher {
     await this.persistTranscript(session, claimed?.key ?? session.predictedKey);
 
     if (!claimed) {
+      if (session.cancelled) {
+        if (session.reservationId) {
+          await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'merged delivery completed while repair was running' });
+        }
+        this.console.log(`[dispatcher] ${session.label} stopped after merged delivery completion`);
+        return;
+      }
       // The session never claimed: empty queue, a lost race, a permission denial,
       // or a crash before claim. A denial is a misconfiguration — respawning would
       // burn a session per poll forever, so it consumes an attempt like a crash.
@@ -773,6 +798,13 @@ export class Dispatcher {
         // exhausted; do not later settle that now-obsolete id as a failure for the wrong task.
         session.reservationId = '';
       }
+    }
+
+    if (session.cancelled && (claimed.status !== 'in_progress' || claimed.mergedCompletion)) {
+      if (session.reservationId) {
+        await this.deps.core.settleRetry(session.reservationId, { state: 'succeeded', reason: 'merged delivery completed while repair was running' });
+      }
+      return;
     }
 
     // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
@@ -814,10 +846,33 @@ export class Dispatcher {
   }
 
   /** The task this session claimed — matched on the worker label persisted as claimed_by. */
-  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage } | undefined> {
+  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage; mergedCompletion?: boolean } | undefined> {
     const all = await this.deps.core.listTasks({ workspace: session.workspace });
     const row = all.find((t) => t.claimedBy === session.label);
-    return row ? { key: row.key, status: row.status, stage: row.stage } : undefined;
+    if (row) session.claimedKey = row.key;
+    if (row) return { key: row.key, status: row.status, stage: row.stage };
+
+    // A merged completion clears the live session, and an intentional reopen may replace the
+    // claim before this poll. Keep the old worker fenced by the durable activity episode rather
+    // than letting a later claim hide the completed repair. The recent activity window includes
+    // the old claim, completion, reopen, and replacement claim in this race.
+    for (const task of all) {
+      const detail = await this.tryGetTask(task.key);
+      if (!detail) continue;
+      let claimed = false;
+      let mergedCompletion = false;
+      for (const activity of detail.activity) {
+        if (activity.type === 'status_change' && activity.toStatus === 'in_progress' && activity.body === session.label)
+          claimed = true;
+        if (claimed && activity.type === 'status_change' && activity.actor === 'agent' && activity.fromStatus === 'in_progress' && activity.toStatus === 'done')
+          mergedCompletion = true;
+      }
+      if (mergedCompletion) {
+        session.claimedKey = task.key;
+        return { key: task.key, status: task.status, stage: task.stage, mergedCompletion: true };
+      }
+    }
+    return undefined;
   }
 
   private async recordMetrics(key: string, label: string, m: ParsedMetrics, executionId: string | null): Promise<void> {
@@ -963,6 +1018,6 @@ export class Dispatcher {
   }
 
   private skipList(key: string): void {
-    this.skipped.add(key);
+    this.skipped.set(key, this.deps.now());
   }
 }

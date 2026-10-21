@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_26_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -38,6 +38,7 @@ const STATUS_LIST_17 = `('backlog','queued','in_progress','in_review','done','bl
 const STATUS_LIST_18 = `('backlog','queued','in_progress','in_review','delivering','done','blocked')`;
 const SUPERVISOR_KIND_LIST_17 = `('dispatcher','reviewer')`;
 const SUPERVISOR_KIND_LIST_18 = `('dispatcher','reviewer','watcher')`;
+const SUPERVISOR_KIND_LIST_26 = `('dispatcher','reviewer','watcher','intake')`;
 
 /** A plain migration runs inside the standard transaction; `fkOff` marks a table-rebuild
  *  migration that needs `PRAGMA foreign_keys = OFF` (which only takes effect OUTSIDE a
@@ -104,7 +105,9 @@ const MIGRATIONS: Migration[] = [
     fkOff: true,
     run: (db) => {
       widenCheck(db, 'task', STATUS_LIST_17, STATUS_LIST_18);
-      widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_17, SUPERVISOR_KIND_LIST_18);
+      const heartbeatSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='supervisor_heartbeat'").get() as { sql: string }).sql;
+      if (!heartbeatSql.includes(SUPERVISOR_KIND_LIST_26))
+        widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_17, SUPERVISOR_KIND_LIST_18);
       db.exec(MIGRATION_18_SQL);
     },
   },
@@ -137,9 +140,15 @@ const MIGRATIONS: Migration[] = [
   // #25 — retry budgets and stable attempt reservations. CREATE IF NOT EXISTS makes this safe
   // for a database that already received the schema from a coordinated/divergent deployment.
   (db) => db.exec(MIGRATION_25_SQL),
-  // #26 — execution ownership. CREATE IF NOT EXISTS keeps the append-only migration safe for
+  // #26 — intake supervisor heartbeat kind. Keep the CHECK so direct DB writes remain bounded;
+  // the rebuild copies every live column and preserves existing dispatcher/reviewer/watcher rows.
+  {
+    fkOff: true,
+    run: (db) => widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26),
+  },
+  // #27 — execution ownership. CREATE IF NOT EXISTS keeps the append-only migration safe for
   // databases that received the schema from a coordinated deployment.
-  (db) => db.exec(MIGRATION_26_SQL),
+  (db) => db.exec(MIGRATION_27_SQL),
 ];
 
 export function runMigrations(db: DB): void {

@@ -4,6 +4,7 @@ import type { McpCore } from '../types.js';
 import type { CreateTaskInput } from '@agentfactory/core';
 import type { ServerOptions } from '../server.js';
 import { toToolError } from '../errors.js';
+import { NO_HARD_WRAP } from '../protocol.js';
 
 const stageSchema = z.enum(['description', 'plan', 'implementation']);
 
@@ -17,6 +18,7 @@ export function registerCreateTask(server: McpServer, core: McpCore, opts: Serve
         'outside the task you are on). The task is created in BACKLOG, not queued: it will NOT run until a ' +
         'human triages and queues it, so this never auto-spawns another agent. It lands in the server\'s ' +
         'pinned workspace unless you pass `workspace`. Provide `title` and `spec` (what needs doing and why). ' +
+        `${NO_HARD_WRAP} ` +
         '`acceptanceCriteria` is required unless `stage` is `description` (that stage writes them); `stage` ' +
         'defaults to `implementation`. This does not touch the task you are currently working — submit that ' +
         'with submit_result as usual.',

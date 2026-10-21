@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { resolve } from 'node:path';
 import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
 import { makeCore, seedInReview, aiReviewBody, makeConfig, makeDeps, makeFakeSpawn, makeFakeConsole } from './helpers.js';
@@ -40,6 +41,20 @@ describe('delivering-feedback evaluation', () => {
 // ---------------------------------------------------------------------------
 describe('repoPathOverrides', () => {
   const LOCAL = process.platform === 'win32' ? 'C:\\clones\\ws' : '/clones/ws';
+
+  it.each([false, true])('plan prompt supplies the absolute local repository (override: %s)', async (override) => {
+    const core = makeCore('ws', './target-repo');
+    seedInReview(core, 'ws', 'Grounded plan', 'plan');
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(makeConfig(override ? { repoPathOverrides: { ws: LOCAL } } : {}),
+      makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await r.tick();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.req.stdin).toContain(resolve(override ? LOCAL : './target-repo'));
+    expect(calls[0]!.req.stdin).toContain('Inspect the relevant files read-only');
+    expect(calls[0]!.req.cwd).toBe('/logs');
+    if (override) expect(calls[0]!.req.stdin).not.toContain('./target-repo');
+  });
 
   it('computeDiff runs against the machine-local clone when an override is set', async () => {
     const core = makeCore('ws', '/board-machine/ws');

@@ -1,6 +1,7 @@
 import type { Task } from '../types.js';
 import { timeAgo } from '../time.js';
 import { StatusBadge } from './StatusBadge.js';
+import { IntakeChip } from './IntakeChip.js';
 
 interface Props {
   task: Task;
@@ -33,6 +34,7 @@ export function TaskRow({ task, onSelect, showWorkspace }: Props) {
       )}
       {showWorkspace && <span className="af-wsbadge">{task.workspace}</span>}
       <StatusBadge status={task.status} />
+      <IntakeChip task={task} />
     </div>
   );
 }

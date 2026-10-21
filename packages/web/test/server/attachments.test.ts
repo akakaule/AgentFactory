@@ -40,8 +40,9 @@ describe('attachments over HTTP', () => {
     expect((await app.request(`/api/attachments/${meta.id}`)).status).toBe(404);
   });
 
-  it('rejects attachments outside backlog with 409', async () => {
+  it('rejects attachments once the task is claimed with 409', async () => {
     core.updateStatus(key, 'queued', 'human');
+    core.updateStatus(key, 'in_progress', 'agent');
     const res = await post(app, `/api/tasks/${key}/attachments`, { filename: 'a.png', mime: 'image/png', dataBase64: PNG_B64 });
     expect(res.status).toBe(409);
   });

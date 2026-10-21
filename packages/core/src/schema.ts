@@ -389,10 +389,11 @@ CREATE TABLE IF NOT EXISTS retry_attempt (
 CREATE INDEX IF NOT EXISTS idx_retry_attempt_budget ON retry_attempt(budget_id, attempt);
 `;
 
-// Migration #26 — durable execution ownership. A retry reservation describes budget accounting;
+// Migration #27 — durable execution ownership. A retry reservation describes budget accounting;
 // this record describes the concrete worker/reviewer run that may mutate a task. Keeping the
 // identity separate lets a replacement claim invalidate all late writes from an older process.
-export const MIGRATION_26_SQL = `
+// (Slot #26 went to main's intake heartbeat widening; see migrate.ts for the reconcile.)
+export const MIGRATION_27_SQL = `
 CREATE TABLE IF NOT EXISTS task_execution (
   id             TEXT PRIMARY KEY,
   task_id        INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,

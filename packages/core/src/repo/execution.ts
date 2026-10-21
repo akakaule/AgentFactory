@@ -62,7 +62,7 @@ export function latestExecution(db: DB, taskId: number): ExecutionRow | undefine
 }
 
 /**
- * Validate a mutation's execution fence. Tasks created before migration 26 have no execution
+ * Validate a mutation's execution fence. Tasks created before migration 27 have no execution
  * history and retain the legacy direct-core behavior; every supervisor-owned execution is fenced
  * once it exists. The check is intended to run inside the caller's write transaction.
  */

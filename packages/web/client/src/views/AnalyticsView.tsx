@@ -278,6 +278,15 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
             </div>
           </div>
 
+          {a.intake && (
+            <div className="an-panel span">
+              <div className="an-ph"><h3>Task Intelligence</h3><small>· assessment operations</small></div>
+              <div className="an-caption">{a.intake.assessments} assessments · {a.intake.reassessments} reassessments · {a.intake.unavailable} unavailable · {Math.round(a.intake.unavailableRate * 100)}% unavailable</div>
+              <div className="an-caption">Latency p50/p95: {a.intake.latencyP50 == null ? 'n/a' : `${Math.round(a.intake.latencyP50)}ms`} / {a.intake.latencyP95 == null ? 'n/a' : `${Math.round(a.intake.latencyP95)}ms`} · pre-claim coverage {a.intake.coverage.numerator}/{a.intake.coverage.denominator} · overrides {a.intake.overrides}</div>
+              <div className="an-caption">Authentication failures are reported through the supervisor heartbeat and are not retained in durable attempt analytics.</div>
+            </div>
+          )}
+
           {/* Why tasks fail — supervisor failure occurrences by reason */}
           {a.failures.total > 0 && (
             <div className="an-panel span">
