@@ -65,7 +65,7 @@ describe('reviewApprove', () => {
 
   // ── Doc-stage approvals advance the stage instead of closing ─────────────
 
-  it('approving an in-review description stage advances to plan and re-queues (NOT done)', () => {
+  it('approving an in-review description (spec) stage advances to implementation and re-queues (NOT done)', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
     db.prepare("UPDATE task SET status='in_review', claimed_by='w1', claimed_at=? WHERE key=?").run(FIXED_TS, task.key);
@@ -73,17 +73,17 @@ describe('reviewApprove', () => {
     const detail = reviewApprove(db, task.key, fixedNow);
 
     expect(detail.status).toBe('queued');
-    expect(detail.stage).toBe('plan');
+    expect(detail.stage).toBe('implementation');
     expect(detail.claimedBy).toBeNull();
 
     const act = detail.activity.find(a => a.type === 'status_change' && a.toStatus === 'queued');
     expect(act).toBeDefined();
     expect(act!.actor).toBe('human');
     expect(act!.fromStatus).toBe('in_review');
-    expect(act!.body).toContain('description → plan');
+    expect(act!.body).toContain('description → implementation');
   });
 
-  it('approving an in-review plan stage advances to implementation', () => {
+  it('approving a legacy in-review plan stage advances to implementation', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'plan' });
     db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
@@ -106,7 +106,7 @@ describe('reviewApprove', () => {
 
     const detail = reviewApprove(db, task.key, fixedNow);
 
-    expect(detail.stage).toBe('plan');
+    expect(detail.stage).toBe('implementation');
     const override = detail.activity.find(a => a.type === 'comment' && a.body.startsWith('override:'));
     expect(override).toBeDefined();
     expect(override!.body).toBe('override: approved over 2 open AI findings');

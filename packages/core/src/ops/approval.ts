@@ -1,6 +1,6 @@
 import type { DB } from '../db.js';
 import type { Actor, DeliveryProvider, Status } from '../types.js';
-import { STAGE_ORDER } from '../types.js';
+import { NEXT_STAGE } from '../types.js';
 import type { TaskRow } from '../repo/tasks.js';
 import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
@@ -17,7 +17,7 @@ const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 export interface DeliverySeed { provider: DeliveryProvider; }
 
 /**
- * The approve action for an in_review task: a doc stage (description/plan) advances to
+ * The approve action for an in_review task: a doc stage (description, or legacy plan) advances to
  * the next stage and re-queues; the implementation stage closes the task (human-only —
  * the final gate is never automated). With a `delivery` seed the implementation approve
  * routes to 'delivering' instead of 'done' — done then means the watcher verified the PR
@@ -27,7 +27,7 @@ export interface DeliverySeed { provider: DeliveryProvider; }
  * reviews — that path never passes a delivery seed).
  *
  * `note` rides the status_change body, prefixing the stage-advance trail
- * (e.g. 'auto-approved: clean AI review; stage description → plan').
+ * (e.g. 'auto-approved: clean AI review; stage description → implementation').
  */
 export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null): void {
   // Break-glass audit trail: approving while the *current* AI review has open findings
@@ -64,7 +64,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     });
     return;
   }
-  const next = STAGE_ORDER[STAGE_ORDER.indexOf(row.stage) + 1]!;
+  const next = NEXT_STAGE[row.stage];
   assertTransition('in_review', 'queued', actor);
   setStage(db, row.id, next, ts);
   setStatus(db, row.id, 'queued', ts); // clears the claimant — the next stage is anyone's claim

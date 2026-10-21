@@ -19,12 +19,19 @@ export interface RetryReservation {
 }
 
 /**
- * Pipeline stage. A task walks the stages in STAGE_ORDER, cycling through the
- * statuses once per stage; approving an in-review doc stage (description/plan)
- * advances the stage and re-queues, approving implementation closes the task.
+ * Pipeline stage. The flow is description (writes the spec) → implementation, cycling through
+ * the statuses once per stage; approving an in-review doc stage advances it via NEXT_STAGE and
+ * re-queues, approving implementation delivers/closes the task. `plan` is a LEGACY stage
+ * (pre-2026-10-21 tasks): it still runs and advances to implementation, but the flow never
+ * routes a task there. STAGE_ORDER is display/sort order only, never the advance rule.
  */
 export type Stage = 'description' | 'plan' | 'implementation';
 export const STAGE_ORDER: readonly Stage[] = ['description', 'plan', 'implementation'];
+/** The stage an approved doc stage advances to. */
+export const NEXT_STAGE: Readonly<Record<Exclude<Stage, 'implementation'>, Stage>> = {
+  description: 'implementation',
+  plan: 'implementation',
+};
 export type ActivityType = 'status_change' | 'comment' | 'result' | 'feedback';
 export type LinkKind = 'branch' | 'pr' | 'worktree' | 'log' | 'url';
 /** What a task IS: 'code' = an agent-implemented feature (the default, today's only shape);
