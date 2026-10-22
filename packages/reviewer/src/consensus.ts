@@ -1,12 +1,22 @@
 import { z } from 'zod';
 import { parseReviewJson } from './reviewJson.js';
-import { candidateOutcome, consensusFindings, consensusVoteSchema, parseConsensusReview, type AiReviewFinding, type ConsensusCandidate, type ReviewConsensus } from '@agentfactory/core';
+import { candidateOutcome, consensusFindings, consensusVoteSchema, normalizeCriteria, normalizeFix, parseConsensusReview, VOTE_REASON_MAX, type AiReviewFinding, type ConsensusCandidate, type ReviewConsensus } from '@agentfactory/core';
 
 export interface DiscoveryResult { reviewer: string; body: string; findings: AiReviewFinding[] }
+// criteria/fix are cleaned the way core's normalizeFinding cleans a discovery finding, so a late
+// candidate satisfies the strict consensus schema and absent links stay absent
 const newFindingSchema = z.object({ title: z.string().trim().min(1), severity: z.enum(['error', 'warning', 'info']),
-  file: z.string().nullable(), line: z.number().int().nullable(), detail: z.string().nullable() }).strict();
+  file: z.string().nullable(), line: z.number().int().nullable(), detail: z.string().nullable(),
+  criteria: z.array(z.unknown()).nullable().optional(), fix: z.string().nullable().optional() }).strict()
+  .transform(({ criteria: rawCriteria, fix: rawFix, ...finding }): AiReviewFinding => {
+    const criteria = normalizeCriteria(rawCriteria);
+    const fix = normalizeFix(rawFix);
+    return { ...finding, ...(criteria !== undefined ? { criteria } : {}), ...(fix !== undefined ? { fix } : {}) };
+  });
+// an over-long reason is capped rather than failing the whole ballot (and the discussion round)
+const voteReason = z.string().nullable().optional().transform((r) => r?.trim().slice(0, VOTE_REASON_MAX) || null);
 const ballotSchema = z.object({
-  votes: z.array(consensusVoteSchema.omit({ reviewer: true }).extend({ id: z.string().min(1) }).strict()),
+  votes: z.array(consensusVoteSchema.omit({ reviewer: true }).extend({ id: z.string().min(1), reason: voteReason }).strict()),
   newFindings: z.array(newFindingSchema).max(20).default([]),
 }).strict();
 type Ballot = z.infer<typeof ballotSchema>;

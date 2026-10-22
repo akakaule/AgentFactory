@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -146,15 +146,22 @@ const MIGRATIONS: Migration[] = [
     fkOff: true,
     run: (db) => widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26),
   },
-  // #27 — execution ownership. CREATE IF NOT EXISTS keeps the append-only migration safe for
-  // databases that received the schema from a coordinated deployment. The pre-merge AF-146 branch
-  // shipped this table as #26, so a DB migrated by it skipped main's #26 intake widening: replay
-  // it here (widenCheck is a no-op once the intake kind is present).
+  // #27 adds workspace.ado_sync via ADD COLUMN — guard with table_info like #19/#20/#23.
+  (db) => {
+    const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
+  },
+  // #28 — execution ownership. CREATE IF NOT EXISTS keeps the append-only migration safe for
+  // databases that received the schema from a coordinated deployment. Pre-merge AF-146 builds
+  // shipped this table as #26 and later #27, so a DB migrated by them skipped main's #26 intake
+  // widening and/or #27 ado_sync column: replay both here (each is a no-op once applied).
   {
     fkOff: true,
     run: (db) => {
       widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26);
-      db.exec(MIGRATION_27_SQL);
+      const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+      if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
+      db.exec(MIGRATION_28_SQL);
     },
   },
 ];

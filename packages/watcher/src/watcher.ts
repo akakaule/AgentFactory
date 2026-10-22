@@ -1,17 +1,20 @@
-import { InvalidTransitionError, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck } from '@agentfactory/core';
+import { InvalidTransitionError, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
 import { makeAzdoProvider } from './providers/azdo.js';
-import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi } from './providers/types.js';
+import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './providers/types.js';
 import { resolveCredential } from './credentials.js';
+import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
+import { syncInbound, syncOutbound } from './adoSync.js';
 
 /** HTTP statuses that mean "the credential is wrong", not "back off and retry" (see provider guards). */
 const AUTH_STATUSES = new Set([203, 401, 403]);
 
 /**
- * The watcher supervisor: polls every `delivering` task in its workspaces, observes the PR +
- * pipeline on the task's git host, and finishes the close the human approval started —
+ * The watcher supervisor: polls every `delivering` task in its workspaces, opens the PR when the
+ * approved branch has none (config.createPullRequests), observes the PR + pipeline on the task's
+ * git host, and finishes the close the human approval started —
  * completes the current delivery when its PR merged, including during repair; `delivering → queued`
  * (with a failure/v1 comment carrying the failing checks or merge-conflict detail) when CI
  * failed, the PR has merge conflicts, or the PR was closed unmerged. Pure DB + REST — the one
@@ -33,6 +36,8 @@ export class Watcher {
   private warned = new Set<string>();
   /** repoPath → parsed origin (or null); refreshed lazily, cached for the process lifetime. */
   private remoteCache = new Map<string, RemoteRef | null>();
+  /** `<org>\0<token>` → the PAT owner's account, looked up once for the ADO work-item claim. */
+  private adoIdentity = new Map<string, string>();
 
   constructor(
     private readonly config: WatcherConfig,
@@ -78,7 +83,8 @@ export class Watcher {
     const { core, console } = this.deps;
     // Served set, re-read each tick: the explicit allowlist if set, else every DB workspace,
     // minus excludeWorkspaces — so a newly-created workspace is watched with no config edit.
-    const served = resolveServedWorkspaces((await core.listWorkspaces()).map((w) => w.name), {
+    const workspaces = await core.listWorkspaces();
+    const served = resolveServedWorkspaces(workspaces.map((w) => w.name), {
       workspaces: this.config.workspaces,
       exclude: this.config.excludeWorkspaces,
     });
@@ -105,6 +111,42 @@ export class Watcher {
       } catch (err) {
         console.error(`[watcher] ${t.key}: check failed:`, err);
       }
+    }
+    if (!this.config.syncWorkItems) return;
+    for (const ws of workspaces) {
+      if (!servedSet.has(ws.name) || !ws.adoSync?.enabled) continue;
+      if (this.deps.now() < this.pausedUntil) return;
+      await this.syncWorkItems(ws.name, ws.repoPath, ws.adoSync);
+    }
+  }
+
+  /** One workspace's Azure DevOps work-item import + write-back (see adoSync.ts). Never throws. */
+  private async syncWorkItems(workspace: string, repoPath: string, settings: NonNullable<Workspace['adoSync']>): Promise<void> {
+    const { core, now } = this.deps;
+    const key = `ado-sync:${workspace}`;
+    if ((this.backoffUntil.get(key) ?? 0) > now()) return;
+    const remote = this.remoteFor(this.repoFor({ workspace, repoPath }));
+    if (remote?.provider !== 'azdo') {
+      this.warnOnce(key, `[watcher] ${workspace}: the work-item import is enabled but the origin is not on Azure DevOps — skipping it`);
+      return;
+    }
+    const cred = resolveCredential(this.deps.env, this.config.azdo.patEnv, workspace, await core.getWorkspacePat(workspace));
+    const api = makeAzdoWorkItems({ fetchJson: this.deps.fetchJson, pat: cred.token, apiVersion: this.config.azdo.apiVersion });
+    const project = { organization: remote.organization, project: remote.project };
+    try {
+      let assignee = settings.assignTo;
+      if (!assignee) {
+        const idKey = `${remote.organization}\0${cred.token ?? ''}`;
+        assignee = this.adoIdentity.get(idKey) ?? (await api.whoAmI(project)) ?? '';
+        if (!assignee) throw new Error('could not tell who owns the PAT — set "Assign to" in the workspace settings');
+        this.adoIdentity.set(idKey, assignee);
+      }
+      const ctx = { core, api, workspace, project, settings, assignee, log: (m: string) => this.deps.console.log(`[watcher] ${workspace}: ${m}`) };
+      await syncInbound(ctx);
+      await syncOutbound(ctx);
+      this.backoffLevel.delete(key);
+    } catch (err) {
+      this.noteFailure(key, err, cred, 'work-item sync');
     }
   }
 
@@ -180,7 +222,23 @@ export class Watcher {
     this.backoffLevel.delete(key);
     this.warned.delete(key);
 
-    const { pr, checks } = result;
+    let { pr, checks } = result;
+    // A closed PR this episode never attributed (no prUrl yet) belongs to an EARLIER delivery
+    // episode — e.g. the PR a pr_closed bounce left behind before the re-approval. It must not
+    // bounce this episode: treat it as no PR, so a fresh one is opened below.
+    if (pr?.state === 'closed' && !delivery.prUrl) {
+      pr = null;
+      checks = { state: 'unknown', failing: [] };
+    }
+    // The worker pushes before review but never opens the PR (protocol v7): once the human
+    // approved the implementation (delivering) and no PR exists, the watcher opens it.
+    if (!pr && detail.status === 'delivering' && this.config.createPullRequests) {
+      const opened = await this.openPr(key, detail, provider, remote, delivery.branch, cred);
+      if (opened) {
+        pr = opened;
+        checks = { state: 'pending', failing: [] };
+      }
+    }
     const recorded = await core.recordDeliveryCheck(key, {
       expected: { status: detail.status, branch: delivery.branch, prUrl: delivery.prUrl, stateChangedAt: delivery.stateChangedAt },
       prUrl: pr?.url ?? null,
@@ -205,7 +263,7 @@ export class Watcher {
         await core.failDelivery(key, {
           reason: 'pr_closed',
           detail: `PR ${pr.id} was closed without merging`,
-          body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix and reopen a PR from the SAME branch.`,
+          body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix the work on the SAME branch — after the implementation review is approved again, a fresh PR is opened from it. Do not open a PR yourself.`,
         });
         console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
       } else if (pr && pr.mergeConflict) {
@@ -252,6 +310,37 @@ export class Watcher {
     }
   }
 
+  /**
+   * Open the delivery's PR (title `<KEY>: <title>`, body = the worker's result summary). Returns
+   * null when the host already has an open PR for the branch (picked up by the next poll's search)
+   * or when creation failed — a failure is logged with the credential hint and backs the task off;
+   * the board's "Open PR" link stays the manual fallback.
+   */
+  private async openPr(
+    key: string,
+    detail: { title: string; resultSummary: string | null },
+    provider: DeliveryProviderApi,
+    remote: RemoteRef,
+    branch: string,
+    cred: { envVar: string; base: string },
+  ): Promise<PrObservation | null> {
+    const summary = detail.resultSummary?.trim() || 'Implementation approved on the AgentFactory board.';
+    try {
+      const opened = await provider.openPullRequest(remote, {
+        branch,
+        title: `${key}: ${detail.title}`,
+        body: `${summary}\n\n---\nOpened by AgentFactory for ${key} after its implementation review was approved.`,
+      });
+      this.deps.console.log(opened
+        ? `[watcher] ${key}: opened PR ${opened.id} (${opened.url})`
+        : `[watcher] ${key}: a PR for ${branch} already exists — picking it up on the next poll`);
+      return opened;
+    } catch (err) {
+      this.noteFailure(key, err, cred, 'opening the PR');
+      return null;
+    }
+  }
+
   private mergeConflictBody(prUrl: string, branch: string, detail: string | null): string {
     const problem = detail ? `\nMerge conflict detail: ${detail}` : '';
     return `PR: ${prUrl} (open, head ${branch})${problem}\n\nResolve the conflict: merge latest base branch into ${branch}, fix the conflicts, run verification, and push to the SAME branch - do not open a new PR.`;
@@ -266,7 +355,7 @@ export class Watcher {
     return `PR: ${prUrl} (open, head ${branch})\nFailing checks:\n${list}${errorBlock}\n\n${instruction}`;
   }
 
-  private noteFailure(key: string, err: unknown, cred?: { envVar: string; base: string }): void {
+  private noteFailure(key: string, err: unknown, cred?: { envVar: string; base: string }, what = 'provider check'): void {
     const { console, now } = this.deps;
     if (err instanceof ProviderHttpError && err.pauseUntilMs !== null) {
       this.pausedUntil = Math.max(this.pausedUntil, err.pauseUntilMs);
@@ -283,7 +372,7 @@ export class Watcher {
         ? ` — set a valid credential in ${cred.envVar} (or the shared ${cred.base}) and restart the watcher`
         : '';
     console.warn(
-      `[watcher] ${key}: provider check failed (${err instanceof Error ? err.message : String(err)})${authHint} — backing off ${Math.round(delayMs / 1000)}s`,
+      `[watcher] ${key}: ${what} failed (${err instanceof Error ? err.message : String(err)})${authHint} — backing off ${Math.round(delayMs / 1000)}s`,
     );
   }
 }

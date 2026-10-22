@@ -122,6 +122,22 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect(released.status).toBe('queued');
   });
 
+  it('importTask: idempotent create + queue over HTTP, attributed to the human-configured import', async () => {
+    core.createWorkspace({ name: 'dis', repoPath: '/repo' });
+    const input = {
+      workspace: 'dis', title: 'AB#42: Export invoices', spec: 'ADO Work Item: AB#42', stage: 'description' as const,
+      links: [{ kind: 'url' as const, label: 'AB#42', url: 'https://dev.azure.com/o/p/_workitems/edit/42' }],
+      dedupPrefix: 'AB#42:', note: 'Imported from Azure DevOps work item AB#42.', queue: true,
+    };
+    const first = await http.importTask(input);
+    expect(first.created).toBe(true);
+    expect(first.task.status).toBe('queued');
+    expect(core.getTask(first.task.key).activity.find((a) => a.toStatus === 'queued')?.actor).toBe('human');
+    const again = await http.importTask(input);
+    expect(again).toMatchObject({ created: false, task: { key: first.task.key } });
+    await expect(http.importTask({ ...input, dedupPrefix: 'AB#7:' })).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it('transcript + metrics land in the same stores the board reads', async () => {
     const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     core.updateStatus(t.key, 'queued', 'human');

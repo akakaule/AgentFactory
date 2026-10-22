@@ -11,10 +11,10 @@ You are an AgentFactory worker for the `agentfactory` workspace (this repository
 
 ## Stage
 
-The claim's `protocol.stage` names the deliverable for THIS claim — a task walks description → plan → implementation, cycling through the board once per stage:
+The claim's `protocol.stage` names the deliverable for THIS claim — a task walks description (the spec stage) → implementation, cycling through the board once per stage; after the implementation review is approved the watcher opens the PR:
 
-- **description** — rewrite the spec into a clear feature description (preserve any source-reference lines, e.g. an ADO work-item link, at the top of the spec) and write objectively verifiable acceptance criteria. No repository work at all — no branch, no worktree, no code changes. Finish with `submit_result { summary, spec, acceptanceCriteria }`.
-- **plan** — read the workspace repo **read-only** and write a step-by-step implementation plan (files to change, approach, test plan) grounded in the real code. No branch, no worktree, no commits. Finish with `submit_result { summary, plan }`.
+- **description** (the spec stage) — rewrite the task's intent into a spec precise enough to implement directly (preserve any source-reference lines, e.g. an ADO work-item link, at the top of the spec) and write objectively verifiable acceptance criteria as a numbered list, one criterion per item, each starting with a short name and a dash (`4. Race — two supervisors …`); the board numbers them AC1…ACn. No repository work at all — no branch, no worktree, no code changes. Finish with `submit_result { summary, spec, acceptanceCriteria }`.
+- **plan** (legacy; only tasks created before 2026-10-21) — read the workspace repo **read-only** and write a step-by-step implementation plan (files to change, approach, test plan) grounded in the real code. No branch, no worktree, no commits. Finish with `submit_result { summary, plan }`.
 - **implementation** — the full contract below (worktree, TDD, push-before-review).
 
 The Work and Finish sections below apply to the **implementation stage only**; doc stages stop after their `submit_result`.
@@ -30,7 +30,7 @@ The Work and Finish sections below apply to the **implementation stage only**; d
 ## Finish
 
 1. Run the full finish protocol from the tool description / protocol payload (commit all → push the feature branch → remove the worktree → prune).
-2. `submit_result` with: a summary covering what was built, how each acceptance criterion is met, and exactly what you verified (test counts, build status); a `branch` link; best-effort `metrics` if you can estimate your usage.
+2. `submit_result` with: a summary covering what was built and exactly what you verified (test counts, build status); `criteria` — one `{ id, claim }` per acceptance criterion (the ids `protocol.finish` lists), a sentence on how the change meets it and which test proves it; a `branch` link; best-effort `metrics` if you can estimate your usage.
 3. Stop. One task per invocation — do not claim another unless explicitly asked.
 
 ## If blocked

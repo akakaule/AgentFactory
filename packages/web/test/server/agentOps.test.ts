@@ -51,6 +51,7 @@ describe('agent ops — authorization boundary', () => {
     expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, service)).status).toBe(403);
     expect((await post(app, `/api/agent/tasks/${t.key}/delivery/complete`, { note: 'x' }, service)).status).toBe(403);
     expect((await get(app, '/api/agent/workspaces/default/pat', service)).status).toBe(403);
+    expect((await post(app, '/api/agent/import-task', { workspace: 'default', title: 'AB#1: x', spec: 's', stage: 'description', dedupPrefix: 'AB#1:', note: 'n' }, service)).status).toBe(403);
     // the supervisor token passes the guard
     expect((await post(app, `/api/agent/tasks/${t.key}/release-claim`, {}, supervisor)).status).toBe(200);
   });

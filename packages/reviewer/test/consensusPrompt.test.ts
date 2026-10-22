@@ -12,4 +12,11 @@ describe('consensus phase evidence', () => {
     expect(buildConsensusPrompt('Pinned snapshot', state)).toContain('Cross-examination evidence');
     expect(() => buildConsensusPrompt('Pinned snapshot', state, 10)).toThrow('no candidates were omitted');
   });
+  it('asks each vote for a plain reason and late findings for criteria and a fix', () => {
+    const state = createConsensus([{ reviewer: 'A', body: 'A', findings: [{ title: 'Bug', severity: 'error', file: null, line: null, detail: 'Proof', criteria: ['AC1'] }] }, { reviewer: 'B', body: 'B', findings: [] }]);
+    const prompt = buildConsensusPrompt('Pinned snapshot', state);
+    expect(prompt).toContain('"reason":"one plain sentence: why this decision and severity"');
+    expect(prompt).toContain('{title,severity,file,line,criteria,detail,fix}');
+    expect(prompt).toContain('"criteria":["AC1"]'); // the candidate's links ride into the discussion
+  });
 });

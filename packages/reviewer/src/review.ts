@@ -1,5 +1,5 @@
 import type { TaskDetail, BranchDiff } from '@agentfactory/core';
-import { isAiReviewMarker, parseAiReviewComment, isFeedbackEvalMarker } from '@agentfactory/core';
+import { isAiReviewMarker, parseAiReviewComment, isFeedbackEvalMarker, parseAcceptanceCriteria } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 const DEFAULT_MAX_DIFF_CHARS = 120000;
@@ -47,13 +47,28 @@ function outputContract(engine: ReviewEngine): string {
     '  "verdict": "clean" | "findings",',
     '  "findings": [',
     '    { "severity": "error" | "warning" | "info", "file": "<path or omit>", "line": <number or omit>,',
-    '      "title": "<short title>", "detail": "<why it matters / what to change>" }',
+    '      "title": "<short title>", "criteria": ["AC<n>", ...],',
+    '      "detail": "<what is wrong and why it matters>", "fix": "<the change that resolves it>" }',
     '  ]',
     '}',
     '```',
     '',
+    '"criteria": the ids from the ACCEPTANCE CRITERIA section that the finding puts at risk, or [] when it is outside them or the prompt lists no ids.',
+    'Keep "detail" to the problem; put the remedy in "fix".',
     `With zero findings: first line 'ai-review/v1 - clean (${engine})', verdict "clean", findings [].`,
   ].join('\n');
+}
+
+/** The implementation review's criteria, by the ids findings cite (the one parser the board and
+ *  the worker protocol also use). Text with no list is a single AC1; empty text is shown as is. */
+function criteriaSection(task: TaskDetail): string[] {
+  const { items, general } = parseAcceptanceCriteria(task.acceptanceCriteria);
+  if (items.length === 0) return ['=== ACCEPTANCE CRITERIA ===', task.acceptanceCriteria];
+  return [
+    '=== ACCEPTANCE CRITERIA (cite these ids in each finding\'s "criteria") ===',
+    ...items.map((item) => `${item.id}. ${item.text}`),
+    ...(general ? [`Also required: ${general}`] : []),
+  ];
 }
 
 /** Implementation-stage prompt: review the branch diff against the brief. */
@@ -86,8 +101,7 @@ function implementationPrompt(
     '=== SPEC ===',
     task.spec,
     '',
-    '=== ACCEPTANCE CRITERIA ===',
-    task.acceptanceCriteria,
+    ...criteriaSection(task),
     '',
     '=== APPROVED IMPLEMENTATION PLAN ===',
     task.plan ?? '(no approved plan recorded; review against the spec and acceptance criteria)',

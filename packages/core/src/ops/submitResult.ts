@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail, SubmitResultInput, Stage } from '../types.js';
+import type { TaskDetail, SubmitResultInput, Stage, CriterionClaim } from '../types.js';
 import { transaction } from '../transaction.js';
 import { submitResultSchema, parse } from '../validate.js';
 import { assertTransition } from '../transitions.js';
@@ -12,6 +12,8 @@ import { reconcileMergedDelivery } from './delivery.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { assertExecutionOwnership, currentExecution, latestExecution, settleExecution } from '../repo/execution.js';
+import { parseAcceptanceCriteria } from '../acceptanceCriteria.js';
+import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -19,20 +21,33 @@ import { assertExecutionOwnership, currentExecution, latestExecution, settleExec
  * plan, the implementation stage the code (summary + links). The error text is the
  * agent's only feedback over MCP — it names the stage and the expected fields.
  */
-function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCriteria: string | undefined, plan: string | undefined, verification: string | undefined): void {
+function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCriteria: string | undefined, plan: string | undefined, verification: string | undefined, criteria: CriterionClaim[] | undefined): void {
   switch (stage) {
     case 'description':
-      if (spec === undefined || acceptanceCriteria === undefined || plan !== undefined || verification !== undefined)
-        throw new ValidationError('description stage submit delivers the feature description: pass { summary, spec, acceptanceCriteria }; plan/verification are not accepted');
+      if (spec === undefined || acceptanceCriteria === undefined || plan !== undefined || verification !== undefined || criteria !== undefined)
+        throw new ValidationError('description stage submit delivers the feature description: pass { summary, spec, acceptanceCriteria }; plan/verification/criteria are not accepted');
       return;
     case 'plan':
-      if (plan === undefined || spec !== undefined || acceptanceCriteria !== undefined || verification !== undefined)
-        throw new ValidationError('plan stage submit delivers the implementation plan: pass { summary, plan }; spec/acceptanceCriteria/verification are not accepted');
+      if (plan === undefined || spec !== undefined || acceptanceCriteria !== undefined || verification !== undefined || criteria !== undefined)
+        throw new ValidationError('plan stage submit delivers the implementation plan: pass { summary, plan }; spec/acceptanceCriteria/verification/criteria are not accepted');
       return;
     case 'implementation':
       if (spec !== undefined || acceptanceCriteria !== undefined || plan !== undefined)
-        throw new ValidationError('implementation stage submit delivers code: pass { summary, links, verification }; spec/acceptanceCriteria/plan are not accepted');
+        throw new ValidationError('implementation stage submit delivers code: pass { summary, links, verification, criteria }; spec/acceptanceCriteria/plan are not accepted');
       return;
+  }
+}
+
+/** Each claim must name one of the task's criteria, once. The message lists the valid ids — it is
+ *  the agent's only feedback over MCP. Leaving criteria out is allowed. */
+function assertCriterionIds(acceptanceCriteria: string, claims: CriterionClaim[]): void {
+  const ids = parseAcceptanceCriteria(acceptanceCriteria).items.map((i) => i.id);
+  const valid = ids.length === 0 ? 'this task has no acceptance criteria' : `this task has ${ids.length === 1 ? ids[0]! : `${ids[0]!}–${ids.at(-1)!}`}`;
+  const seen = new Set<string>();
+  for (const { id } of claims) {
+    if (!ids.includes(id)) throw new ValidationError(`unknown criterion ${id}; ${valid}`);
+    if (seen.has(id)) throw new ValidationError(`criterion ${id} is listed twice; ${valid}`);
+    seen.add(id);
   }
 }
 
@@ -42,11 +57,12 @@ export function submitResult(
   input: SubmitResultInput,
   now: () => string = nowIso,
 ): TaskDetail {
-  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, executionId } = parse(submitResultSchema, input);
+  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria, executionId } = parse(submitResultSchema, input);
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification);
+    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria);
+    if (criteria) assertCriterionIds(row.acceptance_criteria, criteria);
 
     // A response can be lost after the transaction commits. A retry of that same successful
     // execution is an acknowledgement, not a second result. A newer execution makes the old
@@ -89,6 +105,9 @@ export function submitResult(
     if (executionId !== undefined) settleExecution(db, executionId, 'succeeded', ts, 'result submitted');
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
+    // the claim per criterion rides right after the result it belongs to (criteriaClaimsFor reads it)
+    if (criteria && criteria.length > 0)
+      appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', body: buildCriteriaClaimsComment(criteria), createdAt: ts });
     // surface the verify-command attestation in the thread so the human/reviewer can see it
     if (verification !== undefined)
       appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', body: `verify: ${verification}`, createdAt: ts });

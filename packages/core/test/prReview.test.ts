@@ -184,3 +184,15 @@ describe('pr-review tasks', () => {
     expect(() => reviewPrReviewed(db, t.key, { review: 'x' })).toThrow();
   });
 });
+
+describe('pr-review tasks — the approve reason is a code-task rule', () => {
+  it('"Mark reviewed" over a must-fix AI finding closes without a reason and still logs the override', () => {
+    const db = makeTestDb();
+    const t = prReview(db);
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(t.key);
+    db.prepare("INSERT INTO activity(task_id, type, actor, body, created_at) VALUES (?, 'comment', 'agent', ?, '2030-01-01T00:00:00.000Z')").run(t.id, 'ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"severity":"error","title":"Broken"}]}\n```');
+    const detail = reviewPrReviewed(db, t.key, { review: 'One must-fix, flagged on the PR.' });
+    expect(detail.status).toBe('done');
+    expect(detail.activity.map((a) => a.body)).toContain('override: approved over 1 must-fix');
+  });
+});

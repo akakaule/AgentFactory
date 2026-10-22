@@ -74,7 +74,7 @@ describe('two-model task review', () => {
     expect(calls[1]!.req.args).toContain('gpt-6-astra');
     expect(calls[1]!.req.args).toContain('model_reasoning_effort="medium"');
     await calls[1]!.child.exit(0);
-    expect(core.getTask(key).stage).toBe('plan');
+    expect(core.getTask(key).stage).toBe('implementation');
     const comments = core.getTask(key).activity.filter((a) => a.body.startsWith('ai-review/v1'));
     expect(comments).toHaveLength(1);
     expect(comments[0]!.body).toContain('claude-fable-5-1');

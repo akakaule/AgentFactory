@@ -57,6 +57,27 @@ describe('consensus discussion', () => {
   it.each([{ votes: [] }, { votes: [{ id: 'unknown' }] }, { votes: [JSON.parse(ballot()).votes[0], JSON.parse(ballot()).votes[0]] }])('rejects incomplete or invalid ballots', raw => {
     expect(() => collectBallot(createConsensus(results), JSON.stringify(raw))).toThrow();
   });
+  it('normalizes a late finding\'s criteria and fix like a discovery finding', () => {
+    const s = createConsensus(results);
+    collectBallot(s, ballot()); collectBallot(s, ballot('reject'));
+    collectBallot(s, ballot('reject', 'error', { newFindings: [
+      { ...finding, title: 'Late', criteria: ['ac2', 'AC2', 'bogus'], fix: '  Guard it.  ' },
+      { ...finding, title: 'Late, no links', criteria: null, fix: null },
+    ] }));
+    collectBallot(s, ballot('reject'));
+    expect(s.candidates.slice(1).map(c => c.finding)).toEqual([
+      { ...finding, title: 'Late', criteria: ['AC2'], fix: 'Guard it.' },
+      { ...finding, title: 'Late, no links' },
+    ]);
+    expect(consensusReview(s)).toContain('"verdict":"disputed"');
+  });
+  it('keeps a vote reason, trimmed and capped at 300 characters; a blank reason is none', () => {
+    const s = createConsensus(results);
+    collectBallot(s, ballot('confirm', 'error', {}).replace('"duplicateOf":null', `"duplicateOf":null,"reason":"  ${'x'.repeat(320)}  "`));
+    collectBallot(s, ballot('confirm', 'error').replace('"duplicateOf":null', '"duplicateOf":null,"reason":"  "'));
+    expect(s.candidates[0]!.votes.map(v => v.reason)).toEqual(['x'.repeat(300), null]);
+    expect(consensusReview(s)).toContain('"verdict":"findings"');
+  });
   it('retains a late new candidate as unresolved', () => {
     const s = createConsensus(results);
     collectBallot(s, ballot()); collectBallot(s, ballot('reject'));

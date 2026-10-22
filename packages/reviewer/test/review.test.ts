@@ -103,6 +103,24 @@ describe('buildReviewPrompt', () => {
     expect(p).toContain('ai-review/v1 - <N> findings (codex)');
   });
 
+  it('implementation: lists the criteria by id for findings to cite, with the general text as "Also required"', () => {
+    const diff = { baseRef: 'main', diff: 'D', commits: 1 };
+    const p = buildReviewPrompt({ task: detail({ acceptanceCriteria: 'Done when:\n1. Race — one claim wins\n2. Logs — one line per claim\n\nEach item has a test.' }), engine: 'codex', branch: 'feature/x', diff });
+    expect(p).toContain('=== ACCEPTANCE CRITERIA (cite these ids in each finding\'s "criteria") ===\nAC1. Race — one claim wins\nAC2. Logs — one line per claim\nAlso required: Done when:\n\nEach item has a test.');
+    // the contract asks for the links and keeps the problem apart from the remedy
+    expect(p).toContain('"criteria": ["AC<n>", ...]');
+    expect(p).toContain('"fix": "<the change that resolves it>"');
+    expect(p).toContain('"detail": "<what is wrong and why it matters>"');
+    // criteria with no list are one criterion, AC1
+    expect(buildReviewPrompt({ task: detail(), engine: 'codex', branch: 'feature/x', diff })).toContain('\nAC1. the acceptance criteria\n');
+  });
+
+  it('description: the criteria are the deliverable, shown as written, not as ids', () => {
+    const p = buildReviewPrompt({ task: detail({ stage: 'description', acceptanceCriteria: '1. Race — one claim wins' }), engine: 'codex' });
+    expect(p).toContain('=== ACCEPTANCE CRITERIA (the deliverable under review) ===\n1. Race — one claim wins');
+    expect(p).not.toContain('AC1.');
+  });
+
   it('implementation: throws without a branch + diff', () => {
     expect(() => buildReviewPrompt({ task: detail(), engine: 'codex' })).toThrow();
   });

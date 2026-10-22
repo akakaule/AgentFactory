@@ -19,6 +19,7 @@ describe('TaskForm (create mode)', () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
     render(<TaskForm mode="create" onSubmit={onSubmit} />);
+    expect(screen.getByRole('option', { name: 'Full pipeline — spec → implement → PR' })).toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText('Task title'), 'My new task');
     await user.type(screen.getByPlaceholderText('Describe the task…'), 'Do something cool');

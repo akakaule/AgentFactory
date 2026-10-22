@@ -389,11 +389,17 @@ CREATE TABLE IF NOT EXISTS retry_attempt (
 CREATE INDEX IF NOT EXISTS idx_retry_attempt_budget ON retry_attempt(budget_id, attempt);
 `;
 
-// Migration #27 — durable execution ownership. A retry reservation describes budget accounting;
+// Migration #27 — per-workspace Azure DevOps work-item import settings (the ado-bridge backlog loop,
+// moved into the watcher). A JSON AdoSyncSettings object (adoSync.ts); NULL = never configured.
+export const MIGRATION_27_SQL = `
+ALTER TABLE workspace ADD COLUMN ado_sync TEXT;
+`;
+
+// Migration #28 — durable execution ownership. A retry reservation describes budget accounting;
 // this record describes the concrete worker/reviewer run that may mutate a task. Keeping the
 // identity separate lets a replacement claim invalidate all late writes from an older process.
-// (Slot #26 went to main's intake heartbeat widening; see migrate.ts for the reconcile.)
-export const MIGRATION_27_SQL = `
+// (Slots #26/#27 went to main's intake widening and ADO import; see migrate.ts for the reconcile.)
+export const MIGRATION_28_SQL = `
 CREATE TABLE IF NOT EXISTS task_execution (
   id             TEXT PRIMARY KEY,
   task_id        INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,

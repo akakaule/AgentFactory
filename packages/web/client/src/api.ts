@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -111,7 +111,7 @@ export const api = {
   setAgentPrompts: (b: Record<string, string>) => req<AgentPrompts>('/api/agent-prompts', { method: 'PUT', body: JSON.stringify(b) }),
   getEngineSettings: () => req<EngineSettings>('/api/engines'),
   setEngineSettings: (b: Partial<EngineSettings>) => req<EngineSettings>('/api/engines', { method: 'PUT', body: JSON.stringify(b) }),
-  updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string> }) =>
+  updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   addTaskDependency: (dependentKey: string, dependencyKey: string) =>
@@ -130,7 +130,8 @@ export const api = {
   unarchive: (key: string) => req<TaskDetail>(`/api/tasks/${key}/unarchive`, body({})),
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
   restart: (key: string) => req<TaskDetail>(`/api/tasks/${key}/restart`, body({})),
-  approve: (key: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body({})),
+  // reason: required by the server when approving over must-fix issues or open decisions
+  approve: (key: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body(reason ? { reason } : {})),
   markPrReviewed: (key: string, review: string) => req<TaskDetail>(`/api/tasks/${key}/pr-reviewed`, body({ review })),
   requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
 };

@@ -162,15 +162,19 @@ describe('watcher tick', () => {
     expect(failure.body).toContain('https://gh/run/1'); // still names the failing check + its link
   });
 
-  it('PR closed without merge → queued with pr_closed', async () => {
+  it('the episode\'s own PR closed without merge → queued with pr_closed', async () => {
     const core = makeCore();
     const key = deliverTask(core);
-    const fetchJson = fakeFetch([
-      ['/pulls?head=', { body: [ghPr({ state: 'closed', merged_at: null })] }],
-      ['/check-runs', { body: green }],
-      ['/status', { body: { statuses: [] } }],
-    ]);
+    let closed = false;
+    const fetchJson = async (url: string) => {
+      const body = url.includes('/pulls?head=') ? [ghPr()]
+        : url.includes('/pulls/42') ? ghPr(closed ? { state: 'closed', merged_at: null } : {})
+          : url.includes('/check-runs') ? green : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
     const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick(); // observes (and so attributes) the open PR to this delivery episode
+    closed = true;
     await w.tick();
     const t = core.getTask(key);
     expect(t.status).toBe('queued');
@@ -279,11 +283,11 @@ describe('watcher tick', () => {
     expect(() => core.submitResult(key, { summary: 'late repair result' })).toThrow();
   });
 
-  it('no PR yet → records not_found and waits', async () => {
+  it('no PR yet with PR creation off → records not_found and waits', async () => {
     const core = makeCore();
     const key = deliverTask(core);
     const fetchJson = fakeFetch([['/pulls?head=', { body: [] }]]);
-    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    const w = new Watcher(makeConfig({ createPullRequests: false }), makeDeps(core, fetchJson));
     await w.tick();
     const t = core.getTask(key);
     expect(t.status).toBe('delivering');

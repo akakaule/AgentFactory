@@ -94,7 +94,9 @@ git worktree remove <repoPath>/.worktrees/AF-12   # refuses on uncommitted chang
 git worktree prune
 ```
 
-then submits with a `branch` link (label = the branch name) plus a PR link if one exists. The board's diff view reads the *branch*, so review needs nothing from the worktree — and the human can open a PR from the pushed branch at any time (GitHub, Azure DevOps, anything with the remote).
+then submits with a `branch` link (label = the branch name). The worker never opens a pull request (protocol v7): the board's diff view reads the *branch*, so review needs nothing from the worktree, and once the human approves the implementation review the watcher opens the PR against the default branch (GitHub and Azure DevOps).
+
+Since protocol v8 the implementation submit also carries `criteria`: one `{ id, claim }` per acceptance criterion (the ids `AC1`…`ACn` that `protocol.finish` lists), saying how the change meets it and which test proves it. The board shows each claim next to what the AI reviewers found for that criterion. Unknown or repeated ids are rejected with the valid ids named; leaving criteria out is allowed.
 
 The convention is embedded in the `get_next_task` and `submit_result` tool descriptions, so any MCP agent runtime picks it up without extra prompting.
 

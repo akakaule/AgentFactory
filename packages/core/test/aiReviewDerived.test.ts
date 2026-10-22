@@ -56,6 +56,18 @@ describe('derived aiReview field', () => {
     expect(listTasks(db, { status: 'in_review' })[0]!.aiReview).toMatchObject({ verdict: 'findings', findings: 2 });
   });
 
+  it('carries the review brief on detail and summary, built against the task criteria', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    expect(getTask(db, task.key).reviewBrief).toBeNull();
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2), executionId: task.executionId }, at(95));
+
+    const brief = getTask(db, task.key).reviewBrief!;
+    expect(brief).toMatchObject({ headline: 'minor', reviewers: ['codex'], counts: { should: 2 } });
+    expect(brief.criteria.map((r) => [r.id, r.text, r.status])).toEqual([['AC1', 'A', 'clear']]);
+    expect(listTasks(db, { status: 'in_review' })[0]!.reviewBrief).toEqual(brief);
+  });
+
   it('reads clean at zero findings', () => {
     const db = makeTestDb();
     const task = driveToReview(db);
@@ -99,6 +111,18 @@ describe('derived aiReview field', () => {
   });
 });
 
+describe('review brief on list reads', () => {
+  it('is built only for tasks in review; the detail always has it', () => {
+    const db = makeTestDb();
+    const task = driveToReview(db);
+    addComment(db, task.key, { actor: 'agent', body: reviewBody(2), executionId: task.executionId }, at(95));
+    expect(listTasks(db)[0]!.reviewBrief).not.toBeNull();
+    reviewApprove(db, task.key, at(150)); // minor issues: no reason needed
+    expect(listTasks(db)[0]!.reviewBrief).toBeNull();
+    expect(getTask(db, task.key).reviewBrief?.headline).toBe('minor');
+  });
+});
+
 describe('reviewApprove override logging', () => {
   it('appends an override comment when approving over open findings', () => {
     const db = makeTestDb();
@@ -109,7 +133,7 @@ describe('reviewApprove override logging', () => {
     const override = getTask(db, task.key).activity.find((a) => a.type === 'comment' && a.body.startsWith('override:'));
     expect(override).toBeDefined();
     expect(override!.actor).toBe('human');
-    expect(override!.body).toBe('override: approved over 2 open AI findings');
+    expect(override!.body).toBe('override: approved over 2 minor issues'); // warnings only: no reason needed
   });
 
   it('does not log an override for a clean approval', () => {

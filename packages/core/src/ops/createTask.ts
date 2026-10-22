@@ -11,8 +11,13 @@ import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { nowIso } from '../time.js';
 
 export function createTask(db: DB, input: CreateTaskInput, now: () => string = nowIso): Task {
+  return transaction(db, () => createTaskWithinTransaction(db, input, now));
+}
+
+/** The body of createTask, for ops that compose it into their own transaction (importTask). */
+export function createTaskWithinTransaction(db: DB, input: CreateTaskInput, now: () => string = nowIso): Task {
   const { title, spec, acceptanceCriteria, stage, kind, links, workspace } = parse(createTaskSchema, input);
-  return transaction(db, () => {
+  {
     const ws = requireWorkspaceByName(db, workspace ?? DEFAULT_WORKSPACE);
     const ts = now();
     const info = db.prepare(
@@ -27,5 +32,5 @@ export function createTask(db: DB, input: CreateTaskInput, now: () => string = n
     // actor rides outside createTaskSchema (parse strips it) — read it from the raw input; default human.
     appendActivity(db, { taskId: id, type: 'status_change', actor: input.actor ?? 'human', fromStatus: null, toStatus: 'backlog', createdAt: ts });
     return findByKey(db, key)!;
-  });
+  }
 }

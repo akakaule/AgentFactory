@@ -7,14 +7,22 @@ export function reviewSubmissionFingerprint(task: TaskDetail): string {
     task.title, task.spec, task.acceptanceCriteria, task.plan, task.branch, task.links]);
 }
 
+/** The acceptance-criterion ids a finding cites (see acceptanceCriteria.ts); at most 10. */
+export const criterionIdsSchema = z.array(z.string().regex(/^AC\d+$/)).max(10);
+/** A vote's one plain sentence: why this decision and severity. */
+export const VOTE_REASON_MAX = 300;
+
+// criteria/fix/reason are optional: stored reviews from before criterion links lack them and
+// must keep parsing — the schemas are strict, so every new key is declared here explicitly.
 export const consensusFindingSchema = z.object({
   title: z.string().trim().min(1), severity: z.enum(['error', 'warning', 'info']).nullable(),
   file: z.string().nullable(), line: z.number().int().nullable(), detail: z.string().nullable(),
+  criteria: criterionIdsSchema.optional(), fix: z.string().min(1).optional(),
 }).strict();
 export const consensusVoteSchema = z.object({
   reviewer: z.string().min(1), decision: z.enum(['confirm', 'reject', 'uncertain']),
   severity: z.enum(['error', 'warning', 'info']).nullable(), evidence: z.string().trim().min(1),
-  duplicateOf: z.string().min(1).nullable(),
+  duplicateOf: z.string().min(1).nullable(), reason: z.string().max(VOTE_REASON_MAX).nullable().optional(),
 }).strict();
 const candidateSchema = z.object({
   id: z.string().min(1), source: z.string().min(1), finding: consensusFindingSchema,

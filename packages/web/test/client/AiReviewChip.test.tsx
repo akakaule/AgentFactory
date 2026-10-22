@@ -1,34 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { AiReviewChip } from '../../client/src/components/AiReviewChip.js';
-import type { AiReviewSummary } from '../../client/src/types.js';
-
-const review = (over: Partial<AiReviewSummary>): AiReviewSummary =>
-  ({ verdict: 'clean', findings: 0, reviewer: 'codex', items: [], ...over });
+import { af146Brief, v1Brief } from './fixtures/reviewBrief.js';
 
 describe('AiReviewChip', () => {
   it('renders nothing when no AI review is present', () => {
-    const { container } = render(<AiReviewChip review={null} />);
+    const { container } = render(<AiReviewChip brief={null} />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('shows a clean verdict at zero findings', () => {
-    render(<AiReviewChip review={review({ verdict: 'clean', findings: 0 })} />);
-    expect(screen.getByText('AI review: clean')).toBeInTheDocument();
-  });
-
-  it('pluralizes findings correctly', () => {
-    render(<AiReviewChip review={review({ verdict: 'findings', findings: 1 })} />);
-    expect(screen.getByText('AI review: 1 finding')).toBeInTheDocument();
-  });
-
-  it('shows the findings count', () => {
-    render(<AiReviewChip review={review({ verdict: 'findings', findings: 3 })} />);
-    expect(screen.getByText('AI review: 3 findings')).toBeInTheDocument();
-  });
-
-  it('shows pending when a newer result awaits re-review', () => {
-    render(<AiReviewChip review={review({ verdict: 'pending', findings: 2 })} />);
-    expect(screen.getByText('AI review: pending')).toBeInTheDocument();
+  it.each([
+    ['changes needed', af146Brief(), 'Changes needed', '2 must fix · 3 your call', 'changes_needed'],
+    ['your call', { ...af146Brief(), headline: 'your_call' as const }, 'Your call · 3', null, 'your_call'],
+    ['minor', v1Brief([{ severity: 'warning', file: null, line: null, title: 'Slow', detail: null }]), 'Minor issues · 1', null, 'minor'],
+    ['clean', v1Brief([]), 'No issues found', null, 'clean'],
+    ['pending', af146Brief({ superseded: true }), 'Review pending', null, 'pending'],
+  ])('%s: label, the text beside it, its colour class and the verdict sentence as the tooltip', (_, brief, label, detail, cls) => {
+    const { container } = render(<AiReviewChip brief={brief} />);
+    const chip = screen.getByText(label).closest('.af-rv-chip')!;
+    expect(chip).toHaveClass(cls);
+    expect(chip.getAttribute('title')).toMatch(/\.$/); // the sentence
+    if (detail) expect(screen.getByText(detail)).toBeInTheDocument();
+    else expect(container.querySelector('.af-rv-chipdetail')).toBeNull();
   });
 });

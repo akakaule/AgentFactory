@@ -1,7 +1,7 @@
 import type { Activity } from './types.js';
 
 /** Client-side readers for the delivering-feedback markers (the client can't import core's runtime;
- *  it already parses markers this way — see composeFeedback/composePrReview). */
+ *  it already parses markers this way — see composePrReview and criteriaClaims). */
 
 export type FeedbackDisposition = 'warranted' | 'partial' | 'not_warranted';
 export interface FeedbackEvalVerdict { disposition: FeedbackDisposition; reasoning: string; suggestedChange: string | null }

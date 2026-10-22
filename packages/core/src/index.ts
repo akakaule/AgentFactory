@@ -3,10 +3,11 @@ export { runMigrations } from './migrate.js';
 export * from './types.js';
 export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
 export { defaultIntakeSettings, normalizeIntakeSettings, parseIntakeSettingsUpdate, intakeEnabledFor, INTAKE_SETTINGS_KEY } from './intakeSettings.js';
-export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
+export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, consensusFindingSchema, criterionIdsSchema, VOTE_REASON_MAX, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 export { getVersion } from './version.js';
 export { createTask } from './ops/createTask.js';
+export { importTask, type ImportTaskInput } from './ops/importTask.js';
 export { updateTask } from './ops/updateTask.js';
 export { deleteTask } from './ops/deleteTask.js';
 export { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
@@ -17,9 +18,13 @@ export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimN
 export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
-export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, type ParsedAiReview } from './aiReview.js';
+export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, type ParsedAiReview } from './aiReview.js';
+export { parseAcceptanceCriteria, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
+export { buildReviewBrief } from './reviewBrief.js';
+export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
+export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
@@ -77,6 +82,7 @@ import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
 import { getVersion } from './version.js';
 import { createTask } from './ops/createTask.js';
+import { importTask, type ImportTaskInput } from './ops/importTask.js';
 import { updateTask } from './ops/updateTask.js';
 import { deleteTask } from './ops/deleteTask.js';
 import { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
@@ -159,6 +165,8 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
   };
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
+    /** Supervisor-side import from an external tracker (ADO work items): idempotent create + queue. */
+    importTask: (input: ImportTaskInput) => importTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
     deleteTask: (key: string) => deleteTask(db, key),
     archiveTask: (key: string) => archiveTask(db, key),
@@ -226,7 +234,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
      *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
     addPrFeedback: (key: string, input: AddPrFeedbackInput) => addPrFeedback(db, key, input),
     applyFeedbackFix: (key: string, actorUserId: number | null = null) => applyFeedbackFix(db, key, actorUserId),
-    reviewApprove: (key: string, actorUserId: number | null = null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin),
+    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),

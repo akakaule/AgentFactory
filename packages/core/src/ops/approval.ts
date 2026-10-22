@@ -1,13 +1,14 @@
 import type { DB } from '../db.js';
-import type { Actor, DeliveryProvider, Status } from '../types.js';
-import { STAGE_ORDER } from '../types.js';
+import type { Actor, DeliveryProvider, ReviewBrief, Status } from '../types.js';
+import { NEXT_STAGE } from '../types.js';
+import { buildReviewBrief } from '../reviewBrief.js';
 import type { TaskRow } from '../repo/tasks.js';
 import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { upsertDelivery, deliveryRowFor } from '../repo/delivery.js';
 import { latestPrLinkUrl } from '../repo/links.js';
 import { assertTransition } from '../transitions.js';
-import { InvalidTransitionError } from '../errors.js';
+import { InvalidTransitionError, ValidationError } from '../errors.js';
 import { resetRetryBudget as resetRetryBudgetRow } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
@@ -17,7 +18,35 @@ const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 export interface DeliverySeed { provider: DeliveryProvider; }
 
 /**
- * The approve action for an in_review task: a doc stage (description/plan) advances to
+ * Approving a code task over must-fix issues or open decisions is a deliberate call — the human
+ * records why. Minor issues only stay one click, so warnings don't train people to type filler.
+ * A pr-review task keeps its plain "Mark reviewed": its review lives on the PR, not here.
+ */
+function needsReason(row: TaskRow, brief: ReviewBrief | null): boolean {
+  return row.kind === 'code' && (brief?.headline === 'changes_needed' || brief?.headline === 'your_call');
+}
+
+/** Whether approving this in-review task needs a reason — for paths that approve outside
+ *  applyApproval (a raw in_review → done status move). */
+export function approvalNeedsReason(db: DB, row: TaskRow): boolean {
+  return needsReason(row, buildReviewBrief(aiReviewFor(db, row.id), row.acceptance_criteria, row.stage));
+}
+
+/** "2 must-fix, 3 open decisions and 2 minor issues" — the non-zero parts of the brief. Nothing
+ *  parses this; the override comment is for the human reading the activity log. */
+function openIssuesPhrase(brief: ReviewBrief): string {
+  const { must, call, should, fyi } = brief.counts;
+  const parts = [
+    must > 0 ? `${must} must-fix` : null,
+    call > 0 ? `${call} open decision${call === 1 ? '' : 's'}` : null,
+    should + fyi > 0 ? `${should + fyi} minor issue${should + fyi === 1 ? '' : 's'}` : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return 'the AI review';
+  return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}`;
+}
+
+/**
+ * The approve action for an in_review task: a doc stage (description, or legacy plan) advances to
  * the next stage and re-queues; the implementation stage closes the task (human-only —
  * the final gate is never automated). With a `delivery` seed the implementation approve
  * routes to 'delivering' instead of 'done' — done then means the watcher verified the PR
@@ -27,19 +56,25 @@ export interface DeliverySeed { provider: DeliveryProvider; }
  * reviews — that path never passes a delivery seed).
  *
  * `note` rides the status_change body, prefixing the stage-advance trail
- * (e.g. 'auto-approved: clean AI review; stage description → plan').
+ * (e.g. 'auto-approved: clean AI review; stage description → implementation').
+ * `overrideReason` is the human's why, recorded on the override comment; it is required when the
+ * review brief has must-fix issues or open decisions (headline changes_needed / your_call).
  */
-export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null): void {
+export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null): void {
   // Break-glass audit trail: approving while the *current* AI review has open findings
   // logs an override comment. Derived, no schema change; the override-rate KPI reads the
   // same condition from the activity log (findingsAtApproval). Pending/clean ⇒ no override.
   // The auto path can never hit this — a clean verdict is its precondition (so actorUserId
   // is the approving human here, never the agent).
   const review = aiReviewFor(db, row.id);
-  if (review && (review.verdict === 'findings' || review.verdict === 'disputed')) {
+  const brief = buildReviewBrief(review, row.acceptance_criteria, row.stage);
+  const reason = overrideReason?.trim() || null;
+  if (actor === 'human' && needsReason(row, brief) && reason === null)
+    throw new ValidationError('approving over must-fix issues or open decisions needs a reason');
+  if (review && brief && (review.verdict === 'findings' || review.verdict === 'disputed')) {
     appendActivity(db, {
       taskId: row.id, type: 'comment', actor: 'human',
-      body: `override: approved over ${review.findings} open AI finding${review.findings === 1 ? '' : 's'}${review.verdict === 'disputed' ? ` and ${review.consensus?.candidates.filter(c => c.outcome === 'disputed').length ?? 0} unresolved disputes` : ''}`,
+      body: `override: approved over ${openIssuesPhrase(brief)}${reason === null ? '' : `\n\nReason: ${reason}`}`,
       createdAt: ts, actorUserId,
     });
   }
@@ -64,7 +99,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     });
     return;
   }
-  const next = STAGE_ORDER[STAGE_ORDER.indexOf(row.stage) + 1]!;
+  const next = NEXT_STAGE[row.stage];
   assertTransition('in_review', 'queued', actor);
   setStage(db, row.id, next, ts);
   setStatus(db, row.id, 'queued', ts); // clears the claimant — the next stage is anyone's claim

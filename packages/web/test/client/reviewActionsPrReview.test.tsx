@@ -10,24 +10,18 @@ const withFinding: AiReviewSummary = {
   items: [{ severity: 'error', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: 'no cap' }],
 };
 
-describe('ReviewActions — pr-review kind', () => {
+describe('ReviewActions — pr-review tasks', () => {
   it('shows "Mark reviewed" and no "Request changes" for a pr-review task', () => {
-    render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" />);
+    render(<ReviewActions onMarkReviewed={noop} />);
     expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Request changes' })).not.toBeInTheDocument();
-  });
-
-  it('keeps the normal Approve + Request changes for a code task', () => {
-    render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="code" />);
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Request changes' })).toBeInTheDocument();
   });
 
   it('pre-fills the review body with the AI findings as editable markdown and copies it verbatim', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 
-    render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" aiReview={withFinding} />);
+    render(<ReviewActions onMarkReviewed={noop} aiReview={withFinding} />);
     const ta = screen.getByPlaceholderText(/paste this onto the PR/i) as HTMLTextAreaElement;
     expect(ta.value).toBe('- **Unbounded loop** — no cap (`src/x.ts:42`) _error_');
 
@@ -39,25 +33,32 @@ describe('ReviewActions — pr-review kind', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 
-    render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" aiReview={withFinding} />);
+    render(<ReviewActions onMarkReviewed={noop} aiReview={withFinding} />);
     fireEvent.change(screen.getByPlaceholderText(/paste this onto the PR/i), { target: { value: 'LGTM, one nit:\n\n- fix the guard' } });
     fireEvent.click(screen.getByRole('button', { name: /Copy review for the PR/i }));
     expect(writeText).toHaveBeenCalledWith('LGTM, one nit:\n\n- fix the guard');
   });
 
   it('disables the copy button when there is nothing to copy (no findings, no note)', () => {
-    render(<ReviewActions onApprove={noop} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" />);
+    render(<ReviewActions onMarkReviewed={noop} />);
     expect(screen.getByRole('button', { name: /Copy review for the PR/i })).toBeDisabled();
   });
 
-  it('"Mark reviewed" sends the edited review body to onMarkReviewed (not onApprove)', () => {
+  it('"Mark reviewed" sends the edited review body', () => {
     const onMarkReviewed = vi.fn();
-    const onApprove = vi.fn();
     // no open findings, so "Mark reviewed" fires in one click (no break-glass arming step)
-    render(<ReviewActions onApprove={onApprove} onMarkReviewed={onMarkReviewed} onRequestChanges={vi.fn()} stage="implementation" kind="pr-review" />);
+    render(<ReviewActions onMarkReviewed={onMarkReviewed} />);
     fireEvent.change(screen.getByPlaceholderText(/paste this onto the PR/i), { target: { value: 'LGTM' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed' }));
     expect(onMarkReviewed).toHaveBeenCalledWith('LGTM');
-    expect(onApprove).not.toHaveBeenCalled();
+  });
+
+  it('marking reviewed over open findings takes a second, explicit click', () => {
+    const onMarkReviewed = vi.fn();
+    render(<ReviewActions onMarkReviewed={onMarkReviewed} aiReview={withFinding} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed' }));
+    expect(onMarkReviewed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed anyway (1)' }));
+    expect(onMarkReviewed).toHaveBeenCalledWith('- **Unbounded loop** — no cap (`src/x.ts:42`) _error_');
   });
 });

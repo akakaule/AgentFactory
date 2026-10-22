@@ -11,6 +11,7 @@ import { assertExecutionOwnership } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
 import { deliveryRowFor } from '../repo/delivery.js';
 import { advanceRetryBudget } from '../repo/retry.js';
+import { approvalNeedsReason } from './approval.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
@@ -49,6 +50,9 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
       throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
     if (status === 'done' && actor === 'agent')
       throw new InvalidTransitionError('agent completion requires delivery reconciliation, not a raw status move');
+    // A human closing a review by status is an approval: it can't skip the reason the approve action requires.
+    if (row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human' && approvalNeedsReason(db, row))
+      throw new ValidationError('approving over must-fix issues or open decisions needs a reason — use the approve action');
     // A retry already in flight must not reopen a repair that the watcher just completed.
     if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
       && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);

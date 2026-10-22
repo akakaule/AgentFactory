@@ -1,6 +1,15 @@
-import type { TaskDetail } from '@agentfactory/core';
+import type { TaskDetail, Workspace as CoreWorkspace, AdoSyncSettings } from '@agentfactory/core';
 
-export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, Workspace, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage } from '@agentfactory/core';
+export type { AdoSyncSettings } from '@agentfactory/core';
+/** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin and, for
+ *  an Azure DevOps import, the WIQL it runs. Optional so older payloads/fixtures stay valid. */
+export type Workspace = Omit<CoreWorkspace, 'adoSync'> & {
+  adoSync?: AdoSyncSettings | null;
+  remote?: { provider: 'github' } | { provider: 'azdo'; organization: string; project: string } | null;
+  adoSyncWiql?: string | null;
+};
+
+export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage } from '@agentfactory/core';
 
 /** One OTel token event from the live telemetry feed (GET /api/telemetry). Mirror of the
  *  server's TelemetryEvent — ephemeral, newest-first. Only task-attributed events are fed. */

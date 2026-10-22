@@ -75,6 +75,7 @@ describe('e2e: full feed-and-follow-up loop (human ↔ agent, shared file DB)', 
       title: 'Fix bug',
       spec: 'The widget crashes on null input.',
       acceptanceCriteria: 'Widget handles null without throwing.',
+      stage: 'implementation',
     });
     expect(createRes.status).toBe(201);
     const created = await createRes.json() as { key: string; status: string };

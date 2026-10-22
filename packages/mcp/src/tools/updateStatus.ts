@@ -4,7 +4,7 @@ import type { McpCore } from '../types.js';
 import { AgentStatusEnum, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 import type { ServerOptions } from '../server.js';
-import { withoutFailureTriage } from '../content.js';
+import { forAgent } from '../content.js';
 
 export function registerUpdateStatus(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
@@ -33,7 +33,7 @@ export function registerUpdateStatus(server: McpServer, core: McpCore, opts: Ser
         }
         const executionId = opts.executionContext?.get() ?? opts.executionId;
         const task = await core.updateStatus(key, status, 'agent', null, note, executionId);
-        return { content: [{ type: 'text', text: JSON.stringify(withoutFailureTriage(task), null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(forAgent(task), null, 2) }] };
       } catch (err) {
         return toToolError(err);
       }

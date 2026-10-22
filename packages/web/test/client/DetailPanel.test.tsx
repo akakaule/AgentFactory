@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailPanel } from '../../client/src/components/DetailPanel.js';
 import type { TaskDetail } from '../../client/src/types.js';
+import { v1Brief } from './fixtures/reviewBrief.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
@@ -495,42 +496,55 @@ describe('DetailPanel', () => {
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-12', 'queued');
   });
 
-  it('shows the AI-review chip and break-glass override on an in_review task with findings', async () => {
+  it('shows the review panel on an in_review code task; approving over a must-fix issue asks why', async () => {
     const mocked = await getApiMock();
-    mocked.getTask.mockResolvedValue({
-      ...inReviewTask,
-      aiReview: { verdict: 'findings', findings: 2, reviewer: 'codex', items: [
-        { severity: 'warning', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: null },
-        { severity: 'info', file: null, line: null, title: 'Missing test', detail: null },
-      ] },
-    });
+    const brief = v1Brief([{ severity: 'error', file: 'src/x.ts', line: 42, title: 'Unbounded loop', detail: 'No cap.', criteria: ['AC1'] }]);
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, acceptanceCriteria: '1. Race — one claim wins\n2. Logs — one line', reviewBrief: brief });
+    mocked.approve.mockClear();
     mocked.approve.mockResolvedValue({});
     const user = userEvent.setup();
+    const onClose = vi.fn();
 
-    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+    render(<DetailPanel taskKey="AF-11" onClose={onClose} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText('AI review: 2 findings')).toBeInTheDocument();
-    expect(screen.getByText(/recorded as an override/i)).toBeInTheDocument();
-
-    // break-glass: first Approve click arms, does not approve; confirm click approves
-    await user.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(mocked.approve).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: /approve anyway/i }));
-    expect(mocked.approve).toHaveBeenCalledWith('AF-11');
+    expect(await screen.findByRole('heading', { name: 'Changes needed' })).toBeInTheDocument();
+    // the table replaces the raw criteria block; the summary moves to the second column
+    expect(screen.queryByText('Acceptance criteria', { selector: '.af-sl' })).toBeNull();
+    expect(screen.getByText("Worker's summary")).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Approve anyway…' }));
+    // Esc closes the dialog, not the drawer
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Approve anyway…' }));
+    await user.type(screen.getByLabelText(/Why is it OK to ship this\?/), 'Tracked in AF-12.');
+    await user.click(screen.getByRole('button', { name: 'Approve anyway' }));
+    expect(mocked.approve).toHaveBeenCalledWith('AF-11', 'Tracked in AF-12.');
   });
 
-  it('approves a clean in_review task in one click (no override warning)', async () => {
+  it('approves a clean in_review task in one click', async () => {
     const mocked = await getApiMock();
-    mocked.getTask.mockResolvedValue({ ...inReviewTask, aiReview: { verdict: 'clean', findings: 0, reviewer: 'codex', items: [] } });
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, reviewBrief: v1Brief([]) });
+    mocked.approve.mockClear();
     mocked.approve.mockResolvedValue({});
     const user = userEvent.setup();
 
     render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText('AI review: clean')).toBeInTheDocument();
-    expect(screen.queryByText(/recorded as an override/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No issues found' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(mocked.approve).toHaveBeenCalledWith('AF-11');
+    expect(mocked.approve).toHaveBeenCalledWith('AF-11', undefined);
+  });
+
+  it('a pr-review task in review keeps its own actions', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, kind: 'pr-review', reviewBrief: v1Brief([]) });
+
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: 'Mark reviewed' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'No issues found' })).toBeNull();
+    expect(screen.getByText('No issues found')).toBeInTheDocument(); // the chip
   });
 
   it('shows no Release claim button outside in_progress', async () => {
@@ -832,6 +846,19 @@ describe('DetailPanel', () => {
     expect(link).toHaveAttribute('href', 'https://dev.azure.com/o/p/_git/r/pullrequestcreate?sourceRef=feature%2FAF-22-x');
     expect(link).toHaveAttribute('target', '_blank');
     expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument();
+  });
+
+  it('shows the agent\'s criterion claims as a summary line, not raw JSON', async () => {
+    const mocked = await getApiMock();
+    const body = 'criteria-claims/v1\n\n```json\n{"claims":[{"id":"AC1","claim":"race.test.ts proves it."},{"id":"AC2","claim":"One log line."}]}\n```';
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, activity: [{ ...backlogTask.activity[1]!, id: 30, actor: 'agent', body }] });
+    const user = userEvent.setup();
+    render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    const summary = await screen.findByText('Reported on 2 acceptance criteria');
+    expect(screen.queryByText(/"claims"/)).toBeNull();
+    await user.click(summary);
+    expect(screen.getByText('race.test.ts proves it.')).toBeVisible();
   });
 
   it('calls onClose when the close button is clicked', async () => {

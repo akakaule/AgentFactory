@@ -62,7 +62,7 @@ describe('e2e: review diff over HTTP from a real workspace repo', () => {
 
     // ── Human: workspace over the real repo; create + queue the task ────────
     expect((await post(app, '/api/workspaces', { name: 'repo', repoPath: repoDir })).status).toBe(201);
-    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a', workspace: 'repo' });
+    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a', workspace: 'repo', stage: 'implementation' });
     const t = await (created).json() as { key: string };
     await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' });
 

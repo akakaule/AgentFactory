@@ -81,7 +81,7 @@ describe('approve → delivering routing', () => {
     core.submitResult(t.key, { summary: 'wrote it', spec: 'new spec', acceptanceCriteria: 'new ac' });
     const after = core.reviewApprove(t.key);
     expect(after.status).toBe('queued');
-    expect(after.stage).toBe('plan');
+    expect(after.stage).toBe('implementation');
     expect(core.getDelivery(t.key)).toBeNull();
   });
 

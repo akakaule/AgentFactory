@@ -19,8 +19,8 @@ export function registerCreateTask(server: McpServer, core: McpCore, opts: Serve
         'human triages and queues it, so this never auto-spawns another agent. It lands in the server\'s ' +
         'pinned workspace unless you pass `workspace`. Provide `title` and `spec` (what needs doing and why). ' +
         `${NO_HARD_WRAP} ` +
-        '`acceptanceCriteria` is required unless `stage` is `description` (that stage writes them); `stage` ' +
-        'defaults to `implementation`. This does not touch the task you are currently working — submit that ' +
+        '`stage` defaults to `description` (the spec stage, which writes the spec and acceptance criteria before ' +
+        'implementation); `acceptanceCriteria` is required only when you pass `stage: implementation`. This does not touch the task you are currently working — submit that ' +
         'with submit_result as usual.',
       inputSchema: {
         title: z.string().min(1),
@@ -35,7 +35,7 @@ export function registerCreateTask(server: McpServer, core: McpCore, opts: Serve
         // explicit build for exactOptionalPropertyTypes; actor attributes the seed activity as the agent
         const input: CreateTaskInput = { title, spec, actor: 'agent' };
         if (acceptanceCriteria !== undefined) input.acceptanceCriteria = acceptanceCriteria;
-        if (stage !== undefined) input.stage = stage;
+        input.stage = stage ?? 'description'; // default flow: spec stage first
         const ws = workspace ?? opts.defaultWorkspace; // pin to the server's workspace by default
         if (ws !== undefined) input.workspace = ws;
         const task = await core.createTask(input);
