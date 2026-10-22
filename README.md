@@ -90,6 +90,8 @@ For a loop you leave running, the web server can push webhook alerts so you find
 AF_NOTIFY_WEBHOOKS="https://hooks.slack.com/services/…" npm run web:dev:server
 ```
 
+An entry that is not an absolute `http(s)` URL is dropped at startup with a warning naming its position, so the remaining destinations keep working. When no valid entry remains, the notifier stays off.
+
 - `AF_NOTIFY_EVENTS` — which events to send (default `in_review,skip_listed,supervisor_down,blocked,setup_needed,delivery_stalled`; also `failed`, `queue_empty`, `delivery_wait`).
 - `AF_NOTIFY_POLL_SEC` — poll interval (default 15).
 - `AF_NOTIFY_REVIEW_WAIT_SEC` — wait before escalating a document stage still awaiting automated review (default 1800). Findings, disputes, or exhausted review attempts alert immediately.

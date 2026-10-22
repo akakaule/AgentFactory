@@ -56,9 +56,24 @@ export interface NotifierDeps {
   console?: Pick<Console, 'log' | 'warn' | 'error'> | undefined;
 }
 
-/** Build a NotifierConfig from env, or null when no webhooks are configured (notifier disabled). */
-export function notifierConfigFromEnv(env: Record<string, string | undefined>): NotifierConfig | null {
-  const webhooks = (env['AF_NOTIFY_WEBHOOKS'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch { return false; }
+}
+
+/** Build a NotifierConfig from env, or null when no valid webhooks are configured (notifier disabled).
+ *  Malformed entries are dropped here with a warning: core rejects a capture whose destination list
+ *  holds one, so a single bad entry must not reach it and silence every other destination. The
+ *  warning names the entry's position only — webhook URLs usually embed a secret token. */
+export function notifierConfigFromEnv(env: Record<string, string | undefined>, log: Pick<Console, 'warn'> = console): NotifierConfig | null {
+  const entries = (env['AF_NOTIFY_WEBHOOKS'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const webhooks = entries.filter((url, i) => {
+    if (isHttpUrl(url)) return true;
+    log.warn(`[notifier] ignoring AF_NOTIFY_WEBHOOKS entry #${i + 1}: not an absolute http(s) URL`);
+    return false;
+  });
   if (webhooks.length === 0) return null;
   const requested = (env['AF_NOTIFY_EVENTS'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   const chosen = (requested.length ? requested : DEFAULT_NOTIFY_EVENTS).filter(

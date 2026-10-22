@@ -47,6 +47,21 @@ describe('recoverable attention notifications', () => {
     core.settleNotificationOutbox(core.listNotificationOutbox(NOW)[0]!.id, { ok: false, now: '2026-09-14T19:00:00.000Z' });
     expect(core.getVersion()).not.toBe(captured);
   });
+
+  it('keeps the board version stable while an open alert is only re-observed', () => {
+    const { core } = makeCore();
+    const occurrence = { key: 'task:AF-1:blocked', stateKey: 'task:AF-1:blocked', eventType: 'blocked' as const,
+      reason: 'blocked' as const, target: 'AF-1', taskKey: 'AF-1', text: 'blocked', active: true };
+    const input = { sourceCursor: 0, destinations: ['http://a'], maxAttempts: 3, occurrences: [occurrence] };
+    core.captureNotifications({ ...input, now: NOW });
+    const opened = core.getVersion();
+    // every notifier poll re-observes the still-open alert; that alone must not churn the version
+    core.captureNotifications({ ...input, now: '2026-09-14T18:00:15.000Z' });
+    core.captureNotifications({ ...input, now: '2026-09-14T18:00:30.000Z' });
+    expect(core.getVersion()).toBe(opened);
+    core.captureNotifications({ ...input, now: '2026-09-14T18:00:45.000Z', occurrences: [{ ...occurrence, active: false }] });
+    expect(core.getVersion()).not.toBe(opened);
+  });
   it('captures an occurrence, per-destination outbox rows, and the source cursor atomically', () => {
     const { core, db } = makeCore();
 

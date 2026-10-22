@@ -353,4 +353,30 @@ describe('notifierConfigFromEnv', () => {
     expect([...c.events].sort()).toEqual(['failed', 'queue_empty']);
     expect(c.pollMs).toBe(30000);
   });
+
+  it('drops malformed or non-http webhook entries with a warning that does not echo the entry', () => {
+    const warn = vi.fn();
+    const c = notifierConfigFromEnv({ AF_NOTIFY_WEBHOOKS: 'hooks.example/secret-token, ftp://files/x, http://127.0.0.1:9/ok' }, { warn })!;
+    expect(c.webhooks).toEqual(['http://127.0.0.1:9/ok']);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls.flat().join(' ')).not.toContain('secret-token');
+  });
+
+  it('returns null when every webhook entry is invalid', () => {
+    expect(notifierConfigFromEnv({ AF_NOTIFY_WEBHOOKS: 'not a url' }, { warn: () => {} })).toBeNull();
+  });
+
+  it('keeps delivering to valid webhooks when another configured entry is malformed', async () => {
+    const db = openDb(':memory:'); runMigrations(db);
+    const core = createCore(db);
+    const fc = makeFakeCore(); const ff = makeFakeFetch();
+    const c = notifierConfigFromEnv({ AF_NOTIFY_WEBHOOKS: 'not a url, http://hook', AF_NOTIFY_EVENTS: 'failed' }, { warn: () => {} })!;
+    const n = new Notifier(c, { core: { ...core, activitySince: fc.core.activitySince, latestActivityId: fc.core.latestActivityId }, fetch: ff.fetch });
+    await n.tick();
+    fc.push({ body: fail() });
+    await n.tick();
+    expect(ff.calls.map((call) => call.url)).toEqual(['http://hook']);
+    expect(core.getKv('notify_cursor')).toBe('1');
+    db.close();
+  });
 });
