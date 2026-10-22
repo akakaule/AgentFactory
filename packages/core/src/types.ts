@@ -1,5 +1,6 @@
 import type { AgentPrompts } from './agentPrompts.js';
 import type { ReviewConsensus } from './reviewConsensus.js';
+import type { AdoSyncSettings, AdoSyncSettingsInput } from './adoSync.js';
 
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
@@ -50,6 +51,9 @@ export interface Workspace {
   // Per-workspace agent system-prompt overrides (migration #20); {} = inherit the global defaults.
   // The effective prompt an agent runs with is override ?? global ?? '' (see resolveAgentPrompt).
   promptOverrides: AgentPrompts;
+  // Azure DevOps work-item import (migration #27); null = not configured. The watcher runs it only
+  // when `enabled` and the workspace's origin is on Azure DevOps (see adoSync.ts).
+  adoSync: AdoSyncSettings | null;
 }
 
 /** A real human (or the seeded system row). Distinct from the `Actor` machine axis. */
@@ -431,6 +435,8 @@ export interface UpdateWorkspaceInput {
   // the full override set (only keys to override; a blank/omitted key inherits the global default);
   // replaces the stored map. Present-but-empty ({}) clears all overrides.
   promptOverrides?: Record<string, string> | undefined;
+  // the ADO work-item import settings (defaults fill omitted keys); null clears them
+  adoSync?: AdoSyncSettingsInput | null | undefined;
 }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ValidationError } from './errors.js';
 import { ATTACHMENT_MIMES } from './types.js';
 import { AGENT_PROMPT_KEYS } from './agentPrompts.js';
+import { adoSyncSettingsSchema } from './adoSync.js';
 
 const nonEmpty = z.string().trim().min(1);
 const workspaceSlug = z
@@ -56,10 +57,10 @@ const promptOverridesInput = z
 export const updateWorkspaceSchema = z
   // repoPath is a defining field (never cleared to null — a workspace must point somewhere), so it
   // takes nonEmpty; policy/verifyCommand/pat are clearable. Name is intentionally not editable here.
-  .object({ repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional(), promptOverrides: promptOverridesInput.optional() })
+  .object({ repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional(), promptOverrides: promptOverridesInput.optional(), adoSync: adoSyncSettingsSchema.nullable().optional() })
   .refine(
-    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync)',
   );
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional(), workspace: workspaceSlug.optional() })
@@ -105,7 +106,7 @@ export const attachmentSchema = z.object({
   dataBase64: z.string(), // emptiness/size checked after decoding
 });
 
-export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
+export function parse<S extends z.ZodTypeAny>(schema: S, input: unknown): z.output<S> {
   const r = schema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues.map((i) => i.message).join('; '));
   return r.data;

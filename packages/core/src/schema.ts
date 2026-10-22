@@ -388,3 +388,9 @@ CREATE TABLE IF NOT EXISTS retry_attempt (
 );
 CREATE INDEX IF NOT EXISTS idx_retry_attempt_budget ON retry_attempt(budget_id, attempt);
 `;
+
+// Migration #27 — per-workspace Azure DevOps work-item import settings (the ado-bridge backlog loop,
+// moved into the watcher). A JSON AdoSyncSettings object (adoSync.ts); NULL = never configured.
+export const MIGRATION_27_SQL = `
+ALTER TABLE workspace ADD COLUMN ado_sync TEXT;
+`;

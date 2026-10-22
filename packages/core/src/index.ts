@@ -7,6 +7,7 @@ export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, conse
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 export { getVersion } from './version.js';
 export { createTask } from './ops/createTask.js';
+export { importTask, type ImportTaskInput } from './ops/importTask.js';
 export { updateTask } from './ops/updateTask.js';
 export { deleteTask } from './ops/deleteTask.js';
 export { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
@@ -22,6 +23,7 @@ export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
+export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
@@ -79,6 +81,7 @@ import { openDb, type DB } from './db.js';
 import { runMigrations } from './migrate.js';
 import { getVersion } from './version.js';
 import { createTask } from './ops/createTask.js';
+import { importTask, type ImportTaskInput } from './ops/importTask.js';
 import { updateTask } from './ops/updateTask.js';
 import { deleteTask } from './ops/deleteTask.js';
 import { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
@@ -139,6 +142,8 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
   const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
+    /** Supervisor-side import from an external tracker (ADO work items): idempotent create + queue. */
+    importTask: (input: ImportTaskInput) => importTask(db, input),
     updateTask: (key: string, fields: UpdateTaskInput) => updateTask(db, key, fields),
     deleteTask: (key: string) => deleteTask(db, key),
     archiveTask: (key: string) => archiveTask(db, key),
