@@ -68,6 +68,7 @@ export { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings, type BeginIntakeAssessmentResult } from './ops/intake.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
+export { captureNotifications, listAttentionOccurrences, listOpenAttention, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 export {
   FAILURE_TRIAGE_MARKER, FAILURE_TRIAGE_FEEDBACK_MARKER, FAILURE_TRIAGE_MARKER_PREFIXES, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY,
   FAILURE_TRIAGE_DISPLAY_VERSION, FAILURE_TRIAGE_NOTE_MAX, isFailureTriageMarker, classifyFailureNote, summarizeFailureTriage,
@@ -124,12 +125,13 @@ import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHear
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { getKv, setKv } from './repo/kv.js';
+import { captureNotifications, listAttentionOccurrences, listOpenAttention, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, FailureTriageFeedbackInput } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, CaptureNotificationsInput, SettleNotificationInput, FailureTriageFeedbackInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
@@ -187,6 +189,14 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     setEngineSettings: (partial: unknown) => setEngineSettings(db, partial),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
+    captureNotifications: (input: CaptureNotificationsInput) => captureNotifications(db, input),
+    listAttentionOccurrences: () => listAttentionOccurrences(db),
+    listOpenAttention: (opts: { taskKey?: string | undefined } = {}) => listOpenAttention(db, opts),
+    listNotificationOutbox: (now?: string, limit?: number) => listNotificationOutbox(db, now, limit),
+    listAllNotificationOutbox: () => listAllNotificationOutbox(db),
+    settleNotificationOutbox: (id: number, input: SettleNotificationInput) => settleNotificationOutbox(db, id, input),
+    resolveAttention: (id: number) => resolveAttention(db, id),
+    snoozeAttention: (id: number, until: string) => snoozeAttention(db, id, until),
     addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),

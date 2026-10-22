@@ -53,6 +53,7 @@ export const prReviewedBody = z.object({ review: z.string().optional() });
 export const prFeedbackBody = z.object({ feedback: z.string().min(1), author: z.string().optional(), url: z.string().optional() });
 export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
 export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
+export const attentionSnoozeBody = z.object({ until: z.string().min(1) });
 export const intakeOverrideBody = z.object({ expectedRevision: z.string().min(1), reason: z.string().optional() });
 const FailureTriageCategoryEnum = z.enum(['access', 'configuration', 'infrastructure', 'build_test', 'agent_execution', 'delivery', 'unknown']);
 export const failureTriageFeedbackBody = z.object({

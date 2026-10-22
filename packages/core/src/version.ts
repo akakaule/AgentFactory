@@ -8,8 +8,11 @@ export function getVersion(db: DB): string {
   // a viz is attached once per review, unlike the high-frequency transcript tail (deliberately out).
   // workspace contributes BOTH created_at and updated_at (#23): creation bumps via created_at,
   // and edits (policy / verify command / PAT / prompts) bump via updated_at.
+  // attention_occurrence signals only on its edges — opened (first_seen_at) and resolved
+  // (resolved_at). last_seen_at moves on every notifier poll while an alert is open, and
+  // snoozed_until is a FUTURE instant that would pin MAX(v) until it passes; both stay out.
   const r = db.prepare(
-    `SELECT MAX(v) v, (SELECT COUNT(*) FROM task) n FROM (SELECT MAX(updated_at) v FROM task UNION ALL SELECT MAX(created_at) v FROM activity UNION ALL SELECT MAX(created_at) v FROM workspace UNION ALL SELECT MAX(updated_at) v FROM workspace UNION ALL SELECT MAX(created_at) v FROM task_metric UNION ALL SELECT MAX(updated_at) v FROM task_visualization)`
+    `SELECT MAX(v) v, (SELECT COUNT(*) FROM task) n FROM (SELECT MAX(updated_at) v FROM task UNION ALL SELECT MAX(created_at) v FROM activity UNION ALL SELECT MAX(created_at) v FROM workspace UNION ALL SELECT MAX(updated_at) v FROM workspace UNION ALL SELECT MAX(created_at) v FROM task_metric UNION ALL SELECT MAX(updated_at) v FROM task_visualization UNION ALL SELECT MAX(first_seen_at) v FROM attention_occurrence UNION ALL SELECT MAX(resolved_at) v FROM attention_occurrence UNION ALL SELECT MAX(updated_at) v FROM notification_outbox)`
   ).get() as { v: string | null; n: number };
   return `${r.v ?? ''}#${r.n}`;
 }

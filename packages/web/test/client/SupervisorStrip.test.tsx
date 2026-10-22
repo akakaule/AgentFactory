@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { SupervisorStrip } from '../../client/src/components/SupervisorStrip.js';
 
-vi.mock('../../client/src/api.js', () => ({ api: { listSupervisors: vi.fn() } }));
+vi.mock('../../client/src/api.js', () => ({ api: { listSupervisors: vi.fn(), getAttention: vi.fn().mockResolvedValue({ occurrences: [], outbox: [] }) } }));
 
 async function mockSupervisors(value: unknown) {
   const mod = await import('../../client/src/api.js');

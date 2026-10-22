@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -151,6 +151,22 @@ const MIGRATIONS: Migration[] = [
     const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
     if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
   },
+  // #28 — recoverable attention notifications. CREATE IF NOT EXISTS keeps upgrades from a
+  // coordinated/divergent deployment safe while the new operation validates all inputs.
+  (db) => db.exec(MIGRATION_28_SQL),
+  // #29 widens attention event types without losing outbox children. It also reconciles DBs from
+  // earlier attention-branch builds, which put this schema in slots #26-#28 and so skipped the
+  // intake heartbeat widening (#26) and/or workspace.ado_sync (#27) above: every step is
+  // idempotent and no-ops on a main-migrated DB.
+  { fkOff: true, run: (db) => {
+    db.exec(MIGRATION_28_SQL);
+    widenCheck(db, 'attention_occurrence',
+      "('in_review','failed','skip_listed','supervisor_down','queue_empty')",
+      "('in_review','failed','skip_listed','supervisor_down','queue_empty','blocked','setup_needed','delivery_wait','delivery_stalled')");
+    widenCheck(db, 'supervisor_heartbeat', SUPERVISOR_KIND_LIST_18, SUPERVISOR_KIND_LIST_26);
+    const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
+  } },
 ];
 
 export function runMigrations(db: DB): void {
