@@ -20,6 +20,7 @@ export const ALL_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'failed',
 export const DEFAULT_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'skip_listed', 'supervisor_down', 'blocked', 'setup_needed', 'delivery_stalled'];
 
 const CURSOR_KEY = 'notify_cursor';
+const ACTIVITY_PAGE = 200;
 
 /** Task-state attention whose episodes begin when the task enters a status (see durableTick). */
 const STATUS_EPISODES: Partial<Record<Status, readonly NotifyEvent[]>> = {
@@ -66,6 +67,11 @@ function isHttpUrl(value: string): boolean {
     const { protocol } = new URL(value);
     return protocol === 'http:' || protocol === 'https:';
   } catch { return false; }
+}
+
+/** A webhook's non-secret identity for logs and stored errors. */
+function webhookHost(value: string): string {
+  try { return new URL(value).host; } catch { return 'invalid webhook URL'; }
 }
 
 /** Build a NotifierConfig from env, or null when no valid webhooks are configured (notifier disabled).
@@ -222,40 +228,51 @@ export class Notifier {
 
   /** New path: capture all derived events before attempting any network delivery. */
   private async durableTick(): Promise<void> {
-    const rows = this.deps.core.activitySince(this.cursor, 200);
+    // Task state is read BEFORE activity: a transition another process commits between the two reads
+    // then arrives as a row whose task still shows its old state (the row closes the old episode, and
+    // the next tick observes the new state once) — never as a state whose entry row a later tick replays.
     const tasks = this.deps.core.listTasks();
-    const occurrences: CaptureNotificationsInput['occurrences'] = [];
-    const episodeStarts = new Set<string>();
-    for (const row of rows) {
-      const task = tasks.find(t => t.key === row.taskKey);
-      if (task && row.type === 'status_change' && row.toStatus) {
-        for (const eventType of STATUS_EPISODES[row.toStatus] ?? []) episodeStarts.add(`task:${task.key}:${eventType}`);
-      }
-      // Current task state owns review/blocked/setup/exhaustion edges; activity still captures
-      // transient failures and legacy tasks that cannot be resolved through listTasks.
-      if (task && row.type === 'status_change' && row.toStatus === 'in_review') continue;
-      const event = this.classify(row);
-      if (!event || !this.cfg.events.has(event.type)) continue;
-      if (task && (event.type === 'skip_listed' || this.needsSetup(task))) continue;
-      occurrences.push({
-        key: `activity:${row.id}`, eventType: event.type,
-        reason: this.reasonFor(event.type), target: row.taskKey, taskKey: row.taskKey, text: event.text,
-      });
-    }
-    const nextCursor = rows.length ? rows[rows.length - 1]!.id : this.cursor;
-    // A logged entry into a status starts a new episode of its attention, even when the task left
-    // and re-entered that status between two polls (or while the notifier was down). Close the
-    // previous episode first, so its delivered or acknowledged alert can't absorb the new one; the
-    // current-state observation that follows then decides (doc-stage deferral included) whether to alert.
     const current = this.taskOccurrences(tasks);
-    const closed = current.filter(o => o.stateKey !== undefined && episodeStarts.has(o.stateKey)).map(o => ({ ...o, active: false }));
-    occurrences.push(...this.stateOccurrences(), ...closed, ...current);
-    await this.deps.core.captureNotifications!({
-      sourceCursor: nextCursor, destinations: this.cfg.webhooks,
-      maxAttempts: this.cfg.maxAttempts ?? 5, occurrences,
-      now: new Date().toISOString(),
-    });
-    this.cursor = nextCursor;
+    // Drain the activity backlog (one bounded capture per page) before observing current state, so a
+    // state's entry row can't be consumed after its alert went out (more than a page of downtime activity).
+    for (;;) {
+      const rows = this.deps.core.activitySince(this.cursor, ACTIVITY_PAGE);
+      const drained = rows.length < ACTIVITY_PAGE;
+      const occurrences: CaptureNotificationsInput['occurrences'] = [];
+      const episodeStarts = new Set<string>();
+      for (const row of rows) {
+        const task = tasks.find(t => t.key === row.taskKey);
+        if (task && row.type === 'status_change' && row.toStatus) {
+          for (const eventType of STATUS_EPISODES[row.toStatus] ?? []) episodeStarts.add(`task:${task.key}:${eventType}`);
+        }
+        // Current task state owns review/blocked/setup/exhaustion edges; activity still captures
+        // transient failures and tasks that cannot be resolved through listTasks. Review entries are
+        // never alerted from activity: a task missing from the snapshot is archived (done) or newer
+        // than it (e.g. a born-in-review pr-review task), and the next tick's state observation owns it.
+        if (row.type === 'status_change' && row.toStatus === 'in_review') continue;
+        const event = this.classify(row);
+        if (!event || !this.cfg.events.has(event.type)) continue;
+        if (task && (event.type === 'skip_listed' || this.needsSetup(task))) continue;
+        occurrences.push({
+          key: `activity:${row.id}`, eventType: event.type,
+          reason: this.reasonFor(event.type), target: row.taskKey, taskKey: row.taskKey, text: event.text,
+        });
+      }
+      const nextCursor = rows.length ? rows[rows.length - 1]!.id : this.cursor;
+      // A logged entry into a status starts a new episode of its attention, even when the task left
+      // and re-entered that status between two polls (or while the notifier was down). Close the
+      // previous episode first, so its delivered or acknowledged alert can't absorb the new one; the
+      // current-state observation after the drain then decides (doc-stage deferral included) whether to alert.
+      occurrences.push(...current.filter(o => o.stateKey !== undefined && episodeStarts.has(o.stateKey)).map(o => ({ ...o, active: false })));
+      if (drained) occurrences.push(...this.stateOccurrences(), ...current);
+      await this.deps.core.captureNotifications!({
+        sourceCursor: nextCursor, destinations: this.cfg.webhooks,
+        maxAttempts: this.cfg.maxAttempts ?? 5, occurrences,
+        now: new Date().toISOString(),
+      });
+      this.cursor = nextCursor;
+      if (drained) break;
+    }
     await this.deliverOutbox();
   }
 
@@ -291,9 +308,12 @@ export class Notifier {
       } catch (err) {
         const delay = Math.min((this.cfg.retryBaseMs ?? 15000) * 2 ** item.attempts, this.cfg.retryMaxMs ?? 900000);
         const retryAt = new Date(Date.now() + delay).toISOString();
-        const error = (err instanceof Error ? err.message : String(err)).slice(0, 2000);
+        // The webhook URL's path/query/userinfo usually carry its secret token: identify the destination
+        // by host only, including in an error message whose HTTP client echoed the URL.
+        const host = webhookHost(item.destination);
+        const error = (err instanceof Error ? err.message : String(err)).split(item.destination).join(host).slice(0, 2000);
         await this.deps.core.settleNotificationOutbox!(item.id, { ok: false, now, retryAt, error });
-        this.console.warn(`[notifier] ${item.destination}: ${error} — retry at ${retryAt}`);
+        this.console.warn(`[notifier] outbox #${item.id} to ${host}: ${error} — retry at ${retryAt}`);
       }
     }
   }

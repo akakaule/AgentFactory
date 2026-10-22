@@ -55,6 +55,50 @@ describe('notifier review episodes across restarts', () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it('alerts a review entered behind more than a page of downtime activity once, keeping its acknowledgement', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'af-notifier-'));
+    const posts: string[] = [];
+    const fetch: NotifyFetch = async (_url, init) => {
+      posts.push((JSON.parse(init.body) as { text: string }).text);
+      return { ok: true, status: 200 };
+    };
+    const config = { webhooks: ['http://127.0.0.1:9/review'], events: new Set<NotifyEvent>(['in_review']), pollMs: 1000 };
+    const quiet = { log() {}, warn() {}, error() {} };
+    const open = () => {
+      const db = openDb(join(directory, 'board.db')); runMigrations(db);
+      return { db, core: createCore(db) };
+    };
+    let db: DB | undefined;
+    try {
+      let board = open(); db = board.db;
+      await new Notifier(config, { core: board.core, fetch, console: quiet }).tick();
+      db.close(); db = undefined;
+
+      // Notifier down: more than one activity page accumulates before the task enters review.
+      board = open(); db = board.db;
+      const filler = board.core.createTask({ title: 'Busy neighbour', spec: 'test', acceptanceCriteria: 'test' });
+      for (let i = 0; i < 250; i++) board.core.addComment(filler.key, { actor: 'agent', body: `progress ${i}` });
+      const task = board.core.createTask({ title: 'Backlogged review', spec: 'test', acceptanceCriteria: 'test' });
+      board.core.updateStatus(task.key, 'queued', 'human'); board.core.claimNextTask();
+      board.core.updateStatus(task.key, 'in_review', 'agent');
+      db.close(); db = undefined;
+
+      board = open(); db = board.db;
+      await new Notifier(config, { core: board.core, fetch, console: quiet }).tick();
+      expect(posts).toHaveLength(1);
+      board.core.resolveAttention(board.core.listOpenAttention({ taskKey: task.key }).occurrences[0]!.id);
+      db.close(); db = undefined;
+
+      board = open(); db = board.db;
+      await new Notifier(config, { core: board.core, fetch, console: quiet }).tick();
+      expect(posts).toHaveLength(1); // the same episode: not resent, and the acknowledgement holds
+      expect(board.core.listOpenAttention({ taskKey: task.key }).occurrences).toHaveLength(0);
+    } finally {
+      db?.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('notifier disk and receiver recovery', () => {

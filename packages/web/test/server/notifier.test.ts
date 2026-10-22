@@ -297,6 +297,52 @@ describe('Notifier — durable delivery', () => {
       expect(ff.calls).toHaveLength(2);
       db.close();
     });
+
+    it('alerts a review committed between the tick\'s task and activity reads exactly once', async () => {
+      const db = openDb(':memory:'); runMigrations(db); const core = createCore(db);
+      const ff = makeFakeFetch();
+      const task = core.createTask({ title: 'Racing review', spec: 'test', acceptanceCriteria: 'test' });
+      core.updateStatus(task.key, 'queued', 'human'); core.claimNextTask();
+      // Another process commits the transition right after whichever read the tick makes first.
+      let race: (() => void) | null = null;
+      const afterRead = <T>(value: T): T => { const commit = race; race = null; commit?.(); return value; };
+      const racing: NotifierCore = { ...core,
+        activitySince: (since, limit) => afterRead(core.activitySince(since, limit)),
+        listTasks: (opts) => afterRead(core.listTasks(opts)),
+      };
+      const n = new Notifier(cfg(['in_review']), { core: racing, fetch: ff.fetch });
+      await n.tick();
+      race = () => { core.updateStatus(task.key, 'in_review', 'agent'); };
+      await n.tick();
+      await n.tick();
+      await n.tick();
+      expect(ff.calls).toHaveLength(1);
+      expect(core.listOpenAttention({ taskKey: task.key }).occurrences).toHaveLength(1);
+      db.close();
+    });
+
+    it('alerts a pr-review task created and moved into review between the tick\'s reads exactly once', async () => {
+      const db = openDb(':memory:'); runMigrations(db); const core = createCore(db);
+      const ff = makeFakeFetch();
+      let race: (() => void) | null = null;
+      const afterRead = <T>(value: T): T => { const commit = race; race = null; commit?.(); return value; };
+      const racing: NotifierCore = { ...core,
+        activitySince: (since, limit) => afterRead(core.activitySince(since, limit)),
+        listTasks: (opts) => afterRead(core.listTasks(opts)),
+      };
+      const n = new Notifier(cfg(['in_review']), { core: racing, fetch: ff.fetch });
+      await n.tick();
+      race = () => {
+        const pr = core.createTask({ title: 'Teammate PR', spec: 'review it', acceptanceCriteria: 'reviewed', kind: 'pr-review',
+          links: [{ kind: 'branch', label: 'feature/teammate', url: 'https://github.com/o/r/tree/feature/teammate' }] });
+        core.updateStatus(pr.key, 'in_review', 'human'); // the PR-review producer's create-then-review burst
+      };
+      await n.tick();
+      await n.tick();
+      await n.tick();
+      expect(ff.calls).toHaveLength(1);
+      db.close();
+    });
   });
 
   it('recovers a receiver that fails twice across notifier restarts', async () => {
@@ -350,6 +396,36 @@ describe('Notifier — durable delivery', () => {
     expect(fc.outbox[0]!.state).toBe('failed');
     expect(fc.outbox[0]!.lastError).toContain('timed out');
     expect(warnings[0]).toContain('retry at');
+  });
+
+  it('logs and records failed deliveries without the webhook secret', async () => {
+    const fc = makeDurableFakeCore();
+    const hook = 'https://hooks.example.test/services/T000/B000/secret-token';
+    const warnings: string[] = [];
+    let attempt = 0;
+    const fetch: NotifyFetch = async (url) => {
+      attempt += 1;
+      if (attempt === 1) return { ok: false, status: 500 };
+      throw new Error(`request to ${url} failed, reason: socket hang up`); // a client that echoes the URL
+    };
+    const n = new Notifier({ ...cfg(['failed'], [hook]), retryBaseMs: 0, retryMaxMs: 0, maxAttempts: 3 }, {
+      core: fc.core, fetch,
+      console: { log: () => undefined, error: () => undefined, warn: (message) => warnings.push(message) },
+    });
+    await n.tick();
+    fc.push({ type: 'comment', body: fail() });
+    await n.tick();
+    await n.tick();
+
+    expect(warnings).toHaveLength(2);
+    for (const warning of warnings) {
+      expect(warning).not.toContain('secret-token');
+      expect(warning).not.toContain('/services/');
+      expect(warning).toContain(`outbox #${fc.outbox[0]!.id}`);
+      expect(warning).toContain('hooks.example.test');
+    }
+    expect(fc.outbox[0]!.lastError).toContain('socket hang up');
+    expect(fc.outbox[0]!.lastError).not.toContain('secret-token');
   });
 
   it('serializes overlapping poll ticks', async () => {
