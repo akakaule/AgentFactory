@@ -50,7 +50,8 @@ sessions are killed.
 | `codexArgs` | `[]` | Extra args for Codex workers only. |
 | `stageEngines` | Claude for every stage | Optional `description`, `plan`, `implementation` entries, each `claude` or `codex`. |
 | `stageArgs` | — (optional) | Per-stage extra args — see [Per-stage model selection](#per-stage-model-selection). |
-| `maxSessionMinutes` | `60` | Hard wall-clock cap; the supervisor kills a session that exceeds it (counts as an attempt). |
+| `maxSessionMinutes` | `60` | Wall-clock cap; past it the supervisor kills a session (counts as an attempt) once its worker is also silent for `sessionIdleMinutes`. |
+| `sessionIdleMinutes` | `15` | Board-heartbeat idle window. A session past `maxSessionMinutes` is kept while its worker called `report_progress` (locally or over HTTP) within this window. The supervisor's own liveness touches never count. `0` makes `maxSessionMinutes` a hard cap. |
 | `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left queued for a human. |
 | `staleClaimMinutes` | `120` | DB-scan reaper threshold. Each tick, an `in_progress` claim with no live child (a dispatcher orphan left by a restart, or an abandoned interactive `/work-task` claim) is released back to `queued` once its staleness — now − (live heartbeat, else `claimed_at`) — exceeds this. A still-alive orphaned worker keeps heartbeating and is left alone. `0` disables it; keep it ≥ `maxSessionMinutes`. |
 

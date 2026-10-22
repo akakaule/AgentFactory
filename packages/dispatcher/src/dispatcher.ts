@@ -144,7 +144,7 @@ export class Dispatcher {
     await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
-    this.enforceTimeouts();
+    await this.enforceTimeouts();
     // Timeout kills emit child exit synchronously on some platforms; finish that reap before
     // polling so a freed slot can be used in this cycle without competing with the old session.
     await Promise.all([...this.settling]);
@@ -245,23 +245,43 @@ export class Dispatcher {
 
   // -- timeouts --------------------------------------------------------------
 
-  private enforceTimeouts(): void {
+  /**
+   * Kill sessions past maxSessionMinutes whose worker has also gone quiet on the board. Process
+   * liveness (this supervisor's own touches) and the board heartbeat are deliberately separate:
+   * only the worker's own report_progress (`phaseAt`) proves it is still making progress.
+   */
+  private async enforceTimeouts(): Promise<void> {
     const capMs = this.config.maxSessionMinutes * 60_000;
+    const idleMs = this.config.sessionIdleMinutes * 60_000;
     const now = this.deps.now();
-    for (const session of this.running.values()) {
-      if (session.timedOut || session.settled || session.cancelled) continue;
-      if (now - session.startedAtMs > capMs) {
-        session.timedOut = true;
-        this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m); killing\n`);
-        try {
-          // kill the TREE: on Windows the tracked child is a cmd.exe shim — killing only it
-          // would leave the actual claude/codex worker running against a re-queued task
-          this.deps.terminateProcessTree(session.child, 'SIGKILL');
-        } catch {
-          /* the exit handler still runs the crash path */
-        }
+    const overdue = [...this.running.values()].filter((s) => !s.timedOut && !s.settled && !s.cancelled && now - s.startedAtMs > capMs);
+    if (overdue.length === 0) return;
+    const progressAt = idleMs > 0 ? await this.workerProgress() : new Map<string, string>();
+    for (const session of overdue) {
+      const seenMs = Date.parse(progressAt.get(session.claimedKey ?? session.predictedKey) ?? '');
+      if (Number.isFinite(seenMs) && now - seenMs <= idleMs) continue; // slow but alive
+      session.timedOut = true;
+      this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m) with no worker heartbeat in the last ${this.config.sessionIdleMinutes}m; killing\n`);
+      try {
+        // kill the TREE: on Windows the tracked child is a cmd.exe shim — killing only it
+        // would leave the actual claude/codex worker running against a re-queued task
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
+      } catch {
+        /* the exit handler still runs the crash path */
       }
     }
+  }
+
+  /** Task key → the worker's last report_progress on the board. An unreadable board yields no
+   *  heartbeats, so overdue sessions fall back to the plain wall-clock cap. */
+  private async workerProgress(): Promise<Map<string, string>> {
+    const progressAt = new Map<string, string>();
+    try {
+      for (const a of await this.deps.core.listLiveAgents()) if (a.phaseAt) progressAt.set(a.key, a.phaseAt);
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not read worker heartbeats; enforcing the plain session cap: ${(err as Error).message}`);
+    }
+    return progressAt;
   }
 
   // -- stale-claim reaping ---------------------------------------------------

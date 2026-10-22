@@ -243,6 +243,8 @@ export class Reviewer {
 
   // -- timeouts --------------------------------------------------------------
 
+  /** A hard budget, unlike the dispatcher's heartbeat-gated cap: review engines run without the
+   *  board MCP, so the only liveness signal is this supervisor's own — never proof of progress. */
   private async enforceTimeouts(): Promise<void> {
     const capMs = this.config.reviewMinutes * 60_000;
     const now = this.deps.now();

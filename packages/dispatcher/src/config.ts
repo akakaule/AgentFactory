@@ -75,8 +75,15 @@ export const baseConfigSchema = z.object({
     })
     .strict()
     .optional(),
-  /** Hard wall-clock cap per session before the supervisor kills it. */
+  /** Wall-clock age after which a session is killed — once its worker is also silent (below). */
   maxSessionMinutes: z.number().positive().default(60),
+  /**
+   * Board-heartbeat idle window, minutes. A session past `maxSessionMinutes` is kept while its
+   * worker reported progress on the board (report_progress — local or remote over HTTP) within
+   * this window, and killed once it has been silent this long. The supervisor's own liveness
+   * touches never count. `0` makes `maxSessionMinutes` a hard cap regardless of heartbeats.
+   */
+  sessionIdleMinutes: z.number().nonnegative().default(15),
   /** Attempts a task gets before it is skip-listed. */
   maxAttempts: z.number().int().positive().default(2),
   /**

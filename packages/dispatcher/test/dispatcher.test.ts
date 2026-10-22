@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { InvalidTransitionError, openCore, type Core } from '@agentfactory/core';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { InvalidTransitionError, openCore, createHttpCore, type Core } from '@agentfactory/core';
+import { buildApp } from '../../web/server/app.js';
 import { Dispatcher } from '../src/dispatcher.js';
 import {
   makeCore,
@@ -976,6 +977,95 @@ describe('session timeout', () => {
     await d.tick();
 
     expect(treeKills).toEqual([{ pid: calls[0]!.child.pid, signal: 'SIGKILL' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session timeout vs. worker heartbeats (clock-controlled: the board and the dispatcher share
+// one faked Date, so heartbeat age and session age are measured on the same clock)
+// ---------------------------------------------------------------------------
+describe('session timeout respects fresh worker heartbeats', () => {
+  const MIN = 60_000;
+  const T0 = Date.parse('2026-10-22T12:00:00.000Z');
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('keeps a slow local worker with a fresh board heartbeat past maxSessionMinutes, and kills it once silent', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Slow but alive');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ maxSessionMinutes: 10, sessionIdleMinutes: 5 }),
+      makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() }),
+    );
+
+    await d.tick(); // spawn at T0
+    const env = calls[0]!.req.env;
+    const claim = core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(env), executionId: env['AGENTFACTORY_EXECUTION_ID'] })!;
+    vi.setSystemTime(T0 + 8 * MIN);
+    core.reportProgress(key, { message: 'running the test suite', executionId: claim.executionId });
+
+    vi.setSystemTime(T0 + 11 * MIN); // past the 10-minute cap, 3 minutes after the last heartbeat
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(false);
+    expect(core.getTask(key).status).toBe('in_progress');
+
+    vi.setSystemTime(T0 + 14 * MIN); // 6 minutes of silence > sessionIdleMinutes
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(core.getTask(key).activity.some((a) => a.body.includes('timed out'))).toBe(true);
+  });
+
+  it('sessionIdleMinutes 0 makes maxSessionMinutes a hard cap even with a fresh heartbeat', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Hard cap');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ maxSessionMinutes: 10, sessionIdleMinutes: 0 }),
+      makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() }),
+    );
+
+    await d.tick();
+    const env = calls[0]!.req.env;
+    const claim = core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(env), executionId: env['AGENTFACTORY_EXECUTION_ID'] })!;
+    vi.setSystemTime(T0 + 10 * MIN);
+    core.reportProgress(key, { message: 'busy', executionId: claim.executionId });
+    vi.setSystemTime(T0 + 11 * MIN);
+    await d.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+  });
+
+  it('keeps a remote worker heartbeating over the HTTP board alive past maxSessionMinutes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const core = makeCore();
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch;
+    const supervisorToken = core.createApiToken({ label: 'dispatcher-1', isService: true, isSupervisor: true }).token;
+    const workerToken = core.createApiToken({ label: 'remote-worker', isService: true }).token;
+    const worker = createHttpCore('http://board', workerToken, { fetchImpl });
+    const key = seedQueued(core, 'ws', 'Remote and alive');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ db: undefined, board: { url: 'http://board', token: supervisorToken, workerToken }, maxSessionMinutes: 10, sessionIdleMinutes: 5 }),
+      { ...makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() }), core: createHttpCore('http://board', supervisorToken, { fetchImpl }) },
+    );
+
+    await d.tick(); // spawn at T0, reserved over HTTP
+    const env = calls[0]!.req.env;
+    expect(env['AGENTFACTORY_BOARD_URL']).toBe('http://board');
+    await worker.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(env), executionId: env['AGENTFACTORY_EXECUTION_ID'] });
+    vi.setSystemTime(T0 + 8 * MIN);
+    await worker.reportProgress(key, { message: 'still building remotely' });
+
+    vi.setSystemTime(T0 + 11 * MIN); // past the cap, heartbeat 3 minutes old
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(false);
+    expect(core.getTask(key).status).toBe('in_progress');
   });
 });
 

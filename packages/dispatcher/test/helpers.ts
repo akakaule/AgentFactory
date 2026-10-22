@@ -115,6 +115,7 @@ export function makeConfig(overrides: Partial<DispatcherConfig> = {}): Dispatche
     permissionMode: 'acceptEdits',
     claudeArgs: [],
     maxSessionMinutes: 60,
+    sessionIdleMinutes: 15,
     maxAttempts: 2,
     staleClaimMinutes: 120,
     ...overrides,
