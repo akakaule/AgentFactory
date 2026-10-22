@@ -95,6 +95,11 @@ export function agentOpsRoutes(core: Core): Hono {
     return c.json(core.createTask({ ...(b as object), actor: 'agent' } as Parameters<Core['createTask']>[0]), 201);
   });
 
+  // tracker import (the watcher's ADO work-item sync): created and queued as the human-configured
+  // import, not as an agent — so supervisor tokens only. Core validates and dedups the body.
+  r.post('/import-task', requireSupervisor, async (c) =>
+    c.json(core.importTask(await body<Parameters<Core['importTask']>[0]>(c))));
+
   // ── in-flight narration ────────────────────────────────────────────────────
   r.post('/tasks/:key/progress', validated('json', progressBody), (c) => {
     const b = c.req.valid('json');
