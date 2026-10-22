@@ -899,6 +899,34 @@ describe('permission-denied path', () => {
 });
 
 // ---------------------------------------------------------------------------
+// two supervisors racing for one queued task
+// ---------------------------------------------------------------------------
+describe('execution reservation race', () => {
+  it('a second dispatcher racing for the same queued task spawns nothing and does not skip-list it', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Contended');
+    const first = makeFakeSpawn();
+    const second = makeFakeSpawn();
+    const secondLog = makeFakeConsole();
+    const d1 = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, first.spawn, { console: makeFakeConsole() }));
+    const d2 = new Dispatcher(makeConfig({ maxAttempts: 2 }), makeDeps(core, second.spawn, { console: secondLog }));
+
+    await d1.tick();
+    await d2.tick(); // budget remains, but d1's live execution owns the task
+
+    expect(first.calls).toHaveLength(1);
+    expect(second.calls).toHaveLength(0);
+    expect(d2.isSkipListed(key)).toBe(false);
+    expect(secondLog.errors).toEqual([]);
+    expect(core.getRetryBudget(key, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 1 });
+
+    const claim = core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(first.calls[0]!.req.env), executionId: first.calls[0]!.req.env['AGENTFACTORY_EXECUTION_ID'] });
+    expect(claim?.key).toBe(key);
+    expect(core.claimNextTask({ workspace: 'ws', claimedBy: 'ws#other-a1' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // session timeout
 // ---------------------------------------------------------------------------
 describe('session timeout', () => {

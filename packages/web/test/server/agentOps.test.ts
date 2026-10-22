@@ -137,6 +137,20 @@ describe('agent ops — the worked loop over HTTP', () => {
     expect(await res.json()).toBeNull();
   });
 
+  it('two supervisors reserving the same queued task: one execution, the loser gets 409', async () => {
+    const t = queuedTask(core, 'Contended');
+    const body = { operation: 'dispatcher:implementation', maxAttempts: 2, owner: `default#${t.key}`, startImmediately: true };
+    const first = await post(app, `/api/agent/tasks/${t.key}/execution/reserve`, body, supervisor);
+    const second = await post(app, `/api/agent/tasks/${t.key}/execution/reserve`, body, supervisor);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(409);
+    expect(core.getRetryBudget(t.key, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 1 });
+    const { id } = (await first.json()) as { id: string };
+    const claim = await post(app, '/api/agent/claim', { claimedBy: `default#${t.key}-a1`, executionId: id }, service);
+    expect(((await claim.json()) as { key: string }).key).toBe(t.key);
+  });
+
   it('claims an explicitly reserved task even when it is not the oldest queued task', async () => {
     const first = queuedTask(core, 'Oldest queued task');
     const reserved = queuedTask(core, 'Reserved task');

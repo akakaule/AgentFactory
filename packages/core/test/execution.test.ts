@@ -8,8 +8,8 @@ import { reportProgress } from '../src/ops/agentSession.js';
 import { submitResult } from '../src/ops/submitResult.js';
 import { addComment } from '../src/ops/addComment.js';
 import { attachVisualization } from '../src/ops/visualization.js';
-import { reserveExecution, reconcileExecutions } from '../src/ops/execution.js';
-import { settleRetry } from '../src/ops/retry.js';
+import { reserveExecution, reconcileExecutions, EXECUTION_LEASE_MS } from '../src/ops/execution.js';
+import { settleRetry, getRetryBudget } from '../src/ops/retry.js';
 import { InvalidTransitionError } from '../src/errors.js';
 
 function queued(db: ReturnType<typeof makeTestDb>) {
@@ -17,6 +17,20 @@ function queued(db: ReturnType<typeof makeTestDb>) {
   updateStatus(db, task.key, 'queued', 'human');
   return task;
 }
+
+const BASE = Date.parse('2026-10-22T12:00:00.000Z');
+const at = (ms: number) => () => new Date(BASE + ms).toISOString();
+
+/** queue → claim → submit, leaving the task in_review with no live execution. */
+function inReview(db: ReturnType<typeof makeTestDb>) {
+  const task = queued(db);
+  const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(-2000))!;
+  submitResult(db, task.key, { summary: 'done', executionId: claim.executionId }, at(-1000));
+  return task;
+}
+
+const executionCount = (db: ReturnType<typeof makeTestDb>, taskId: number) =>
+  (db.prepare('SELECT COUNT(*) AS count FROM task_execution WHERE task_id = ?').get(taskId) as { count: number }).count;
 
 describe('execution ownership', () => {
   it('returns the same execution when a claim response is retried', () => {
@@ -99,13 +113,14 @@ describe('execution ownership', () => {
 
   it('does not resurrect an older active execution after a newer execution settles', () => {
     const db = makeTestDb();
-    const task = queued(db);
-    const older = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1', startImmediately: true })!;
-    const newer = reserveExecution(db, task.key, { operation: 'worker:implementation', maxAttempts: 2, owner: 'worker-1', startImmediately: true })!;
+    const task = inReview(db);
+    const older = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1', startImmediately: true }, at(0))!;
+    // reviewer-1 crashed: its heartbeat outlives the lease, so a second reviewer takes over
+    const newer = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-2', startImmediately: true }, at(EXECUTION_LEASE_MS + 1))!;
     expect(newer.id).not.toBe(older.id);
     expect(settleRetry(db, newer.id, { state: 'succeeded' })).toBe(true);
 
-    expect(() => reportProgress(db, task.key, { message: 'old reviewer output', executionId: older.id })).toThrow(InvalidTransitionError);
+    expect(() => addComment(db, task.key, { actor: 'agent', body: 'old reviewer output', executionId: older.id })).toThrow(InvalidTransitionError);
   });
 
   it('reconciles a running reservation left queued by a supervisor crash', () => {
@@ -128,5 +143,62 @@ describe('execution ownership', () => {
 
     expect(reconcileExecutions(db, 30_000, () => '2026-09-15T00:00:10.000Z')).toBe(0);
     expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(execution.id)).toEqual({ state: 'running' });
+  });
+});
+
+describe('execution reservation', () => {
+  it('two supervisors reserving the same queued task produce exactly one execution and one claim', () => {
+    const db = makeTestDb();
+    const task = queued(db);
+    const winner = reserveExecution(db, task.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'default#AF-1', startImmediately: true });
+    expect(winner).not.toBeNull();
+
+    // budget remains for a second attempt, yet the live reservation already owns the task
+    expect(() => reserveExecution(db, task.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'default#AF-1', startImmediately: true }))
+      .toThrow(InvalidTransitionError);
+    expect(executionCount(db, task.id)).toBe(1);
+    expect(getRetryBudget(db, task.key, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 1 });
+
+    const claim = claimNextTask(db, { claimedBy: 'default#AF-1-a1', executionId: winner!.id });
+    expect(claim?.executionId).toBe(winner!.id);
+    expect(claimNextTask(db, { claimedBy: 'default#AF-1-a2' })).toBeNull();
+    expect(executionCount(db, task.id)).toBe(1);
+  });
+
+  it('refuses a reservation for a task its operation cannot act on, without consuming budget', () => {
+    const db = makeTestDb();
+    const task = queued(db);
+    expect(() => reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1' }))
+      .toThrow(InvalidTransitionError);
+
+    const claim = claimNextTask(db, { claimedBy: 'worker-1' })!;
+    expect(() => reserveExecution(db, task.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'default#AF-1' }))
+      .toThrow(InvalidTransitionError);
+    submitResult(db, task.key, { summary: 'done', executionId: claim.executionId });
+    expect(() => reserveExecution(db, task.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: 'default#AF-1' }))
+      .toThrow(InvalidTransitionError);
+
+    expect(getRetryBudget(db, task.key, 'dispatcher:implementation')).toBeNull();
+    expect(getRetryBudget(db, task.key, 'reviewer:implementation')).toBeNull();
+    expect(executionCount(db, task.id)).toBe(1); // only the claim's own execution
+  });
+
+  it('a reviewer reservation is not blocked by the settled worker execution that preceded it', () => {
+    const db = makeTestDb();
+    const task = inReview(db);
+    expect(reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1', startImmediately: true })).not.toBeNull();
+  });
+
+  it('a live owner within its lease blocks a second reviewer; past the lease it is superseded', () => {
+    const db = makeTestDb();
+    const task = inReview(db);
+    const first = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 3, owner: 'reviewer-1', startImmediately: true }, at(0))!;
+
+    expect(() => reserveExecution(db, task.key, { operation: 'visualization:x', maxAttempts: 3, owner: 'reviewer-2', startImmediately: true }, at(EXECUTION_LEASE_MS - 1)))
+      .toThrow(InvalidTransitionError);
+
+    const second = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 3, owner: 'reviewer-2', startImmediately: true }, at(EXECUTION_LEASE_MS + 1))!;
+    expect(second.id).not.toBe(first.id);
+    expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(first.id)).toEqual({ state: 'cancelled' });
   });
 });

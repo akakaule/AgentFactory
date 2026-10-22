@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
-import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError } from '@agentfactory/core';
+import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
@@ -463,6 +463,7 @@ export class Reviewer {
     }
     const operation = mode === 'feedback-eval' ? 'reviewer:feedback-eval' : `reviewer:${stage}`;
     const reserved = await this.reserveSession(key, operation, workspace);
+    if (reserved === 'busy') return false;
     if (reserved === null) {
       this.skipList(key);
       return false;
@@ -568,7 +569,7 @@ export class Reviewer {
     }
 
     const reserved = await this.reserveSession(key, `visualization:${vizKey}`, workspace);
-    if (reserved === null) return false;
+    if (reserved === null || reserved === 'busy') return false;
     const { reservation, executionId } = reserved;
     const attempt = reservation.attempt;
 
@@ -579,16 +580,24 @@ export class Reviewer {
     return true;
   }
 
-  private async reserveSession(key: string, operation: string, workspace: string): Promise<{ reservation: RetryReservation; executionId: string | null } | null> {
+  /** null = the operation's budget is spent (skip-list); 'busy' = another supervisor's live
+   *  execution owns the task, or it moved on since listTasks (try again on a later tick). */
+  private async reserveSession(key: string, operation: string, workspace: string): Promise<{ reservation: RetryReservation; executionId: string | null } | null | 'busy'> {
     if (this.deps.core.reserveExecution) {
-      const execution = await this.deps.core.reserveExecution(key, {
-        operation,
-        maxAttempts: this.config.maxAttempts,
-        owner: `${workspace}#reviewer`,
-        // Mark it live before launch so the supervisor heartbeat can keep a slow/remote
-        // pre-claim worker reservation alive; stale heartbeats are still reconciled after a crash.
-        startImmediately: true,
-      });
+      let execution: Execution | null;
+      try {
+        execution = await this.deps.core.reserveExecution(key, {
+          operation,
+          maxAttempts: this.config.maxAttempts,
+          owner: `${workspace}#reviewer`,
+          // Mark it live before launch so the supervisor heartbeat can keep a slow/remote
+          // pre-claim worker reservation alive; stale heartbeats are still reconciled after a crash.
+          startImmediately: true,
+        });
+      } catch (err) {
+        if (err instanceof InvalidTransitionError) return 'busy';
+        throw err;
+      }
       if (!execution) return null;
       return {
         reservation: {

@@ -2,7 +2,7 @@ import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, g
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
-import type { DispatcherDeps, SpawnedChild, LogWriter, RetryReservationLike } from './types.js';
+import type { DispatcherDeps, SpawnedChild, LogWriter, RetryReservationLike, ExecutionLike } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
 import { parseCliMetrics, hasMetrics, parsePermissionDenials, type ParsedMetrics } from './metrics.js';
 import { buildCodexArgs, parseCodexMetrics, codexFailed } from './codex.js';
@@ -489,10 +489,18 @@ export class Dispatcher {
       this.warnedNoEngine = false;
       let reservation: LaunchReservation | null;
       if (this.deps.core.reserveExecution) {
-        const execution = await this.deps.core.reserveExecution(task.key, {
-          operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts,
-          owner: `${workspace}#${task.key}`, startImmediately: true,
-        });
+        let execution: ExecutionLike | null;
+        try {
+          execution = await this.deps.core.reserveExecution(task.key, {
+            operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts,
+            owner: `${workspace}#${task.key}`, startImmediately: true,
+          });
+        } catch (err) {
+          // Another supervisor's live execution owns the task, or it left the queue since
+          // listTasks: not this task's turn — and not an exhausted budget, so no skip-list.
+          if (err instanceof InvalidTransitionError) continue;
+          throw err;
+        }
         reservation = execution ? ({ ...execution, executionId: execution.id } as LaunchReservation) : null;
       } else {
         reservation = await this.deps.core.reserveRetry(task.key, { operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts });

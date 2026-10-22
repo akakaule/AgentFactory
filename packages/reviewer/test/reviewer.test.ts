@@ -106,6 +106,25 @@ describe('poll + spawn', () => {
     expect(calls.length).toBe(0);
   });
 
+  it('a second reviewer racing for the same task spawns nothing and does not skip-list it', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Contended review', 'implementation');
+    const first = makeFakeSpawn();
+    const second = makeFakeSpawn();
+    const secondLog = makeFakeConsole();
+    const r1 = new Reviewer(makeConfig(), makeDeps(core, first.spawn, { console: makeFakeConsole() }));
+    const r2 = new Reviewer(makeConfig(), makeDeps(core, second.spawn, { console: secondLog }));
+
+    await r1.tick();
+    await r2.tick(); // budget remains, but r1's live review execution owns the task
+
+    expect(first.calls).toHaveLength(1);
+    expect(second.calls).toHaveLength(0);
+    expect(r2.isSkipListed(key)).toBe(false);
+    expect(secondLog.errors).toEqual([]);
+    expect(core.getRetryBudget(key, 'reviewer:implementation')).toMatchObject({ attemptsUsed: 1 });
+  });
+
   it('a tick overlapping a slow diff does not double-spawn the same review', async () => {
     const core = makeCore();
     seedInReview(core, 'ws', 'Slow diff', 'implementation');
