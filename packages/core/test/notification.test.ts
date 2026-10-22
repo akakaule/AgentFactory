@@ -62,6 +62,26 @@ describe('recoverable attention notifications', () => {
     core.captureNotifications({ ...input, now: '2026-09-14T18:00:45.000Z', occurrences: [{ ...occurrence, active: false }] });
     expect(core.getVersion()).not.toBe(opened);
   });
+  it('lists only open attention, optionally for one task, without destinations or payload text', () => {
+    const { core } = makeCore();
+    const blocked = (taskKey: string) => ({ key: `task:${taskKey}:blocked`, stateKey: `task:${taskKey}:blocked`,
+      eventType: 'blocked' as const, reason: 'blocked' as const, target: taskKey, taskKey, text: `${taskKey} blocked`, active: true });
+    const input = { sourceCursor: 0, destinations: ['http://a/secret', 'http://b/secret'], maxAttempts: 3, now: NOW };
+    core.captureNotifications({ ...input, occurrences: [blocked('AF-1'), blocked('AF-2'),
+      { key: 'queue:empty', eventType: 'queue_empty', reason: 'queue_empty', target: 'queue', text: 'empty' }] });
+    core.captureNotifications({ ...input, occurrences: [{ ...blocked('AF-2'), active: false }] });
+
+    const open = core.listOpenAttention();
+    expect(open.occurrences.map((a) => a.target)).toEqual(['AF-1', 'queue']);
+    expect(open.outbox).toHaveLength(4);
+    expect(open.outbox.every((o) => !('destination' in o) && !('text' in o))).toBe(true);
+
+    const task = core.listOpenAttention({ taskKey: 'AF-1' });
+    expect(task.occurrences.map((a) => a.taskKey)).toEqual(['AF-1']);
+    expect(new Set(task.outbox.map((o) => o.occurrenceId))).toEqual(new Set([task.occurrences[0]!.id]));
+    expect(core.listOpenAttention({ taskKey: 'AF-2' })).toEqual({ occurrences: [], outbox: [] });
+  });
+
   it('captures an occurrence, per-destination outbox rows, and the source cursor atomically', () => {
     const { core, db } = makeCore();
 

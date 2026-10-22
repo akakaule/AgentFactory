@@ -331,6 +331,15 @@ export interface NotificationOutboxEntry {
   reason: AttentionReason; target: string; taskKey: string | null;
 }
 
+/** An outbox row as the board UI sees it: delivery state only. The destination (a webhook URL that
+ *  usually embeds a secret) and the payload text (already on the occurrence) never leave core here. */
+export interface AttentionDelivery {
+  id: number; occurrenceId: number; state: NotificationOutboxState; attempts: number; maxAttempts: number;
+  nextAttemptAt: string; lastError: string | null; sentAt: string | null; updatedAt: string;
+}
+
+export interface OpenAttention { occurrences: AttentionOccurrence[]; outbox: AttentionDelivery[]; }
+
 export interface SettleNotificationInput {
   ok: boolean; now?: string; retryAt?: string; error?: string;
 }

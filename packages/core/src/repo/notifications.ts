@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { AttentionOccurrence, CaptureNotificationsInput, NotificationOutboxEntry, NotificationOutboxState, SettleNotificationInput } from '../types.js';
+import type { AttentionOccurrence, CaptureNotificationsInput, NotificationOutboxEntry, NotificationOutboxState, OpenAttention, SettleNotificationInput } from '../types.js';
 
 export const MAX_NOTIFICATION_TEXT = 16_384;
 
@@ -78,6 +78,32 @@ export function captureNotifications(db: DB, input: CaptureNotificationsInput, n
 export function selectAttentionOccurrences(db: DB): AttentionOccurrence[] {
   const rows = db.prepare('SELECT * FROM attention_occurrence ORDER BY id ASC').all() as unknown as OccurrenceRow[];
   return rows.map(occurrenceFromRow);
+}
+
+type DeliveryRow = {
+  id: number; occurrence_id: number; state: NotificationOutboxState; attempts: number; max_attempts: number;
+  next_attempt_at: string; last_error: string | null; sent_at: string | null; updated_at: string;
+};
+
+/** Open (unresolved) attention, optionally for one task, with its delivery rows. Resolved history is
+ *  never read, so the board's poll stays proportional to what currently needs a human. */
+export function selectOpenAttention(db: DB, taskKey: string | null): OpenAttention {
+  const where = taskKey === null ? 'a.resolved_at IS NULL' : 'a.resolved_at IS NULL AND a.task_key = ?';
+  const params = taskKey === null ? [] : [taskKey];
+  const occurrences = db.prepare(`SELECT a.* FROM attention_occurrence a WHERE ${where} ORDER BY a.id ASC`)
+    .all(...params) as unknown as OccurrenceRow[];
+  const deliveries = db.prepare(
+    `SELECT o.id, o.occurrence_id, o.state, o.attempts, o.max_attempts, o.next_attempt_at, o.last_error, o.sent_at, o.updated_at
+       FROM notification_outbox o JOIN attention_occurrence a ON a.id = o.occurrence_id
+      WHERE ${where} ORDER BY o.id ASC`,
+  ).all(...params) as unknown as DeliveryRow[];
+  return {
+    occurrences: occurrences.map(occurrenceFromRow),
+    outbox: deliveries.map((r) => ({
+      id: r.id, occurrenceId: r.occurrence_id, state: r.state, attempts: r.attempts, maxAttempts: r.max_attempts,
+      nextAttemptAt: r.next_attempt_at, lastError: r.last_error, sentAt: r.sent_at, updatedAt: r.updated_at,
+    })),
+  };
 }
 
 type OutboxRow = {

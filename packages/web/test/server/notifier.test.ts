@@ -260,6 +260,45 @@ describe('Notifier — durable delivery', () => {
     expect(core.listAttentionOccurrences()[0]!.resolvedAt).not.toBeNull();
     db.close();
   });
+  describe('review episodes', () => {
+    const planTask = { key: 'AF-1', workspace: 'default', title: 'Plan', status: 'in_review' as const, stage: 'plan' as const,
+      updatedAt: new Date().toISOString(), aiReview: { verdict: 'findings' as const, findings: 1, reviewer: 'test', items: [] } };
+    const setup = () => {
+      const db = openDb(':memory:'); runMigrations(db); const core = createCore(db);
+      const fc = makeFakeCore(); const ff = makeFakeFetch();
+      fc.setTasks([planTask]);
+      const mixed: NotifierCore = { ...core, activitySince: fc.core.activitySince, latestActivityId: fc.core.latestActivityId, listTasks: fc.core.listTasks };
+      const tick = () => new Notifier(cfg(['in_review']), { core: mixed, fetch: ff.fetch }).tick();
+      const resubmit = () => ['queued', 'in_progress', 'in_review'].forEach((s) => fc.push({ type: 'status_change', toStatus: s as Task['status'] }));
+      return { db, core, fc, ff, tick, resubmit };
+    };
+
+    it('alerts a document resubmitted with findings even though the previous alert was acknowledged', async () => {
+      const { db, core, ff, tick, resubmit } = setup();
+      await tick();
+      expect(ff.calls).toHaveLength(1);
+      core.resolveAttention(core.listAttentionOccurrences()[0]!.id);
+      resubmit(); // left review and came back with findings again, between two polls
+      await tick();
+      expect(ff.calls).toHaveLength(2);
+      db.close();
+    });
+
+    it('still defers a resubmitted document while the automated reviewer can advance it', async () => {
+      const { db, core, fc, ff, tick, resubmit } = setup();
+      await tick();
+      resubmit();
+      fc.setTasks([{ ...planTask, aiReview: null, updatedAt: new Date().toISOString() }]);
+      await tick();
+      expect(ff.calls).toHaveLength(1);
+      expect(core.listOpenAttention().occurrences).toHaveLength(0); // the previous episode closed
+      fc.setTasks([{ ...planTask, aiReview: null, updatedAt: '2000-01-01T00:00:00.000Z' }]);
+      await tick();
+      expect(ff.calls).toHaveLength(2);
+      db.close();
+    });
+  });
+
   it('recovers a receiver that fails twice across notifier restarts', async () => {
     const fc = makeDurableFakeCore();
     const calls: string[] = [];

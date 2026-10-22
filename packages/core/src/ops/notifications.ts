@@ -2,8 +2,8 @@ import type { DB } from '../db.js';
 import { transaction } from '../transaction.js';
 import { ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
-import type { AttentionOccurrence, CaptureNotificationsInput, NotificationOutboxEntry, SettleNotificationInput } from '../types.js';
-import { captureNotifications as captureRows, MAX_NOTIFICATION_TEXT, selectAllNotificationOutbox, selectAttentionOccurrences, selectReadyNotificationOutbox, settleNotificationOutbox as settleRow, resolveAttention as resolveRow, snoozeAttention as snoozeRow } from '../repo/notifications.js';
+import type { AttentionOccurrence, CaptureNotificationsInput, NotificationOutboxEntry, OpenAttention, SettleNotificationInput } from '../types.js';
+import { captureNotifications as captureRows, MAX_NOTIFICATION_TEXT, selectAllNotificationOutbox, selectAttentionOccurrences, selectOpenAttention, selectReadyNotificationOutbox, settleNotificationOutbox as settleRow, resolveAttention as resolveRow, snoozeAttention as snoozeRow } from '../repo/notifications.js';
 
 function validateCapture(input: CaptureNotificationsInput): void {
   if (!Number.isInteger(input.sourceCursor) || input.sourceCursor < 0) throw new ValidationError('notification source cursor must be a nonnegative integer');
@@ -27,6 +27,11 @@ export function captureNotifications(db: DB, input: CaptureNotificationsInput, n
 
 export function listAttentionOccurrences(db: DB): AttentionOccurrence[] {
   return selectAttentionOccurrences(db);
+}
+
+export function listOpenAttention(db: DB, opts: { taskKey?: string | undefined } = {}): OpenAttention {
+  if (opts.taskKey !== undefined && !opts.taskKey.trim()) throw new ValidationError('attention task key must not be blank');
+  return selectOpenAttention(db, opts.taskKey ?? null);
 }
 
 export function listNotificationOutbox(db: DB, now: string = nowIso(), limit = 100): NotificationOutboxEntry[] {

@@ -18,7 +18,7 @@ export function AttentionPanel({ taskKey }: { taskKey?: string }) {
       loading = true;
       const sequence = ++request.current;
       try {
-        const next = await api.getAttention();
+        const next = await api.getAttention(taskKey);
         if (generation.current === current && request.current === sequence) setData(next);
       } catch (e) {
         if (generation.current === current && request.current === sequence) setError((e as Error).message);

@@ -70,7 +70,7 @@ const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
 export const attachmentUrl = (id: number) => `/api/attachments/${id}`;
 
 export const api = {
-  getAttention: () => req<AttentionState>('/api/attention'),
+  getAttention: (taskKey?: string) => req<AttentionState>(`/api/attention${taskKey ? `?task=${encodeURIComponent(taskKey)}` : ''}`),
   resolveAttention: (id: number) => req<{ resolved: boolean }>(`/api/attention/${id}/resolve`, body({})),
   snoozeAttention: (id: number, until: string) => req<{ snoozed: boolean }>(`/api/attention/${id}/snooze`, body({ until })),
   listTasks: (opts: { status?: Status; workspace?: string; archived?: boolean } = {}) => {

@@ -21,6 +21,7 @@ describe('AttentionPanel', () => {
   it('shows exhausted delivery and acknowledges the alert without changing task status', async () => {
     render(<AttentionPanel taskKey="AF-1" />);
     expect(await screen.findByText(/webhook returned 500/)).toBeInTheDocument();
+    expect(api.getAttention).toHaveBeenCalledWith('AF-1'); // the server filters to this task
     await userEvent.click(screen.getByRole('button', { name: 'Acknowledge alert' }));
     expect(api.resolveAttention).toHaveBeenCalledWith(1);
     expect(screen.queryByText(occurrence.text)).not.toBeInTheDocument();

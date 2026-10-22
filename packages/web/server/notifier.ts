@@ -21,6 +21,11 @@ export const DEFAULT_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'skip
 
 const CURSOR_KEY = 'notify_cursor';
 
+/** Task-state attention whose episodes begin when the task enters a status (see durableTick). */
+const STATUS_EPISODES: Partial<Record<Status, readonly NotifyEvent[]>> = {
+  in_review: ['in_review'], blocked: ['blocked'], delivering: ['delivery_wait', 'delivery_stalled'],
+};
+
 /** The slice of Core the notifier reads. */
 export interface NotifierCore {
   activitySince(sinceId: number, limit?: number): ActivityFeedRow[];
@@ -220,8 +225,12 @@ export class Notifier {
     const rows = this.deps.core.activitySince(this.cursor, 200);
     const tasks = this.deps.core.listTasks();
     const occurrences: CaptureNotificationsInput['occurrences'] = [];
+    const episodeStarts = new Set<string>();
     for (const row of rows) {
       const task = tasks.find(t => t.key === row.taskKey);
+      if (task && row.type === 'status_change' && row.toStatus) {
+        for (const eventType of STATUS_EPISODES[row.toStatus] ?? []) episodeStarts.add(`task:${task.key}:${eventType}`);
+      }
       // Current task state owns review/blocked/setup/exhaustion edges; activity still captures
       // transient failures and legacy tasks that cannot be resolved through listTasks.
       if (task && row.type === 'status_change' && row.toStatus === 'in_review') continue;
@@ -234,7 +243,13 @@ export class Notifier {
       });
     }
     const nextCursor = rows.length ? rows[rows.length - 1]!.id : this.cursor;
-    occurrences.push(...this.stateOccurrences(), ...this.taskOccurrences(tasks));
+    // A logged entry into a status starts a new episode of its attention, even when the task left
+    // and re-entered that status between two polls (or while the notifier was down). Close the
+    // previous episode first, so its delivered or acknowledged alert can't absorb the new one; the
+    // current-state observation that follows then decides (doc-stage deferral included) whether to alert.
+    const current = this.taskOccurrences(tasks);
+    const closed = current.filter(o => o.stateKey !== undefined && episodeStarts.has(o.stateKey)).map(o => ({ ...o, active: false }));
+    occurrences.push(...this.stateOccurrences(), ...closed, ...current);
     await this.deps.core.captureNotifications!({
       sourceCursor: nextCursor, destinations: this.cfg.webhooks,
       maxAttempts: this.cfg.maxAttempts ?? 5, occurrences,
