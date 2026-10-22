@@ -50,6 +50,13 @@ export const baseConfigSchema = z.object({
    */
   createPullRequests: z.boolean().default(true),
   /**
+   * Run each workspace's Azure DevOps work-item import (the workspace `adoSync` settings, edited on
+   * the board): claim matching items, import them as `AB#<id>:` tasks, write the board state back.
+   * Only workspaces with the import enabled and an Azure DevOps origin are touched; the PAT needs
+   * Work Items (Read & write). Set false to switch the import off for every workspace.
+   */
+  syncWorkItems: z.boolean().default(true),
+  /**
    * GitHub REST access. `tokenEnv` names the SHARED token env var (needs Pull requests: Read and
    * write, to open the PR, plus Checks/Commit statuses read; read-only when createPullRequests is off). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
    * `_`) to give one workspace its own token — e.g. `GITHUB_TOKEN_ACME`. Falls back to the shared var.
@@ -63,7 +70,8 @@ export const baseConfigSchema = z.object({
     .default({}),
   /**
    * Azure DevOps REST access. `patEnv` names the SHARED PAT env var (needs Code (Read & write) to
-   * open the PR; Code (Read) when createPullRequests is off). A PAT authenticates to ONE organization, so workspaces in different orgs/projects need
+   * open the PR; Code (Read) when createPullRequests is off; plus Work Items (Read & write) for a
+   * workspace with the work-item import enabled). A PAT authenticates to ONE organization, so workspaces in different orgs/projects need
    * their own: set `<patEnv>_<WORKSPACE>` (e.g. `AZDO_PAT_KL_DISCONFIGURATION`) to override per
    * workspace; falls back to the shared `patEnv`.
    */

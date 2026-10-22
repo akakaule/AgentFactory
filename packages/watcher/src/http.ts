@@ -10,7 +10,10 @@ export function makeFetchJson(fetchImpl: typeof fetch = fetch, timeoutMs: number
   return async (url, init) => {
     const res = await fetchImpl(url, {
       method: init.method ?? 'GET',
-      headers: init.body !== undefined ? { ...init.headers, 'content-type': 'application/json' } : init.headers,
+      // a body is JSON unless the caller named its own type (ADO work-item PATCH is json-patch+json)
+      headers: init.body !== undefined && !Object.keys(init.headers).some((h) => h.toLowerCase() === 'content-type')
+        ? { ...init.headers, 'content-type': 'application/json' }
+        : init.headers,
       ...(init.body !== undefined ? { body: init.body } : {}),
       signal: AbortSignal.timeout(timeoutMs),
     });

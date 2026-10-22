@@ -1,6 +1,7 @@
 import type { DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
 import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
+import { azdoGuard, basicPat } from './azdoHttp.js';
 
 /**
  * Azure DevOps via REST with a PAT. Reads need Code (Read); the one write — opening the PR once a
@@ -41,7 +42,6 @@ export function parseBuildId(url: string | null | undefined): string | null {
   return m ? m[1]! : null;
 }
 
-const basicPat = (pat: string): string => `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
 
 /** Human PR web URL (the REST payload's `url` is an API self-link, not a browser link). */
 function prWebUrl(remote: { organization: string; project: string; repo: string }, id: number): string {
@@ -85,25 +85,8 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
     ...(pat ? { Authorization: basicPat(pat) } : {}),
   };
 
-  const guard = (res: FetchResponse, url: string, write = false): FetchResponse => {
-    if (res.status === 200 || (write && res.status === 201)) return res;
-    // ADO throttling: 429 with Retry-After (also X-RateLimit-Reset on some responses).
-    const retryAfter = Number(res.headers['retry-after'] ?? NaN);
-    if (res.status === 429) {
-      throw new ProviderHttpError(`azdo 429 for ${url}`, 429, Date.now() + (Number.isFinite(retryAfter) ? retryAfter : 60) * 1000);
-    }
-    // Auth: ADO answers an unauthenticated/failed-PAT request with the Azure AD sign-in page and a
-    // 203 (Non-Authoritative Information), not a 401 — so 203/401/403 all mean "the PAT is missing,
-    // invalid, expired, or lacks Code (Read) for this org/project", not a transient error.
-    if (res.status === 203 || res.status === 401 || res.status === 403) {
-      const scope = write ? 'Code (Read & write), needed to open the PR,' : 'Code (Read)';
-      throw new ProviderHttpError(
-        `azdo auth failed (${res.status}) — the PAT is missing, invalid, expired, or lacks ${scope} for this org/project: ${url}`,
-        res.status,
-      );
-    }
-    throw new ProviderHttpError(`azdo ${res.status} for ${url}`, res.status);
-  };
+  const guard = (res: FetchResponse, url: string, write = false): FetchResponse =>
+    write ? azdoGuard(res, url, 'Code (Read & write), needed to open the PR,', [200, 201]) : azdoGuard(res, url, 'Code (Read)');
   const get = async (url: string): Promise<unknown> => guard(await fetchJson(url, { headers }), url).body;
   const repoBase = (remote: { organization: string; project: string; repo: string }): string => {
     const e = encodeURIComponent;

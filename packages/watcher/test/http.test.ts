@@ -44,6 +44,21 @@ describe('makeFetchJson', () => {
     expect(seen.contentType).toBe('application/json');
   });
 
+  it('keeps a caller-set content-type (ADO work-item PATCH is application/json-patch+json)', async () => {
+    let seen: { method?: string | undefined; contentType?: string | null } = {};
+    const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+      seen = { method: init?.method, contentType: new Headers(init?.headers).get('content-type') };
+      return jsonResponse({ id: 1 }, 200);
+    }) as typeof fetch;
+
+    await makeFetchJson(fetchImpl)('https://dev.azure.test/wit/workitems/1', {
+      headers: { 'Content-Type': 'application/json-patch+json' }, method: 'PATCH', body: '[]',
+    });
+
+    expect(seen.method).toBe('PATCH');
+    expect(seen.contentType).toBe('application/json-patch+json');
+  });
+
   it('lower-cases headers and tolerates a non-JSON body', async () => {
     const fetchImpl = (async () =>
       new Response('nope', { status: 502, headers: { 'X-RateLimit-Remaining': '0' } })) as typeof fetch;
