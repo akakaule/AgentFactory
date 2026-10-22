@@ -26,7 +26,7 @@ interface Props {
 const GROUPS: ReviewGroup[] = ['must', 'call', 'should', 'fyi'];
 const GROUP_SUB: Record<ReviewGroup, string> = {
   must: 'The reviewers agree these block approval.',
-  call: 'Real issues the reviewers don\'t agree on, so you decide.',
+  call: 'The reviewers don\'t agree on these, so you decide.',
   should: 'Worth fixing, not blocking.',
   fyi: 'Worth knowing, not blocking.',
 };
@@ -39,9 +39,10 @@ function approveLabel(stage: Stage, willDeliver: boolean): string {
   return willDeliver ? 'Approve → deliver' : 'Approve';
 }
 
-/** A review's identity: a new review (or a newer result) resets the human's decisions. */
+/** A review's identity: a new review (or a newer result) resets the human's decisions — also one
+ *  that reuses the same issue ids, so a decision never carries over to a different finding. */
 const signatureOf = (brief: ReviewBrief | null) =>
-  brief ? JSON.stringify([brief.headline, brief.headSha, brief.issues.map((i) => [i.id, i.group])]) : 'none';
+  brief ? JSON.stringify([brief.headline, brief.headSha, brief.issues.map((i) => [i.id, i.group, i.title, i.source, i.problem])]) : 'none';
 
 /**
  * The human review gate for a code task (docs/spec/2026-10-21-review-decision-panel-design.md §6):

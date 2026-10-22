@@ -1063,6 +1063,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-sbgroup li .fix { font-size: 13px; color: #C9D4E5; }
 .af-rv-notsent { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; font-size: 13px; color: var(--ink-2); }
 .af-rv-notsent strong { color: var(--ink); }
+.af-rv-exact summary { cursor: pointer; color: var(--accent-2); font-size: 13px; }
+.af-rv-exact pre { margin: 8px 0 0; padding: 11px 13px; max-height: 320px; overflow: auto; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 10px; font-family: "IBM Plex Mono", monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* evidence panel sections */
 .af-rv-evsec { display: flex; flex-direction: column; gap: 8px; }

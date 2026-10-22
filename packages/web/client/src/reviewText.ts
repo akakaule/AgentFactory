@@ -51,13 +51,24 @@ export function chipText(brief: ReviewBrief): { label: string; detail: string | 
   }
 }
 
-/** Why the open decisions are the human's: the reviewers disagree on severity, on validity, or nobody verified them. */
+/** Why the open decisions are the human's: the reviewers disagree on severity, on validity, or nobody
+ *  verified them. A mix names each kind — it never claims agreement the votes don't show. */
 function callReason(calls: ReviewIssue[], reviewers: number): string {
   const one = calls.length === 1;
-  const they = reviewers === 2 ? 'both reviewers' : 'the reviewers';
-  if (calls.some((i) => i.dispute === 'validity')) return one ? 'the reviewers disagree whether it\'s a problem' : 'the reviewers disagree whether they\'re problems';
-  if (calls.every((i) => i.dispute === 'unverified')) return one ? 'it was raised late and no reviewer has verified it' : 'they were raised late and no reviewer has verified them';
-  return one ? `${they} agree it's real but not on how serious` : `${they} agree they're real but not on how serious`;
+  const count = (d: ReviewIssue['dispute']) => calls.filter((i) => i.dispute === d).length;
+  const severity = count('severity'), validity = count('validity'), unverified = count('unverified');
+  if (validity === calls.length) return one ? 'the reviewers disagree whether it\'s a problem' : 'the reviewers disagree whether they\'re problems';
+  if (unverified === calls.length) return one ? 'it was raised late and no reviewer has verified it' : 'they were raised late and no reviewer has verified them';
+  if (severity === calls.length) {
+    const they = reviewers === 2 ? 'both reviewers' : 'the reviewers';
+    return one ? `${they} agree it's real but not on how serious` : `${they} agree they're real but not on how serious`;
+  }
+  const parts = [
+    severity ? `on how serious ${severity} ${severity === 1 ? 'is' : 'are'}` : null,
+    validity ? `on whether ${validity} ${validity === 1 ? 'is a problem' : 'are problems'}` : null,
+    unverified ? `${unverified} ${unverified === 1 ? 'is' : 'are'} not yet verified` : null,
+  ].filter((p): p is string => p !== null);
+  return `the reviewers disagree ${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)!}`;
 }
 
 /**

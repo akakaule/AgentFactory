@@ -24,9 +24,9 @@ export function findDiffFile(diff: ParsedDiff, path: string): DiffFile | null {
   return suffix.length === 1 ? suffix[0]! : null;
 }
 
-/** Hunks whose new-side range contains the line. */
+/** Hunks whose new-side range contains the line (a deletion-only hunk contains none). */
 export function hunksAt(file: DiffFile, line: number): DiffHunk[] {
-  return file.hunks.filter((h) => line >= h.newStart && line < h.newStart + Math.max(h.newLines, 1));
+  return file.hunks.filter((h) => line >= h.newStart && line < h.newStart + h.newLines);
 }
 
 function Opinion({ opinion, name }: { opinion: ReviewOpinion; name: string }) {

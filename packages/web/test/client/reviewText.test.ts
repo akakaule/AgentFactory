@@ -25,6 +25,16 @@ describe('reviewSentence', () => {
       issues: [{ ...brief.issues.find((i) => i.group === 'call')!, dispute: 'validity' as const }], criteria: [] };
     expect(reviewSentence(one)).toBe('1 needs your decision: the reviewers disagree whether it\'s a problem.');
   });
+  it('mixed dispute kinds say what each is, without claiming the reviewers agree', () => {
+    const brief = af146Brief();
+    const calls = brief.issues.filter((i) => i.group === 'call');
+    const mixed = { ...brief, headline: 'your_call' as const, counts: { ...brief.counts, must: 0, should: 0 }, criteria: [],
+      issues: [calls[0]!, { ...calls[1]!, dispute: 'unverified' as const }, { ...calls[2]!, dispute: 'validity' as const }] };
+    expect(reviewSentence(mixed)).toBe('3 need your decision: the reviewers disagree on how serious 1 is, on whether 1 is a problem, and 1 is not yet verified.');
+    expect(reviewSentence({ ...mixed, issues: mixed.issues.slice(0, 2) })).toBe('2 need your decision: the reviewers disagree on how serious 1 is, and 1 is not yet verified.');
+    expect(reviewSentence(mixed)).not.toMatch(/agree they/);
+  });
+
   it('pending, clean and minor-only reviews', () => {
     expect(reviewSentence(af146Brief({ superseded: true }))).toBe('The reviewer hasn\'t looked at the latest result yet. The issues below are from the previous review.');
     expect(reviewSentence(v1Brief([]))).toBe('Codex found nothing to fix.');

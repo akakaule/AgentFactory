@@ -20,11 +20,13 @@ export function ReviewSendBack({ brief, decisions, onSend, onClose }: Props) {
   const notSent = (brief?.issues ?? []).filter((i) => decisions[i.id] === undefined || decisions[i.id] === 'dismiss');
   const n = selected.length;
   const disabled = sending || (n === 0 && note.trim() === '');
+  // the one body both the preview and the send use, so what the human reads is what the agent gets
+  const body = composeReviewFeedback(brief, decisions, note);
 
   const send = () => {
     setSending(true);
     setError(null);
-    onSend(composeReviewFeedback(brief, decisions, note))
+    onSend(body)
       .then(onClose)
       .catch((e: Error) => { setError(e.message); setSending(false); });
   };
@@ -74,6 +76,12 @@ export function ReviewSendBack({ brief, decisions, onSend, onClose }: Props) {
         <span>Your note to the agent <span className="af-rv-muted">(optional)</span></span>
         <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything else the agent should know?" />
       </label>
+      {body && (
+        <details className="af-rv-exact">
+          <summary>Show the exact message</summary>
+          <pre>{body}</pre>
+        </details>
+      )}
       {error && <p className="af-rv-error" role="alert">{error}</p>}
     </ReviewDialog>
   );

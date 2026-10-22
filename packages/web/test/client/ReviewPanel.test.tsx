@@ -160,6 +160,20 @@ describe('ReviewPanel — evidence', () => {
   });
 });
 
+describe('ReviewPanel — a new review resets the decisions', () => {
+  it('even when it reuses the same issue ids and groups', async () => {
+    const first = v1Brief([{ severity: 'error', file: null, line: null, title: 'Broken', detail: null }]);
+    const user = userEvent.setup();
+    const props = { willDeliver: true, onApprove: vi.fn(), onRequestChanges: vi.fn(), onOpenChanges: vi.fn() };
+    const { rerender } = render(<ReviewPanel task={task({ reviewBrief: first, aiReview: null })} {...props} />);
+    await user.click(within(decision('F1')).getByRole('radio', { name: 'Dismiss' }));
+    expect(checked('F1')).toBe('dismiss');
+    const second = v1Brief([{ severity: 'error', file: null, line: null, title: 'Still broken after the rework', detail: null }]);
+    rerender(<ReviewPanel task={task({ reviewBrief: second, aiReview: null })} {...props} />);
+    expect(checked('F1')).toBe('must');
+  });
+});
+
 describe('ReviewPanel — send back', () => {
   it('previews exactly what the agent gets, lists what is not sent, and posts the composed body', async () => {
     const { user, onRequestChanges } = renderPanel();
@@ -170,8 +184,15 @@ describe('ReviewPanel — send back', () => {
     expect(within(dialog).getByText(/F2 .* · dismissed/)).toBeInTheDocument();
     expect(within(dialog).getByText(/F3 .* · not decided/)).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/Your note to the agent/), 'Keep the API stable.');
+    // the exact message, problem text included, is one click away before sending
+    const exact = within(dialog).getByText('Show the exact message');
+    await user.click(exact);
+    const preview = exact.closest('details')!.querySelector('pre')!.textContent!;
+    expect(preview).toContain('Problem: enforceTimeouts()');
+    expect(preview).toContain('Keep the API stable.');
     await user.click(within(dialog).getByRole('button', { name: 'Send back 3 issues' }));
     const body = onRequestChanges.mock.calls[0]![0] as string;
+    expect(body).toBe(preview);
     expect(body).toMatch(/^Changes requested after the AI review of 4699e45 \(Claude \+ Codex\)/);
     expect(body).toContain('F1 · AC6');
     expect(body).toContain('F4 ·');
