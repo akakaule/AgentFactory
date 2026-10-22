@@ -199,6 +199,7 @@ describe('execution reservation', () => {
 
     const second = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 3, owner: 'reviewer-2', startImmediately: true }, at(EXECUTION_LEASE_MS + 1))!;
     expect(second.id).not.toBe(first.id);
-    expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(first.id)).toEqual({ state: 'cancelled' });
+    expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(first.id)).toEqual({ state: 'failed' });
+    expect(getRetryBudget(db, task.key, 'reviewer:implementation')).toMatchObject({ attemptsUsed: 2 }); // the crashed attempt still counts
   });
 });

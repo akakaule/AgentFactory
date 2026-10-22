@@ -47,8 +47,10 @@ export function reserveExecution(db: DB, key: string, input: ReserveExecutionInp
       const lastSeen = Date.parse(live.heartbeat_at ?? live.reserved_at);
       if (Date.parse(ts) - lastSeen < EXECUTION_LEASE_MS)
         throw new InvalidTransitionError(`${key} already has a live execution (${live.operation})`);
-      if (live.retry_id) settleRetryRow(db, live.retry_id, 'cancelled', ts, 'execution superseded after its lease expired');
-      settleExecution(db, live.id, 'cancelled', ts, 'execution superseded after its lease expired');
+      // 'failed', not 'cancelled': the crashed owner's attempt stays counted, so an owner that
+      // keeps dying is still bounded by maxAttempts instead of being refunded forever.
+      if (live.retry_id) settleRetryRow(db, live.retry_id, 'failed', ts, 'execution superseded after its lease expired');
+      settleExecution(db, live.id, 'failed', ts, 'execution superseded after its lease expired');
     }
     const retry = reserveRetryRow(db, row.id, key, { operation: input.operation, maxAttempts: input.maxAttempts }, ts);
     if (!retry) return null;
