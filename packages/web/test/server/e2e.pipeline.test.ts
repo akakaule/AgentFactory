@@ -1,5 +1,5 @@
 /**
- * End-to-end multi-stage pipeline test (description → plan → implementation).
+ * End-to-end default-flow pipeline test (spec/description → implementation).
  *
  * Same two-connection WAL-file layout as e2e.loop.test.ts:
  *   - coreHuman → the human/reviewer side through the real Hono HTTP API
@@ -40,7 +40,7 @@ const review = (findings: unknown[]) =>
 const CLEAN = review([]);
 const FINDINGS = review([{ severity: 'warning', title: 'tighten the acceptance criteria', detail: 'AC 2 is not verifiable' }]);
 
-describe('e2e: multi-stage pipeline (description → plan → implementation)', () => {
+describe('e2e: default flow (spec/description → implementation)', () => {
   let dbHuman: DB;
   let dbAgent: DB;
 
@@ -51,7 +51,7 @@ describe('e2e: multi-stage pipeline (description → plan → implementation)', 
     cleanupDbFiles();
   });
 
-  it('walks all three stages: doc auto-approve on clean, findings escalate, human owns the final gate', async () => {
+  it('walks spec → implementation: doc auto-approve on clean, findings escalate, human owns the final gate', async () => {
     dbHuman = openDb(DB_PATH);
     runMigrations(dbHuman);
     dbAgent = openDb(DB_PATH);
@@ -60,10 +60,10 @@ describe('e2e: multi-stage pipeline (description → plan → implementation)', 
     const app = buildApp(coreHuman);
 
     // ── Stage 1: description ────────────────────────────────────────────────
+    // a stage-less create is the default flow: it enters at the spec (description) stage
     const createRes = await post(app, '/api/tasks', {
       title: 'Add /ping endpoint',
       spec: 'Raw idea: we want a health check.',
-      stage: 'description',
     });
     expect(createRes.status).toBe(201);
     const created = await createRes.json() as { key: string; stage: string };
@@ -85,38 +85,21 @@ describe('e2e: multi-stage pipeline (description → plan → implementation)', 
     const reviewRes = await post(app, `/api/tasks/${KEY}/comment`, { body: CLEAN });
     expect(reviewRes.status).toBe(201);
 
-    // auto-advance: queued at the plan stage, claimant cleared, agent-actor trail
+    // auto-advance: queued at the implementation stage, claimant cleared, agent-actor trail
     const afterDesc = await (await get(app, `/api/tasks/${KEY}`)).json() as {
       status: string; stage: string; claimedBy: string | null; spec: string;
       activity: Array<{ type: string; actor: string; toStatus: string | null; body: string }>;
     };
     expect(afterDesc.status).toBe('queued');
-    expect(afterDesc.stage).toBe('plan');
+    expect(afterDesc.stage).toBe('implementation');
     expect(afterDesc.claimedBy).toBeNull();
     expect(afterDesc.spec).toContain('GET /ping');
     const advance1 = afterDesc.activity.find((a) => a.type === 'status_change' && a.body.includes('auto-approved'));
     expect(advance1).toBeDefined();
     expect(advance1!.actor).toBe('agent');
-    expect(advance1!.body).toContain('description → plan');
+    expect(advance1!.body).toContain('description → implementation');
 
-    // ── Stage 2: plan ───────────────────────────────────────────────────────
-    const claim2 = coreAgent.claimNextTask();
-    expect(claim2).toMatchObject({ key: KEY, stage: 'plan', branch: null });
-
-    coreAgent.submitResult(KEY, {
-      summary: 'implementation plan written',
-      plan: '1. add GET /ping route\n2. unit test the 200 body\n3. wire into app.ts',
-    });
-
-    // clean verdict via the agent path this time (MCP add_comment posts as agent)
-    coreAgent.addComment(KEY, { actor: 'agent', body: CLEAN });
-
-    const afterPlan = await (await get(app, `/api/tasks/${KEY}`)).json() as { status: string; stage: string; plan: string | null };
-    expect(afterPlan.status).toBe('queued');
-    expect(afterPlan.stage).toBe('implementation');
-    expect(afterPlan.plan).toContain('GET /ping route');
-
-    // ── Stage 3: implementation ─────────────────────────────────────────────
+    // ── Stage 2: implementation ─────────────────────────────────────────────
     const claim3 = coreAgent.claimNextTask();
     expect(claim3!.stage).toBe('implementation');
     expect(claim3!.branch).not.toBeNull(); // branch named at the FIRST implementation-stage claim
@@ -178,6 +161,6 @@ describe('e2e: multi-stage pipeline (description → plan → implementation)', 
     await post(app, `/api/tasks/${KEY}/comment`, { body: CLEAN });
 
     detail = await (await get(app, `/api/tasks/${KEY}`)).json() as { status: string; stage: string };
-    expect(detail).toMatchObject({ status: 'queued', stage: 'plan' });
+    expect(detail).toMatchObject({ status: 'queued', stage: 'implementation' });
   });
 });

@@ -13,7 +13,7 @@ Read-only with respect to the repo; you never change task status.
 2. `get_task` for the brief: title, spec, acceptance criteria, and the latest result summary in the
    activity (the implementer's own claim — useful context for the flow).
 3. **Implementation stage only.** If `stage` is not `implementation`, stop and report
-   "visualization is implementation-only" — description/plan stages have no diff, and their
+   "visualization is implementation-only" — description (spec) and legacy plan stages have no diff, and their
    deliverable (spec/plan text) is already shown in the panel.
 
 ## Gather the diff

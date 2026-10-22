@@ -287,3 +287,24 @@ describe('updateStatus', () => {
     expect(() => updateStatus(db, 'AF-9999', 'queued', 'human', fixedNow)).toThrow(NotFoundError);
   });
 });
+
+describe('updateStatus — a raw in_review → done is still an approval', () => {
+  function inReview(body: string) {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: '1. Race — one claim wins' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
+    db.prepare("INSERT INTO activity(task_id, type, actor, body, created_at) VALUES (?, 'comment', 'agent', ?, ?)").run(task.id, body, FIXED_TS);
+    return { db, task };
+  }
+
+  it('over must-fix issues it is refused, pointing at the approve action', () => {
+    const { db, task } = inReview('ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"severity":"error","title":"Broken"}]}\n```');
+    expect(() => updateStatus(db, task.key, 'done', 'human', fixedNow)).toThrow(/needs a reason.*approve action/);
+    expect(findRowByKey(db, task.key)!.status).toBe('in_review');
+  });
+
+  it('over minor issues it closes as before', () => {
+    const { db, task } = inReview('ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"severity":"warning","title":"Slow"}]}\n```');
+    expect(updateStatus(db, task.key, 'done', 'human', fixedNow).status).toBe('done');
+  });
+});

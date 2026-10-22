@@ -1,18 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../src/db.js';
 import { runMigrations, widenCheck } from '../src/migrate.js';
-import { MIGRATION_27_SQL } from '../src/schema.js';
+import { MIGRATION_28_SQL } from '../src/schema.js';
 
 const tables = (db: any) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r: any) => r.name);
+const workspaceColumns = (db: any) =>
+  (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
 
 describe('runMigrations', () => {
   it('upgrades notification events without losing outbox children or divergent columns', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence;');
-    db.exec(MIGRATION_27_SQL);
-    db.exec("ALTER TABLE attention_occurrence ADD COLUMN external_note TEXT; PRAGMA user_version = 26;");
+    db.exec(MIGRATION_28_SQL);
+    db.exec("ALTER TABLE attention_occurrence ADD COLUMN external_note TEXT; PRAGMA user_version = 28;");
     db.prepare(`INSERT INTO attention_occurrence(event_key,event_type,reason,target,text,first_seen_at,last_seen_at,external_note)
       VALUES ('test','failed','failed','AF-1','test','t','t','preserved')`).run();
     db.prepare(`INSERT INTO notification_outbox(occurrence_id,destination,text,state,attempts,max_attempts,next_attempt_at,created_at,updated_at)
@@ -24,9 +26,9 @@ describe('runMigrations', () => {
     db.close();
   });
 
-  it('reconciles a divergent slot 26 with no notification tables', () => {
+  it('upgrades a main DB at slot 27 with no notification tables', () => {
     const db = openDb(':memory:'); runMigrations(db);
-    db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence; PRAGMA user_version = 26;');
+    db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence; PRAGMA user_version = 27;');
     runMigrations(db);
     expect(tables(db)).toContain('attention_occurrence');
     expect(tables(db)).toContain('notification_outbox');
@@ -36,23 +38,36 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt', 'attention_occurrence', 'notification_outbox']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
   });
 
-  it('reconciles a pre-merge attention-branch DB at slot 27 that never received the intake heartbeat kind', () => {
+  it('reconciles a pre-merge attention-branch DB at slot 27 that never received the intake heartbeat kind or ado_sync', () => {
     const db = openDb(':memory:'); runMigrations(db);
-    // The attention branch used slots #26/#27 before main's #26 (intake heartbeat) landed, so its
-    // DBs carry the widened attention schema at user_version 27 but the narrow heartbeat CHECK.
+    // The attention branch used slots #26/#27 before main's #26 (intake heartbeat) and #27
+    // (workspace.ado_sync) landed, so its DBs carry the widened attention schema at user_version 27
+    // but the narrow heartbeat CHECK and no ado_sync column.
     db.exec('PRAGMA foreign_keys = OFF');
     widenCheck(db, 'supervisor_heartbeat', "('dispatcher','reviewer','watcher','intake')", "('dispatcher','reviewer','watcher')");
-    db.exec('PRAGMA foreign_keys = ON; PRAGMA user_version = 27;');
+    db.exec('PRAGMA foreign_keys = ON; ALTER TABLE workspace DROP COLUMN ado_sync; PRAGMA user_version = 27;');
     db.prepare("INSERT INTO supervisor_heartbeat(name,kind,started_at,last_seen_at) VALUES ('w','watcher','t','t')").run();
     runMigrations(db);
     db.prepare("INSERT INTO supervisor_heartbeat(name,kind,started_at,last_seen_at) VALUES ('i','intake','t','t')").run();
     expect(db.prepare('SELECT COUNT(*) AS n FROM supervisor_heartbeat').get()).toEqual({ n: 2 });
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(workspaceColumns(db)).toContain('ado_sync');
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
+    db.close();
+  });
+
+  it('reconciles an attention-branch DB at slot 28 (intake merged, attention at #27/#28) that never received ado_sync', () => {
+    const db = openDb(':memory:'); runMigrations(db);
+    // The next attention-branch build took slots #27/#28 for this schema after main's #26, so a DB
+    // it migrated sits at user_version 28 without main's #27 workspace.ado_sync column.
+    db.exec('ALTER TABLE workspace DROP COLUMN ado_sync; PRAGMA user_version = 28;');
+    runMigrations(db);
+    expect(workspaceColumns(db)).toContain('ado_sync');
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
     db.close();
   });
 
@@ -158,7 +173,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -330,7 +345,7 @@ describe('runMigrations', () => {
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
     ).all() as Array<{ name: string }>).map((row) => row.name);
     expect(indexes).toContain('idx_task_dependency_reverse');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
   });
 
   it('enforces the stage CHECK constraint', () => {

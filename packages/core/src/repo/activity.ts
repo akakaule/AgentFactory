@@ -1,6 +1,7 @@
 import type { DB } from '../db.js';
-import type { Activity, ActivityFeedRow, ActivityType, Actor, Status } from '../types.js';
+import type { Activity, ActivityFeedRow, ActivityType, Actor, CriterionClaim, Status } from '../types.js';
 import type { ActivityStep } from '../metrics.js';
+import { parseCriteriaClaims } from '../criteriaClaims.js';
 
 export interface AppendActivity {
   taskId: number; type: ActivityType; actor: Actor;
@@ -225,6 +226,25 @@ export function latestResultIds(db: DB, taskIds: number[]): Map<number, number> 
   ).all(...taskIds) as Array<{ taskId: number; mid: number }>;
   for (const r of rows) out.set(r.taskId, r.mid);
   return out;
+}
+/**
+ * The agent's criterion claims from the latest `criteria-claims/v1` comment newer than the latest
+ * result, or null — a newer result without claims clears them. A dedicated read: the detail's
+ * activity is a bounded slice that a busy review thread can push the comment out of.
+ */
+export function criteriaClaimsFor(db: DB, taskId: number): CriterionClaim[] | null {
+  const rows = db.prepare(
+    `SELECT body FROM activity
+     WHERE task_id = ? AND type = 'comment' AND actor = 'agent' AND lower(body) LIKE 'criteria-claims/v1%'
+       AND id > COALESCE((SELECT MAX(id) FROM activity WHERE task_id = ? AND type = 'result'), 0)
+     ORDER BY id DESC`
+  ).all(taskId, taskId) as Array<{ body: string }>;
+  // newest first; a look-alike comment that doesn't parse (e.g. a plain add_comment) is skipped
+  for (const row of rows) {
+    const claims = parseCriteriaClaims(row.body);
+    if (claims) return claims;
+  }
+  return null;
 }
 /** Full status history projection for metrics derivation (no limit, id order). */
 export function activitySteps(db: DB, taskId: number): ActivityStep[] {

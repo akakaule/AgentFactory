@@ -28,7 +28,7 @@ export interface BoardIdentity {
  *  only exists on the wire — hence the intersection rather than a wider Pick. */
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
-  | 'claimNextTask' | 'submitResult' | 'createTask'
+  | 'claimNextTask' | 'submitResult' | 'createTask' | 'importTask'
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
@@ -97,6 +97,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     claimNextTask: async (o = {}) => (await req('POST', '/api/agent/claim', o)) as never,
     submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, input)) as never,
     createTask: async (input) => (await req('POST', '/api/agent/tasks', input)) as never,
+    importTask: async (input) => (await req('POST', '/api/agent/import-task', input)) as never,
 
     // ── narration / lifecycle ────────────────────────────────────────────────
     reportProgress: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/progress`, input); },

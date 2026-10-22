@@ -44,7 +44,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/auth', authRoutes(core, auth));
   app.route('/api/tasks', taskRoutes(core, { resolveOrigin: opts.resolveOrigin }));
   app.route('/api/agent', agentOpsRoutes(core)); // #45: service-token agent ops (claim/submit/…)
-  app.route('/api/workspaces', workspaceRoutes(core));
+  app.route('/api/workspaces', workspaceRoutes(core, { resolveOrigin: opts.resolveOrigin }));
   app.route('/api/agent-prompts', agentPromptRoutes(core));
   app.route('/api/engines', engineRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));

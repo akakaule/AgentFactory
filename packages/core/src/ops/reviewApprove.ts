@@ -14,7 +14,8 @@ import { nowIso } from '../time.js';
  * origin is a recognizable git host, straight to 'done' exactly as before otherwise
  * (doc-stage history, legacy no-branch tasks, pr-review tasks, unrecognizable/missing
  * remotes). `resolveOrigin` is injectable for tests; it shells out to git, so it runs
- * BEFORE the transaction — never inside the write lock.
+ * BEFORE the transaction — never inside the write lock. `overrideReason` is required when the
+ * review has must-fix issues or open decisions (see applyApproval).
  */
 export function reviewApprove(
   db: DB,
@@ -22,6 +23,7 @@ export function reviewApprove(
   now: () => string = nowIso,
   actorUserId: number | null = null,
   resolveOrigin: (repoPath: string) => string | null = resolveOriginUrl,
+  overrideReason: string | null = null,
 ): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
@@ -35,7 +37,7 @@ export function reviewApprove(
     const current = findRowByKey(db, key);
     if (!current || current.status !== 'in_review' || current.updated_at !== row.updated_at)
       throw new InvalidTransitionError(`task changed while resolving its delivery: ${key}`);
-    applyApproval(db, current, 'human', now(), undefined, actorUserId, delivery);
+    applyApproval(db, current, 'human', now(), undefined, actorUserId, delivery, overrideReason);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

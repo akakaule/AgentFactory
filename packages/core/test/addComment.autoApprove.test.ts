@@ -23,7 +23,7 @@ function seedInReview(db: DB, stage: Stage, claimedBy = 'worker-1') {
 }
 
 describe('addComment — auto-approve clean doc-stage reviews', () => {
-  it('a clean review on an in-review description stage advances to plan and re-queues, clearing the claimant', () => {
+  it('a clean review on an in-review description stage advances to implementation and re-queues, clearing the claimant', () => {
     const db = makeTestDb();
     const task = seedInReview(db, 'description');
 
@@ -35,7 +35,7 @@ describe('addComment — auto-approve clean doc-stage reviews', () => {
 
     const row = findRowByKey(db, task.key)!;
     expect(row.status).toBe('queued');
-    expect(row.stage).toBe('plan');
+    expect(row.stage).toBe('implementation');
     expect(row.claimed_by).toBeNull();
     expect(row.claimed_at).toBeNull();
 
@@ -44,12 +44,12 @@ describe('addComment — auto-approve clean doc-stage reviews', () => {
     expect(advance!.actor).toBe('agent');
     expect(advance!.fromStatus).toBe('in_review');
     expect(advance!.body).toContain('auto-approved: clean AI review');
-    expect(advance!.body).toContain('description → plan');
+    expect(advance!.body).toContain('description → implementation');
     // the logged edge must be one the transition table accepts — derived consumers replay it
     expect(isValidTransition(advance!.fromStatus!, advance!.toStatus!, advance!.actor)).toBe(true);
   });
 
-  it('a clean review on an in-review plan stage advances to implementation', () => {
+  it('a clean review on a legacy in-review plan stage advances to implementation', () => {
     const db = makeTestDb();
     const task = seedInReview(db, 'plan');
 

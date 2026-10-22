@@ -27,7 +27,7 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
   const [spec, setSpec] = useState(initial?.spec ?? '');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState(initial?.acceptanceCriteria ?? '');
   const [workspace, setWorkspace] = useState(initialWorkspace ?? workspaces?.[0] ?? 'default');
-  // full pipeline by default: an agent writes the description + plan before any code
+  // full pipeline by default: an agent writes the spec before any code; the PR opens after review
   const [stage, setStage] = useState<Stage>('description');
   const [images, setImages] = useState<PendingImage[]>([]);
   const [removedIds, setRemovedIds] = useState<number[]>([]);
@@ -93,8 +93,8 @@ export function TaskForm({ mode, initial, onSubmit, onCancel, workspaces, initia
             onChange={(e) => setStage(e.target.value as Stage)}
             style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px' }}
           >
-            <option value="description">Full pipeline — describe → plan → implement</option>
-            <option value="implementation">Implementation only — skip the doc stages</option>
+            <option value="description">Full pipeline — spec → implement → PR</option>
+            <option value="implementation">Implementation only — skip the spec stage</option>
           </select>
         </div>
       )}

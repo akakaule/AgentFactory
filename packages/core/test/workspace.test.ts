@@ -20,7 +20,7 @@ const queue = (db: ReturnType<typeof makeTestDb>, key: string) => updateStatus(d
 describe('migration #2: workspace table + task.workspace_id', () => {
   it('fresh DB: user_version=2, seeded default workspace with id=1 and repo_path "."', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
     const rows = db.prepare('SELECT * FROM workspace').all() as Array<{ id: number; name: string; repo_path: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 1, name: 'default', repo_path: '.' });
@@ -34,14 +34,14 @@ describe('migration #2: workspace table + task.workspace_id', () => {
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,created_at,updated_at) VALUES ('AF-1','t','s','a','backlog',1,'2026-01-01','2026-01-01')"
     ).run();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
     expect(db.prepare('SELECT workspace_id FROM task WHERE key = ?').get('AF-1')).toMatchObject({ workspace_id: 1 });
   });
 
   it('re-running runMigrations is a no-op', () => {
     const db = makeTestDb();
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
     expect(db.prepare('SELECT count(*) c FROM workspace').get()).toMatchObject({ c: 1 });
   });
 });
@@ -129,7 +129,7 @@ describe('workspace git PAT (migration #19)', () => {
     // the ADD COLUMN rather than throw "duplicate column name: pat".
     db.exec('PRAGMA user_version = 18');
     expect(() => runMigrations(db)).not.toThrow();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
   });
 
   it('is unset on a fresh workspace, exposed only as hasPat (raw value never serialized)', () => {
@@ -263,5 +263,47 @@ describe('TaskDetail.repoPath + version', () => {
     const after = getVersion(db);
     expect(after).not.toBe(before);
     expect(after > before).toBe(true);
+  });
+});
+
+describe('workspace ADO work-item import settings (migration #27)', () => {
+  it('adds a nullable ado_sync column; re-running on a rewound DB is a no-op', () => {
+    const db = makeTestDb();
+    const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain('ado_sync');
+    db.exec('PRAGMA user_version = 26');
+    expect(() => runMigrations(db)).not.toThrow();
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 29 });
+  });
+
+  it('is null on a fresh workspace', () => {
+    const db = makeTestDb();
+    expect(createWorkspace(db, { name: 'repo-a', repoPath: '/a' }).adoSync).toBeNull();
+    expect(listWorkspaces(db).find((w) => w.name === 'repo-a')?.adoSync).toBeNull();
+  });
+
+  it('stores normalized settings with defaults filled, and null clears them', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-a', repoPath: '/a' });
+    const set = updateWorkspace(db, 'repo-a', { adoSync: { enabled: true, areaPath: 'DIS/Integration', requiredTag: 'ai-agent' } });
+    expect(set.adoSync).toMatchObject({ enabled: true, areaPath: 'DIS\\Integration', requiredTag: 'ai-agent', closeState: 'Closed', stage: 'description' });
+    expect(listWorkspaces(db).find((w) => w.name === 'repo-a')?.adoSync?.enabled).toBe(true);
+    expect(updateWorkspace(db, 'repo-a', { adoSync: null }).adoSync).toBeNull();
+  });
+
+  it('rejects invalid settings with ValidationError and leaves other fields alone', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-a', repoPath: '/a' });
+    updateWorkspace(db, 'repo-a', { policy: 'keep me' });
+    expect(() => updateWorkspace(db, 'repo-a', { adoSync: { requiredTag: 'agentfactory' } })).toThrow(ValidationError);
+    const r = updateWorkspace(db, 'repo-a', { adoSync: { enabled: false } });
+    expect(r.policy).toBe('keep me');
+  });
+
+  it('a corrupt stored value reads as null (import off)', () => {
+    const db = makeTestDb();
+    createWorkspace(db, { name: 'repo-a', repoPath: '/a' });
+    db.prepare("UPDATE workspace SET ado_sync = '{broken' WHERE name = 'repo-a'").run();
+    expect(listWorkspaces(db).find((w) => w.name === 'repo-a')?.adoSync).toBeNull();
   });
 });

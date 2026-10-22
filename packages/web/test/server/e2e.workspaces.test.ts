@@ -64,7 +64,7 @@ describe('e2e: two workspaces, two scoped workers, shared file DB', () => {
 
     // ── Human: create + queue A1, B1, A2 (interleaved on purpose) ────────────
     const mk = async (title: string, workspace: string) => {
-      const res = await post(app, '/api/tasks', { title, spec: 's', acceptanceCriteria: 'a', workspace });
+      const res = await post(app, '/api/tasks', { title, spec: 's', acceptanceCriteria: 'a', workspace, stage: 'implementation' });
       expect(res.status).toBe(201);
       const t = await res.json() as { key: string };
       expect((await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' })).status).toBe(200);
@@ -114,7 +114,7 @@ describe('e2e: two workspaces, two scoped workers, shared file DB', () => {
     const workerRescue = createCore(dbWorkerB);
     const app = buildApp(coreHuman);
 
-    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a' });
+    const created = await post(app, '/api/tasks', { title: 'T', spec: 's', acceptanceCriteria: 'a', stage: 'implementation' });
     const t = await created.json() as { key: string };
     await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' });
 

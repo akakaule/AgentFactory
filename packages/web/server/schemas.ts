@@ -9,11 +9,12 @@ export const workspaceBody = z.object({ name: workspaceSlug, repoPath: z.string(
 // is a defining field (string re-points the workspace, never null). ≥1 field enforced by core.
 // `pat` is the git-host credential (write-only — GET never returns it, only workspace.hasPat).
 // `promptOverrides` is a full agent-prompt override map (unknown keys / blanks handled by core).
+// `adoSync` is the Azure DevOps work-item import settings object (validated by core; null clears).
 export const workspaceUpdateBody = z
-  .object({ repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional(), promptOverrides: z.record(z.string(), z.string()).optional() })
+  .object({ repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional(), promptOverrides: z.record(z.string(), z.string()).optional(), adoSync: z.record(z.string(), z.unknown()).nullable().optional() })
   .refine(
-    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync)',
   );
 // Global agent system prompts: a map of prompt-key → text (a blank value clears that key). Keys are
 // validated against the known set in core (setGlobalPrompts ignores unknown keys).
@@ -41,6 +42,11 @@ export const updateBody = z.object({
 export const commentBody = z.object({ body: z.string().min(1) });
 export const statusBody = z.object({ status: StatusEnum, note: z.string().optional(), expectedRevision: z.string().optional(), reason: z.string().optional() });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
+// Approve: the human's reason for approving over must-fix issues or open decisions (core decides
+// when one is required). Blank normalizes to absent so core's message, not zod's, explains it.
+export const approveBody = z.object({
+  reason: z.string().max(2000, 'reason must be at most 2000 characters').transform((s) => s.trim() || undefined).optional(),
+});
 // "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
 export const prReviewedBody = z.object({ review: z.string().optional() });
 // A human's PR-review comment forwarded onto a delivering task for critical evaluation.

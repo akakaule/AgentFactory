@@ -125,7 +125,7 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(6);
+    expect(payload.protocol.version).toBe(8);
     expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
@@ -254,6 +254,36 @@ describe('ai-review activity strip', () => {
     const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
     expect(payload.key).toBe(t.key);
     expect(payload.aiReview).toBeNull();
+    expect(payload.reviewBrief).toBeNull();
+  });
+
+  it('get_task, list_tasks, submit_result and update_status never carry the review brief or the review comments', async () => {
+    const { client, core } = await makeClient();
+    const t = reviewedTask(core);
+    expect(core.getTask(t.key).reviewBrief?.issues.map((i) => i.title)).toEqual(['Unbounded loop']); // board sees it
+    const reviewComment = (a: { type: string; body: string }) => a.type === 'comment' && a.body.startsWith('ai-review/');
+
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect([detail.aiReview, detail.reviewBrief]).toEqual([null, null]);
+    // list_tasks keeps the verdict and count, never a finding: an MCP reviewer (/review-task) uses it
+    // to tell which in-review tasks still need a review
+    const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: {} })));
+    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[{ verdict: 'findings', findings: 1, reviewer: 'codex', items: [] }, null]]);
+    expect(JSON.stringify(listed)).not.toContain('Unbounded loop');
+
+    // a second round: the agent's own submit and status responses carry the full detail
+    core.reviewRequestChanges(t.key, { feedback: 'fix the loop' });
+    core.claimNextTask();
+    const submitted = JSON.parse(textOf(await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'fixed' } })));
+    expect(submitted.status).toBe('in_review');
+    expect([submitted.aiReview, submitted.reviewBrief]).toEqual([null, null]);
+    expect(submitted.activity.some(reviewComment)).toBe(false);
+
+    core.reviewRequestChanges(t.key, { feedback: 'again' });
+    core.claimNextTask();
+    const blocked = JSON.parse(textOf(await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'blocked', note: 'stuck' } })));
+    expect([blocked.aiReview, blocked.reviewBrief]).toEqual([null, null]);
+    expect(blocked.activity.some(reviewComment)).toBe(false);
   });
 
   it('get_task also hides the delivering-feedback markers (pr-feedback/v1, feedback-eval/v1)', async () => {
@@ -399,6 +429,23 @@ describe('submit_result', () => {
     });
     expect(res.isError).toBeFalsy();
     expect(core.getTask(t.key).metrics).toMatchObject({ tokensIn: null, tokensOut: null, costUsd: null, model: null });
+  });
+
+  it('the claim lists the criterion ids and the submit takes one claim per criterion', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ title: 'Claims', spec: 's', acceptanceCriteria: '1. Race — one claim wins\n2. Logs — one line' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const claimed = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(claimed.protocol.finish.join('\n')).toContain('Ids: AC1 Race, AC2 Logs.');
+
+    const wrong = await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'done', criteria: [{ id: 'AC3', claim: 'x' }] } });
+    expect(wrong.isError).toBe(true);
+    expect(textOf(wrong)).toContain('unknown criterion AC3; this task has AC1–AC2');
+
+    const ok = await client.callTool({ name: 'submit_result', arguments: { key: t.key, summary: 'done', criteria: [{ id: 'AC1', claim: 'race.test.ts proves it.' }] } });
+    expect(ok.isError).toBeFalsy();
+    expect(JSON.parse(textOf(ok)).criteriaClaims).toEqual([{ id: 'AC1', claim: 'race.test.ts proves it.' }]); // the agent's own data stays
+    expect(core.getTask(t.key).criteriaClaims).toEqual([{ id: 'AC1', claim: 'race.test.ts proves it.' }]);
   });
 
   it('returns isError when submitting result on a backlog task', async () => {
@@ -699,10 +746,10 @@ describe('create_task', () => {
     expect(JSON.parse(textOf(res)).workspace).toBe('team-a');
   });
 
-  it('requires acceptanceCriteria unless the stage is description', async () => {
+  it('requires acceptanceCriteria at the implementation stage only', async () => {
     const { client } = await makeClient();
-    // default (implementation) stage without AC → rejected with the field named
-    const bad = await client.callTool({ name: 'create_task', arguments: { title: 'No AC', spec: 'spec' } });
+    // explicit implementation stage without AC → rejected with the field named
+    const bad = await client.callTool({ name: 'create_task', arguments: { title: 'No AC', spec: 'spec', stage: 'implementation' } });
     expect(bad.isError).toBe(true);
     expect(textOf(bad).toLowerCase()).toContain('acceptancecriteria');
     // description stage writes its own AC → accepted without it
@@ -710,5 +757,12 @@ describe('create_task', () => {
     const task = JSON.parse(textOf(ok));
     expect(task.status).toBe('backlog');
     expect(task.stage).toBe('description');
+  });
+
+  it('defaults a new task to the spec (description) stage — the default flow', async () => {
+    const { client } = await makeClient();
+    const res = await client.callTool({ name: 'create_task', arguments: { title: 'Idea', spec: 'raw intent' } });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(textOf(res)).stage).toBe('description');
   });
 });

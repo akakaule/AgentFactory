@@ -1,6 +1,7 @@
 import type { DB } from '../db.js';
 import type { Workspace } from '../types.js';
 import type { AgentPrompts } from '../agentPrompts.js';
+import { parseAdoSyncSettings, type AdoSyncSettings } from '../adoSync.js';
 import { NotFoundError } from '../errors.js';
 
 export interface WorkspaceRow {
@@ -9,6 +10,7 @@ export interface WorkspaceRow {
   policy: string | null; verify_command: string | null;
   pat: string | null; // the git-host credential — SECRET; never leaves core (masked to hasPat below)
   prompt_overrides: string | null; // JSON map of per-workspace agent system-prompt overrides (#20)
+  ado_sync: string | null; // JSON AdoSyncSettings — Azure DevOps work-item import (#27)
 }
 
 /** Parse the stored prompt-overrides JSON (written already-cleaned by updateWorkspaceFields). */
@@ -25,6 +27,7 @@ export function toWorkspace(r: WorkspaceRow): Workspace {
     policy: r.policy, verifyCommand: r.verify_command,
     hasPat: r.pat != null && r.pat !== '',
     promptOverrides: parseOverrides(r.prompt_overrides),
+    adoSync: parseAdoSyncSettings(r.ado_sync),
   };
 }
 /** The raw stored PAT for a workspace, or null. Internal-only (git-auth resolution / watcher) —
@@ -43,12 +46,13 @@ export function requireWorkspaceByName(db: DB, name: string): WorkspaceRow {
 }
 export function insertWorkspace(db: DB, name: string, repoPath: string, ts: string): Workspace {
   const info = db.prepare('INSERT INTO workspace(name, repo_path, created_at) VALUES (?, ?, ?)').run(name, repoPath, ts);
-  return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {} };
+  return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {}, adoSync: null };
 }
 
 /** Patch a workspace's editable fields: repoPath (defining, non-null), the discipline fields
  *  (policy / verify_command), the git PAT (null clears it), and/or the agent prompt overrides
- *  (a cleaned map — empty ⇒ stored NULL). Only keys present in `fields` are written.
+ *  (a cleaned map — empty ⇒ stored NULL), and/or the ADO work-item import settings (null clears).
+ *  Only keys present in `fields` are written.
  *  Every write stamps updated_at (#23) — getVersion() folds it in, so edits reach open clients. */
 export function updateWorkspaceFields(
   db: DB,
@@ -56,6 +60,7 @@ export function updateWorkspaceFields(
   fields: {
     repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined;
     pat?: string | null | undefined; promptOverrides?: AgentPrompts | undefined;
+    adoSync?: AdoSyncSettings | null | undefined;
   },
   ts: string,
 ): void {
@@ -68,6 +73,9 @@ export function updateWorkspaceFields(
   if ('promptOverrides' in fields && fields.promptOverrides !== undefined) {
     const o = fields.promptOverrides;
     sets.push('prompt_overrides = ?'); vals.push(Object.keys(o).length > 0 ? JSON.stringify(o) : null);
+  }
+  if ('adoSync' in fields && fields.adoSync !== undefined) {
+    sets.push('ado_sync = ?'); vals.push(fields.adoSync === null ? null : JSON.stringify(fields.adoSync));
   }
   if (sets.length === 0) return;
   sets.push('updated_at = ?'); vals.push(ts);

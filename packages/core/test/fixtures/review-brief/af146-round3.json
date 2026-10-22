@@ -1,0 +1,322 @@
+{
+  "source": "AF-146 activity 2989 (round 3), trimmed",
+  "acceptanceCriteria": "1. Stale fence — given the task claimed as execution E1, released, and reclaimed as E2: submit_result, report_progress, add_comment and attach-visualization calls carrying E1 are rejected (execution-mismatch error / HTTP 409), and the task's status, result and activity are unchanged. Proven over local core AND the HTTP agent API.\n2. Unfenced calls — while an execution is live, an agent mutation with no executionId is rejected; with no live execution, claim-less interactive calls (e.g. /review-task) still succeed.\n3. Idempotent submit — retrying an identical successful submit by E1 returns success and adds no activity rows; it does not affect a newer execution E2.\n4. Race — two supervisors reserving the same queued task produce exactly one execution record and one successful claim.\n5. Crash recovery — kill the stub worker tree (a) after reservation but before spawn and (b) after the execution is marked running; restart the dispatcher: the task is re-queued and respawned exactly once (one new execution, one failure/v1 note).\n6. Liveness — a slow local worker and a remote (HTTP) worker with fresh heartbeats are NOT reaped when the test clock advances past maxSessionMinutes.\n7. Reviewer generation — a review verdict bound to submission N is rejected after the task is resubmitted as N+1; an older reviewer execution never becomes current again after a newer execution settles.\n8. Version gate — a supervisor lacking capability execution-fence/v1 fails its startup whoami with an error naming the required coordinated restart.\n\nEach item is covered by an automated test that was observed failing before the implementation (RED) and passing after (GREEN). Fault injection uses temporary DBs/repos and stub processes only.",
+  "review": {
+    "reviewer": "claude/claude-fable-5-1 + codex/gpt-6-astra (medium)",
+    "verdict": "disputed",
+    "findings": [
+      {
+        "title": "AC6 liveness not met: wall-clock kill ignores heartbeats",
+        "severity": "error",
+        "file": "packages/dispatcher/src/dispatcher.ts",
+        "line": 253,
+        "detail": "enforceTimeouts() (dispatcher, and reviewer.ts:251) still terminates any session once now - startedAtMs > maxSessionMinutes regardless of execution/agent-session heartbeats; touchExecution only feeds reconcileExecutions' 30s grace for pre-claim reservations. A slow local worker or remote HTTP worker with fresh heartbeats IS reaped when the clock passes maxSessionMinutes, and no test asserts otherwise (only 'keeps a live pre-claim execution when its heartbeat is fresh' at the core level). Either gate the timeout kill on heartbeat staleness (e.g. kill only when both cap exceeded AND last heartbeat older than a configurable idle window) and add the clock-controlled dispatcher test for local + HTTP workers, or get the criterion re-stated before merge."
+      },
+      {
+        "title": "AC7 has no reviewer-level test",
+        "severity": "warning",
+        "file": "packages/reviewer/src/reviewer.ts",
+        "line": 822,
+        "detail": "packages/reviewer/test is untouched. The mechanism (reviewer execution reserved via reserveExecution; a resubmission creates a newer worker execution so the old fence fails assertExecutionOwnership on the verdict addComment) looks correct, but the only related test is core-level reportProgress from an older reserved execution. Add a reviewer test: reserve+launch a review of submission N, request-changes → reclaim → resubmit N+1 while it runs, then have the session post its verdict and assert rejection with no activity row and the attempt not burned twice."
+      },
+      {
+        "title": "Pending-reservation fallback ignores the workspace filter",
+        "severity": "warning",
+        "file": "packages/core/src/ops/claimNextTask.ts",
+        "line": 87,
+        "detail": "When oldestQueuedRow finds nothing, the fallback picks the oldest 'reserved' execution with owner IS NULL (or matching label) across ALL tasks and claims it via findQueuedById, which does not check workspace_id. A worker pinned to workspace A can claim a task in workspace B whose execution was reserved without an owner (the HTTP /execution/reserve route accepts owner-less reservations from any service token). Add `AND t.workspace_id = ?` (when workspaceId is defined) to the pending query / findQueuedById check, matching the explicit-executionId branch above it."
+      },
+      {
+        "title": "Reservation does not exclude another live execution",
+        "severity": "error",
+        "file": "packages/core/src/ops/execution.ts",
+        "line": 19,
+        "detail": "With maxAttempts >= 2, two supervisors reserving the same queued task both succeed: reserveRetry only checks remaining budget, and createExecution has no ownership exclusion. Both supervisors can spawn, and the newer reservation invalidates the first worker's fence. Check task eligibility and existing execution ownership inside the reservation transaction before consuming budget; add the two-supervisor race test required by criterion 4."
+      }
+    ],
+    "consensus": {
+      "participants": [
+        "claude/claude-fable-5-1",
+        "codex/gpt-6-astra (medium)"
+      ],
+      "candidates": [
+        {
+          "id": "F1",
+          "source": "claude/claude-fable-5-1",
+          "finding": {
+            "severity": "error",
+            "file": "packages/dispatcher/src/dispatcher.ts",
+            "line": 253,
+            "title": "AC6 liveness not met: wall-clock kill ignores heartbeats",
+            "detail": "enforceTimeouts() (dispatcher, and reviewer.ts:251) still terminates any session once now - startedAtMs > maxSessionMinutes regardless of execution/agent-session heartbeats; touchExecution only feeds reconcileExecutions' 30s grace for pre-claim reservations. A slow local worker or remote HTTP worker with fresh heartbeats IS reaped when the clock passes maxSessionMinutes, and no test asserts otherwise (only 'keeps a live pre-claim execution when its heartbeat is fresh' at the core level). Either gate the timeout kill on heartbeat staleness (e.g. kill only when both cap exceeded AND last heartbeat older than a configurable idle window) and add the clock-controlled dispatcher test for local + HTTP workers, or get the criterion re-stated before merge."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "Verified at 4699e45: packages/dispatcher/src/dispatcher.ts:248-265 enforceTimeouts() kills the process tree whenever `now - session.startedAtMs > capMs` with no heartbeat or liveness input; touchLiveSessions/touchExecution only refresh heartbeats consumed by reapStaleClaims and reconcileExecutions, never by this kill decision. reviewer.ts:251 has the same `now - session.startedAtMs > capMs` condition. The retained dispatcher test at dispatcher.test.ts:905 ('kills a session past maxSessionMinutes, releases its claim, and retries') asserts the opposite of AC6, and the only new dispatcher test (line 1124) covers restart/orphan recovery, not liveness. No clock-controlled local or HTTP liveness test exists. Both peers agree; AC6 is unmet and the submitter's item 6 claim is not supported by the diff.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "At pinned head 4699e45, dispatcher.ts enforceTimeouts kills running sessions solely when now - startedAtMs exceeds capMs. tick refreshes heartbeats through touchLiveSessions first, but the timeout condition never consults them. Both reviewers' evidence supports a direct AC6 violation.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "confirmed"
+        },
+        {
+          "id": "F2",
+          "source": "claude/claude-fable-5-1",
+          "finding": {
+            "severity": "warning",
+            "file": "packages/reviewer/src/reviewer.ts",
+            "line": 822,
+            "title": "AC7 has no reviewer-level test",
+            "detail": "packages/reviewer/test is untouched. The mechanism (reviewer execution reserved via reserveExecution; a resubmission creates a newer worker execution so the old fence fails assertExecutionOwnership on the verdict addComment) looks correct, but the only related test is core-level reportProgress from an older reserved execution. Add a reviewer test: reserve+launch a review of submission N, request-changes → reclaim → resubmit N+1 while it runs, then have the session post its verdict and assert rejection with no activity row and the attempt not burned twice."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "git diff --stat 1a66171..4699e45 shows no change under packages/reviewer/test. Mechanism in reviewer.ts:582-603 (reserveSession → reserveExecution with startImmediately) and :822 (verdict addComment carries session.executionId) does fence a stale verdict via assertExecutionOwnership, and the catch at :824-828 cancels/refunds the retry rather than burning it, so behaviour is plausibly correct. But AC7 requires an observed RED/GREEN test and the only coverage is core-level execution.test.ts 'does not resurrect an older active execution' using reportProgress, not a verdict after resubmission N+1. Verification gap, not a proven behaviour bug, so warning.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "The pinned diff leaves packages/reviewer/test unchanged. core/test/execution.test.ts exercises rejection of an older execution's reportProgress, not a verdict from submission N arriving after N+1. Agree with both reviewers that the required scenario lacks demonstrated automated coverage; this confirms a verification gap, not a proven failure of verdict fencing.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "confirmed"
+        },
+        {
+          "id": "F3",
+          "source": "claude/claude-fable-5-1",
+          "finding": {
+            "severity": "warning",
+            "file": "packages/core/src/ops/execution.ts",
+            "line": 32,
+            "title": "AC5(a) crash-before-spawn: no failure/v1 note and no dispatcher test",
+            "detail": "A dispatcher killed after reserveExecution(startImmediately) but before spawn leaves a 'running' execution on a queued task; reconcileExecutions cancels it and refunds the retry silently, and the next tick re-reserves. That gives one new execution but no failure/v1 note, and there is no dispatcher test for this path (the new test covers only the stale in_progress claim). Either post the recovery note from the dispatcher when reconcileExecutions returns >0 for a task it then respawns, or add the dispatcher-level test and state explicitly that a never-spawned attempt leaves no note."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "dispatcher.ts:491-495 reserves with startImmediately:true before spawnSession; a crash in that window leaves a 'running' execution on a queued task. core ops/execution.ts reconcileExecutions cancels it and settleRetryRow refunds the slot with no appendActivity; dispatcher.ts:184-187 just calls it and warns on error, and reapStaleClaims only scans in_progress tasks, so no failure/v1 note is ever written for AC5(a). The one new dispatcher test covers only the in_progress orphan (5b). Codex argues error; I keep warning because the recovery itself works (one cancelled execution, one re-reservation after the 30s grace, no duplicate spawn) and only the note plus the test are missing. Either way the criterion is not fully demonstrated.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "dispatcher.ts reserves with startImmediately:true before spawning. core/src/ops/execution.ts:32-44 cancels abandoned queued executions and refunds retries without appending activity. The dispatcher ignores the reconciliation count, and reapStaleClaims scans only in_progress tasks. Agree on the missing failure/v1 note; retain error rather than the peer's warning because AC5 expressly requires that note for pre-spawn recovery.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "disputed"
+        },
+        {
+          "id": "F4",
+          "source": "claude/claude-fable-5-1",
+          "finding": {
+            "severity": "warning",
+            "file": "packages/core/src/ops/claimNextTask.ts",
+            "line": 87,
+            "title": "Pending-reservation fallback ignores the workspace filter",
+            "detail": "When oldestQueuedRow finds nothing, the fallback picks the oldest 'reserved' execution with owner IS NULL (or matching label) across ALL tasks and claims it via findQueuedById, which does not check workspace_id. A worker pinned to workspace A can claim a task in workspace B whose execution was reserved without an owner (the HTTP /execution/reserve route accepts owner-less reservations from any service token). Add `AND t.workspace_id = ?` (when workspaceId is defined) to the pending query / findQueuedById check, matching the explicit-executionId branch above it."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "claimNextTask.ts pending-reservation fallback queries `task_execution WHERE state='reserved' AND (owner IS NULL OR ? LIKE owner||'-a%')` with no workspace join, then findQueuedById checks only `status='queued' AND archived_at IS NULL`, skipping workspace_id and the pr-review/unmet-dependency/delivery guards that oldestQueuedRow enforces. The fallback runs only when oldestQueuedRow returned nothing, so any task it adopts is by construction outside the requested workspace or otherwise ineligible. The explicit-executionId branch does check workspaceId; this path does not. agentOps.ts:110 accepts owner omitted on /execution/reserve, so owner-null reservations are reachable. Both peers agree.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "claimNextTask.ts:87-95 selects pending reservations without a workspace predicate; findQueuedById likewise omits workspace validation. With no eligible task in workspace A and an ownerless reserved queued task in B, a claim scoped to A can claim B. The HTTP execution/reserve route accepts omitted owner. Both reviewers' concrete cross-workspace scenario is supported.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "confirmed"
+        },
+        {
+          "id": "F5",
+          "source": "claude/claude-fable-5-1",
+          "finding": {
+            "severity": "info",
+            "file": "packages/core/src/ops/submitResult.ts",
+            "line": 55,
+            "title": "Submit retry stops being idempotent once the reviewer reserves",
+            "detail": "The acknowledgement path requires latestExecution to be the worker's succeeded execution. The reviewer supervisor reserves its own execution on the next poll (seconds after in_review), after which a retried submit by the worker returns 'execution … is not the current execution' (409) instead of success. State is unchanged so this is safe, but the worker/agent sees an error for a lost-response retry. Consider accepting the retry when the given execution is the latest *worker* execution in state succeeded, regardless of later reviewer executions."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "submitResult.ts acknowledgement requires `latestExecution.id === executionId && state==='succeeded' && currentExecution===undefined`. reviewer.ts:582-603 reserves its own execution (startImmediately:true) on its next poll after in_review, making the reviewer row latest/current; a worker's lost-response retry of an identical submit then falls to assertExecutionOwnership and throws (HTTP 409) instead of returning success. AC3 says the retry 'returns success'. Codex rates this error; I raise my own info to warning: task state is unchanged and E2 is unaffected, so nothing breaks, but the AC3 guarantee only holds in the window before the reviewer reserves, which in production is seconds. Fix is small: accept a retry whose executionId is the latest succeeded worker-operation execution regardless of later reviewer executions.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "submitResult.ts:55 requires the succeeded worker execution to remain latest and currentExecution to be absent before acknowledging a retry. reviewer.ts reserveSession creates a newer execution, so an identical lost-response retry then fails ownership validation. Agree with the peer's behavior analysis but retain error: AC3 requires successful acknowledgment without affecting a newer execution; unchanged state alone does not satisfy it.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "disputed"
+        },
+        {
+          "id": "F6",
+          "source": "codex/gpt-6-astra (medium)",
+          "finding": {
+            "severity": "error",
+            "file": "packages/core/src/ops/execution.ts",
+            "line": 19,
+            "title": "Reservation does not exclude another live execution",
+            "detail": "With maxAttempts >= 2, two supervisors reserving the same queued task both succeed: reserveRetry only checks remaining budget, and createExecution has no ownership exclusion. Both supervisors can spawn, and the newer reservation invalidates the first worker's fence. Check task eligibility and existing execution ownership inside the reservation transaction before consuming budget; add the two-supervisor race test required by criterion 4."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "repo/retry.ts:113-137 reserveRetry only does `UPDATE retry_budget SET attempts_used+1 WHERE attempts_used < max_attempts`; ops/execution.ts reserveExecution then createExecution with no check of task status or an existing reserved/running execution, and task_execution has no uniqueness constraint on live rows per task. With maxAttempts >= 2 (dispatcher default), two dispatchers serializing through the same transaction both get a running execution on one queued task; currentExecution() returns only the newest row, so the second reservation becomes current and the first worker's fenced submit/progress are rejected, while the second worker's claim fails 'not claimable' once the task is in_progress. Result: two execution records, a burned attempt, and the live worker fenced out. git grep at 4699e45 finds no two-supervisor race test in core, web or dispatcher tests. AC4 unmet.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "ops/execution.ts reserveExecution calls reserveRetry and createExecution without checking existing ownership. repo/retry.ts reserveRetry guards only remaining budget, and task_execution has no constraint excluding concurrent live reservations. With two available attempts, two serialized supervisor reservations both succeed. The peer's corrected cross-examination supersedes its initial claim that AC4 was implemented; transaction atomicity does not enforce exclusive ownership.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "confirmed"
+        },
+        {
+          "id": "F7",
+          "source": "codex/gpt-6-astra (medium)",
+          "finding": {
+            "severity": "error",
+            "file": "packages/dispatcher/src/dispatcher.ts",
+            "line": null,
+            "title": "Healthy workers are still killed at the session age limit",
+            "detail": "enforceTimeouts still kills every running process tree once now - startedAtMs exceeds maxSessionMinutes, regardless of fresh heartbeats or process liveness. Calling touchLiveSessions earlier in tick does not change that decision. This directly fails criterion 6. Reconcile heartbeat freshness and process liveness before terminating, and test a healthy worker past the configured age limit."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "Same code path (dispatcher.ts:253 `now - session.startedAtMs > capMs`), same AC6 failure and same heartbeat-aware remedy as F1. Independently re-verified at the pinned head.",
+              "duplicateOf": "F1"
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "Independently confirmed the age-only kill condition in dispatcher.ts enforceTimeouts despite preceding heartbeat refreshes. Both reviewers identify the same AC6 failure and heartbeat-aware remedy as F1.",
+              "duplicateOf": "F1"
+            }
+          ],
+          "outcome": "confirmed"
+        },
+        {
+          "id": "F8",
+          "source": "codex/gpt-6-astra (medium)",
+          "finding": {
+            "severity": "error",
+            "file": "packages/core/src/repo/execution.ts",
+            "line": 79,
+            "title": "Anonymous claims bypass execution fencing",
+            "detail": "claimNextTask permits omitted claimedBy and creates a running execution with owner = null. assertExecutionOwnership then accepts mutations without executionId because rejection depends on owner being non-null. An anonymous HTTP claim therefore allows unfenced submit, progress, comments, and visualization while live, violating criterion 2; an unfenced submit also leaves its execution running. Require the fence for every live execution regardless of owner."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "repo/execution.ts assertExecutionOwnership with executionId undefined throws only when `latest.owner !== null` and live. claimNextTask creates the execution with `owner: claimedBy ?? null`; agentOps.ts:11 claimBody has claimedBy optional and mcp getNextTask.ts:30 passes opts.workerLabel, which is undefined for an interactive session without a label. A live owner-null execution therefore accepts unfenced submit/progress/comment/visualization, and submitResult only settles when executionId is supplied, leaving the row 'running'. This deviates from AC2's literal 'while an execution is live'. I keep warning rather than codex's error: dispatcher-spawned workers always carry a label (dispatcher.ts:494 owner, worker label env), so exposure is limited to anonymous HTTP/interactive claims, and the unfenced-while-live case for owned claims is tested at agentOps.test.ts:91. Remedy is one-line: drop the owner condition.",
+              "duplicateOf": null
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "web/server/routes/agentOps.ts permits and forwards omitted claimedBy. claimNextTask creates owner:null, and repo/execution.ts:79 rejects missing executionId only when owner is non-null. Anonymous live claims therefore accept unfenced mutations; submitResult also skips execution settlement when executionId is absent. Retain error despite the peer's warning: AC2 applies to every live execution, including anonymous claims.",
+              "duplicateOf": null
+            }
+          ],
+          "outcome": "disputed"
+        },
+        {
+          "id": "F9",
+          "source": "codex/gpt-6-astra (medium)",
+          "finding": {
+            "severity": "error",
+            "file": "packages/core/src/ops/execution.ts",
+            "line": 40,
+            "title": "Pre-spawn crash recovery omits the required failure note",
+            "detail": "After a supervisor dies between reservation and spawn, reconciliation cancels the execution and refunds its retry slot without appending any activity. The task remains queued, so the stale-claim reaper never supplies the missing failure/v1 note. Criterion 5 requires exactly one such note for this recovery. Record it atomically with the successful reconciliation and test repeated restart ticks for one replacement execution and one note."
+          },
+          "votes": [
+            {
+              "reviewer": "claude/claude-fable-5-1",
+              "decision": "confirm",
+              "severity": "warning",
+              "evidence": "Same defect as F3: reconcileExecutions settles/refunds the abandoned pre-spawn execution with no activity row, and neither the dispatcher wrapper nor reapStaleClaims (in_progress only) supplies the failure/v1 note. Same root cause, behaviour and remedy; severity reasoning as in F3.",
+              "duplicateOf": "F3"
+            },
+            {
+              "reviewer": "codex/gpt-6-astra (medium)",
+              "decision": "confirm",
+              "severity": "error",
+              "evidence": "ops/execution.ts reconciliation settles/refunds abandoned pre-spawn executions without activity, while the dispatcher neither publishes a reconciliation note nor scans queued tasks in reapStaleClaims. This is the same missing AC5 failure/v1 note and remedy as F3. Recovery succeeding does not remove the explicit acceptance failure.",
+              "duplicateOf": "F3"
+            }
+          ],
+          "outcome": "disputed"
+        }
+      ],
+      "history": [
+        {
+          "phase": "discovery",
+          "reviewer": "claude/claude-fable-5-1",
+          "body": "Discovery review (trimmed for the fixture)."
+        },
+        {
+          "phase": "cross-examination",
+          "reviewer": "codex/gpt-6-astra (medium)",
+          "body": "Cross-examination ballot (trimmed for the fixture)."
+        },
+        {
+          "phase": "final-ballot",
+          "reviewer": "claude/claude-fable-5-1",
+          "body": "Final ballot (trimmed for the fixture)."
+        }
+      ],
+      "submission": {
+        "key": "AF-146",
+        "fingerprint": "fixture",
+        "headSha": "4699e45c9e47e9d45971b156c4f7773b86e3cfc3",
+        "baseSha": "1a661719f4ea80aef1164579c248cabe98be8072"
+      },
+      "status": "disputed"
+    }
+  }
+}

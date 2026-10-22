@@ -64,7 +64,7 @@ See `packages/dispatcher/README.md` for the config reference (workspaces, concur
 
 ### Run the reviewer (unattended AI review)
 
-Beside the dispatcher, the **reviewer** turns the `in_review` column into automated first-pass review with no human in the loop. It polls for tasks that still need a review and spawns **one fresh headless engine session per task** — **codex** by default (an independent second opinion on the dispatcher's Claude work) or claude — feeding the diff (implementation) or deliverable (description/plan) on STDIN and posting an `ai-review/v1` verdict back. It is advisory: a clean doc-stage verdict auto-advances the task; findings and the implementation stage stay for the human gate.
+Beside the dispatcher, the **reviewer** turns the `in_review` column into automated first-pass review with no human in the loop. It polls for tasks that still need a review and spawns **one fresh headless engine session per task** — **codex** by default (an independent second opinion on the dispatcher's Claude work) or claude — feeding the diff (implementation) or deliverable (the spec, or a legacy plan) on STDIN and posting an `ai-review/v1` verdict back. It is advisory: a clean doc-stage verdict auto-advances the task; findings and the implementation stage stay for the human gate.
 
 ```bash
 npm run reviewer -- path/to/reviewer.config.json
@@ -119,6 +119,35 @@ To drive agents across multiple repos from one board:
 ```
 
 A pinned worker only ever claims its own workspace's tasks. The claimed payload carries `repoPath`, and the agent creates its per-task worktree under `<repoPath>/.worktrees/<key>`. See `packages/mcp/README.md` for details, including the unpinned "roaming" mode.
+
+### Azure DevOps work-item import
+
+A workspace whose `origin` is on Azure DevOps can import work items straight from its backlog. This replaces ado-bridge's `Run-AdoBridgeLoop.ps1`. Open **Workspaces → Edit**, expand **Azure DevOps work items**, tick **Import work items from Azure DevOps**, set the filters, and Save. The organization and project come from the origin. The section shows the WIQL query the watcher runs.
+
+On every poll, the **watcher** does the following for each enabled workspace:
+
+- **Claims** matching items: it assigns them to *Assign to* (default: the PAT's owner) and sets them to the *On claim* state.
+- **Imports** each item as an `AB#<id>: <title>` task at the chosen stage (default Spec), queued for the dispatcher. The spec is the work-item link plus its description.
+- **Tags** the item `agentfactory` and `AF:<key>`.
+- **Writes back:**
+  - implementation in review → *In review* (default `Resolved`; blank turns it off);
+  - task done, meaning its PR merged → *Done* (default `Closed`), with the result summary.
+
+  Items moved by hand are left alone.
+
+The workspace PAT (or `AZDO_PAT_<WORKSPACE>` / `AZDO_PAT`) needs **Work Items (Read & write)** in addition to Code (Read & write). `syncWorkItems: false` in `watcher.config.json` turns the import off everywhere.
+
+Moving a repo off ado-bridge: stop its `Run-AdoBridgeLoop`, then copy its `ado-bridge.config.json` into the workspace settings. Tasks the bridge already imported carry the same `AB#` prefix and tags, so nothing is imported twice.
+
+| `ado-bridge.config.json` | Workspace setting |
+|---|---|
+| `organization`, `project` | read from the git origin |
+| `workItemType` | Work item types (a list) |
+| `newStates`, `areaPath`, `iterationPath`, `requiredTag`, `orderBy` | New states, Area path, Iteration path, Required tag, Order by |
+| `agentIdentity` | Assign to (blank = PAT owner) |
+| `claimState`, `reviewState`, `closeState`, `markerTag`, `maxDescriptionChars` | same |
+| `prCompletedState` | dropped: done already means the PR merged |
+| `afBaseUrl`, `afWorkspace`, `credentialTarget` | not needed (the workspace PAT is used) |
 
 ### Stranded claims
 

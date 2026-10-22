@@ -65,13 +65,30 @@ describe('tasks REST API', () => {
       expect(body.acceptanceCriteria).toContain('description stage');
     });
 
-    it('POST / without acceptanceCriteria and without the description stage → 400', async () => {
-      const res = await post(app, '/api/tasks', { title: 'T', spec: 'S' });
+    it('POST / without acceptanceCriteria at the implementation stage → 400', async () => {
+      const res = await post(app, '/api/tasks', { title: 'T', spec: 'S', stage: 'implementation' });
       expect(res.status).toBe(400);
     });
 
+    it('POST / with no stage enters a code task at the spec (description) stage — the default flow', async () => {
+      const res = await post(app, '/api/tasks', { title: 'T', spec: 'raw intent' });
+      expect(res.status).toBe(201);
+      const body = await res.json() as { stage: string; kind: string };
+      expect(body.stage).toBe('description');
+      expect(body.kind).toBe('code');
+    });
+
+    it('POST / with no stage keeps a pr-review task at implementation (its only stage)', async () => {
+      const res = await post(app, '/api/tasks', {
+        title: 'Review PR', spec: 'S', acceptanceCriteria: 'A', kind: 'pr-review',
+        links: [{ kind: 'branch', label: 'feature/x', url: 'feature/x' }],
+      });
+      expect(res.status).toBe(201);
+      expect((await res.json() as { stage: string }).stage).toBe('implementation');
+    });
+
     it('task payloads carry stage and plan', async () => {
-      const created = await (await post(app, '/api/tasks', { title: 'T', spec: 'S', acceptanceCriteria: 'A' })).json() as { key: string };
+      const created = await (await post(app, '/api/tasks', { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' })).json() as { key: string };
       const detail = await (await app.request(`/api/tasks/${created.key}`)).json() as { stage: string; plan: string | null };
       expect(detail.stage).toBe('implementation');
       expect(detail.plan).toBeNull();
@@ -90,7 +107,7 @@ describe('tasks REST API', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { status: string; stage: string };
       expect(body.status).toBe('queued');
-      expect(body.stage).toBe('plan');
+      expect(body.stage).toBe('implementation');
     });
 
     it('POST /:key/status {done} on an in-review doc stage → 409 (no skipping the stage machine)', async () => {
@@ -439,6 +456,28 @@ describe('tasks REST API', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { status: string };
       expect(body.status).toBe('done');
+    });
+
+    it('approving over a must-fix issue needs a reason: 400 without one, 200 with one recorded', async () => {
+      const task = core.createTask({ title: 'Task', spec: 'Spec', acceptanceCriteria: '1. Race — one claim wins' });
+      core.updateStatus(task.key, 'queued', 'human');
+      core.claimNextTask();
+      core.submitResult(task.key, { summary: 'Done!' });
+      core.addComment(task.key, { actor: 'agent', body: 'ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"severity":"error","title":"AC1 race"}]}\n```' });
+
+      for (const body of [{}, { reason: '   ' }]) {
+        const res = await post(app, `/api/tasks/${task.key}/approve`, body);
+        expect(res.status).toBe(400);
+        expect((await res.json() as { message: string }).message).toMatch(/needs a reason/);
+      }
+      expect((await post(app, `/api/tasks/${task.key}/approve`, { reason: 'x'.repeat(2001) })).status).toBe(400);
+      expect(core.getTask(task.key).status).toBe('in_review');
+
+      const res = await post(app, `/api/tasks/${task.key}/approve`, { reason: 'Covered by the lock in AF-12.' });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { status: string; activity: Array<{ body: string }> };
+      expect(body.status).toBe('done');
+      expect(body.activity.map((a) => a.body)).toContain('override: approved over 1 must-fix\n\nReason: Covered by the lock in AF-12.');
     });
 
     it('approving a non-in_review task → 409', async () => {

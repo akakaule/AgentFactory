@@ -2,7 +2,7 @@ import type { TaskMetricsView } from '../types.js';
 import { fmtDur, fmtNum } from '../metrics.js';
 
 type Usage = NonNullable<TaskMetricsView['tokenBreakdown']>[number];
-const stageLabel = (stage: Usage['stage']) => stage === 'description' ? 'Description'
+const stageLabel = (stage: Usage['stage']) => stage === 'description' ? 'Spec'
   : stage === 'plan' ? 'Plan' : stage === 'implementation' ? 'Implementation' : 'Unknown';
 const exactTokens = (value: number | null) => value === null ? 'n/a' : value.toLocaleString('en-US');
 const sumTokens = (values: Array<number | null>) => values.every(v => v === null)

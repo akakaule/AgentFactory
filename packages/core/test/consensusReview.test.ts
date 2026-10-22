@@ -29,6 +29,17 @@ describe('consensus review safety', () => {
     expect(() => core.addComment(t.key, { actor: 'agent', body: 'ai-review/v2\n```json\n' + JSON.stringify(payload) + '\n```' })).toThrow(/submission changed/);
     expect(core.getTask(t.key).aiReview).toBeNull();
   });
+  it('a consensus carrying criteria, fix and vote reasons keeps them through parsing; one without them still parses', () => {
+    const withLinks = consensusBody(['confirm', 'confirm'])
+      .replaceAll('"detail":"The old identity is accepted."', '"detail":"The old identity is accepted.","criteria":["AC1"],"fix":"Compare the claim identity."')
+      .replaceAll('"duplicateOf":null', '"duplicateOf":null,"reason":"It lets a stale worker overwrite the claim."');
+    const parsed = parseAiReviewComment(withLinks);
+    expect(parsed?.findings).toEqual([{ ...finding, criteria: ['AC1'], fix: 'Compare the claim identity.' }]);
+    expect(parsed?.consensus?.candidates[0]?.votes.map(v => v.reason)).toEqual(['It lets a stale worker overwrite the claim.', 'It lets a stale worker overwrite the claim.']);
+    expect(parseAiReviewComment(consensusBody(['confirm', 'confirm']))?.findings).toEqual([finding]);
+    // the schemas stay strict: a reason over 300 characters fails the review rather than truncating it silently
+    expect(parseAiReviewComment(withLinks.replaceAll('It lets a stale worker overwrite the claim.', 'x'.repeat(301)))).toBeNull();
+  });
   it('recognizes v2 and derives disputes instead of an empty clean review', () => {
     expect(isAiReviewMarker(consensusBody())).toBe(true);
     expect(summarizeAiReview(parseAiReviewComment(consensusBody()), false)).toMatchObject({ verdict: 'disputed', findings: 0 });
@@ -49,7 +60,8 @@ describe('consensus review safety', () => {
     core.addComment(t.key, { actor: 'agent', body: consensusBody() });
     expect(core.getTask(t.key)).toMatchObject({ status: 'in_review', stage: 'description', aiReview: { verdict: 'disputed' } });
     expect(core.listTasks({ status: 'in_review' })[0]?.aiReview?.verdict).toBe('disputed');
-    core.reviewApprove(t.key);
-    expect(core.getTask(t.key).activity.some(a => a.body.includes('override:') && a.body.includes('dispute'))).toBe(true);
+    expect(() => core.reviewApprove(t.key)).toThrow(/needs a reason/); // the dispute is an open decision
+    core.reviewApprove(t.key, null, 'The guard covers it.');
+    expect(core.getTask(t.key).activity.some(a => a.body === 'override: approved over 1 open decision\n\nReason: The guard covers it.')).toBe(true);
   });
 });

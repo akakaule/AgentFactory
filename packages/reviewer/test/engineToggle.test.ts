@@ -48,7 +48,7 @@ describe('board engine toggles → reviewer', () => {
     await calls[0]!.child.exit(0);
     expect(calls).toHaveLength(1);
     // a clean single verdict still auto-advances the document stage
-    expect(core.getTask(key).stage).toBe('plan');
+    expect(core.getTask(key).stage).toBe('implementation');
     r.stop();
   });
 

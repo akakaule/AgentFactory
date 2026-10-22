@@ -71,8 +71,8 @@ describe('StatusTrail', () => {
       ['queued', 'in_progress'],
     ]);
     render(<StatusTrail activity={activity} current="in_progress" currentStage="implementation" />);
-    expect(screen.getByText('Describe')).toBeInTheDocument();
-    expect(screen.getByText('Plan')).toBeInTheDocument();
+    expect(screen.getByText('Spec')).toBeInTheDocument();
+    expect(screen.getByText('Plan')).toBeInTheDocument(); // legacy plan-stage history still renders
     expect(screen.getByText('Implement')).toBeInTheDocument();
     expect(screen.getAllByText('In Progress').length).toBeGreaterThan(0);
   });

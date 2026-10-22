@@ -26,7 +26,7 @@ describe('supervised consensus', () => {
     const s = setup('description'); await s.r.tick(); await s.finish(aiReviewBody(0));
     expect(s.core.getTask(s.key).status).toBe('in_review');
     await s.finish(aiReviewBody(0));
-    expect(s.core.getTask(s.key)).toMatchObject({ status: 'queued', stage: 'plan' });
+    expect(s.core.getTask(s.key)).toMatchObject({ status: 'queued', stage: 'implementation' });
     expect(s.calls).toHaveLength(2);
   });
   it('rejects a malformed discussion ballot without publishing a partial review', async () => {
@@ -53,6 +53,18 @@ describe('supervised consensus', () => {
     expect(s.core.getTask(s.key).failure).toBeNull();
     expect(s.core.getTask(s.key).aiReview).toMatchObject({ verdict: 'findings', findings: 1, consensus: { status: 'agreed' } });
     expect(s.core.getTask(s.key).activity.filter(a => a.body.startsWith('ai-review/v2'))).toHaveLength(1);
+  });
+  it('carries criterion links, the fix and vote reasons through to the posted review and the brief', async () => {
+    const s = setup(); await s.r.tick();
+    await s.finish(aiReviewBody(1, 'claude').replace('"detail":"why it matters"', '"criteria":["ac1"],"detail":"why it matters","fix":"Guard the write."'));
+    await s.finish(aiReviewBody(0));
+    const reasoned = (reason: string) => s.vote('confirm').replace('"duplicateOf":null', `"duplicateOf":null,"reason":"${reason}"`);
+    await s.finish(reasoned('It corrupts the claim.')); await s.finish(reasoned('It breaks the only criterion.'));
+    const task = s.core.getTask(s.key);
+    expect(task.aiReview?.items).toEqual([{ severity: 'error', file: 'a.ts', line: 1, title: 'finding 1', detail: 'why it matters', criteria: ['AC1'], fix: 'Guard the write.' }]);
+    expect(task.aiReview?.consensus?.candidates[0]?.votes.map(v => v.reason)).toEqual(['It corrupts the claim.', 'It breaks the only criterion.']);
+    expect(task.reviewBrief?.issues[0]).toMatchObject({ group: 'must', criteria: ['AC1'], fix: 'Guard the write.' });
+    expect(task.reviewBrief?.criteria.map(r => [r.id, r.status])).toEqual([['AC1', 'not_met']]);
   });
   it('finishes disputes without document auto-advance or another poll retry', async () => {
     const s = setup('description'); await s.r.tick(); await s.finish(aiReviewBody(1)); await s.finish(aiReviewBody(0));

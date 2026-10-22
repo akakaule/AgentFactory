@@ -3,6 +3,7 @@ import type { Workspace } from '../types.js';
 import { api } from '../api.js';
 import { wsColor } from '../wsColor.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
+import { AdoSyncSection, toDraft, fromDraft, type AdoSyncDraft } from './AdoSyncSection.js';
 
 interface Props {
   workspaces: Workspace[];
@@ -24,16 +25,21 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
   const [overrides, setOverrides] = useState<Record<string, string>>(
     () => Object.fromEntries(AGENT_PROMPT_FIELDS.map((f) => [f.key, po[f.key] ?? ''])),
   );
+  // Azure DevOps work-item import settings (ADO origins only); sent only when the section changed
+  const [adoInitial] = useState<AdoSyncDraft>(() => toDraft(workspace.adoSync));
+  const [ado, setAdo] = useState<AdoSyncDraft>(adoInitial);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const adoDirty = JSON.stringify(ado) !== JSON.stringify(adoInitial);
   const overridesDirty = AGENT_PROMPT_FIELDS.some((f) => (overrides[f.key] ?? '').trim() !== (po[f.key] ?? ''));
   const dirty =
     repoPath !== workspace.repoPath ||
     policy !== (workspace.policy ?? '') ||
     verifyCommand !== (workspace.verifyCommand ?? '') ||
     pat.trim() !== '' ||
-    overridesDirty;
+    overridesDirty ||
+    adoDirty;
 
   const handleSave = () => {
     setSaving(true);
@@ -42,7 +48,7 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
     // is only sent when the user typed a new one — omitted, it stays untouched (never accidentally cleared).
     // repoPath is a defining field: sent only when non-empty (it can never be blanked). promptOverrides
     // (replace-whole: blank fields drop → inherit the global) is sent only when the section changed.
-    const body: { repoPath?: string; policy: string; verifyCommand: string; pat?: string; promptOverrides?: Record<string, string> } = { policy, verifyCommand };
+    const body: Parameters<typeof api.updateWorkspace>[1] = { policy, verifyCommand };
     if (repoPath.trim() !== '') body.repoPath = repoPath.trim();
     if (pat.trim() !== '') body.pat = pat.trim();
     if (overridesDirty) {
@@ -50,6 +56,7 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
         AGENT_PROMPT_FIELDS.map((f) => [f.key, (overrides[f.key] ?? '').trim()] as const).filter(([, v]) => v !== ''),
       );
     }
+    if (adoDirty) body.adoSync = fromDraft(ado);
     api.updateWorkspace(workspace.name, body)
       .then(() => { setPat(''); onSaved(); })
       .catch((e: Error) => setErr(e.message))
@@ -138,6 +145,7 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
             ))}
           </div>
         </details>
+        <AdoSyncSection workspace={workspace} draft={ado} onChange={setAdo} />
         {err && <div className="af-err">{err}</div>}
         <div>
           <button className="af-btn-primary" onClick={handleSave} disabled={!dirty || saving}>

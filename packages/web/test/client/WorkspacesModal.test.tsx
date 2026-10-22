@@ -109,3 +109,52 @@ describe('WorkspacesModal — single-workspace edit mode', () => {
     expect(screen.getByText('repo-a')).toBeTruthy();
   });
 });
+
+describe('WorkspacesModal — Azure DevOps work-item import', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const ado = { provider: 'azdo' as const, organization: 'kl', project: 'DIS' };
+
+  it('offers the import only for an Azure DevOps origin', () => {
+    render(<WorkspacesModal workspaces={[ws({ remote: { provider: 'github' } })]} onCreated={noop} onClose={noop} />);
+    expect(screen.queryByLabelText('Import work items from Azure DevOps')).toBeNull();
+    expect(screen.getByText(/Work-item import needs an Azure DevOps origin/)).toBeTruthy();
+  });
+
+  it('saves the settings (lists split on commas) when the section is edited', async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws({ remote: ado })]} onCreated={noop} onClose={noop} />);
+    expect(screen.getByText(/kl \/ DIS/)).toBeTruthy();
+
+    await user.click(screen.getByLabelText('Import work items from Azure DevOps'));
+    const types = screen.getByLabelText('Work item types');
+    await user.clear(types);
+    await user.type(types, 'User Story, Bug');
+    await user.type(screen.getByLabelText('Area path'), 'DIS/Integration');
+    await user.type(screen.getByLabelText('Required tag'), 'ai-agent');
+    await user.selectOptions(screen.getByLabelText('Start stage'), 'implementation');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(api.updateWorkspace).toHaveBeenCalledWith('repo-a', expect.objectContaining({
+      adoSync: expect.objectContaining({
+        enabled: true, workItemTypes: ['User Story', 'Bug'], states: ['New'], areaPath: 'DIS/Integration',
+        requiredTag: 'ai-agent', stage: 'implementation', closeState: 'Closed', maxImportsPerTick: 10,
+      }),
+    }));
+  });
+
+  it('leaves adoSync out of the save when the section was not touched, and shows the saved query', async () => {
+    const user = userEvent.setup();
+    const saved = {
+      enabled: true, workItemTypes: ['User Story'], states: ['New'], areaPath: '', iterationPath: '', requiredTag: '', orderBy: '',
+      assignTo: '', claimState: 'Active', reviewState: 'Resolved', closeState: 'Closed', markerTag: 'agentfactory',
+      stage: 'description' as const, autoQueue: true, maxDescriptionChars: 8000, maxImportsPerTick: 10,
+    };
+    render(<WorkspacesModal workspaces={[ws({ remote: ado, adoSync: saved, adoSyncWiql: 'SELECT [System.Id] FROM WorkItems WHERE x' })]} onCreated={noop} onClose={noop} />);
+    expect(screen.getByText('SELECT [System.Id] FROM WorkItems WHERE x')).toBeTruthy();
+    expect((screen.getByLabelText('Import work items from Azure DevOps') as HTMLInputElement).checked).toBe(true);
+
+    await user.type(screen.getByPlaceholderText('Paste a personal access token'), 'tok');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect((api.updateWorkspace as ReturnType<typeof vi.fn>).mock.calls[0]![1]).not.toHaveProperty('adoSync');
+  });
+});

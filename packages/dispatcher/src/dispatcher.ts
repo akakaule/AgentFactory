@@ -628,7 +628,7 @@ export class Dispatcher {
     }
 
     const args = engine === 'codex' ? buildCodexArgs({
-      mcp: this.deps.mcp, mcpEnv, permissionMode: this.config.permissionMode,
+      mcp: this.deps.mcp, mcpEnv, permissionMode: this.config.codexPermissionMode ?? this.config.permissionMode,
       codexArgs: [...(this.config.codexArgs ?? []), ...stageArgs],
       otel: this.config.otel ? { ...this.config.otel, taskKey: key } : undefined,
       shellEnvKeys,
