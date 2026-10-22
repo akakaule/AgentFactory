@@ -3,6 +3,7 @@ import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiRevi
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, criteriaClaimsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
+import { RESERVED_BY_OTHER_SQL, reservedByOtherParams } from './execution.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
 import { deriveTaskMetrics } from '../metrics.js';
@@ -315,12 +316,12 @@ export function heldClaimRow(db: DB, claimedBy: string, workspaceId?: number): T
   ) as TaskRow | undefined;
 }
 
-export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, stage?: Stage): TaskRow | undefined {
-  // archived rows are always done, but the guard makes "never claim an archived task"
-  // hold unconditionally rather than by inference. The kind guard is defense in depth:
-  // a pr-review task is reviewed, never implemented (updateStatus blocks it from ever
-  // reaching 'queued'), so a worker must never claim one even if one is stranded there.
-  const eligible = `task.status='queued'
+// Claim eligibility, shared by queue selection, a claim through a reservation, and the reservation
+// itself. Archived rows are always done, but the guard makes "never claim an archived task" hold
+// unconditionally rather than by inference. The kind guard is defense in depth: a pr-review task
+// is reviewed, never implemented (updateStatus blocks it from ever reaching 'queued'), so a worker
+// must never claim one even if one is stranded there.
+const CLAIM_ELIGIBLE = `task.status='queued'
     AND task.kind != 'pr-review'
     AND task.archived_at IS NULL
     AND NOT EXISTS (
@@ -337,10 +338,30 @@ export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, 
         AND budget.generation = (SELECT MAX(latest_budget.generation) FROM retry_budget latest_budget WHERE latest_budget.task_id = task.id AND latest_budget.operation = 'delivery')
         AND budget.attempts_used >= budget.max_attempts
     )`;
-  const filters: string[] = [eligible];
-  const params: (string | number)[] = [];
+
+/** Who is claiming: queue selection skips tasks another claimant's live reservation owns. */
+export interface Claimant { label: string | null; now: string; }
+
+export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, stage?: Stage, claimant?: Claimant): TaskRow | undefined {
+  const filters: string[] = [CLAIM_ELIGIBLE];
+  const params: (string | number | null)[] = [];
   if (workspaceId !== undefined) { filters.push('task.workspace_id = ?'); params.push(workspaceId); }
   if (taskKey !== undefined) { filters.push('task.key = ?'); params.push(taskKey); }
   if (stage !== undefined) { filters.push('task.stage = ?'); params.push(stage); }
+  if (claimant !== undefined) { filters.push(`NOT ${RESERVED_BY_OTHER_SQL}`); params.push(...reservedByOtherParams(claimant.label, claimant.now)); }
   return db.prepare(`${SELECT_TASK} WHERE ${filters.join(' AND ')} ORDER BY task.seq ASC LIMIT 1`).get(...params) as TaskRow | undefined;
+}
+
+/** The task, only while it passes the same claim-eligibility rules as queue selection. */
+export function claimableQueuedRow(db: DB, id: number, workspaceId?: number): TaskRow | undefined {
+  return (workspaceId === undefined
+    ? db.prepare(`${SELECT_TASK} WHERE ${CLAIM_ELIGIBLE} AND task.id = ?`).get(id)
+    : db.prepare(`${SELECT_TASK} WHERE ${CLAIM_ELIGIBLE} AND task.id = ? AND task.workspace_id = ?`).get(id, workspaceId)
+  ) as TaskRow | undefined;
+}
+
+/** True when another claimant's live reservation (inside its lease) owns the task. */
+export function reservedByOther(db: DB, id: number, claimant: Claimant): boolean {
+  return db.prepare(`SELECT 1 AS hit FROM task WHERE task.id = ? AND ${RESERVED_BY_OTHER_SQL}`)
+    .get(id, ...reservedByOtherParams(claimant.label, claimant.now)) !== undefined;
 }

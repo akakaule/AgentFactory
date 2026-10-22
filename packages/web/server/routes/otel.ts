@@ -118,7 +118,12 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
           };
           if (hit.model !== undefined) input.model = hit.model;
           if (hit.costUsd !== undefined) input.costUsd = hit.costUsd;
-          try { core.addTaskMetrics(key, input); } catch { /* unknown task / invalid — skip this event */ }
+          try {
+            // This authenticated ingest is the board's own token source, not an agent claimant:
+            // it rides the task's current execution so a live worker's usage still lands.
+            const execution = core.getCurrentExecution(key);
+            core.addTaskMetrics(key, execution ? { ...input, executionId: execution.id } : input);
+          } catch { /* unknown task / invalid — skip this event */ }
         }
       }
     }

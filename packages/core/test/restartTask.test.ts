@@ -29,8 +29,8 @@ function seedSkipListed(db: ReturnType<typeof makeTestDb>) {
 function seedReviewerSkipListed(db: ReturnType<typeof makeTestDb>) {
   const task = createTask(db, { title: 'Needs review retry', spec: 'S', acceptanceCriteria: 'A' }, at(0));
   updateStatus(db, task.key, 'queued', 'human', at(10));
-  claimNextTask(db, {}, at(20));
-  submitResult(db, task.key, { summary: 'implemented' }, at(30));
+  const { executionId } = claimNextTask(db, {}, at(20))!;
+  submitResult(db, task.key, { summary: 'implemented', executionId }, at(30));
   addComment(db, task.key, {
     actor: 'agent',
     body: buildFailureComment({ reason: 'review_failed', detail: 'timed out after 10m', source: 'reviewer', attempt: 2, maxAttempts: 2 }),

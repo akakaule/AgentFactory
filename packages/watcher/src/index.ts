@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { openCore, createHttpCore, resolveOriginUrl, resolveBoardToken, assertAbsoluteOverrides, NotFoundError } from '@agentfactory/core';
+import { openCore, createHttpCore, resolveOriginUrl, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Watcher } from './watcher.js';
 import { makeFetchJson } from './http.js';
@@ -23,6 +23,10 @@ if (config.board) {
     const id = await http.whoami();
     if (!id.supervisor) {
       console.error(`[watcher] board token '${id.label}' lacks the supervisor capability (delivery ops need it) — mint with: npm run token -- --supervisor`);
+      process.exit(1);
+    }
+    try { assertBoardCapabilities(id); } catch (err) {
+      console.error(`[watcher] ${(err as Error).message}`);
       process.exit(1);
     }
     console.log(`[watcher] board ${config.board.url} as '${id.label}' (supervisor)`);

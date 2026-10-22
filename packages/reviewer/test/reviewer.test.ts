@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
@@ -123,6 +123,27 @@ describe('poll + spawn', () => {
     expect(r2.isSkipListed(key)).toBe(false);
     expect(secondLog.errors).toEqual([]);
     expect(core.getRetryBudget(key, 'reviewer:implementation')).toMatchObject({ attemptsUsed: 1 });
+  });
+
+  it("never cancels a dispatcher's live pre-claim execution between the dispatcher's own ticks", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const T0 = Date.parse('2026-10-22T12:00:00.000Z');
+      vi.setSystemTime(T0);
+      const core = makeCore();
+      const t = core.createTask({ title: 'Queued for a worker', spec: 'S', acceptanceCriteria: 'A', workspace: 'ws' });
+      core.updateStatus(t.key, 'queued', 'human');
+      // a dispatcher polling every 60s reserved + spawned at T0; its worker has not claimed yet
+      const execution = core.reserveExecution(t.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: `ws#${t.key}`, startImmediately: true })!;
+      vi.setSystemTime(T0 + 45_000);
+
+      const { spawn } = makeFakeSpawn();
+      await new Reviewer(makeConfig(), makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() })).tick();
+
+      expect(core.getCurrentExecution(t.key)?.id).toBe(execution.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a tick overlapping a slow diff does not double-spawn the same review', async () => {

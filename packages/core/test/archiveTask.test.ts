@@ -18,8 +18,8 @@ import type { Status } from '../src/types.js';
 function makeDoneTask(db: DB, title = 'T', workspace?: string): string {
   const task = createTask(db, { title, spec: 'S', acceptanceCriteria: 'A', ...(workspace ? { workspace } : {}) });
   updateStatus(db, task.key, 'queued', 'human');
-  claimNextTask(db, workspace ? { workspace } : {});
-  submitResult(db, task.key, { summary: 'done' });
+  const { executionId } = claimNextTask(db, workspace ? { workspace } : {})!;
+  submitResult(db, task.key, { summary: 'done', executionId });
   reviewApprove(db, task.key);
   return task.key;
 }

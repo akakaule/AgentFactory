@@ -11,7 +11,7 @@ import { NotFoundError, ValidationError, InvalidTransitionError } from '../error
 import { reconcileMergedDelivery } from './delivery.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
-import { assertExecutionOwnership, currentExecution, latestExecution, settleExecution } from '../repo/execution.js';
+import { assertExecutionOwnership, executionById, isLatestOfPhase, settleExecution } from '../repo/execution.js';
 import { parseAcceptanceCriteria } from '../acceptanceCriteria.js';
 import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
 
@@ -65,11 +65,15 @@ export function submitResult(
     if (criteria) assertCriterionIds(row.acceptance_criteria, criteria);
 
     // A response can be lost after the transaction commits. A retry of that same successful
-    // execution is an acknowledgement, not a second result. A newer execution makes the old
-    // identity stale, even if it is still active.
-    const latest = latestExecution(db, row.id);
-    if (executionId !== undefined && latest?.id === executionId && latest.state === 'succeeded' && row.status === 'in_review' && currentExecution(db, row.id) === undefined)
+    // execution is an acknowledgement, not a second result — also once the reviewer has reserved
+    // the submitted task (another phase). A newer worker execution makes the old identity stale,
+    // and a retry with a different summary is refused rather than silently dropped.
+    const own = executionId === undefined ? undefined : executionById(db, executionId);
+    if (own !== undefined && own.task_id === row.id && own.state === 'succeeded' && row.status === 'in_review' && isLatestOfPhase(db, own)) {
+      if (row.result_summary !== summary)
+        throw new InvalidTransitionError(`${key} already holds the result execution ${own.id} submitted; a different retry is not applied`);
       return toDetail(db, row);
+    }
 
     const current = assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
     if (executionId !== undefined && current === undefined)

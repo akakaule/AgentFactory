@@ -1,33 +1,26 @@
 import type { DB } from '../db.js';
 import type { Execution, RetryOperation, Status } from '../types.js';
 import { transaction } from '../transaction.js';
-import { findRowByKey } from '../repo/tasks.js';
-import { createExecution, abandonedExecutionIds, currentExecution, executionForTask, settleExecution, touchExecution as touchExecutionRow } from '../repo/execution.js';
+import { findRowByKey, claimableQueuedRow, touch } from '../repo/tasks.js';
+import {
+  createExecution, abandonedExecutionIds, currentExecution, executionById, executionForTask, settleExecution, supersedeExecution,
+  operationPhase, EXECUTION_LEASE_MS, touchExecution as touchExecutionRow,
+} from '../repo/execution.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
+import { appendActivity } from '../repo/activity.js';
+import { buildFailureComment } from '../failure.js';
 import { InvalidTransitionError, NotFoundError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+
+export { EXECUTION_LEASE_MS };
 
 export interface ReserveExecutionInput { operation: RetryOperation; maxAttempts: number; owner?: string | null | undefined; startImmediately?: boolean | undefined; }
 
 /**
- * A live execution whose heartbeat is younger than this still owns its task, so a second
- * reservation is refused instead of superseding it. Supervisors refresh their executions every
- * tick; only an owner that crashed (or stalled for minutes) ages past it.
- */
-export const EXECUTION_LEASE_MS = 5 * 60_000;
-
-/** The task status an operation acts on; undefined for an operation without a lifecycle rule. */
-function operationStatus(operation: RetryOperation): Status | undefined {
-  if (operation.startsWith('dispatcher:') || operation.startsWith('worker:')) return 'queued';
-  if (operation === 'reviewer:feedback-eval') return 'delivering';
-  if (operation.startsWith('reviewer:') || operation.startsWith('visualization:')) return 'in_review';
-  return undefined;
-}
-
-/**
  * Reserve the next attempt of an operation and record it as the task's execution, or null once
  * the operation's budget is spent. Throws InvalidTransitionError — consuming no budget — when the
- * task is not in the status the operation acts on, or another supervisor's execution still owns
+ * task is not in the status the operation acts on, a worker-phase task is not claim-eligible
+ * (unmet dependency, exhausted delivery budget), or another supervisor's execution still owns
  * that phase of the task (a racing supervisor skips the task for now; it is not exhausted).
  */
 export function reserveExecution(db: DB, key: string, input: ReserveExecutionInput, now: () => string = nowIso): Execution | null {
@@ -37,20 +30,19 @@ export function reserveExecution(db: DB, key: string, input: ReserveExecutionInp
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     const ts = now();
-    const required = operationStatus(input.operation);
+    const required = operationPhase(input.operation);
     if (required !== undefined && row.status !== required)
       throw new InvalidTransitionError(`${key} is ${row.status}; ${input.operation} acts on ${required} tasks`);
+    if (required === 'queued' && !claimableQueuedRow(db, row.id))
+      throw new InvalidTransitionError(`${key} is not claimable (unmet dependency or exhausted delivery budget)`);
     // A live execution from an earlier phase (e.g. the worker's, before review) no longer owns
     // the task; one serving the current phase does until its heartbeat outlives the lease.
     const live = currentExecution(db, row.id);
-    if (live && operationStatus(live.operation) === row.status) {
+    if (live && operationPhase(live.operation) === row.status) {
       const lastSeen = Date.parse(live.heartbeat_at ?? live.reserved_at);
       if (Date.parse(ts) - lastSeen < EXECUTION_LEASE_MS)
         throw new InvalidTransitionError(`${key} already has a live execution (${live.operation})`);
-      // 'failed', not 'cancelled': the crashed owner's attempt stays counted, so an owner that
-      // keeps dying is still bounded by maxAttempts instead of being refunded forever.
-      if (live.retry_id) settleRetryRow(db, live.retry_id, 'failed', ts, 'execution superseded after its lease expired');
-      settleExecution(db, live.id, 'failed', ts, 'execution superseded after its lease expired');
+      supersedeExecution(db, live, ts);
     }
     const retry = reserveRetryRow(db, row.id, key, { operation: input.operation, maxAttempts: input.maxAttempts }, ts);
     if (!retry) return null;
@@ -63,7 +55,14 @@ export function reserveExecution(db: DB, key: string, input: ReserveExecutionInp
   });
 }
 
-/** Cancel reservations that never reached spawn/claim after the conservative grace period. */
+const ABANDONED = 'execution reservation abandoned';
+
+/**
+ * Cancel reservations that never reached spawn/claim after the conservative grace period. One
+ * that still served the task's phase (its supervisor died before the worker claimed) leaves one
+ * failure/v1 note, in the same transaction, so the restart's respawn is explained; a leftover from
+ * an earlier phase (a review the task was pulled back from) is retired silently.
+ */
 export function reconcileExecutions(db: DB, graceMs: number, now: () => string = nowIso): number {
   if (!Number.isFinite(graceMs) || graceMs < 0) throw new ValidationError('execution reservation grace must be nonnegative');
   const ts = now();
@@ -71,10 +70,24 @@ export function reconcileExecutions(db: DB, graceMs: number, now: () => string =
   return transaction(db, () => {
     let count = 0;
     for (const id of abandonedExecutionIds(db, cutoff)) {
-      const row = db.prepare('SELECT retry_id FROM task_execution WHERE id = ?').get(id) as { retry_id: string | null } | undefined;
+      const row = executionById(db, id);
       if (!row) continue;
-      const retrySettled = row.retry_id ? settleRetryRow(db, row.retry_id, 'cancelled', ts, 'execution reservation abandoned') : false;
-      if (settleExecution(db, id, 'cancelled', ts, 'execution reservation abandoned') || retrySettled) count += 1;
+      const retrySettled = row.retry_id ? settleRetryRow(db, row.retry_id, 'cancelled', ts, ABANDONED) : false;
+      if (!settleExecution(db, id, 'cancelled', ts, ABANDONED) && !retrySettled) continue;
+      count += 1;
+      const task = db.prepare('SELECT status FROM task WHERE id = ?').get(row.task_id) as { status: Status } | undefined;
+      if (task === undefined || operationPhase(row.operation) !== task.status) continue;
+      appendActivity(db, {
+        taskId: row.task_id, type: 'comment', actor: 'agent', createdAt: ts,
+        body: buildFailureComment({
+          reason: 'crashed',
+          detail: `${row.operation} execution ${row.id} was abandoned before its session took over the task`,
+          source: row.operation.split(':')[0] ?? row.operation,
+          // no attempt numbers: the abandoned reservation is refunded, so it never counts as one
+          body: 'Its supervisor stopped, or its process tree was killed, before the session took over. The attempt was not counted; a running supervisor picks the task up again.',
+        }),
+      });
+      touch(db, row.task_id, ts);
     }
     return count;
   });

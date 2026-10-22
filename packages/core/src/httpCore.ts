@@ -1,5 +1,6 @@
 import { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 import { GitError } from './git.js';
+import { AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER, COORDINATED_RESTART } from './types.js';
 import type { createCore } from './index.js';
 
 /**
@@ -21,7 +22,18 @@ type Asyncified<T> = {
 export interface BoardIdentity {
   label: string;
   supervisor: boolean;
-  capabilities: readonly string[];
+  /** Wire capabilities the board speaks — absent on a board that predates them. */
+  capabilities?: readonly string[] | undefined;
+}
+
+/**
+ * Supervisor startup gate: throw (naming the coordinated restart) when the board's whoami lacks a
+ * capability this build requires — including a pre-fence board whose body has no `capabilities`.
+ * The board refuses the reverse mismatch itself: see the whoami route.
+ */
+export function assertBoardCapabilities(id: BoardIdentity): void {
+  const missing = AGENT_CAPABILITIES.filter((c) => !(id.capabilities ?? []).includes(c));
+  if (missing.length > 0) throw new Error(`board is missing ${missing.join(', ')}; ${COORDINATED_RESTART}`);
 }
 
 /** Every op a remote MCP server or supervisor drives over HTTP (the §3.5 cut, verified per consumer).
@@ -73,12 +85,13 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     throw errorFrom(res.status, message);
   };
 
-  const req = async (method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<unknown> => {
+  const req = async (method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<unknown> => {
     const init: RequestInit = {
       method,
       headers: {
         authorization: `Bearer ${token}`,
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...headers,
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeoutMs),
@@ -98,7 +111,8 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
 
   return {
     // ── identity ─────────────────────────────────────────────────────────────
-    whoami: async () => (await req('GET', '/api/agent/whoami')) as BoardIdentity,
+    // the startup request advertises this build's capabilities; the board refuses a build lacking one
+    whoami: async () => (await req('GET', '/api/agent/whoami', undefined, { [AGENT_CAPABILITIES_HEADER]: AGENT_CAPABILITIES.join(',') })) as BoardIdentity,
 
     // ── claim / deliver ──────────────────────────────────────────────────────
     claimNextTask: async (o = {}) => {

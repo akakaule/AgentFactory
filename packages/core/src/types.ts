@@ -7,6 +7,10 @@ export type Actor = 'human' | 'agent';
 /** Wire capabilities that must be present before supervisors and workers are restarted together. */
 export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
 export type AgentCapability = typeof AGENT_CAPABILITIES[number];
+/** Request header on the startup whoami: the capabilities the calling supervisor build speaks. */
+export const AGENT_CAPABILITIES_HEADER = 'x-agentfactory-capabilities';
+/** What every side of a capability mismatch must do: one restart of the whole fleet on one build. */
+export const COORDINATED_RESTART = 'coordinated restart required: rebuild, then restart the board, MCP sessions and every supervisor together';
 
 /** Durable retry accounting is deliberately open-ended so a new supervisor operation can be
  * added without another schema migration. Callers use names such as `dispatcher:implementation`

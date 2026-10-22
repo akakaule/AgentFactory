@@ -7,7 +7,7 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { assertExecutionOwnership } from '../repo/execution.js';
+import { assertExecutionOwnership, currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
 import { deliveryRowFor } from '../repo/delivery.js';
 import { advanceRetryBudget } from '../repo/retry.js';
@@ -71,6 +71,12 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
     if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
+    // Re-entering the queue ends whatever claim came before (a human release, an unblock): retire
+    // that worker's fence too, so its late output is stale and it does not block the next claimant.
+    if (status === 'queued') {
+      const live = currentExecution(db, row.id);
+      if (live && operationPhase(live.operation) === 'queued') settleExecution(db, live.id, 'cancelled', ts, 'task re-queued');
+    }
     // A human unblocking or reopening a task hands the worker new work, not another retry of the
     // rounds that ended there — without a fresh budget the dispatcher silently skips it. (Releasing
     // a stranded claim above is still a retry and keeps counting.)

@@ -1,4 +1,4 @@
-import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
@@ -181,9 +181,13 @@ export class Dispatcher {
     }
   }
 
+  /** A live pre-claim execution is touched once per owning tick — possibly by another dispatcher
+   *  with its own pollSeconds — so it is only called abandoned once its heartbeat outlived the
+   *  execution lease (or two of this cadence, if longer): the same lease that guards claims. */
   private async reconcileExecutions(): Promise<void> {
     if (!this.deps.core.reconcileExecutions) return;
-    try { await this.deps.core.reconcileExecutions(RETRY_RESERVATION_GRACE_MS); }
+    const graceMs = Math.max(EXECUTION_LEASE_MS, 2 * this.config.pollSeconds * 1000);
+    try { await this.deps.core.reconcileExecutions(graceMs); }
     catch (err) { this.console.warn(`[dispatcher] could not reconcile abandoned executions: ${(err as Error).message}`); }
   }
 

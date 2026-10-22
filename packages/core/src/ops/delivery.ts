@@ -5,6 +5,7 @@ import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
+import { currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
 import { latestPrLinkUrl } from '../repo/links.js';
 import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation } from '../repo/delivery.js';
 import { buildFailureComment } from '../failure.js';
@@ -97,6 +98,10 @@ export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?:
   assertTransition(row.status, 'done', 'agent');
   setStatus(db, row.id, 'done', ts);
   endSession(db, row.id, ts);
+  // A repair worker still running has nothing left to own: retire its fence with its session, so
+  // its late output is stale and a reopened task is free for a new claimant.
+  const live = currentExecution(db, row.id);
+  if (live && operationPhase(live.operation) === 'queued') settleExecution(db, live.id, 'cancelled', ts, 'delivery already merged');
   const body = `PR ${d.pr_id ?? d.pr_url} merged; checks ${d.checks_state}. Original delivery complete; further CI repair is separate work.`;
   appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status,
     toStatus: 'done', body: note ? `${body}\n${note}` : body, createdAt: ts });

@@ -44,7 +44,7 @@ sessions are killed.
 | `workspaces` | — (optional) | Workspace slugs to serve. **Omit to serve every workspace in the DB** (opt-out model) — the list is re-read each tick, so a workspace created on the board is dispatched automatically, with no config edit and no restart. When present, pins the dispatcher to exactly these slugs (opt-in back-compat). |
 | `excludeWorkspaces` | `[]` | Workspace slugs to **never** serve — the opt-out escape hatch (a scratch/demo workspace). Applied whether or not `workspaces` is set. |
 | `maxConcurrent` | `1` | Max concurrent sessions **per workspace**. Same-repo parallelism is opt-in — shared local resources (test DBs, ports) make 1 the safe default. |
-| `pollSeconds` | `15` | Queue poll interval. |
+| `pollSeconds` | `15` | Queue poll interval. A spawned worker's pre-claim execution is refreshed once per tick and reconciled as abandoned (one `failure/v1` note, attempt refunded, respawned) once unrefreshed for the 5-minute execution lease (or `2 × pollSeconds`, if longer), so dispatchers sharing a board may poll at different rates. |
 | `permissionMode` | `acceptEdits` | `claude --permission-mode` for unattended sessions. `bypassPermissions` is supported but for contained environments only. |
 | `claudeArgs` | `[]` | Extra args appended to **every** `claude` invocation, regardless of stage. |
 | `codexArgs` | `[]` | Extra args for Codex workers only. |

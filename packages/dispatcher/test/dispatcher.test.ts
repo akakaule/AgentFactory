@@ -21,6 +21,12 @@ const workerLabel = (env: NodeJS.ProcessEnv): string => {
   return l;
 };
 
+/** A foreign worker only wins a task the dispatcher reserved once that reservation outlived
+ *  core's 5-minute execution lease — i.e. the dispatcher stopped touching it. Freezes the clock
+ *  past the lease (restored after each test). */
+const stallPastReservationLease = (): void => { vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 6 * 60_000 }); };
+afterEach(() => { vi.useRealTimers(); });
+
 // ---------------------------------------------------------------------------
 // spawn gating
 // ---------------------------------------------------------------------------
@@ -485,6 +491,7 @@ describe('live agent session', () => {
     const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
     await d.tick();
     const label = workerLabel(calls[0]!.req.env);
+    stallPastReservationLease();
     core.claimNextTask({ workspace: 'ws', claimedBy: 'other-worker' });
     core.updateStatus(actual.key, 'queued', 'human');
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
@@ -511,6 +518,7 @@ describe('live agent session', () => {
     const { spawn, calls } = makeFakeSpawn();
     const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
     await d.tick();
+    stallPastReservationLease();
     core.claimNextTask({ workspace: 'ws', claimedBy: 'other-worker' });
     const actualKey = seedQueued(core, 'ws', 'Actual work');
     core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
@@ -712,7 +720,9 @@ describe('crash path', () => {
 
     await d.tick();
     const label = workerLabel(calls[0]!.req.env);
-    core.claimNextTask({ workspace: 'ws', claimedBy: 'another-worker' });
+    // the predicted task stopped being claimable before its worker claimed (a new prerequisite)
+    const prerequisite = core.createTask({ title: 'Prerequisite', spec: 'spec', acceptanceCriteria: 'criteria', workspace: 'ws' });
+    core.addTaskDependency(predicted, prerequisite.key);
     expect(core.claimNextTask({ workspace: 'ws', claimedBy: label })?.key).toBe(actual);
     await calls[0]!.child.exit(1);
 
@@ -827,6 +837,7 @@ describe('crash path', () => {
 
     await d.tick();
     // the session lost the race — a different worker holds the task.
+    stallPastReservationLease();
     core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' });
     await calls[0]!.child.exit(0);
 
@@ -889,6 +900,7 @@ describe('permission-denied path', () => {
     const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: log }));
 
     await d.tick();
+    stallPastReservationLease();
     core.claimNextTask({ workspace: 'ws', claimedBy: 'someone-else' }); // lost race
     calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', subtype: 'success', permission_denials: [] }));
     await calls[0]!.child.exit(0);
@@ -925,6 +937,83 @@ describe('execution reservation race', () => {
     expect(claim?.key).toBe(key);
     expect(core.claimNextTask({ workspace: 'ws', claimedBy: 'ws#other-a1' })).toBeNull();
   });
+
+  it("a second dispatcher polling between the first one's ticks keeps its live pre-claim execution", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const T0 = Date.parse('2026-10-22T12:00:00.000Z');
+      vi.setSystemTime(T0);
+      const core = makeCore();
+      const key = seedQueued(core, 'ws', 'Slow to claim');
+      const first = makeFakeSpawn();
+      const second = makeFakeSpawn();
+      // the first dispatcher touches its execution once a minute; the second polls four times as often
+      const d1 = new Dispatcher(makeConfig({ pollSeconds: 60 }), makeDeps(core, first.spawn, { now: () => Date.now(), console: makeFakeConsole() }));
+      const d2 = new Dispatcher(makeConfig({ pollSeconds: 15 }), makeDeps(core, second.spawn, { now: () => Date.now(), console: makeFakeConsole() }));
+
+      await d1.tick(); // reserves + spawns at T0; its worker has not claimed yet
+      const reserved = first.calls[0]!.req.env['AGENTFACTORY_EXECUTION_ID'];
+      vi.setSystemTime(T0 + 45_000); // between d1's ticks
+      await d2.tick();
+
+      expect(core.getCurrentExecution(key)?.id).toBe(reserved);
+      expect(second.calls).toHaveLength(0);
+      expect(core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(first.calls[0]!.req.env), executionId: reserved })?.executionId).toBe(reserved);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// restart recovery of an execution its supervisor abandoned before the worker claimed
+// ---------------------------------------------------------------------------
+describe('restart recovery of an abandoned pre-claim execution', () => {
+  const T0 = Date.parse('2026-10-22T12:00:00.000Z');
+  afterEach(() => { vi.useRealTimers(); });
+
+  for (const transport of ['local', 'http'] as const) {
+    for (const crash of ['reserved', 'running'] as const) {
+      it(`${transport}: a supervisor killed with its execution ${crash} is resumed once — one new execution, one failure/v1 note`, async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(T0);
+        // autoFence:false = the board process: it never made the abandoned reservation's claim
+        const core = openCore(':memory:', { autoFence: false });
+        core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+        const key = seedQueued(core, 'ws', 'Killed before claim');
+        // the killed supervisor's reservation: never spawned (reserved), or spawned and marked
+        // running but its worker tree was killed before claiming
+        const abandoned = core.reserveExecution(key, {
+          operation: 'dispatcher:implementation', maxAttempts: 2, owner: `ws#${key}`, startImmediately: crash === 'running',
+        })!;
+        const { spawn, calls } = makeFakeSpawn();
+        const deps = makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() });
+        let config = makeConfig({ maxAttempts: 2 });
+        if (transport === 'http') {
+          const app = buildApp(core, { auth: { mode: 'token' } });
+          const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch;
+          const supervisorToken = core.createApiToken({ label: 'dispatcher-2', isService: true, isSupervisor: true }).token;
+          const workerToken = core.createApiToken({ label: 'worker', isService: true }).token;
+          config = makeConfig({ db: undefined, board: { url: 'http://board', token: supervisorToken, workerToken }, maxAttempts: 2 });
+          deps.core = createHttpCore('http://board', supervisorToken, { fetchImpl }) as unknown as typeof deps.core;
+        }
+        const restarted = new Dispatcher(config, deps);
+
+        vi.setSystemTime(T0 + 6 * 60_000); // the restart comes after the 5-minute execution lease
+        await restarted.tick();
+        await restarted.tick(); // a second poll neither respawns nor notes the abandonment again
+
+        expect(calls).toHaveLength(1);
+        const fresh = calls[0]!.req.env['AGENTFACTORY_EXECUTION_ID'];
+        expect(fresh).toBeTruthy();
+        expect(fresh).not.toBe(abandoned.id);
+        expect(core.getCurrentExecution(key)?.id).toBe(fresh);
+        const notes = core.getTask(key).activity.filter((a) => a.type === 'comment' && a.body.startsWith('failure/v1'));
+        expect(notes).toHaveLength(1);
+        expect(notes[0]!.body).toContain(abandoned.id);
+      });
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------

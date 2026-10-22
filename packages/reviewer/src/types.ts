@@ -22,7 +22,6 @@ export interface ReviewerCore {
   getEngineSettings(): Awaitable<EngineSettings>;
   addComment(key: string, input: { actor: Actor; body: string; executionId?: string | undefined }): Awaitable<Activity>;
   reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null | undefined; startImmediately?: boolean | undefined }): Awaitable<Execution | null>;
-  reconcileExecutions?(graceMs: number): Awaitable<number>;
   touchExecution?(id: string): Awaitable<boolean>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;

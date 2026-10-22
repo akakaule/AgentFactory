@@ -5,7 +5,7 @@ import { createWriteStream, mkdirSync, readFileSync, writeFileSync, statSync, ex
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, AGENT_CAPABILITIES } from '@agentfactory/core';
+import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
@@ -38,8 +38,8 @@ if (config.board) {
       console.error(`[dispatcher] board token '${id.label}' lacks the supervisor capability (releaseClaim needs it) — mint with: npm run token -- --supervisor`);
       process.exit(1);
     }
-    if (!id.capabilities.includes(AGENT_CAPABILITIES[0])) {
-      console.error(`[dispatcher] board token '${id.label}' is missing ${AGENT_CAPABILITIES[0]}; restart the board and supervisor together before launching workers`);
+    try { assertBoardCapabilities(id); } catch (err) {
+      console.error(`[dispatcher] ${(err as Error).message}`);
       process.exit(1);
     }
     console.log(`[dispatcher] board ${config.board.url} as '${id.label}' (supervisor)`);

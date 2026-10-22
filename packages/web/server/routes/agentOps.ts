@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AGENT_CAPABILITIES, ValidationError } from '@agentfactory/core';
+import { AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER, COORDINATED_RESTART, ValidationError } from '@agentfactory/core';
 import type { Core } from '../types.js';
 import { validated } from '../validate.js';
 import { requireService, requireSupervisor, principalOf } from '../auth.js';
@@ -87,6 +87,11 @@ export function agentOpsRoutes(core: Core): Hono {
   // Lets a remote supervisor fail fast at STARTUP when its token lacks the supervisor
   // capability, instead of surfacing as a 403 mid-tick on release-claim/delivery (#46).
   r.get('/whoami', (c) => {
+    // A supervisor build that predates a wire capability sends none: refuse its startup here, so
+    // it exits naming the coordinated restart instead of running with unfenced, refused writes.
+    const offered = (c.req.header(AGENT_CAPABILITIES_HEADER) ?? '').split(',').map((s) => s.trim());
+    const missing = AGENT_CAPABILITIES.filter((cap) => !offered.includes(cap));
+    if (missing.length > 0) return c.json({ message: `this supervisor build lacks ${missing.join(', ')}; ${COORDINATED_RESTART}` }, 426);
     const p = principalOf(c); // requireService guarantees kind === 'service'
     return c.json({ label: p.kind === 'service' ? p.label : '', supervisor: p.kind === 'service' && p.supervisor, capabilities: AGENT_CAPABILITIES });
   });

@@ -22,7 +22,7 @@ export function appendTranscript(db: DB, key: string, input: AppendTranscriptInp
   transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) return;
-    assertExecutionOwnership(db, row.id, key, input.executionId, { allowSettledSuccess: true });
+    assertExecutionOwnership(db, row.id, key, input.executionId, { observability: true });
     appendLiveBuf(db, {
       taskId: row.id, attempt: input.attempt ?? 1, sessionId: input.sessionId ?? null,
       engine: input.engine ?? 'claude', chunk: input.chunk, now: now(),
@@ -35,7 +35,7 @@ export function saveTranscript(db: DB, key: string, input: SaveTranscriptInput, 
   transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) return;
-    assertExecutionOwnership(db, row.id, key, input.executionId, { allowSettledSuccess: true });
+    assertExecutionOwnership(db, row.id, key, input.executionId, { observability: true });
     saveFinal(db, {
       taskId: row.id, attempt: input.attempt ?? 1, sessionId: input.sessionId ?? null,
       engine: input.engine ?? 'claude', raw: input.raw, now: now(),

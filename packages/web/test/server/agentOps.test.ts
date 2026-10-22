@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { openCore } from '@agentfactory/core';
+import { openCore, AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
 
 /** #45 agent-ops surface: service-token-only routes with the actor derived server-side. */
@@ -63,6 +63,19 @@ describe('agent ops — authorization boundary', () => {
     const res = await post(app, '/api/agent/claim', {}, service);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { status: string }).status).toBe('in_progress');
+  });
+
+  it('startup whoami refuses a supervisor build lacking execution-fence/v1, naming the coordinated restart', async () => {
+    // a pre-fence supervisor build sends a bare whoami: it advertises no wire capabilities
+    const legacy = await get(app, '/api/agent/whoami', supervisor);
+    expect(legacy.status).toBe(426);
+    expect(((await legacy.json()) as { message: string }).message).toMatch(/execution-fence\/v1[\s\S]*coordinated restart/);
+
+    const current = await app.request('/api/agent/whoami', {
+      headers: { authorization: `Bearer ${supervisor}`, [AGENT_CAPABILITIES_HEADER]: AGENT_CAPABILITIES.join(',') },
+    });
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({ label: 'dispatcher-1', supervisor: true, capabilities: [...AGENT_CAPABILITIES] });
   });
 
   it('anon (AUTH_MODE=none) is rejected on agent routes — local MCP keeps the direct DB path', async () => {

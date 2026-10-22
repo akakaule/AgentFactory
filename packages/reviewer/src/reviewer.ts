@@ -125,8 +125,10 @@ export class Reviewer {
   /** One poll cycle: enforce review timeouts, then start reviews for each workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    // No execution reconcile here: review executions start running and a crashed one is superseded
+    // after its lease (reserveExecution), so a reconcile from this cadence could only cancel the
+    // dispatcher's healthy pre-claim executions between its touches.
     await this.touchLiveSessions();
-    await this.reconcileExecutions();
     await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.enforceTimeouts();
@@ -175,12 +177,6 @@ export class Reviewer {
     } catch (err) {
       this.console.warn(`[reviewer] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
     }
-  }
-
-  private async reconcileExecutions(): Promise<void> {
-    if (!this.deps.core.reconcileExecutions) return;
-    try { await this.deps.core.reconcileExecutions(RETRY_RESERVATION_GRACE_MS); }
-    catch (err) { this.console.warn(`[reviewer] could not reconcile abandoned executions: ${(err as Error).message}`); }
   }
 
   private async touchLiveSessions(): Promise<void> {

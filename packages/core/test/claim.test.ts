@@ -129,9 +129,10 @@ describe('branch assignment', () => {
     const db = makeTestDb();
     const t = createTask(db, { title: 'Raw working title', spec: 'S', stage: 'description' });
     updateStatus(db, t.key, 'queued', 'human');
-    claimNextTask(db, { claimedBy: 'worker-1' });
+    const described = claimNextTask(db, { claimedBy: 'worker-1' })!;
+    submitResult(db, t.key, { summary: 'described', spec: 'S', acceptanceCriteria: 'A', executionId: described.executionId });
 
-    // simulate the doc stages completing: title refined, stage advanced, re-queued
+    // simulate the doc-stage approval: title refined, stage advanced, re-queued
     db.prepare("UPDATE task SET title = ?, stage = 'implementation', status = 'queued' WHERE key = ?")
       .run('Refined feature title', t.key);
 

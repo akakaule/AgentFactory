@@ -14,7 +14,7 @@ export function addTaskMetrics(db: DB, key: string, input: AddTaskMetricsInput, 
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    assertExecutionOwnership(db, row.id, key, m.executionId, { allowSettledSuccess: true });
+    assertExecutionOwnership(db, row.id, key, m.executionId, { observability: true });
     insertMetric(db, {
       taskId: row.id,
       model: m.model ?? null,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { createHttpCore, openCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError } from '@agentfactory/core';
+import { createHttpCore, openCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { FixtureTaskIntakeDecisionProvider } from './provider.js';
 import { JevTaskIntakeDecisionProvider } from './providers/jev.js';
@@ -19,8 +19,13 @@ if (config.board) {
   const token = resolveBoardToken(config.board, process.env, 'intake board token');
   assertAbsoluteOverrides(config.repoPathOverrides, 'intake');
   const http = createHttpCore(config.board.url, token);
-  try { await http.whoami(); }
-  catch (err) {
+  try {
+    const id = await http.whoami();
+    try { assertBoardCapabilities(id); } catch (err) {
+      console.error(`[intake] ${(err as Error).message}`);
+      process.exit(1);
+    }
+  } catch (err) {
     if (err instanceof NotFoundError) { console.error(`[intake] board ${config.board.url} does not expose /api/agent/whoami`); process.exit(1); }
     throw err;
   }
