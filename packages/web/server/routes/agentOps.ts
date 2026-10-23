@@ -228,6 +228,15 @@ export function agentOpsRoutes(core: Core): Hono {
   // Read-only for agents/supervisors: the board (a human) decides which engines may run.
   r.get('/engines', (c) => c.json(core.getEngineSettings()));
 
+  // Read-only for supervisors: the board (a human) decides which model each role runs with.
+  r.get('/agent-models', (c) => c.json(core.getAgentModels()));
+  // A supervisor's config-file defaults, shown on the board next to unset roles. Informational,
+  // so a plain service token is enough; core validates the shape.
+  r.post('/agent-models/defaults', async (c) => {
+    core.reportAgentModelDefaults(await body(c));
+    return c.json({ ok: true });
+  });
+
   r.get('/prompts/:key', (c) => {
     const workspace = c.req.query('workspace');
     if (!workspace) throw new ValidationError('workspace query parameter is required');
