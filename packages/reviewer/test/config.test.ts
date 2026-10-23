@@ -16,9 +16,17 @@ describe('reviewer config', () => {
     expect(parseConfig({ db: './x.db', reviewers }).reviewers).toEqual(reviewers);
   });
 
+  it('accepts a reasoning effort for a claude reviewer too (claude --effort)', () => {
+    const reviewers = [
+      { engine: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'high' },
+      { engine: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'high' },
+    ];
+    expect(parseConfig({ db: './x.db', reviewers }).reviewers).toEqual(reviewers);
+  });
+
   it('rejects empty, duplicate, invalid, or ignored reviewer settings', () => {
     for (const reviewers of [[], [{ engine: 'unknown' }],
-      [{ engine: 'claude', reasoningEffort: 'medium' }],
+      [{ engine: 'claude', reasoningEffort: 'typo' }],
       [{ engine: 'codex', reasoningEffort: 'typo' }],
       [{ engine: 'codex', typo: true }],
       [{ engine: 'codex', model: 'gpt-6-astra' }, { engine: 'codex', model: 'gpt-6-astra' }],

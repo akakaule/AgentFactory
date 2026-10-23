@@ -111,5 +111,6 @@ export function buildEngineArgs({ engine, model, reasoningEffort, outputFile, ot
   }
   const args = ['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config'];
   if (model) args.push('--model', model);
+  if (reasoningEffort) args.push('--effort', reasoningEffort);
   return args;
 }
