@@ -1,4 +1,4 @@
-import type { EngineSettings } from '@agentfactory/core';
+import type { EngineSettings, AgentModels, AgentModelDefaultsReport } from '@agentfactory/core';
 import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
 
 export interface ExecutionLike {
@@ -30,6 +30,11 @@ export interface DispatcherCore {
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
   getEngineSettings(): Awaitable<EngineSettings>;
+  /** Board per-role engine/model/effort (app_kv agent_models), re-read every tick. Optional: a
+   *  core without it leaves the dispatcher on its config file alone. */
+  getAgentModels?(): Awaitable<AgentModels>;
+  /** Report this dispatcher's config-file model defaults so the board can show them. */
+  reportAgentModelDefaults?(report: AgentModelDefaultsReport): Awaitable<void>;
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
   releaseClaim(key: string, now?: () => string, executionId?: string): Awaitable<TaskDetail>;
