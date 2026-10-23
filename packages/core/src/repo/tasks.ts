@@ -90,6 +90,60 @@ export function intakeByTaskIds(db: DB, rows: TaskRow[]): Map<number, IntakeSumm
   return out;
 }
 
+/** The latest move into `queued` per task — where an intake pending hold starts. */
+function queuedAtByTaskIds(db: DB, ids: number[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (ids.length === 0) return out;
+  const rows = db.prepare(
+    `SELECT task_id, MAX(created_at) AS at FROM activity
+     WHERE type = 'status_change' AND to_status = 'queued' AND task_id IN (${ids.map(() => '?').join(',')})
+     GROUP BY task_id`,
+  ).all(...ids) as Array<{ task_id: number; at: string }>;
+  for (const r of rows) out.set(r.task_id, r.at);
+  return out;
+}
+
+/**
+ * Intake pending hold — the pending branch of the intake spec's Stage 4 (§9), without the verdict
+ * gate: queued implementation work in an intake-enabled workspace waits for an assessment of its
+ * CURRENT revision (so a spec written by the description stage is assessed before anyone builds
+ * it), for at most `maxHoldMinutes` after it was queued, then fails open. A current or unavailable
+ * assessment releases it; the verdict itself stays advisory. A send-back or bounce re-queue keeps
+ * an unchanged revision — still `current` — so it is never re-held.
+ */
+export function intakeHoldFor(
+  r: TaskRow, intake: IntakeSummary | null, settings: ReturnType<typeof normalizeIntakeSettings>, queuedAt: string | undefined, now: string,
+): { until: string } | null {
+  if (r.status !== 'queued' || r.stage !== 'implementation' || r.kind === 'pr-review' || r.archived_at !== null) return null;
+  if (!intakeEnabledFor(settings, r.workspace_name) || queuedAt === undefined) return null;
+  if (intake !== null && intake.state !== 'stale') return null;
+  const until = Date.parse(queuedAt) + settings.maxHoldMinutes * 60_000;
+  return until > Date.parse(now) ? { until: new Date(until).toISOString() } : null;
+}
+
+function intakeHoldsByRows(db: DB, rows: TaskRow[], intakes: Map<number, IntakeSummary | null>, now: string): Map<number, { until: string } | null> {
+  const out = new Map<number, { until: string } | null>();
+  const settings = storedIntakeSettings(db);
+  const candidates = rows.filter((r) => r.status === 'queued' && r.stage === 'implementation' && intakeEnabledFor(settings, r.workspace_name));
+  const queuedAt = queuedAtByTaskIds(db, candidates.map((r) => r.id));
+  for (const r of candidates) out.set(r.id, intakeHoldFor(r, intakes.get(r.id) ?? null, settings, queuedAt.get(r.id), now));
+  return out;
+}
+
+/** Ids of the queued tasks an intake pending hold keeps unclaimable right now (claim-gate input). */
+export function intakeHeldTaskIds(db: DB, now: string = nowIso(), workspaceId?: number): number[] {
+  if (!intakeEnabledAnywhere(storedIntakeSettings(db))) return [];
+  const rows = (workspaceId === undefined
+    ? db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage = 'implementation' AND task.archived_at IS NULL`).all()
+    : db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage = 'implementation' AND task.archived_at IS NULL AND task.workspace_id = ?`).all(workspaceId)
+  ) as unknown as TaskRow[];
+  const holds = intakeHoldsByRows(db, rows, intakeByTaskIds(db, rows), now);
+  return rows.filter((r) => holds.get(r.id)).map((r) => r.id);
+}
+
+const intakeEnabledAnywhere = (settings: ReturnType<typeof normalizeIntakeSettings>): boolean =>
+  settings.mode !== 'off' && settings.workspaces.length > 0;
+
 /**
  * The current failure event of a task: its latest `failure/v1` note (identity = activity id),
  * the parsed fields, the derived FailureSummary, and the note before it (the failure-triage
@@ -204,6 +258,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     failureTriage: triage.get(r.id) ?? null,
     delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
     intake: intakeForTask(db, r),
+    intakeHold: intakeHoldsByRows(db, [r], new Map([[r.id, intakeForTask(db, r)]]), nowIso()).get(r.id) ?? null,
     hasVisualization: viz !== null,
     visualizationGeneratedAt: viz?.generatedAt ?? null,
     repoPath: r.workspace_repo_path,
@@ -301,9 +356,10 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const { failures, triage } = failureAndTriage(db, rows);
   const deliveries = deliveryByTaskIds(db, ids);
   const intakes = intakeByTaskIds(db, rows);
+  const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
-    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null }));
+    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null }));
 }
 /** The in_progress task a worker label already holds (oldest first), if any — the claim
  *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of
@@ -342,9 +398,11 @@ const CLAIM_ELIGIBLE = `task.status='queued'
 /** Who is claiming: queue selection skips tasks another claimant's live reservation owns. */
 export interface Claimant { label: string | null; now: string; }
 
-export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, stage?: Stage, claimant?: Claimant): TaskRow | undefined {
+export function oldestQueuedRow(db: DB, workspaceId?: number, taskKey?: string, stage?: Stage, claimant?: Claimant, excludeIds: number[] = []): TaskRow | undefined {
   const filters: string[] = [CLAIM_ELIGIBLE];
   const params: (string | number | null)[] = [];
+  // intake pending holds (intakeHeldTaskIds): computed in JS — the hold derives from activity JSON
+  if (excludeIds.length > 0) { filters.push(`task.id NOT IN (${excludeIds.map(() => '?').join(',')})`); params.push(...excludeIds); }
   if (workspaceId !== undefined) { filters.push('task.workspace_id = ?'); params.push(workspaceId); }
   if (taskKey !== undefined) { filters.push('task.key = ?'); params.push(taskKey); }
   if (stage !== undefined) { filters.push('task.stage = ?'); params.push(stage); }

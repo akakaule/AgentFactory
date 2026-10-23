@@ -29,8 +29,11 @@ export class IntakeSupervisor {
     const workspaces = settings.workspaces;
     const list = await this.deps.core.listTasks();
     const settleBefore = (this.deps.now?.() ?? Date.now()) - settings.settleSeconds * 1000;
-    const candidates = list.filter((task) => task.kind === 'code' && !task.archivedAt && (task.status === 'queued' || task.status === 'backlog' || task.status === 'in_progress') && workspaces.includes(task.workspace) && (task.intake == null || task.intake.state === 'stale') && Date.parse(task.updatedAt) <= settleBefore);
-    candidates.sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.updatedAt.localeCompare(b.updatedAt) || a.key.localeCompare(b.key));
+    // A held task (queued implementation work waiting for this assessment, e.g. a spec the
+    // description stage just wrote) skips the settle window and goes first: nobody is mid-edit,
+    // and every minute here delays the worker.
+    const candidates = list.filter((task) => task.kind === 'code' && !task.archivedAt && (task.status === 'queued' || task.status === 'backlog' || task.status === 'in_progress') && workspaces.includes(task.workspace) && (task.intake == null || task.intake.state === 'stale') && (task.intakeHold != null || Date.parse(task.updatedAt) <= settleBefore));
+    candidates.sort((a, b) => Number(b.intakeHold != null) - Number(a.intakeHold != null) || statusRank(a.status) - statusRank(b.status) || a.updatedAt.localeCompare(b.updatedAt) || a.key.localeCompare(b.key));
     await this.deps.core.recordSupervisorHeartbeat({ name: this.config.name, kind: 'intake', workspaces, inFlight: 0, capacity: this.config.maxPerTick, pollSeconds: this.config.pollSeconds });
     if (settings.mode === 'off' || candidates.length === 0) return;
     for (const task of candidates.slice(0, Math.min(settings.maxPerTick, this.config.maxPerTick))) await this.assess(task.key, settings.maxAttempts);

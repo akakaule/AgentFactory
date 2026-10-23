@@ -13,7 +13,7 @@ import { reconcileMergedDelivery } from './delivery.js';
 import { getIntakeSettings } from './intakeSettings.js';
 import { buildIntakeClaimComment, intakeRevision } from '../intake.js';
 import { intakeEnabledFor } from '../intakeSettings.js';
-import { intakeForTask } from '../repo/tasks.js';
+import { intakeForTask, intakeHeldTaskIds } from '../repo/tasks.js';
 
 export interface ClaimOptions {
   workspace?: string | undefined;
@@ -59,6 +59,9 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     if (opts.executionId !== undefined && !reservedExecution)
       throw new InvalidTransitionError(`execution ${opts.executionId} does not exist`);
     const claimant: Claimant = { label: opts.claimedBy ?? null, now: now() };
+    // Intake pending hold: implementation work whose current revision is not yet assessed waits
+    // (bounded by maxHoldMinutes) — the same unclaimable-while-queued shape as unmet dependencies.
+    const held = intakeHeldTaskIds(db, claimant.now, workspaceId);
     let row: ReturnType<typeof oldestQueuedRow>;
     if (reservedExecution) {
       // Re-checked at claim time with queue selection's own rules: a dependency added (or a
@@ -71,6 +74,8 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
           (opts.claimedBy !== undefined && reservedExecution.owner !== null &&
             reservedExecution.owner !== opts.claimedBy && !opts.claimedBy.startsWith(`${reservedExecution.owner}-a`)))
         throw new InvalidTransitionError(`execution ${opts.executionId} is not claimable`);
+      if (held.includes(reservedTask.id))
+        throw new InvalidTransitionError(`${reservedTask.key} is held until intake assesses its current revision`);
       // The reserved task's delivery merged while it waited: reconciliation completes the task,
       // so there is nothing left to claim and the reservation is void. (Reconciliation retires the
       // task's current fence; this one is settled explicitly in case it is not the latest.)
@@ -82,9 +87,9 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     } else {
       // Queue selection skips a task another claimant's live reservation owns, so an interactive
       // claim never invalidates the fence of a worker its supervisor is still launching.
-      row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage, claimant);
+      row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage, claimant, held);
       while (row && reconcileMergedDelivery(db, row, now()))
-        row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage, claimant);
+        row = oldestQueuedRow(db, workspaceId, opts.taskKey, opts.stage, claimant, held);
       if (!row && opts.taskKey !== undefined) {
         const pinned = findRowByKey(db, opts.taskKey);
         if (pinned && claimableQueuedRow(db, pinned.id, workspaceId) && reservedByOther(db, pinned.id, claimant))

@@ -71,6 +71,8 @@ export class Dispatcher {
   private reportedDefaults = false;
 
   private warnedNoEngine = false;
+  /** Held task keys already logged, so the wait is reported once rather than every tick. */
+  private readonly warnedIntakeHold = new Set<string>();
   /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
    *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
   private readonly settling = new Set<Promise<void>>();
@@ -539,6 +541,14 @@ export class Dispatcher {
         }
       }
       if (task.unmetDependencyCount > 0) continue;
+      if (task.intakeHold) {
+        // Intake pending hold: claims are refused until the current revision is assessed (bounded
+        // by maxHoldMinutes) — spawning would only produce a worker that claims nothing.
+        if (!this.warnedIntakeHold.has(task.key)) this.console.log(`[dispatcher] ${task.key}: waiting for its intake assessment (at most until ${task.intakeHold.until})`);
+        this.warnedIntakeHold.add(task.key);
+        continue;
+      }
+      this.warnedIntakeHold.delete(task.key);
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
       if (!this.engineFor(task.stage, workspace)) {
