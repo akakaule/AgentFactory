@@ -2,11 +2,15 @@ import { useState } from 'react';
 import { api, getToken, setToken } from '../api.js';
 
 /**
- * Sign-in gate for token-mode (remote/phone) deployments. Shown only after a request
- * 401s, so local none-mode never sees it. Validates the pasted token via /auth/whoami,
- * then reloads so every hook (including the SSE stream) re-initialises with the token.
+ * Sign-in gate for token-mode (remote/phone) deployments. Shown after a request 401s (so
+ * local none-mode never sees it), or when the stored token turned out to be a service token
+ * (`reason` says so). Validates the pasted token via /auth/whoami — a service token is an
+ * agent's credential and is refused, since every human action would 403 with it — then
+ * reloads so every hook (including the SSE stream) re-initialises with the token.
  */
-export function TokenGate() {
+export const USER_TOKEN_HINT = 'Paste a user token: npm run token -- --label <name> --email <you> (without --service).';
+
+export function TokenGate({ reason }: { reason?: string | undefined } = {}) {
   const [value, setValue] = useState(getToken() ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,6 +25,10 @@ export function TokenGate() {
       if (who.kind === 'anon') {
         setToken(null);
         setError('That token was not accepted.');
+        setBusy(false);
+      } else if (who.kind === 'service') {
+        setToken(null);
+        setError(`That is the service token '${who.label ?? ''}' — it is for supervisors and agents and cannot approve, send back or edit. ${USER_TOKEN_HINT}`);
         setBusy(false);
       } else {
         location.reload();
@@ -38,6 +46,7 @@ export function TokenGate() {
         <p style={{ color: 'var(--ink-2)', fontSize: 13, lineHeight: 1.5 }}>
           This board requires an access token. Paste the token you minted with <span className="mono">npm run token</span>.
         </p>
+        {reason && <p className="af-err" style={{ fontSize: 12.5, lineHeight: 1.5 }}>{reason}</p>}
         <input
           type="password"
           autoFocus

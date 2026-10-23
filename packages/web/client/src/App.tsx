@@ -3,7 +3,7 @@ import type { Status, Task } from './types.js';
 import { STATUS_LABELS } from './status.js';
 import { useTasks } from './useTasks.js';
 import { useWorkspaces } from './useWorkspaces.js';
-import { api, setUnauthorizedHandler } from './api.js';
+import { api, getToken, setToken, setUnauthorizedHandler } from './api.js';
 import { ListView } from './views/ListView.js';
 import { BoardView } from './views/BoardView.js';
 import { ArchiveView } from './views/ArchiveView.js';
@@ -15,7 +15,7 @@ import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
 import { AgentPromptsModal } from './components/AgentPromptsModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
-import { TokenGate } from './components/TokenGate.js';
+import { TokenGate, USER_TOKEN_HINT } from './components/TokenGate.js';
 import { IntakeSettingsPanel } from './components/IntakeSettingsPanel.js';
 import { Mark, I } from './icons.js';
 
@@ -57,7 +57,19 @@ export function App() {
 
   // token-mode (remote) deployments: a 401 surfaces the sign-in gate. Inert in none-mode.
   const [authNeeded, setAuthNeeded] = useState(false);
+  const [authReason, setAuthReason] = useState<string | undefined>(undefined);
   useEffect(() => { setUnauthorizedHandler(() => setAuthNeeded(true)); }, []);
+  // A browser signed in with a SERVICE token reads fine but 403s on every human action
+  // (approve, send back, edit). Check the stored token once and send it back to sign-in.
+  useEffect(() => {
+    if (!getToken()) return;
+    api.whoami().then((who) => {
+      if (who.kind !== 'service') return;
+      setToken(null);
+      setAuthReason(`This browser was signed in with the service token '${who.label ?? ''}', which cannot approve, send back or edit. ${USER_TOKEN_HINT}`);
+      setAuthNeeded(true);
+    }).catch(() => { /* unreachable board: the normal 401/error paths handle it */ });
+  }, []);
 
   const multiWs = workspaces.length >= 2;
   const showBadges = multiWs && wsFilter === 'all'; // badge only in the all-workspaces view
@@ -213,7 +225,7 @@ export function App() {
 
       {managingPrompts && <AgentPromptsModal onClose={() => setManagingPrompts(false)} />}
 
-      {authNeeded && <TokenGate />}
+      {authNeeded && <TokenGate reason={authReason} />}
     </div>
   );
 }

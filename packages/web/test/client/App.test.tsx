@@ -3,6 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../client/src/App.js';
 
+const storedToken = vi.hoisted(() => ({ value: null as string | null }));
+
 // Mock must be at module level, hoisted by vitest
 vi.mock('../../client/src/api.js', () => ({
   api: {
@@ -38,9 +40,12 @@ vi.mock('../../client/src/api.js', () => ({
     getAgentModels: vi.fn().mockResolvedValue({ settings: { global: {}, workspaces: {} }, defaults: {}, catalog: [] }),
     getAnalytics: vi.fn().mockResolvedValue({ tasks: [], stranded: [] }),
     getTokenTrend: vi.fn().mockResolvedValue([]),
+    whoami: vi.fn().mockResolvedValue({ kind: 'user', userId: 1 }),
   },
   eventsUrl: () => '/events',
   setUnauthorizedHandler: () => {},
+  getToken: () => storedToken.value,
+  setToken: (t: string | null) => { storedToken.value = t; },
 }));
 
 import { api } from '../../client/src/api.js';
@@ -66,6 +71,24 @@ beforeEach(() => {
 });
 
 describe('App', () => {
+  it('sends a browser holding a service token back to sign-in, saying why', async () => {
+    storedToken.value = 'svc';
+    vi.mocked(api.whoami).mockResolvedValueOnce({ kind: 'service', label: 'otel-local' });
+    render(<App />);
+    expect(await screen.findByText(/signed in with the service token 'otel-local'/)).toBeInTheDocument();
+    expect(storedToken.value).toBeNull();
+    storedToken.value = null;
+  });
+
+  it('leaves a user token alone', async () => {
+    storedToken.value = 'user';
+    render(<App />);
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByText(/service token/)).toBeNull();
+    expect(storedToken.value).toBe('user');
+    storedToken.value = null;
+  });
+
   it('renders the header and the three-view toggle by default', () => {
     render(<App />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('AgentFactory');
