@@ -1,8 +1,8 @@
-import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, RetryReservation, EngineSettings } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
-import type { DispatcherDeps, SpawnedChild, LogWriter } from './types.js';
+import type { DispatcherDeps, SpawnedChild, LogWriter, RetryReservationLike, ExecutionLike } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
 import { parseCliMetrics, hasMetrics, parsePermissionDenials, type ParsedMetrics } from './metrics.js';
 import { buildCodexArgs, parseCodexMetrics, codexFailed } from './codex.js';
@@ -17,6 +17,7 @@ interface Session {
   attempt: number;
   maxAttempts: number;
   reservationId: string;
+  executionId: string | null;
   child: SpawnedChild;
   logWriter: LogWriter;
   startedAtMs: number;
@@ -49,7 +50,9 @@ const RELEASE_RETRIES = 5;
 const RETRY_RESERVATION_GRACE_MS = 30_000;
 
 /** What a release posts to the board alongside the recovery edge. */
-interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; maxAttempts?: number | undefined; reservationId?: string | undefined; }
+interface ReleaseOpts { reason: FailureReason | string; detail: string; body: string; attempt?: number | undefined; maxAttempts?: number | undefined; reservationId?: string | undefined; executionId?: string | undefined; }
+
+type LaunchReservation = RetryReservationLike & { executionId?: string | undefined };
 
 /**
  * The supervisor. Polls the queue read-only and spawns one fresh headless worker
@@ -134,16 +137,17 @@ export class Dispatcher {
    *  workspace's free slots. */
   async tick(): Promise<void> {
     await Promise.all([...this.settling]); // exits since the last tick finish reaping first
+    await this.touchLiveSessions();
+    await this.reconcileExecutions();
     await this.cancelCompletedSessions();
     await Promise.all([...this.settling]);
     await this.refreshEngineSettings();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
-    this.enforceTimeouts();
+    await this.enforceTimeouts();
     // Timeout kills emit child exit synchronously on some platforms; finish that reap before
     // polling so a freed slot can be used in this cycle without competing with the old session.
     await Promise.all([...this.settling]);
-    await this.touchLiveSessions();
     await this.tailTranscripts();
     const served = await this.servedWorkspaces();
     await this.recordHeartbeat(served);
@@ -175,6 +179,16 @@ export class Dispatcher {
     } catch (err) {
       this.console.warn(`[dispatcher] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
     }
+  }
+
+  /** A live pre-claim execution is touched once per owning tick — possibly by another dispatcher
+   *  with its own pollSeconds — so it is only called abandoned once its heartbeat outlived the
+   *  execution lease (or two of this cadence, if longer): the same lease that guards claims. */
+  private async reconcileExecutions(): Promise<void> {
+    if (!this.deps.core.reconcileExecutions) return;
+    const graceMs = Math.max(EXECUTION_LEASE_MS, 2 * this.config.pollSeconds * 1000);
+    try { await this.deps.core.reconcileExecutions(graceMs); }
+    catch (err) { this.console.warn(`[dispatcher] could not reconcile abandoned executions: ${(err as Error).message}`); }
   }
 
   /** Retry releases that failed transiently on a previous tick (bounded per entry). */
@@ -235,23 +249,43 @@ export class Dispatcher {
 
   // -- timeouts --------------------------------------------------------------
 
-  private enforceTimeouts(): void {
+  /**
+   * Kill sessions past maxSessionMinutes whose worker has also gone quiet on the board. Process
+   * liveness (this supervisor's own touches) and the board heartbeat are deliberately separate:
+   * only the worker's own report_progress (`phaseAt`) proves it is still making progress.
+   */
+  private async enforceTimeouts(): Promise<void> {
     const capMs = this.config.maxSessionMinutes * 60_000;
+    const idleMs = this.config.sessionIdleMinutes * 60_000;
     const now = this.deps.now();
-    for (const session of this.running.values()) {
-      if (session.timedOut || session.settled || session.cancelled) continue;
-      if (now - session.startedAtMs > capMs) {
-        session.timedOut = true;
-        this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m); killing\n`);
-        try {
-          // kill the TREE: on Windows the tracked child is a cmd.exe shim — killing only it
-          // would leave the actual claude/codex worker running against a re-queued task
-          this.deps.terminateProcessTree(session.child, 'SIGKILL');
-        } catch {
-          /* the exit handler still runs the crash path */
-        }
+    const overdue = [...this.running.values()].filter((s) => !s.timedOut && !s.settled && !s.cancelled && now - s.startedAtMs > capMs);
+    if (overdue.length === 0) return;
+    const progressAt = idleMs > 0 ? await this.workerProgress() : new Map<string, string>();
+    for (const session of overdue) {
+      const seenMs = Date.parse(progressAt.get(session.claimedKey ?? session.predictedKey) ?? '');
+      if (Number.isFinite(seenMs) && now - seenMs <= idleMs) continue; // slow but alive
+      session.timedOut = true;
+      this.appendLog(session, `\n[dispatcher] session exceeded maxSessionMinutes (${this.config.maxSessionMinutes}m) with no worker heartbeat in the last ${this.config.sessionIdleMinutes}m; killing\n`);
+      try {
+        // kill the TREE: on Windows the tracked child is a cmd.exe shim — killing only it
+        // would leave the actual claude/codex worker running against a re-queued task
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
+      } catch {
+        /* the exit handler still runs the crash path */
       }
     }
+  }
+
+  /** Task key → the worker's last report_progress on the board. An unreadable board yields no
+   *  heartbeats, so overdue sessions fall back to the plain wall-clock cap. */
+  private async workerProgress(): Promise<Map<string, string>> {
+    const progressAt = new Map<string, string>();
+    try {
+      for (const a of await this.deps.core.listLiveAgents()) if (a.phaseAt) progressAt.set(a.key, a.phaseAt);
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not read worker heartbeats; enforcing the plain session cap: ${(err as Error).message}`);
+    }
+    return progressAt;
   }
 
   // -- stale-claim reaping ---------------------------------------------------
@@ -310,8 +344,13 @@ export class Dispatcher {
             reason: 'stale claim reclaimed',
           });
         }
+        // This process never held the orphan's fence (it died with the previous supervisor), so
+        // release against the execution observed now: a replacement claim landing in between has a
+        // different id and makes the release fail closed instead of yanking the new worker.
+        const orphanExecution = await this.deps.core.getCurrentExecution?.(task.key);
         this.console.log(`[dispatcher] reaping stale claim ${task.key} (claimed by ${label}, no heartbeat for ${ageMinutes}m)`);
         await this.releaseClaim(task.key, {
+          ...(orphanExecution ? { executionId: orphanExecution.id } : {}),
           reason: 'stale',
           detail: `claim by \`${label}\` looks abandoned — no heartbeat for ${ageMinutes}m (staleClaimMinutes ${this.config.staleClaimMinutes})`,
           body:
@@ -350,6 +389,7 @@ export class Dispatcher {
       if (s.settled) continue;
       try {
         await this.deps.core.touchAgentSession(s.predictedKey);
+        if (s.executionId && this.deps.core.touchExecution) await this.deps.core.touchExecution(s.executionId);
       } catch {
         /* best-effort — a missing live row (not yet claimed / already ended) is fine */
       }
@@ -394,6 +434,7 @@ export class Dispatcher {
             if (end > s.transcriptOffset) {
               await this.deps.core.appendTranscript(claimed.key, {
                 chunk: s.stdout.slice(s.transcriptOffset, end), attempt: s.attempt, sessionId: s.sessionId, engine: 'codex',
+                ...(s.executionId ? { executionId: s.executionId } : {}),
               });
               s.transcriptOffset = end;
             }
@@ -411,7 +452,7 @@ export class Dispatcher {
         }
         const slice = this.deps.tailFile(s.transcriptPath, s.transcriptOffset);
         if (slice && slice.chunk) {
-          await this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId });
+          await this.deps.core.appendTranscript(s.transcriptKey, { chunk: slice.chunk, attempt: s.attempt, sessionId: s.sessionId, ...(s.executionId ? { executionId: s.executionId } : {}) });
           s.transcriptOffset = slice.offset;
         }
       } catch {
@@ -426,13 +467,14 @@ export class Dispatcher {
       if (session.engine === 'codex') {
         if (session.stdout.trim()) await this.deps.core.saveTranscript(key, {
           raw: session.stdout, attempt: session.attempt, sessionId: session.sessionId, engine: 'codex',
+          ...(session.executionId ? { executionId: session.executionId } : {}),
         });
         return;
       }
       const path = session.transcriptPath ?? this.deps.findTranscript(session.cwd, session.sessionId);
       if (!path) return;
       const raw = this.deps.readFile(path);
-      if (raw && raw.trim()) await this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId });
+      if (raw && raw.trim()) await this.deps.core.saveTranscript(key, { raw, attempt: session.attempt, sessionId: session.sessionId, ...(session.executionId ? { executionId: session.executionId } : {}) });
     } catch {
       /* best-effort */
     }
@@ -469,10 +511,24 @@ export class Dispatcher {
         continue;
       }
       this.warnedNoEngine = false;
-      const reservation = await this.deps.core.reserveRetry(task.key, {
-        operation: `dispatcher:${task.stage}`,
-        maxAttempts: this.config.maxAttempts,
-      });
+      let reservation: LaunchReservation | null;
+      if (this.deps.core.reserveExecution) {
+        let execution: ExecutionLike | null;
+        try {
+          execution = await this.deps.core.reserveExecution(task.key, {
+            operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts,
+            owner: `${workspace}#${task.key}`, startImmediately: true,
+          });
+        } catch (err) {
+          // Another supervisor's live execution owns the task, or it left the queue since
+          // listTasks: not this task's turn — and not an exhausted budget, so no skip-list.
+          if (err instanceof InvalidTransitionError) continue;
+          throw err;
+        }
+        reservation = execution ? ({ ...execution, executionId: execution.id } as LaunchReservation) : null;
+      } else {
+        reservation = await this.deps.core.reserveRetry(task.key, { operation: `dispatcher:${task.stage}`, maxAttempts: this.config.maxAttempts });
+      }
       if (reservation === null) {
         this.skipList(task.key);
         continue;
@@ -545,13 +601,17 @@ export class Dispatcher {
   }
 
   /** Spawn one session; returns false (no slot consumed) if the workspace can't be launched. */
-  private async spawnSession(workspace: string, key: string, stage: Stage, reservation: RetryReservation): Promise<boolean> {
+  private async spawnSession(workspace: string, key: string, stage: Stage, reservation: LaunchReservation): Promise<boolean> {
     const attempt = reservation.attempt;
     const cwd = await this.repoPath(workspace);
     if (!cwd) {
       this.console.warn(`[dispatcher] workspace '${workspace}' has no repoPath; cannot spawn for ${key}`);
       return false;
     }
+    const identitySuffix = reservation.executionId ? `-${reservation.executionId.slice(0, 8)}` : '';
+    // Keep the established worker label stable for claim reconciliation and activity analytics.
+    // The execution fence and the per-run file suffix provide uniqueness without changing the
+    // label contract consumed by existing workers.
     const choice = this.engineFor(stage);
     if (!choice) return false; // toggled off between the poll and the spawn
     const { engine, configured } = choice;
@@ -561,8 +621,8 @@ export class Dispatcher {
     if (engine !== configured) this.console.log(`[dispatcher] ${key}: ${configured} is disabled on the board; falling back to ${engine} for ${stage}`);
     const codexCommand = engine === 'codex' ? this.deps.resolveCodex() : null;
     const label = `${workspace}#${key}-a${attempt}`;
-    const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}.log`;
-    const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}.mcp.json`;
+    const logPath = `${this.deps.logDir}/${key}-attempt-${attempt}${identitySuffix}.log`;
+    const mcpConfigPath = `${this.deps.logDir}/${key}-attempt-${attempt}${identitySuffix}.mcp.json`;
     const logWriter = this.deps.openLog(logPath);
 
     // ALL backend keys are written every time, the unused ones as '' (the MCP entry treats
@@ -578,6 +638,7 @@ export class Dispatcher {
       AGENTFACTORY_TASK_KEY: key,
       AGENTFACTORY_STAGE: stage,
     };
+    if (reservation.executionId) mcpEnv['AGENTFACTORY_EXECUTION_ID'] = reservation.executionId;
     const localRepo = this.config.repoPathOverrides?.[workspace];
     if (localRepo) mcpEnv['AGENTFACTORY_REPO_PATH'] = localRepo;
     // The MCP config is written to a file rather than inlined: cmd.exe (the Windows .cmd
@@ -653,6 +714,7 @@ export class Dispatcher {
       attempt,
       maxAttempts: reservation.maxAttempts,
       reservationId: reservation.id,
+      executionId: reservation.executionId ?? null,
       child,
       logWriter,
       startedAtMs: this.deps.now(),
@@ -760,6 +822,9 @@ export class Dispatcher {
       if (moved) {
         session.attempt = moved.attempt;
         session.maxAttempts = moved.maxAttempts;
+        // The actual task was claimed through the compatibility path and owns a different
+        // execution row. Release it through the task's current claim, not the predicted fence.
+        session.executionId = null;
       } else {
         // The predicted reservation was refunded by reconciliation when the actual budget was
         // exhausted; do not later settle that now-obsolete id as a failure for the wrong task.
@@ -775,7 +840,7 @@ export class Dispatcher {
     }
 
     // OTel (when configured) owns token capture — skip the stdout parse to avoid double-counting.
-    if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(claimed.key, session.label, metrics);
+    if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(claimed.key, session.label, metrics, session.executionId);
 
     // the process exited: end its live session. submit_result already ended it on success;
     // this also clears a crashed in_progress session the agent never got to end before dying.
@@ -807,7 +872,7 @@ export class Dispatcher {
       detail: 'Codex exited before claiming its task; inspect the worker log',
       attempt: session.attempt, maxAttempts: session.maxAttempts,
       body: session.logTail,
-    }) });
+    }), ...(session.executionId ? { executionId: session.executionId } : {}) });
     await this.deps.core.settleRetry(session.reservationId, { state: 'failed', reason: 'codex exited before claiming' });
     if (session.attempt >= session.maxAttempts) this.skipList(task.key);
   }
@@ -842,8 +907,9 @@ export class Dispatcher {
     return undefined;
   }
 
-  private async recordMetrics(key: string, label: string, m: ParsedMetrics): Promise<void> {
-    const input: AddTaskMetricsInput = { reportedBy: label };
+  private async recordMetrics(key: string, label: string, m: ParsedMetrics, executionId: string | null): Promise<void> {
+    const input: AddTaskMetricsInput & { executionId?: string } = { reportedBy: label };
+    if (executionId) input.executionId = executionId;
     if (m.model !== undefined) input.model = m.model;
     if (m.tokensIn !== undefined) input.tokensIn = m.tokensIn;
     if (m.tokensOut !== undefined) input.tokensOut = m.tokensOut;
@@ -876,6 +942,7 @@ export class Dispatcher {
             `Session \`${session.label}\` was permission denied for ${denials.map((d) => `\`${d}\``).join(', ')} ` +
             `and exited without claiming. The worker's tool allowlist or permission mode is misconfigured.`,
         }),
+        ...(session.executionId ? { executionId: session.executionId } : {}),
       });
     } catch {
       /* the console warning is the contract; the board comment is a bonus */
@@ -903,6 +970,7 @@ export class Dispatcher {
       attempt: session.attempt,
       maxAttempts: session.maxAttempts,
       reservationId: session.reservationId,
+      executionId: session.executionId ?? undefined,
     });
   }
 
@@ -917,7 +985,7 @@ export class Dispatcher {
    */
   private async releaseClaim(key: string, opts: ReleaseOpts, tries = 0): Promise<void> {
     try {
-      await this.deps.core.releaseClaim(key); // the system recovery edge (stamped system-reap in activity)
+      await this.deps.core.releaseClaim(key, undefined, opts.executionId); // the system recovery edge (stamped system-reap in activity)
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         if (opts.reservationId) await this.deps.core.settleRetry(opts.reservationId, { state: 'succeeded', reason: 'claim already advanced' });
@@ -941,6 +1009,7 @@ export class Dispatcher {
       await this.deps.core.addComment(key, {
         actor: 'agent',
         body: buildFailureComment({ reason: opts.reason, detail: opts.detail, source: 'dispatcher', attempt, maxAttempts, body: opts.body }),
+        ...(opts.executionId ? { executionId: opts.executionId } : {}),
       });
     } catch {
       /* the release is the contract; the board comment is a bonus */
@@ -965,6 +1034,7 @@ export class Dispatcher {
             maxAttempts,
             body: 'No further sessions will be spawned until a human intervenes.',
           }),
+          ...(opts.executionId ? { executionId: opts.executionId } : {}),
         });
       } catch {
         /* the console warning is the contract; the board comment is a bonus */

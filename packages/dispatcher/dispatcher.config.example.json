@@ -12,5 +12,6 @@
     "implementation": ["--model", "gpt-5.6-luna", "-c", "model_reasoning_effort=\"high\""]
   },
   "maxSessionMinutes": 60,
+  "sessionIdleMinutes": 15,
   "maxAttempts": 2
 }

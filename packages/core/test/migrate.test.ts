@@ -10,9 +10,9 @@ describe('runMigrations', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +117,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -289,7 +289,71 @@ describe('runMigrations', () => {
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
     ).all() as Array<{ name: string }>).map((row) => row.name);
     expect(indexes).toContain('idx_task_dependency_reverse');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 27 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+  });
+
+  it('migration #28 adds task_execution to a main-line version-27 database', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    db.exec('DROP TABLE task_execution');
+    db.exec('PRAGMA user_version = 27');
+
+    runMigrations(db);
+
+    expect(tables(db)).toContain('task_execution');
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+  });
+
+  it('migration #28 reconciles a database whose slot #26 was consumed by the pre-merge execution branch', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    // That branch's #26 created task_execution but never widened the heartbeat kind for intake,
+    // and it predates main's #27 ado_sync column.
+    db.exec('PRAGMA foreign_keys = OFF');
+    widenCheck(db, 'supervisor_heartbeat', "('dispatcher','reviewer','watcher','intake')", "('dispatcher','reviewer','watcher')");
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec('ALTER TABLE workspace DROP COLUMN ado_sync');
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','in_progress',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    const tid = (db.prepare("SELECT id FROM task WHERE key='AF-1'").get() as { id: number }).id;
+    db.prepare(
+      "INSERT INTO task_execution(id,task_id,stage,operation,generation,attempt,max_attempts,state,reserved_at) VALUES ('e1',?,'implementation','dispatcher:implementation',1,1,2,'running','2026-01-01')"
+    ).run(tid);
+    db.exec('PRAGMA user_version = 26');
+
+    runMigrations(db);
+
+    expect(() => db.prepare(
+      "INSERT INTO supervisor_heartbeat(name,kind,workspaces,in_flight,capacity,started_at,last_seen_at) VALUES ('i','intake','default',0,0,'2026-01-01','2026-01-01')"
+    ).run()).not.toThrow();
+    const workspaceColumns = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(workspaceColumns).toContain('ado_sync');
+    expect(db.prepare("SELECT state FROM task_execution WHERE id='e1'").get()).toMatchObject({ state: 'running' });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
+  });
+
+  it('migration #28 reconciles a database whose slot #27 was consumed by the pre-merge execution branch', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    // That branch's #27 created task_execution (and replayed the intake widening), so main's #27
+    // ado_sync column was skipped; #28 must add it without disturbing existing executions.
+    db.exec('ALTER TABLE workspace DROP COLUMN ado_sync');
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','in_progress',1,1,'2026-01-01','2026-01-01')"
+    ).run();
+    const tid = (db.prepare("SELECT id FROM task WHERE key='AF-1'").get() as { id: number }).id;
+    db.prepare(
+      "INSERT INTO task_execution(id,task_id,stage,operation,generation,attempt,max_attempts,state,reserved_at) VALUES ('e1',?,'implementation','dispatcher:implementation',1,1,2,'running','2026-01-01')"
+    ).run(tid);
+    db.exec('PRAGMA user_version = 27');
+
+    runMigrations(db);
+
+    const workspaceColumns = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(workspaceColumns).toContain('ado_sync');
+    expect(db.prepare("SELECT state FROM task_execution WHERE id='e1'").get()).toMatchObject({ state: 'running' });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 28 });
   });
 
   it('enforces the stage CHECK constraint', () => {

@@ -7,14 +7,15 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { assertExecutionOwnership, currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
 import { deliveryRowFor } from '../repo/delivery.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { approvalNeedsReason } from './approval.js';
 
-export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string): TaskDetail {
+export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
-  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom));
+  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom, executionId));
 }
 
 /**
@@ -22,9 +23,10 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
  * `requestedFrom` is the status the caller saw before opening the transaction (defaults to the
  * current one), letting a stale human retry detect a repair the watcher completed meanwhile.
  */
-export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status): TaskDetail {
+export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status, executionId?: string): TaskDetail {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
+    if (actor === 'agent') assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
     // archived tasks are immutable for state — without this, done → queued would reopen
     // a task the board no longer shows
     if (row.archived_at !== null)
@@ -69,6 +71,12 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).
     if (row.status === 'in_progress' && status === 'queued' && actor === 'human') endSession(db, row.id, ts);
+    // Re-entering the queue ends whatever claim came before (a human release, an unblock): retire
+    // that worker's fence too, so its late output is stale and it does not block the next claimant.
+    if (status === 'queued') {
+      const live = currentExecution(db, row.id);
+      if (live && operationPhase(live.operation) === 'queued') settleExecution(db, live.id, 'cancelled', ts, 'task re-queued');
+    }
     // A human unblocking or reopening a task hands the worker new work, not another retry of the
     // rounds that ended there — without a fresh budget the dispatcher silently skips it. (Releasing
     // a stranded claim above is still a retry and keeps counting.)

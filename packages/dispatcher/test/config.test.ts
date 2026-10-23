@@ -12,6 +12,7 @@ describe('config', () => {
       permissionMode: 'acceptEdits',
       claudeArgs: [],
       maxSessionMinutes: 60,
+      sessionIdleMinutes: 15,
       maxAttempts: 2,
     });
   });

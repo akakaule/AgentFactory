@@ -144,7 +144,7 @@ describe('pr-review tasks', () => {
     const t = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     updateStatus(db, t.key, 'queued', 'human');
     const claimed = claimNextTask(db, { workspace: 'default' })!;
-    updateStatus(db, claimed.key, 'in_review', 'agent');
+    updateStatus(db, claimed.key, 'in_review', 'agent', undefined, null, undefined, claimed.executionId);
     updateStatus(db, claimed.key, 'done', 'human');
     expect(() => updateStatus(db, claimed.key, 'in_review', 'human')).toThrow(ValidationError);
   });

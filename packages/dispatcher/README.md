@@ -44,13 +44,14 @@ sessions are killed.
 | `workspaces` | — (optional) | Workspace slugs to serve. **Omit to serve every workspace in the DB** (opt-out model) — the list is re-read each tick, so a workspace created on the board is dispatched automatically, with no config edit and no restart. When present, pins the dispatcher to exactly these slugs (opt-in back-compat). |
 | `excludeWorkspaces` | `[]` | Workspace slugs to **never** serve — the opt-out escape hatch (a scratch/demo workspace). Applied whether or not `workspaces` is set. |
 | `maxConcurrent` | `1` | Max concurrent sessions **per workspace**. Same-repo parallelism is opt-in — shared local resources (test DBs, ports) make 1 the safe default. |
-| `pollSeconds` | `15` | Queue poll interval. |
+| `pollSeconds` | `15` | Queue poll interval. A spawned worker's pre-claim execution is refreshed once per tick and reconciled as abandoned (one `failure/v1` note, attempt refunded, respawned) once unrefreshed for the 5-minute execution lease (or `2 × pollSeconds`, if longer), so dispatchers sharing a board may poll at different rates. |
 | `permissionMode` | `acceptEdits` | `claude --permission-mode` for unattended sessions. `bypassPermissions` is supported but for contained environments only. |
 | `claudeArgs` | `[]` | Extra args appended to **every** `claude` invocation, regardless of stage. |
 | `codexArgs` | `[]` | Extra args for Codex workers only. |
 | `stageEngines` | Claude for every stage | Optional `description`, `plan`, `implementation` entries, each `claude` or `codex`. |
 | `stageArgs` | — (optional) | Per-stage extra args — see [Per-stage model selection](#per-stage-model-selection). |
-| `maxSessionMinutes` | `60` | Hard wall-clock cap; the supervisor kills a session that exceeds it (counts as an attempt). |
+| `maxSessionMinutes` | `60` | Wall-clock cap; past it the supervisor kills a session (counts as an attempt) once its worker is also silent for `sessionIdleMinutes`. |
+| `sessionIdleMinutes` | `15` | Board-heartbeat idle window. A session past `maxSessionMinutes` is kept while its worker called `report_progress` (locally or over HTTP) within this window. The supervisor's own liveness touches never count. `0` makes `maxSessionMinutes` a hard cap. |
 | `maxAttempts` | `2` | Attempts a task gets before it is skip-listed and left queued for a human. |
 | `staleClaimMinutes` | `120` | DB-scan reaper threshold. Each tick, an `in_progress` claim with no live child (a dispatcher orphan left by a restart, or an abandoned interactive `/work-task` claim) is released back to `queued` once its staleness — now − (live heartbeat, else `claimed_at`) — exceeds this. A still-alive orphaned worker keeps heartbeating and is left alone. `0` disables it; keep it ≥ `maxSessionMinutes`. |
 

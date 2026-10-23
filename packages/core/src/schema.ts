@@ -394,3 +394,29 @@ CREATE INDEX IF NOT EXISTS idx_retry_attempt_budget ON retry_attempt(budget_id, 
 export const MIGRATION_27_SQL = `
 ALTER TABLE workspace ADD COLUMN ado_sync TEXT;
 `;
+
+// Migration #28 — durable execution ownership. A retry reservation describes budget accounting;
+// this record describes the concrete worker/reviewer run that may mutate a task. Keeping the
+// identity separate lets a replacement claim invalidate all late writes from an older process.
+// (Slots #26/#27 went to main's intake widening and ADO import; see migrate.ts for the reconcile.)
+export const MIGRATION_28_SQL = `
+CREATE TABLE IF NOT EXISTS task_execution (
+  id             TEXT PRIMARY KEY,
+  task_id        INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  stage          TEXT NOT NULL CHECK (stage IN ('description','plan','implementation')),
+  operation      TEXT NOT NULL,
+  generation     INTEGER NOT NULL CHECK (generation > 0),
+  attempt        INTEGER NOT NULL CHECK (attempt > 0),
+  max_attempts   INTEGER NOT NULL CHECK (max_attempts > 0),
+  owner          TEXT,
+  state          TEXT NOT NULL CHECK (state IN ('reserved','running','succeeded','failed','cancelled')),
+  reserved_at    TEXT NOT NULL,
+  started_at     TEXT,
+  heartbeat_at   TEXT,
+  retry_after_at TEXT,
+  terminal_reason TEXT,
+  retry_id       TEXT REFERENCES retry_attempt(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_execution_current ON task_execution(task_id, id, state);
+CREATE INDEX IF NOT EXISTS idx_task_execution_reserved ON task_execution(state, reserved_at);
+`;

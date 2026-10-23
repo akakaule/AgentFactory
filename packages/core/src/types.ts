@@ -4,12 +4,26 @@ import type { AdoSyncSettings, AdoSyncSettingsInput } from './adoSync.js';
 
 export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
 export type Actor = 'human' | 'agent';
+/** Wire capabilities that must be present before supervisors and workers are restarted together. */
+export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
+export type AgentCapability = typeof AGENT_CAPABILITIES[number];
+/** Request header on the startup whoami: the capabilities the calling supervisor build speaks. */
+export const AGENT_CAPABILITIES_HEADER = 'x-agentfactory-capabilities';
+/** What every side of a capability mismatch must do: one restart of the whole fleet on one build. */
+export const COORDINATED_RESTART = 'coordinated restart required: rebuild, then restart the board, MCP sessions and every supervisor together';
 
 /** Durable retry accounting is deliberately open-ended so a new supervisor operation can be
  * added without another schema migration. Callers use names such as `dispatcher:implementation`
  * and `reviewer:implementation` to give stages/submissions independent budgets. */
 export type RetryOperation = string;
 export type RetryAttemptState = 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type ExecutionState = RetryAttemptState;
+export interface Execution {
+  id: string; taskKey: string; stage: Stage; operation: RetryOperation;
+  generation: number; attempt: number; maxAttempts: number; owner: string | null;
+  state: ExecutionState; reservedAt: string; startedAt: string | null;
+  heartbeatAt: string | null; retryAfterAt: string | null; terminalReason: string | null;
+}
 export interface RetryBudget {
   taskKey: string; operation: RetryOperation; generation: number;
   maxAttempts: number; attemptsUsed: number; remaining: number; exhausted: boolean;
@@ -442,6 +456,7 @@ export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCrit
 export interface LinkInput { kind: LinkKind; label: string; url: string; }
 export interface SubmitResultInput {
   summary: string;
+  executionId?: string | undefined;
   /** The claimedAt value from the worker's current claim; rejects late submissions from an old execution. */
   claimAt?: string | undefined;
   links?: LinkInput[];
@@ -453,8 +468,9 @@ export interface SubmitResultInput {
   criteria?: CriterionClaim[] | undefined;   // implementation: the agent's claim per acceptance criterion
 }
 export interface AddTaskMetricsInput {
-  model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string;
+  model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;
 }
+export interface AddCommentInput { actor: Actor; body: string; actorUserId?: number | null; executionId?: string | undefined; }
 export interface AddAttachmentInput { filename: string; mime: string; dataBase64: string; }
 
 export const ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;

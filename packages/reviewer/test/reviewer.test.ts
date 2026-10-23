@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
@@ -104,6 +104,46 @@ describe('poll + spawn', () => {
     const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
     await r.tick();
     expect(calls.length).toBe(0);
+  });
+
+  it('a second reviewer racing for the same task spawns nothing and does not skip-list it', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Contended review', 'implementation');
+    const first = makeFakeSpawn();
+    const second = makeFakeSpawn();
+    const secondLog = makeFakeConsole();
+    const r1 = new Reviewer(makeConfig(), makeDeps(core, first.spawn, { console: makeFakeConsole() }));
+    const r2 = new Reviewer(makeConfig(), makeDeps(core, second.spawn, { console: secondLog }));
+
+    await r1.tick();
+    await r2.tick(); // budget remains, but r1's live review execution owns the task
+
+    expect(first.calls).toHaveLength(1);
+    expect(second.calls).toHaveLength(0);
+    expect(r2.isSkipListed(key)).toBe(false);
+    expect(secondLog.errors).toEqual([]);
+    expect(core.getRetryBudget(key, 'reviewer:implementation')).toMatchObject({ attemptsUsed: 1 });
+  });
+
+  it("never cancels a dispatcher's live pre-claim execution between the dispatcher's own ticks", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const T0 = Date.parse('2026-10-22T12:00:00.000Z');
+      vi.setSystemTime(T0);
+      const core = makeCore();
+      const t = core.createTask({ title: 'Queued for a worker', spec: 'S', acceptanceCriteria: 'A', workspace: 'ws' });
+      core.updateStatus(t.key, 'queued', 'human');
+      // a dispatcher polling every 60s reserved + spawned at T0; its worker has not claimed yet
+      const execution = core.reserveExecution(t.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: `ws#${t.key}`, startImmediately: true })!;
+      vi.setSystemTime(T0 + 45_000);
+
+      const { spawn } = makeFakeSpawn();
+      await new Reviewer(makeConfig(), makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() })).tick();
+
+      expect(core.getCurrentExecution(t.key)?.id).toBe(execution.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a tick overlapping a slow diff does not double-spawn the same review', async () => {

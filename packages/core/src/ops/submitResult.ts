@@ -11,6 +11,7 @@ import { NotFoundError, ValidationError, InvalidTransitionError } from '../error
 import { reconcileMergedDelivery } from './delivery.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
+import { assertExecutionOwnership, executionById, isLatestOfPhase, settleExecution } from '../repo/execution.js';
 import { parseAcceptanceCriteria } from '../acceptanceCriteria.js';
 import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
 
@@ -56,14 +57,29 @@ export function submitResult(
   input: SubmitResultInput,
   now: () => string = nowIso,
 ): TaskDetail {
-  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria } = parse(submitResultSchema, input);
+  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria, executionId } = parse(submitResultSchema, input);
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
-    if (claimAt !== undefined && row.claimed_at !== claimAt) throw new InvalidTransitionError(`stale claim for ${key}`);
     assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria);
     if (criteria) assertCriterionIds(row.acceptance_criteria, criteria);
+
+    // A response can be lost after the transaction commits. A retry of that same successful
+    // execution is an acknowledgement, not a second result — also once the reviewer has reserved
+    // the submitted task (another phase). A newer worker execution makes the old identity stale,
+    // and a retry with a different summary is refused rather than silently dropped.
+    const own = executionId === undefined ? undefined : executionById(db, executionId);
+    if (own !== undefined && own.task_id === row.id && own.state === 'succeeded' && row.status === 'in_review' && isLatestOfPhase(db, own)) {
+      if (row.result_summary !== summary)
+        throw new InvalidTransitionError(`${key} already holds the result execution ${own.id} submitted; a different retry is not applied`);
+      return toDetail(db, row);
+    }
+
+    const current = assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
+    if (executionId !== undefined && current === undefined)
+      throw new InvalidTransitionError(`execution ${executionId} is not running`);
+    assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
+    if (claimAt !== undefined && row.claimed_at !== claimAt) throw new InvalidTransitionError(`stale claim for ${key}`);
     // Verification gate: when the workspace configures a verify command, the implementation stage
     // must report having run it (attestation — the worktree is gone by submit, so the server can't
     // re-run it here). No command configured ⇒ no gate, preserving today's behaviour.
@@ -90,6 +106,7 @@ export function submitResult(
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);
     endSession(db, row.id, ts); // the agent finished — drop it from the live view
+    if (executionId !== undefined) settleExecution(db, executionId, 'succeeded', ts, 'result submitted');
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     // the claim per criterion rides right after the result it belongs to (criteriaClaimsFor reads it)

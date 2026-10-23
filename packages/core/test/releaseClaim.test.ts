@@ -15,8 +15,8 @@ const fixedNow = () => FIXED_TS;
 function claimed(db: DB) {
   const t = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
   updateStatus(db, t.key, 'queued', 'human');
-  claimNextTask(db, { claimedBy: 'worker-1' });
-  return t;
+  const claim = claimNextTask(db, { claimedBy: 'worker-1' });
+  return { ...t, executionId: claim!.executionId };
 }
 
 describe('releaseClaim (system recovery action)', () => {
@@ -25,7 +25,7 @@ describe('releaseClaim (system recovery action)', () => {
     const t = claimed(db);
     expect(listLiveAgents(db)).toHaveLength(1);
 
-    const detail = releaseClaim(db, t.key, fixedNow);
+    const detail = releaseClaim(db, t.key, fixedNow, t.executionId);
 
     expect(detail.status).toBe('queued');
     expect(detail.claimedBy).toBeNull();
@@ -41,7 +41,7 @@ describe('releaseClaim (system recovery action)', () => {
     const db = makeTestDb();
     const t = claimed(db);
 
-    const detail = releaseClaim(db, t.key, fixedNow);
+    const detail = releaseClaim(db, t.key, fixedNow, t.executionId);
 
     const release = detail.activity.filter((a) => a.type === 'status_change').at(-1)!;
     expect(release).toMatchObject({ fromStatus: 'in_progress', toStatus: 'queued', actor: 'human' });

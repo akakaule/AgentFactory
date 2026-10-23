@@ -14,6 +14,8 @@ import { registerTaskGit } from './tools/taskGit.js';
 export interface ServerOptions {
   defaultWorkspace?: string | undefined;
   workerLabel?: string | undefined; // recorded as claimed_by on every claim
+  executionId?: string | undefined; // stable ownership fence injected by a supervisor
+  executionContext?: { get(): string | undefined; set(id: string | undefined): void };
   taskKey?: string | undefined; // dispatched workers may only claim their intended task
   stage?: 'description' | 'plan' | 'implementation' | undefined;
   /** Machine-local clone of the PINNED workspace (#46 remote workers): replaces the
@@ -34,15 +36,18 @@ export function localizeRepo<T extends { workspace: string; repoPath: string }>(
 }
 
 export function buildServer(core: McpCore, opts: ServerOptions = {}): McpServer {
+  let activeExecutionId = opts.executionId;
+  const context = opts.executionContext ?? { get: () => activeExecutionId, set: (id: string | undefined) => { activeExecutionId = id; } };
+  const scoped = { ...opts, executionContext: context };
   const server = new McpServer({ name: 'agentfactory', version: '0.1.0' });
-  registerListTasks(server, core, opts);
-  registerGetNextTask(server, core, opts);
-  registerGetTask(server, core, opts);
-  registerCreateTask(server, core, opts);
-  registerAddComment(server, core);
-  registerSubmitResult(server, core, opts);
-  registerUpdateStatus(server, core);
-  registerReportProgress(server, core);
-  registerTaskGit(server, core, opts);
+  registerListTasks(server, core, scoped);
+  registerGetNextTask(server, core, scoped);
+  registerGetTask(server, core, scoped);
+  registerCreateTask(server, core, scoped);
+  registerAddComment(server, core, scoped);
+  registerSubmitResult(server, core, scoped);
+  registerUpdateStatus(server, core, scoped);
+  registerReportProgress(server, core, scoped);
+  registerTaskGit(server, core, scoped);
   return server;
 }

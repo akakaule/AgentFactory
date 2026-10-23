@@ -222,7 +222,8 @@ describe('ai-review activity strip', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask();
     core.submitResult(t.key, { summary: 'done', links: [] });
-    core.addComment(t.key, { actor: 'agent', body: REVIEW });
+    const review = core.reserveExecution(t.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1', startImmediately: true });
+    core.addComment(t.key, { actor: 'agent', body: REVIEW, executionId: review!.id });
     core.addComment(t.key, { actor: 'human', body: 'a plain human note' });
     return t;
   }

@@ -85,6 +85,22 @@ describe('POST /v1/logs — OTLP token ingest', () => {
     expect(detail.metrics).toMatchObject({ tokensIn: 1200, tokensOut: 45, model: 'gpt-5-codex' });
   });
 
+  it('records tokens for a task whose dispatched worker holds a live execution', async () => {
+    // autoFence:false = the production board: the worker's claim came from its own MCP server
+    // (claimedBy label → an owned execution), never from this process
+    const core = openCore(':memory:', { autoFence: false });
+    const app = buildApp(core);
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: `default#${t.key}-a1` });
+
+    expect((await postLogs(app, claudeBody(t.key))).status).toBe(200);
+
+    const detail = await (await app.request(`/api/tasks/${t.key}`)).json() as { status: string; metrics: { tokensIn: number | null } };
+    expect(detail.status).toBe('in_progress');
+    expect(detail.metrics.tokensIn).toBe(1050);
+  });
+
   it('no task.key anywhere → 200 but nothing recorded', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core);
