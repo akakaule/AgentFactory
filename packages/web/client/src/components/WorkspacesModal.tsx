@@ -66,10 +66,12 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
       );
     }
     if (adoDirty) body.adoSync = fromDraft(ado);
-    // agent model overrides ride the board-wide document: send it whole, with only this workspace's
-    // entry replaced (§9.2) — the server drops an empty entry
+    // agent model overrides ride the board-wide document: re-read it and send it whole with only this
+    // workspace's entry replaced (§9.2), so another row's or the global tab's save made meanwhile is
+    // kept — the server drops an empty entry
     const saveModels = modelsDirty && models
-      ? api.setAgentModels({ global: models.settings.global, workspaces: { ...models.settings.workspaces, [workspace.name]: modelDraft! } })
+      ? api.getAgentModels()
+        .then((fresh) => api.setAgentModels({ global: fresh.settings.global, workspaces: { ...fresh.settings.workspaces, [workspace.name]: modelDraft! } }))
         .then((v) => { onModelsSaved(v); setModelDraft(null); })
       : Promise.resolve();
     saveModels

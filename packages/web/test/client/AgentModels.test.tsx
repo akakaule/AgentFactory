@@ -120,6 +120,35 @@ describe('Agents › Models tab', () => {
     expect(sentDoc()).toEqual({ global: {}, workspaces: { 'kl-dis': { feedbackEval: { engine: 'codex' } } } });
   });
 
+  it('Save re-reads the document and replaces only the global layer (a concurrent workspace save survives)', async () => {
+    const user = userEvent.setup();
+    render(<AgentModelsPanel engines={ENGINES_ON} onClose={() => {}} />);
+    const impl = await screen.findByRole('region', { name: 'Implementation' });
+    // meanwhile another editor saved a workspace override
+    const newer = view();
+    newer.settings.workspaces = { 'kl-dis': { feedbackEval: { engine: 'codex' } }, other: { visualization: { engine: 'claude' } } };
+    mocked.getAgentModels.mockResolvedValue(newer);
+    await user.click(within(impl).getByRole('button', { name: 'medium' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mocked.setAgentModels).toHaveBeenCalledTimes(1));
+    expect(sentDoc().workspaces).toEqual(newer.settings.workspaces);
+    expect(sentDoc().global.stages.implementation).toEqual({ engine: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' });
+  });
+
+  it('blocks Save on more than 4 reviewers (e.g. a 5-entry list inherited from the file)', async () => {
+    const five = ['a', 'b', 'c', 'd', 'e'].map((m) => ({ engine: 'claude' as const, model: `m-${m}` }));
+    mocked.getAgentModels.mockResolvedValue(view({
+      settings: { global: {}, workspaces: {} },
+      defaults: { reviewer: { kind: 'reviewer', at: '2026-10-23T08:00:00.000Z', roles: { reviewers: five } } },
+    }));
+    const user = userEvent.setup();
+    render(<AgentModelsPanel engines={ENGINES_ON} onClose={() => {}} />);
+    const review = await screen.findByRole('region', { name: 'Review' });
+    await user.click(within(review).getAllByRole('button', { name: 'high' })[0]!);
+    expect(within(review).getByRole('alert').textContent).toContain('At most 4 reviewers');
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('adds and removes reviewers (at most 4)', async () => {
     const user = userEvent.setup();
     render(<AgentModelsPanel engines={ENGINES_ON} onClose={() => {}} />);
@@ -167,6 +196,23 @@ describe('Workspaces › Agent models', () => {
       },
     });
     await waitFor(() => expect(mocked.updateWorkspace).toHaveBeenCalled());
+  });
+
+  it('a workspace save re-reads the document and replaces only its own entry', async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws('kl-dis'), ws('other')]} focusWorkspace="kl-dis" onCreated={() => {}} onClose={() => {}} />);
+    await screen.findByText('Agent models — 1 of 5 steps overridden');
+    // meanwhile someone saved the global layer and another workspace
+    const newer = view();
+    newer.settings.global = { consensus: true };
+    newer.settings.workspaces = { 'kl-dis': { feedbackEval: { engine: 'codex' } }, other: { visualization: { engine: 'claude' } } };
+    mocked.getAgentModels.mockResolvedValue(newer);
+    await user.click(screen.getByLabelText('Override Implementation for this workspace'));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mocked.setAgentModels).toHaveBeenCalledTimes(1));
+    expect(sentDoc().global).toEqual({ consensus: true });
+    expect(sentDoc().workspaces.other).toEqual({ visualization: { engine: 'claude' } });
+    expect(sentDoc().workspaces['kl-dis'].stages.implementation).toEqual({ engine: 'claude', model: 'claude-sonnet-5-5' });
   });
 
   it('leaves the model settings alone when the section was not touched', async () => {

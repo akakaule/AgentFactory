@@ -11,7 +11,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
 
 /** The board's GLOBAL model settings, one card per pipeline step (Agents › Models). A step not set
  *  on the board shows what the supervisors' config files use; editing it sets it on the board.
- *  Save replaces the whole document (global + every workspace's overrides, as loaded). */
+ *  Save sends the whole document: this global layer plus the workspace overrides as freshly re-read. */
 export function AgentModelsPanel({ engines, onClose }: { engines: EngineSettings | null; onClose: () => void }) {
   const [view, setView] = useState<AgentModelsView | null>(null);
   const [draft, setDraft] = useState<AgentModelLayer>({});
@@ -36,7 +36,10 @@ export function AgentModelsPanel({ engines, onClose }: { engines: EngineSettings
   const save = (global: AgentModelLayer) => {
     setSaving(true);
     setErr(null);
-    api.setAgentModels({ global, workspaces: view.settings.workspaces })
+    // re-read first and replace only the global layer, so a workspace override saved meanwhile
+    // (another tab, the workspace editor) is kept rather than overwritten by this modal's stale copy
+    api.getAgentModels()
+      .then((fresh) => api.setAgentModels({ global, workspaces: fresh.settings.workspaces }))
       .then((v) => { load(v); setSaved(true); setConfirmReset(false); })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setSaving(false));

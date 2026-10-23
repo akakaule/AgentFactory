@@ -52,6 +52,7 @@ describe('agent model settings: storage + validation', () => {
       { global: { reviewers: [{ engine: 'claude' }, { engine: 'codex' }, { engine: 'claude', model: 'a' }, { engine: 'claude', model: 'b' }, { engine: 'claude', model: 'c' }] }, workspaces: {} },
       { global: { reviewers: [{ engine: 'codex', model: 'gpt-6-sol', effort: 'high' }, { engine: 'codex', model: 'gpt-6-sol', effort: 'low' }] }, workspaces: {} },
       { global: {}, workspaces: { 'no-such-ws': { stages: { description: { engine: 'claude' } } } } },
+      { global: {}, workspaces: { 'no-such-ws': {} } },
       { global: { stages: { description: { engine: 'claude', args: ['--x'] } } }, workspaces: {} },
       { global: { typo: true }, workspaces: {} },
       { global: {}, workspaces: { 'repo-a': { consensus: true } } },

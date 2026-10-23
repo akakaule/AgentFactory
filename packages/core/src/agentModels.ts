@@ -132,10 +132,12 @@ export function getAgentModels(db: DB): AgentModels {
 
 /** Validate and replace the WHOLE document (a save always sends it all; a newer save wins). */
 export function setAgentModels(db: DB, input: unknown): AgentModels {
-  const doc = compact(parse(agentModelsSchema, input));
+  const parsed = parse(agentModelsSchema, input);
+  // names are checked before compaction, so an empty override for an unknown workspace is refused too
   const names = new Set(listWorkspaces(db).map((w) => w.name));
-  const unknown = Object.keys(doc.workspaces).filter((name) => !names.has(name));
+  const unknown = Object.keys(parsed.workspaces).filter((name) => !names.has(name));
   if (unknown.length > 0) throw new ValidationError(`unknown workspace: ${unknown.join(', ')}`);
+  const doc = compact(parsed);
   setKv(db, KV_KEY, JSON.stringify(doc));
   return doc;
 }

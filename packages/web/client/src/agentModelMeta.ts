@@ -57,6 +57,7 @@ export const modelIdError = (model: string | undefined): string | null =>
   model === undefined || MODEL_ID_PATTERN.test(model) ? null : 'Use letters, digits and . _ : [ ] - only (max 80, starting with a letter or digit).';
 
 export function reviewerListError(list: ModelProfile[]): string | null {
+  if (list.length > MAX_REVIEWERS) return `At most ${MAX_REVIEWERS} reviewers: remove ${list.length - MAX_REVIEWERS}.`;
   const keys = list.map((p) => `${p.engine}/${p.model ?? ''}`);
   if (new Set(keys).size !== keys.length) return 'Two reviewers use the same engine and model.';
   return list.map((p) => modelIdError(p.model)).find((e) => e !== null) ?? null;
