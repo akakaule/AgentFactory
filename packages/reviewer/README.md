@@ -118,6 +118,17 @@ Each poll lists `in_review` tasks per workspace and keeps those that **need a re
 review). A task with a current `clean`/`findings` verdict is skipped, so the reviewer never
 re-reviews settled work and never races itself.
 
+## Models from the board
+
+The **Agents** modal's *Models* tab can set the reviewer list (1–4 profiles
+`{ engine, model?, effort? }`), the consensus switch, and the change-visualization and
+feedback-evaluator models. A workspace can override any of these (the reviewer list as a
+whole). The reviewer reads them every tick. A board setting replaces this file's
+`reviewers`/`engine`/`model`/`visualization`/`consensus.enabled` for that role; consensus
+timing (`totalMinutes`, `maxPromptChars`) always comes from this file or its defaults. With
+nothing set on the board, the reviewer behaves exactly as configured here. It reports this
+file's defaults to the board at startup so the UI can show them.
+
 ## Engine setup
 
 - **codex**: install the Codex CLI on PATH (or set `AGENTFACTORY_CODEX_BIN` to its path). The

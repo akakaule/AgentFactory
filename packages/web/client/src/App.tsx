@@ -114,7 +114,7 @@ export function App() {
           onNewWorkspace={() => { setEditWorkspace(null); setManagingWorkspaces(true); }}
           onEditWorkspace={(name) => { setEditWorkspace(name); setManagingWorkspaces(true); }}
         />
-        <button className="af-mini" title="Configure agent system prompts" onClick={() => setManagingPrompts(true)}>
+        <button className="af-mini" title="Configure agent models and system prompts" onClick={() => setManagingPrompts(true)}>
           {I.bot({ width: 14, height: 14 })} Agents
         </button>
         <button className="af-mini" title="Configure task intelligence" onClick={() => setManagingIntake(true)}>

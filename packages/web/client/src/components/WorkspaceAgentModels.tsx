@@ -45,7 +45,7 @@ export function WorkspaceAgentModels({ view, draft, onChange }: {
       <div key={role} className="af-wsm-row">
         <div className="af-wsm-row-h">
           <strong>{ROLE_LABEL[role]}</strong>
-          {!own && <span className="af-wsm-uses">Uses global: {inh.text}</span>}
+          <span className="af-wsm-uses">{own ? '' : `Uses global: ${inh.text}`}</span>
           <label>
             <input type="checkbox" aria-label={`Override ${ROLE_LABEL[role]} for this workspace`} checked={own !== undefined}
               onChange={(e) => onChange(withRole(draft, role, e.target.checked ? inh.profile : undefined))} />
@@ -77,7 +77,7 @@ export function WorkspaceAgentModels({ view, draft, onChange }: {
         <div className="af-wsm-row">
           <div className="af-wsm-row-h">
             <strong>Review</strong>
-            {!reviewers && <span className="af-wsm-uses">Uses global: {inhR.text}</span>}
+            <span className="af-wsm-uses">{reviewers ? '' : `Uses global: ${inhR.text}`}</span>
             <label>
               <input type="checkbox" aria-label="Override Review for this workspace" checked={reviewers !== undefined}
                 onChange={(e) => setReviewers(e.target.checked ? inhR.list : undefined)} />

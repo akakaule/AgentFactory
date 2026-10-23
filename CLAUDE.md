@@ -54,6 +54,17 @@ Six packages (`packages/*`), npm workspaces, TypeScript project references (`tsc
 - **`reviewer`** — polls `in_review` tasks, spawns **one fresh codex/claude session per task** to post an advisory `ai-review/v1` verdict. Before reviewing an implementation task it also auto-generates the task's HTML change-visualization (one extra one-shot session; attached via the #16 storage, linked from the verdict; `visualization.enabled: false` opts out). Config: `reviewer.config.json`.
 - **`watcher`** — polls current deliveries, including repair states, and verifies delivery on the git host (GitHub/Azure DevOps REST — no LLM, no spawn): it **opens the PR** when an approved (`delivering`) branch has none (`createPullRequests`, default on — the worker never opens one); current approved PR merged ⇒ `done`; open PR CI failed / PR closed unmerged ⇒ back to `queued` with a `failure/v1` comment. It also runs each Azure DevOps workspace's **work-item import** (the ado-bridge backlog loop, moved in; `workspace.adoSync` settings edited on the board, migration #27): claim matching items via WIQL (`core/src/adoSync.ts` `buildInboundWiql`), import them as `AB#<id>:` tasks through the supervisor-only `importTask` op (idempotent on the title prefix, queued as the human-configured import), and write in-review/done back to the item (`watcher/src/adoSync.ts`; `syncWorkItems` turns it off). Config: `watcher.config.json` (auth via `GITHUB_TOKEN` / `AZDO_PAT` env or the workspace PAT — write scope needed to open PRs: GitHub *Pull requests: Read and write*, Azure DevOps *Code (Read & write)*, plus *Work Items (Read & write)* for the work-item import).
 
+### Agent model settings (board → supervisors)
+
+Per-role engine/model/effort lives in one `app_kv` document, `agent_models` (`core/src/agentModels.ts`;
+no migration, outside `getVersion()`). It has a global layer plus per-workspace overrides, and is edited
+on the board (Agents › Models, Workspaces › Edit). `PUT /api/agent-models` is human-only. The dispatcher
+and reviewer read it every tick (`GET /api/agent/agent-models` in board mode), with precedence workspace
+override → board global → config file → CLI default. A board-set stage drops that stage's file
+`stageArgs`. Profiles are typed fields turned into flags (`modelProfileArgs`); model ids are
+charset-restricted because argv can pass through cmd.exe. Supervisors report their file defaults to
+`agent_model_defaults` so the UI can show them.
+
 ### Lifecycle is the core invariant
 
 **Default flow:** intent → **spec** (the `description` stage writes spec + acceptance criteria; a clean AI review auto-advances it) → **implementation** (worker pushes before review) → human approves the implementation review → **watcher opens the PR** → PR merged ⇒ `done`. REST/MCP `create_task` default code tasks to the spec stage (pr-review tasks stay implementation-only; core's own `createTask` default is still implementation). `plan` is a **legacy** stage: it still runs and advances to implementation via `NEXT_STAGE` (`src/types.ts`), but nothing routes new tasks there.
