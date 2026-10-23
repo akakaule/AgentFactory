@@ -35,6 +35,7 @@ vi.mock('../../client/src/api.js', () => ({
     addComment: vi.fn().mockResolvedValue({}),
     listWorkspaces: vi.fn(),
     createWorkspace: vi.fn().mockResolvedValue({}),
+    getAgentModels: vi.fn().mockResolvedValue({ settings: { global: {}, workspaces: {} }, defaults: {}, catalog: [] }),
     getAnalytics: vi.fn().mockResolvedValue({ tasks: [], stranded: [] }),
     getTokenTrend: vi.fn().mockResolvedValue([]),
   },

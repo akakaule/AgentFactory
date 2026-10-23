@@ -1,4 +1,4 @@
-import type { TaskDetail, Workspace as CoreWorkspace, AdoSyncSettings } from '@agentfactory/core';
+import type { TaskDetail, Workspace as CoreWorkspace, AdoSyncSettings, AgentModels, AgentModelDefaults, ModelCatalogEntry } from '@agentfactory/core';
 
 export type { AdoSyncSettings } from '@agentfactory/core';
 /** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin and, for
@@ -9,7 +9,14 @@ export type Workspace = Omit<CoreWorkspace, 'adoSync'> & {
   adoSyncWiql?: string | null;
 };
 
-export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage } from '@agentfactory/core';
+export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage, Effort, ModelCatalogEntry, ModelProfile, AgentModelStages, AgentModelLayer, WorkspaceModelLayer, AgentModels, ReportedProfile, ReportedRoles, AgentModelDefaults } from '@agentfactory/core';
+
+/** GET/PUT /api/agent-models: the board's model settings, supervisors' file defaults, the catalogue. */
+export interface AgentModelsView {
+  settings: AgentModels;
+  defaults: AgentModelDefaults;
+  catalog: ModelCatalogEntry[];
+}
 
 /** One OTel token event from the live telemetry feed (GET /api/telemetry). Mirror of the
  *  server's TelemetryEvent — ephemeral, newest-first. Only task-attributed events are fed. */

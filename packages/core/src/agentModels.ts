@@ -47,8 +47,10 @@ export interface AgentModels {
 
 export type AgentModelRole = 'description' | 'plan' | 'implementation' | 'visualization' | 'feedbackEval';
 
+export interface ModelCatalogEntry { engine: AgentEngine; id: string; label: string }
+
 /** Display-only catalogue (dropdown labels + order). Supervisors never check an id against it. */
-export const MODEL_CATALOG: ReadonlyArray<{ engine: AgentEngine; id: string; label: string }> = [
+export const MODEL_CATALOG: ReadonlyArray<ModelCatalogEntry> = [
   { engine: 'claude', id: 'claude-opus-5-5', label: 'Opus 5.5' },
   { engine: 'claude', id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
   { engine: 'claude', id: 'claude-haiku-5-5', label: 'Haiku 5.5' },

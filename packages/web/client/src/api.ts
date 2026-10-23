@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -111,6 +111,9 @@ export const api = {
   setAgentPrompts: (b: Record<string, string>) => req<AgentPrompts>('/api/agent-prompts', { method: 'PUT', body: JSON.stringify(b) }),
   getEngineSettings: () => req<EngineSettings>('/api/engines'),
   setEngineSettings: (b: Partial<EngineSettings>) => req<EngineSettings>('/api/engines', { method: 'PUT', body: JSON.stringify(b) }),
+  getAgentModels: () => req<AgentModelsView>('/api/agent-models'),
+  // always the WHOLE document (global + every workspace's overrides): a save replaces it
+  setAgentModels: (doc: AgentModels) => req<AgentModelsView>('/api/agent-models', { method: 'PUT', body: JSON.stringify(doc) }),
   updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),

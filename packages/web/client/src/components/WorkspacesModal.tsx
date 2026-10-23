@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import type { Workspace } from '../types.js';
+import { useEffect, useState } from 'react';
+import type { AgentModelsView, Workspace, WorkspaceModelLayer } from '../types.js';
 import { api } from '../api.js';
 import { wsColor } from '../wsColor.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 import { AdoSyncSection, toDraft, fromDraft, type AdoSyncDraft } from './AdoSyncSection.js';
+import { WorkspaceAgentModels, workspaceModelsValid } from './WorkspaceAgentModels.js';
 
 interface Props {
   workspaces: Workspace[];
@@ -12,8 +13,12 @@ interface Props {
   onClose: () => void;
 }
 
-/** One workspace row with inline editing of its repo path, engineering-discipline fields, and PAT. */
-function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot: string; onSaved: () => void }) {
+/** One workspace row with inline editing of its repo path, engineering-discipline fields, PAT, and
+ *  agent model overrides (`models` = the board's model settings, loaded once by the modal). */
+function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
+  workspace: Workspace; dot: string; onSaved: () => void;
+  models: AgentModelsView | null; onModelsSaved: (v: AgentModelsView) => void;
+}) {
   const [repoPath, setRepoPath] = useState(workspace.repoPath);
   const [policy, setPolicy] = useState(workspace.policy ?? '');
   const [verifyCommand, setVerifyCommand] = useState(workspace.verifyCommand ?? '');
@@ -28,6 +33,9 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
   // Azure DevOps work-item import settings (ADO origins only); sent only when the section changed
   const [adoInitial] = useState<AdoSyncDraft>(() => toDraft(workspace.adoSync));
   const [ado, setAdo] = useState<AdoSyncDraft>(adoInitial);
+  const savedModels = models?.settings.workspaces[workspace.name] ?? {};
+  const [modelDraft, setModelDraft] = useState<WorkspaceModelLayer | null>(null);
+  const modelsDirty = modelDraft !== null && JSON.stringify(modelDraft) !== JSON.stringify(savedModels);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -39,7 +47,8 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
     verifyCommand !== (workspace.verifyCommand ?? '') ||
     pat.trim() !== '' ||
     overridesDirty ||
-    adoDirty;
+    adoDirty ||
+    modelsDirty;
 
   const handleSave = () => {
     setSaving(true);
@@ -57,7 +66,14 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
       );
     }
     if (adoDirty) body.adoSync = fromDraft(ado);
-    api.updateWorkspace(workspace.name, body)
+    // agent model overrides ride the board-wide document: send it whole, with only this workspace's
+    // entry replaced (§9.2) — the server drops an empty entry
+    const saveModels = modelsDirty && models
+      ? api.setAgentModels({ global: models.settings.global, workspaces: { ...models.settings.workspaces, [workspace.name]: modelDraft! } })
+        .then((v) => { onModelsSaved(v); setModelDraft(null); })
+      : Promise.resolve();
+    saveModels
+      .then(() => api.updateWorkspace(workspace.name, body))
       .then(() => { setPat(''); onSaved(); })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setSaving(false));
@@ -145,10 +161,11 @@ function WorkspaceItem({ workspace, dot, onSaved }: { workspace: Workspace; dot:
             ))}
           </div>
         </details>
+        {models && <WorkspaceAgentModels view={models} draft={modelDraft ?? savedModels} onChange={setModelDraft} />}
         <AdoSyncSection workspace={workspace} draft={ado} onChange={setAdo} />
         {err && <div className="af-err">{err}</div>}
         <div>
-          <button className="af-btn-primary" onClick={handleSave} disabled={!dirty || saving}>
+          <button className="af-btn-primary" onClick={handleSave} disabled={!dirty || saving || (modelDraft !== null && !workspaceModelsValid(modelDraft))}>
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
@@ -161,6 +178,9 @@ export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose
   const [name, setName] = useState('');
   const [repoPath, setRepoPath] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // the board's agent model settings, shared by every row (each save replaces the whole document)
+  const [models, setModels] = useState<AgentModelsView | null>(null);
+  useEffect(() => { api.getAgentModels().then(setModels).catch(() => setModels(null)); }, []);
 
   const handleCreate = () => {
     const n = name.trim();
@@ -193,7 +213,7 @@ export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose
 
         <div style={{ margin: '12px 0' }}>
           {shown.map((w) => (
-            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} />
+            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} models={models} onModelsSaved={setModels} />
           ))}
         </div>
 
