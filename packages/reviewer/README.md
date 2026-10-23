@@ -91,7 +91,7 @@ reviews them) and the web server, all pointed at the same DB.
 | `excludeWorkspaces` | `[]` | Workspace slugs to **never** watch — the opt-out escape hatch. Applied whether or not `workspaces` is set. |
 | `engine` | `codex` | Review engine: `codex` or `claude`. |
 | `model` | — (optional) | Model override (codex `-m`, claude `--model`). |
-| `reviewers` | — (optional) | Ordered profiles `{ engine, model?, reasoningEffort? }`. Runs every profile independently and sequentially against the same submission, then posts one combined verdict. `reasoningEffort` is Codex-only: `low`, `medium`, `high`, `xhigh`, or `max`. When omitted, task reviews use the top-level engine/model. Visualization and feedback evaluation still use their existing engine settings. |
+| `reviewers` | — (optional) | Ordered profiles `{ engine, model?, reasoningEffort? }`. Runs every profile independently and sequentially against the same submission, then posts one combined verdict. `reasoningEffort` (`low`, `medium`, `high`, `xhigh`, or `max`) goes to Codex as `-c model_reasoning_effort=…` and to Claude as `--effort …`. When omitted, task reviews use the top-level engine/model. Visualization and feedback evaluation still use their existing engine settings. |
 | `pollSeconds` | `60` | Queue poll interval. |
 | `maxConcurrent` | `1` | Max concurrent reviews **per workspace**. |
 | `reviewMinutes` | `20` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |

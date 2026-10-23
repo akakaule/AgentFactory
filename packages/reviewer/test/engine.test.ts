@@ -9,6 +9,13 @@ it('pins Astra medium reasoning in the actual Codex argv', () => {
   expect(args.at(-1)).toBe('-');
 });
 
+it('passes a claude reviewer\'s reasoning effort as --effort', () => {
+  const args = buildEngineArgs({ engine: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'high', outputFile: '/logs/x.out' });
+  expect(args[args.indexOf('--effort') + 1]).toBe('high');
+  expect(args[args.indexOf('--model') + 1]).toBe('claude-opus-5-5');
+  expect(buildEngineArgs({ engine: 'claude', outputFile: '/logs/x.out' })).not.toContain('--effort');
+});
+
 describe('resolveEngineCommand', () => {
   it('prefers the per-engine override env var', () => {
     expect(
