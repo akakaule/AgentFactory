@@ -34,22 +34,34 @@ export function refFromLabel(label: string): string | null {
 
 const MAX_DIFF_BYTES = 32 * 1024 * 1024;
 
-async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string }> {
+interface RunGitOptions {
+  /** Kill git after this many ms (result: `timedOut`). Unset = no limit, as for local-only calls. */
+  timeoutMs?: number;
+  /** Extra environment, e.g. to forbid credential prompts on a network call. */
+  env?: Record<string, string>;
+}
+
+/** Network git calls on a request path must never wait on a human: no terminal or GCM prompts. */
+const NON_INTERACTIVE_ENV = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
+const REMOTE_HEAD_TIMEOUT_MS = 15_000;
+
+async function runGit(repoPath: string, args: string[], opts: RunGitOptions = {}): Promise<{ ok: boolean; stdout: string; timedOut?: boolean }> {
   try {
     const { stdout } = await execFileAsync('git', args, {
       cwd: repoPath,
       encoding: 'utf8',
       maxBuffer: MAX_DIFF_BYTES,
       windowsHide: true,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...opts.env },
+      ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
     });
     return { ok: true, stdout };
   } catch (err) {
-    const e = err as NodeJS.ErrnoException;
+    const e = err as NodeJS.ErrnoException & { killed?: boolean };
     // existsSync(repoPath) ran before any spawn, so ENOENT can only mean the binary.
     if (e.code === 'ENOENT') throw new GitError('git executable not found');
     if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new GitError('diff too large to display');
-    return { ok: false, stdout: '' };
+    return { ok: false, stdout: '', ...(opts.timeoutMs !== undefined && e.killed ? { timedOut: true } : {}) };
   }
 }
 
@@ -115,18 +127,22 @@ export interface RemoteHead { headSha: string | null; error: string | null; }
  * refresh that tells a reviewed submission from a later push. Never throws for an unreachable or
  * misconfigured remote: the failure is returned so the board can show unknown freshness. With a
  * resolved workspace credential the bare origin URL is queried with an `http.extraheader` (the
- * inherited key is reset first so an injected header cannot be sent twice).
+ * inherited key is reset first so an injected header cannot be sent twice). It runs on the approve
+ * request path, so it never prompts for credentials and gives up after `timeoutMs` — a hung origin
+ * reads as unknown freshness instead of approving long after the client gave up.
  */
-export async function remoteBranchHead(repoPath: string, branch: string, auth: { remoteUrl: string; configKey: string; configValue: string } | null = null): Promise<RemoteHead> {
+export async function remoteBranchHead(repoPath: string, branch: string, auth: { remoteUrl: string; configKey: string; configValue: string } | null = null, opts: { timeoutMs?: number } = {}): Promise<RemoteHead> {
   if (!SAFE_REF.test(branch)) return { headSha: null, error: `branch ref is not checkable: ${branch}` };
   if (!existsSync(repoPath)) return { headSha: null, error: `repository path does not exist: ${repoPath}` };
   const authArgs = auth ? ['-c', `${auth.configKey}=`, '-c', `${auth.configKey}=${auth.configValue}`] : [];
-  let r: { ok: boolean; stdout: string };
+  let r: { ok: boolean; stdout: string; timedOut?: boolean };
   try {
-    r = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', auth ? auth.remoteUrl : 'origin', `refs/heads/${branch}`]);
+    r = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', auth ? auth.remoteUrl : 'origin', `refs/heads/${branch}`],
+      { timeoutMs: opts.timeoutMs ?? REMOTE_HEAD_TIMEOUT_MS, env: NON_INTERACTIVE_ENV });
   } catch (err) {
     return { headSha: null, error: (err as Error).message };
   }
+  if (r.timedOut) return { headSha: null, error: 'origin timed out' };
   if (!r.ok) return { headSha: null, error: 'origin unreachable' };
   const sha = r.stdout.trim().split(/\s+/)[0] ?? '';
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) return { headSha: null, error: `branch ${branch} is not on origin` };

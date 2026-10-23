@@ -11,7 +11,7 @@ import { assertExecutionOwnership, currentExecution, operationPhase, settleExecu
 import { reconcileMergedDelivery } from './delivery.js';
 import { deliveryRowFor } from '../repo/delivery.js';
 import { advanceRetryBudget } from '../repo/retry.js';
-import { approvalNeedsReason } from './approval.js';
+import { approvalNeedsReason, assertApprovableRevision } from './approval.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
@@ -53,6 +53,9 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // A human closing a review by status is an approval: it can't skip the reason the approve action requires.
     if (row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human' && approvalNeedsReason(db, row))
       throw new ValidationError('approving over must-fix issues or open decisions needs a reason — use the approve action');
+    // ...nor the revision gate: a branch observed at a new head since submit is not approvable by any route.
+    if (row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human')
+      assertApprovableRevision(db, row, null);
     // A retry already in flight must not reopen a repair that the watcher just completed.
     if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
       && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);

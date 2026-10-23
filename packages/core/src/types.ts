@@ -123,10 +123,13 @@ export type ReviewBinding = 'current' | 'stale' | 'superseded' | 'legacy';
  *  a doc stage's content hash, or nothing resolvable (an older worker / an unreachable origin). */
 export type RevisionSource = 'origin' | 'local' | 'content' | 'unknown';
 export type RevisionObservationSource = 'submit' | 'git' | 'provider';
-/** 'stale' = the branch head (or doc content) moved since the submission; 'unknown' = the
- *  revision was never resolved or the latest observation failed. */
+/** 'stale' = the branch head (or doc content) was seen to move since the submission — a later
+ *  failed observation does not clear that; 'unknown' = the revision was never resolved or the
+ *  latest observation failed with no known mismatch. */
 export type RevisionFreshness = 'current' | 'stale' | 'unknown';
 export interface SubmissionRevisionInput { headSha: string; baseSha?: string | null | undefined; source: 'origin' | 'local'; }
+/** `headSha` is the last head actually seen; source/observedAt/error describe the latest attempt,
+ *  so a failed refresh (error set) keeps the previously known head. */
 export interface RevisionObservation { headSha: string | null; source: RevisionObservationSource; observedAt: string; error: string | null; }
 /** One submit_result's handed-over revision (migration #29) — outlives the worktree and branch. */
 export interface SubmissionSummary {

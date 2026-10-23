@@ -48,26 +48,33 @@ export function submissionById(db: DB, id: number): SubmissionRow | undefined {
   return db.prepare('SELECT * FROM task_submission WHERE id = ?').get(id) as SubmissionRow | undefined;
 }
 
-/** Record the latest observed head (or the failure to observe it). Returns whether anything changed. */
+/**
+ * Record an observation of the branch head. `last_head_sha` is the last head actually SEEN: an
+ * attempt that learned no head (a failed refresh, a provider check without one) records its
+ * source/time/error but keeps the known head, so an outage can never erase a proven mismatch.
+ * Returns whether anything changed.
+ */
 export function recordObservation(db: DB, id: number, o: { headSha: string | null; source: RevisionObservationSource; error: string | null; ts: string }): boolean {
   const before = submissionById(db, id);
   if (!before) return false;
-  const changed = before.last_head_sha !== o.headSha || before.last_observation_error !== o.error || before.last_observation_source !== o.source;
+  const head = o.headSha ?? before.last_head_sha;
+  const changed = before.last_head_sha !== head || before.last_observation_error !== o.error || before.last_observation_source !== o.source;
   db.prepare('UPDATE task_submission SET last_head_sha = ?, last_observed_at = ?, last_observation_source = ?, last_observation_error = ? WHERE id = ?')
-    .run(o.headSha, o.ts, o.source, o.error, id);
+    .run(head, o.ts, o.source, o.error, id);
   return changed;
 }
 
 /**
- * Is the submitted revision still what is there? Implementation: unknown when never resolved or
- * the latest observation failed; stale once a different head was observed. Doc stages: stale when
- * the task's content no longer hashes to the submitted identity.
+ * Is the submitted revision still what is there? Implementation: unknown when never resolved;
+ * stale once a different head was observed — even if a later refresh failed, the known mismatch
+ * stands until a head is seen again; otherwise unknown when the latest observation failed. Doc
+ * stages: stale when the task's content no longer hashes to the submitted identity.
  */
 export function freshnessOf(s: SubmissionRow, task: DocContent): RevisionFreshness {
   if (s.stage !== 'implementation') return s.content_hash !== null && s.content_hash === contentHash(s.stage, task) ? 'current' : 'stale';
-  if (s.head_sha === null || s.last_observation_error !== null) return 'unknown';
+  if (s.head_sha === null) return 'unknown';
   if (s.last_head_sha !== null && s.last_head_sha !== s.head_sha) return 'stale';
-  return 'current';
+  return s.last_observation_error !== null ? 'unknown' : 'current';
 }
 
 export function toSubmissionSummary(s: SubmissionRow, task: DocContent): SubmissionSummary {

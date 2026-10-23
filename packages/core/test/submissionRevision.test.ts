@@ -7,6 +7,7 @@ import { addComment } from '../src/ops/addComment.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { getTask } from '../src/ops/getTask.js';
 import { observeRevision } from '../src/ops/observeRevision.js';
+import { updateStatus } from '../src/ops/updateStatus.js';
 import { recordDeliveryCheck } from '../src/ops/delivery.js';
 import { attachVisualization } from '../src/ops/visualization.js';
 import { formatReviewRevision } from '../src/aiReview.js';
@@ -202,5 +203,57 @@ describe('review binding: superseded vs stale', () => {
     expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'clean', binding: 'current' });
     observeRevision(db, key, { headSha: A, source: 'git' }, now);
     expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+  });
+});
+
+describe('revision gate holds across every human close and through observation failures', () => {
+  it('a raw human status move cannot complete a known-stale implementation', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, baseSha: BASE, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A, baseSha: BASE }) }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git' }, now);
+    expect(() => updateStatus(db, key, 'done', 'human', now)).toThrow(/changed since/);
+    expect(() => updateStatus(db, key, 'delivering', 'human', now)).toThrow(/changed since/);
+    expect(getTask(db, key).status).toBe('in_review');
+  });
+
+  it('a raw human status move still closes a current implementation', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now);
+    expect(updateStatus(db, key, 'done', 'human', now).status).toBe('done');
+  });
+
+  it('a failed observation after a known mismatch keeps the submission stale and approval refused', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, baseSha: BASE, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A, baseSha: BASE }) }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git' }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: null, source: 'git', error: 'origin unreachable' }, now);
+    const d = getTask(db, key);
+    expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, error: 'origin unreachable' } });
+    expect(d.aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+    expect(() => reviewApprove(db, key, now, null, () => null, null, { submissionId: sub.id, headSha: A })).toThrow(/changed since/);
+  });
+
+  it('a provider check that reports no head does not erase a known mismatch', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git' }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: null, source: 'provider' }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B } });
+  });
+
+  it('a later successful observation back at the submitted head makes it current again', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git' }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: null, source: 'git', error: 'origin unreachable' }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git' }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'current', lastObservation: { headSha: A, error: null } });
   });
 });

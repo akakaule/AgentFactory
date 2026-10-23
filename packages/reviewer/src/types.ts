@@ -75,6 +75,9 @@ export interface ReviewerDeps {
   /** Fetches a ref from origin into refs/remotes/origin/<ref> (production: core's `fetchRemoteRef`);
    *  used for pr-review tasks whose PR head isn't in the local store before diffing. */
   fetchRef: (repoPath: string, ref: string) => Promise<void>;
+  /** Diffs one recorded revision, base..head exactly as submitted (production: core's
+   *  `revisionDiff`); throws NotFoundError when the commits are not in the local clone. */
+  revisionDiff: (repoPath: string, baseSha: string, headSha: string) => Promise<BranchDiff>;
   /** Opens a per-review transcript log file. */
   openLog: (path: string) => LogWriter;
   /** Reads an engine's captured final message (codex `--output-last-message` file); '' if absent. */

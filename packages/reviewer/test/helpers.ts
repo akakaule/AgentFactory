@@ -170,6 +170,7 @@ export interface DepsOverrides {
   console?: FakeConsole;
   computeDiff?: (repoPath: string, branch: string) => Promise<BranchDiff>;
   fetchRef?: (repoPath: string, ref: string) => Promise<void>;
+  revisionDiff?: (repoPath: string, baseSha: string, headSha: string) => Promise<BranchDiff>;
   readOutput?: (path: string) => string;
   clearOutput?: (path: string) => void;
   terminateProcessTree?: (child: SpawnedChild, signal: NodeJS.Signals) => void;
@@ -183,6 +184,7 @@ export function makeDeps(core: Core, spawn: SpawnFn, overrides: DepsOverrides = 
     computeDiff:
       overrides.computeDiff ?? (async () => ({ baseRef: 'main', diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1 })),
     fetchRef: overrides.fetchRef ?? (async () => {}),
+    revisionDiff: overrides.revisionDiff ?? (async (_repoPath, baseSha, headSha) => ({ baseRef: baseSha, diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1, headSha, baseSha })),
     openLog: () => noopLog(),
     readOutput: overrides.readOutput ?? (() => ''),
     clearOutput: overrides.clearOutput ?? (() => {}),

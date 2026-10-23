@@ -1,15 +1,41 @@
 import type { DB } from '../db.js';
-import type { Actor, DeliveryProvider, ReviewBrief, ReviewRevision, Status } from '../types.js';
+import type { Actor, DeliveryProvider, ExpectedRevision, ReviewBrief, ReviewRevision, Status, SubmissionSummary } from '../types.js';
 import { NEXT_STAGE } from '../types.js';
 import { buildReviewBrief } from '../reviewBrief.js';
 import type { TaskRow } from '../repo/tasks.js';
-import { setStatus, setStage, aiReviewFor } from '../repo/tasks.js';
+import { setStatus, setStage, aiReviewFor, submissionFor } from '../repo/tasks.js';
 import { appendActivity } from '../repo/activity.js';
 import { upsertDelivery, deliveryRowFor } from '../repo/delivery.js';
 import { latestPrLinkUrl } from '../repo/links.js';
 import { assertTransition } from '../transitions.js';
 import { InvalidTransitionError, ValidationError } from '../errors.js';
 import { resetRetryBudget as resetRetryBudgetRow } from '../repo/retry.js';
+
+const short = (sha: string | null | undefined): string => (sha ? sha.slice(0, 7) : 'unknown');
+
+/**
+ * The revision gate: the human approves the submission they looked at. A named submission that is
+ * no longer the stage's latest, or a named head that is not the submitted one, is refused. An
+ * implementation whose branch was observed at a different head since submit is refused for every
+ * caller — a new push needs its own review, it cannot inherit the previous revision's verdict —
+ * including a human closing the review by a raw status move (ops/updateStatus.ts). Historical
+ * tasks (no submission) approve as before.
+ */
+export function assertApprovableRevision(db: DB, row: TaskRow, expected: ExpectedRevision | null): SubmissionSummary | null {
+  const sub = submissionFor(db, row);
+  if (expected) {
+    if (!sub) throw new InvalidTransitionError(`${row.key} has no recorded submission #${expected.submissionId} to approve`);
+    if (expected.submissionId !== sub.id)
+      throw new InvalidTransitionError(`approval names submission #${expected.submissionId}, but the current submission of ${row.key} is #${sub.id}; review the current submission first`);
+    if (expected.headSha != null && sub.headSha !== null && expected.headSha !== sub.headSha)
+      throw new InvalidTransitionError(`approval names revision ${short(expected.headSha)}, but submission #${sub.id} is at ${short(sub.headSha)}`);
+  }
+  if (sub && sub.stage === 'implementation' && sub.freshness === 'stale') {
+    const seen = sub.lastObservation;
+    throw new InvalidTransitionError(`${row.key} changed since submission #${sub.id} (${short(sub.headSha)}) was reviewed: the branch is now at ${short(seen?.headSha)} (observed via ${seen?.source ?? 'git'} at ${seen?.observedAt ?? 'an unknown time'}${seen?.error ? `; the latest refresh failed: ${seen.error}` : ''}); request changes so the new revision is submitted and reviewed`);
+  }
+  return sub;
+}
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 

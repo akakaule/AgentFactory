@@ -2,7 +2,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { openCore, createHttpCore, branchDiff, fetchRemoteRef, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
+import { openCore, createHttpCore, branchDiff, fetchRemoteRef, revisionDiff, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
 import { loadConfig } from './config.js';
 import { Reviewer } from './reviewer.js';
 import { resolveEngineCommand, pickFromWhich } from './engine.js';
@@ -114,6 +114,7 @@ const deps: ReviewerDeps = {
   resolveEngine: (engine) => resolveEngineCommand(engine, { platform: process.platform, env: process.env, lookup: lookupEngine }),
   computeDiff: (repoPath, branch) => branchDiff(repoPath, branch),
   fetchRef: (repoPath, ref) => fetchRemoteRef(repoPath, ref),
+  revisionDiff: (repoPath, baseSha, headSha) => revisionDiff(repoPath, baseSha, headSha),
   openLog,
   readOutput,
   clearOutput,

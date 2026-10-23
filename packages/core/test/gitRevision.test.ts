@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer, type Socket, type AddressInfo } from 'node:net';
 import { remoteBranchHead, revisionDiff } from '../src/git.js';
 
 // A throwaway clone with a local bare origin — no network, no user repository.
@@ -49,6 +50,24 @@ describe('remoteBranchHead', () => {
     git(root, 'init', lonely);
     expect(await remoteBranchHead(lonely, 'feature/x')).toMatchObject({ headSha: null, error: 'origin unreachable' });
     expect(await remoteBranchHead(clone, '--upload-pack=evil')).toMatchObject({ headSha: null });
+  });
+});
+
+describe('remoteBranchHead against a hanging origin', () => {
+  it('gives up after its timeout and reports the origin as timed out, never hanging the caller', async () => {
+    const sockets: Socket[] = [];
+    const server = createServer((socket) => { sockets.push(socket); }); // accepts, never answers
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const started = Date.now();
+      const head = await remoteBranchHead(clone, 'feature/x', { remoteUrl: `http://127.0.0.1:${port}/r.git`, configKey: 'http.extraheader', configValue: 'Authorization: Basic eA==' }, { timeoutMs: 500 });
+      expect(head).toEqual({ headSha: null, error: 'origin timed out' });
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      for (const s of sockets) s.destroy();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   });
 });
 

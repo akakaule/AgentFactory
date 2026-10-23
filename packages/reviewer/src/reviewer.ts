@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError, NotFoundError } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, ReviewRevision } from '@agentfactory/core';
 import { formatReviewRevision } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
@@ -415,10 +415,24 @@ export class Reviewer {
   /** Resolve + compute the task's deliverable diff (shared by review and visualize sessions).
    *  A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
    *  into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
-   *  diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others). */
+   *  diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
+   *  An implementation submission that recorded its revision is reviewed exactly as submitted —
+   *  base..head, fetching the branch once if this clone lacks the commits — so a moved or lagging
+   *  branch tip never stands in for it; only an unresolved submission falls back to the tip. */
   private async prepareDiff(detail: TaskDetail): Promise<{ diffRef: string; diff: BranchDiff }> {
     const branch = this.resolveBranch(detail);
     if (!branch) throw new Error(`no branch recorded to diff`);
+    const sub = detail.submission;
+    if (detail.kind !== 'pr-review' && detail.stage === 'implementation' && sub?.stage === 'implementation' && sub.headSha && sub.baseSha) {
+      const repo = this.repoFor(detail);
+      const { headSha, baseSha } = sub;
+      const diff = await this.deps.revisionDiff(repo, baseSha, headSha).catch(async (err: unknown) => {
+        if (!(err instanceof NotFoundError)) throw err;
+        await this.deps.fetchRef(repo, branch);
+        return this.deps.revisionDiff(repo, baseSha, headSha);
+      });
+      return { diffRef: `${branch} (submission #${sub.id}, ${baseSha.slice(0, 7)}..${headSha.slice(0, 7)})`, diff };
+    }
     let diffRef = branch;
     if (detail.kind === 'pr-review') {
       await this.deps.fetchRef(this.repoFor(detail), branch);
@@ -492,7 +506,8 @@ export class Reviewer {
         let makePrompt: (reviewEngine: ReviewEngine) => string;
         let revision: ReviewRound['revision'];
         // Bind the verdict to the stage's current submission. For code, the head is the one this
-        // review actually diffed — if the branch moved since submit, core reads the verdict stale.
+        // review actually diffed — the submitted head when it was recorded (prepareDiff), else the
+        // branch tip, which core reads stale if it is not the submitted one.
         const sub = detail.submission?.stage === detail.stage ? detail.submission : null;
         if (sub) bound = { submissionId: sub.id, headSha: null };
         if (detail.stage === 'implementation') {
