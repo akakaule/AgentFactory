@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, Execution, EngineSettings } from '@agentfactory/core';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, Execution, EngineSettings, AgentModels, AgentModelDefaultsReport } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 /**
@@ -20,6 +20,11 @@ export interface ReviewerCore {
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
   getEngineSettings(): Awaitable<EngineSettings>;
+  /** Board per-role engine/model/effort (app_kv agent_models), re-read every tick. Optional: a
+   *  core without it leaves the reviewer on its config file alone. */
+  getAgentModels?(): Awaitable<AgentModels>;
+  /** Report this reviewer's config-file model defaults so the board can show them. */
+  reportAgentModelDefaults?(report: AgentModelDefaultsReport): Awaitable<void>;
   addComment(key: string, input: { actor: Actor; body: string; executionId?: string | undefined }): Awaitable<Activity>;
   reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null | undefined; startImmediately?: boolean | undefined }): Awaitable<Execution | null>;
   touchExecution?(id: string): Awaitable<boolean>;

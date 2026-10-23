@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution } from '@agentfactory/core';
-import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
+import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, AgentModels, ModelProfile } from '@agentfactory/core';
+import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, resolveReviewers } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
 import { createConsensus, collectBallot, consensusReview } from './consensus.js';
@@ -64,6 +64,9 @@ export class Reviewer {
   private readonly skipped = new Set<string>(); // task keys past maxAttempts
 
   private engineSettings: EngineSettings = defaultEngineSettings();
+  /** Board per-role model settings, read once per tick (empty = the config file decides). */
+  private agentModels: AgentModels = emptyAgentModels();
+  private reportedDefaults = false;
 
   private warnedNoEngine = false;
   /** Visualization budget, keyed `${key}@${latestResultAt}` — a new submission gets a fresh
@@ -130,6 +133,8 @@ export class Reviewer {
     // dispatcher's healthy pre-claim executions between its touches.
     await this.touchLiveSessions();
     await this.refreshEngineSettings();
+    await this.refreshAgentModels();
+    await this.reportModelDefaults();
     await this.reconcileAbandonedReservations();
     await this.enforceTimeouts();
     const served = await this.servedWorkspaces();
@@ -147,21 +152,76 @@ export class Reviewer {
     }
   }
 
+  /** Board model settings, read once per tick. A failed read keeps the previous tick's answer. */
+  private async refreshAgentModels(): Promise<void> {
+    if (!this.deps.core.getAgentModels) return;
+    try {
+      this.agentModels = await this.deps.core.getAgentModels();
+    } catch (err) {
+      this.console.warn(`[reviewer] could not read agent model settings; keeping previous: ${(err as Error).message}`);
+    }
+  }
+
+  /** Tell the board what this config file sets per role (shown next to unset roles). Sent on the
+   *  first tick that reaches the board; best-effort and informational. */
+  private async reportModelDefaults(): Promise<void> {
+    if (this.reportedDefaults || !this.deps.core.reportAgentModelDefaults) return;
+    const c = this.config;
+    const reported = (engine: ReviewEngine, model?: string, effort?: string) => ({ engine, ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
+    try {
+      await this.deps.core.reportAgentModelDefaults({
+        supervisor: c.name || 'reviewer', kind: 'reviewer',
+        roles: {
+          reviewers: (c.reviewers ?? [{ engine: c.engine, model: c.model }]).map((p: ReviewerProfile) => reported(p.engine, p.model, p.reasoningEffort)),
+          consensus: c.consensus?.enabled ?? false,
+          visualization: reported(c.visualization.engine ?? c.engine, c.visualization.model ?? c.model),
+          feedbackEval: reported(c.engine, c.model),
+        },
+      });
+      this.reportedDefaults = true;
+    } catch (err) {
+      this.console.warn(`[reviewer] could not report model defaults: ${(err as Error).message}`);
+    }
+  }
+
   /**
-   * The engine (and the model that belongs to it) a session runs on right now: the configured
-   * engine when the board has it enabled, else the other enabled engine on its default model
-   * (a model name is meaningless to the other CLI), else null — nothing may run.
+   * The engine (and the model + effort that belong to it) a session runs on right now: the configured
+   * engine when the board has it enabled, else the other enabled engine on its default model and
+   * effort (a model name is meaningless to the other CLI), else null — nothing may run.
    */
-  private engineChoice(configured: ReviewEngine, model: string | undefined): { engine: ReviewEngine; model: string | undefined } | null {
+  private engineChoice(configured: ReviewEngine, model: string | undefined, reasoningEffort?: ReasoningEffort): { engine: ReviewEngine; model: string | undefined; reasoningEffort: ReasoningEffort | undefined } | null {
     const engine = resolveEngine(configured, this.engineSettings);
     if (!engine) { this.warnNoEngine(); return null; }
     this.warnedNoEngine = false;
-    return engine === configured ? { engine, model } : { engine, model: undefined };
+    return engine === configured ? { engine, model, reasoningEffort } : { engine, model: undefined, reasoningEffort: undefined };
   }
 
-  /** The configured reviewer profiles whose engine the board currently allows. */
-  private activeReviewers(): ReviewerProfile[] | undefined {
-    return this.config.reviewers?.filter((p) => this.engineSettings[p.engine].enabled);
+  /** A single-session role's settings: the board profile (workspace → global) or the file's. */
+  private roleProfile(role: 'visualization' | 'feedbackEval', workspace: string, fileEngine: ReviewEngine, fileModel: string | undefined): { engine: ReviewEngine; model: string | undefined; reasoningEffort: ReasoningEffort | undefined } {
+    const board = resolveAgentModel(this.agentModels, role, workspace);
+    return board ? { engine: board.engine, model: board.model, reasoningEffort: board.effort } : { engine: fileEngine, model: fileModel, reasoningEffort: undefined };
+  }
+
+  /** The reviewer list for a workspace: the board's (workspace → global, replaced whole) or the file's. */
+  private reviewersFor(workspace: string): ReviewerProfile[] | undefined {
+    const board = resolveReviewers<ModelProfile>(this.agentModels, workspace);
+    if (!board) return this.config.reviewers;
+    return board.map((p) => ({ engine: p.engine, ...(p.model ? { model: p.model } : {}), ...(p.effort ? { reasoningEffort: p.effort } : {}) }));
+  }
+
+  /** The workspace's reviewer profiles whose engine the board currently allows. */
+  private activeReviewers(workspace: string): ReviewerProfile[] | undefined {
+    return this.reviewersFor(workspace)?.filter((p) => this.engineSettings[p.engine].enabled);
+  }
+
+  /** Whether reviews run the consensus round: the board's switch, else the file's. Global only. */
+  private consensusEnabled(): boolean {
+    return this.agentModels.global.consensus ?? this.config.consensus?.enabled ?? false;
+  }
+
+  /** Consensus timing stays file-driven; the schema's defaults apply when the file has no block. */
+  private consensusLimits(): { totalMinutes: number; maxPromptChars: number } {
+    return { totalMinutes: this.config.consensus?.totalMinutes ?? 30, maxPromptChars: this.config.consensus?.maxPromptChars ?? 500000 };
   }
 
   private warnNoEngine(): void {
@@ -430,24 +490,28 @@ export class Reviewer {
     let engine: ReviewEngine;
     let model = this.config.model;
     let reasoningEffort: ReasoningEffort | undefined;
-    let members = mode === 'review' ? this.activeReviewers() : undefined;
+    let members = mode === 'review' ? this.activeReviewers(workspace) : undefined;
     if (members && members.length === 0) { this.warnNoEngine(); return false; }
     if (members && members.length === 1) {
       const solo = members[0]!;
       ({ engine, model, reasoningEffort } = solo);
-      const off = this.config.reviewers!.filter((p) => !this.engineSettings[p.engine].enabled).map((p) => p.engine);
-      this.console.log(`[reviewer] ${key}: ${[...new Set(off)].join(', ')} disabled on the board; single-reviewer mode via ${engine}`);
+      const off = (this.reviewersFor(workspace) ?? []).filter((p) => !this.engineSettings[p.engine].enabled).map((p) => p.engine);
+      if (off.length > 0) this.console.log(`[reviewer] ${key}: ${[...new Set(off)].join(', ')} disabled on the board; single-reviewer mode via ${engine}`);
       members = undefined;
     } else if (members) {
       engine = this.config.engine;
       this.warnedNoEngine = false;
     } else {
-      const choice = this.engineChoice(this.config.engine, this.config.model);
+      // feedback evaluation (and a review with no reviewer list anywhere) is one session
+      const role = mode === 'feedback-eval'
+        ? this.roleProfile('feedbackEval', workspace, this.config.engine, this.config.model)
+        : { engine: this.config.engine, model: this.config.model, reasoningEffort: undefined };
+      const choice = this.engineChoice(role.engine, role.model, role.reasoningEffort);
       if (!choice) return false;
-      if (choice.engine !== this.config.engine) this.console.log(`[reviewer] ${key}: ${this.config.engine} disabled on the board; falling back to ${choice.engine} for ${mode}`);
-      ({ engine, model } = choice);
+      if (choice.engine !== role.engine) this.console.log(`[reviewer] ${key}: ${role.engine} disabled on the board; falling back to ${choice.engine} for ${mode}`);
+      ({ engine, model, reasoningEffort } = choice);
     }
-    const deadlineMs = this.config.consensus?.enabled ? this.deps.now() + this.config.consensus.totalMinutes * 60000 : undefined;
+    const deadlineMs = this.consensusEnabled() ? this.deps.now() + this.consensusLimits().totalMinutes * 60000 : undefined;
     let prompt: string;
     let stage: Stage;
     let round: ReviewRound | undefined;
@@ -486,7 +550,7 @@ export class Reviewer {
         let revision: ReviewRound['revision'];
         if (detail.stage === 'implementation') {
           const { diffRef, diff } = await this.prepareDiff(detail);
-          if (this.config.consensus?.enabled) {
+          if (deadlineMs !== undefined) {
             if (!diff.headSha || !diff.baseSha) throw new Error('consensus requires immutable review revisions');
             revision = { headSha: diff.headSha, baseSha: diff.baseSha };
           }
@@ -531,8 +595,9 @@ export class Reviewer {
     const { engine, model, reasoningEffort } = member.profile;
     const phase = round.consensus?.phase ?? 'discovery';
     const suffix = `r${attempt}-${index + 1}-${engine}${round.deadlineMs !== undefined ? `-${phase}` : ''}`;
-    const prompt = round.consensus ? buildConsensusPrompt(member.prompt, round.consensus, this.config.consensus?.maxPromptChars) : member.prompt;
-    if (round.deadlineMs !== undefined && prompt.length > this.config.consensus!.maxPromptChars) throw new Error('consensus prompt exceeds configured limit');
+    const { maxPromptChars } = this.consensusLimits();
+    const prompt = round.consensus ? buildConsensusPrompt(member.prompt, round.consensus, maxPromptChars) : member.prompt;
+    if (round.deadlineMs !== undefined && prompt.length > maxPromptChars) throw new Error('consensus prompt exceeds configured limit');
     this.launchSession({ workspace, key, stage, mode: 'review', attempt, maxAttempts: budget.maxAttempts, reservationId: budget.reservationId, executionId: budget.executionId, engine, model, reasoningEffort,
       prompt, label: `${workspace}#${key}-${suffix}`, fileBase: `${this.deps.logDir}/${key}-review-${suffix}`, round });
     this.console.log(`[reviewer] reviewing ${key} (${stage}, ${phase}) via ${engine}/${model ?? 'default'}${reasoningEffort ? ` (${reasoningEffort})` : ''}, reviewer ${index + 1}/${round.members.length}`);
@@ -551,11 +616,11 @@ export class Reviewer {
     }
     if (!this.needsVisualization(detail)) return false; // superseded between list and load
     const vizKey = this.vizKeyFor(detail);
-    const configured = this.config.visualization.engine ?? this.config.engine;
-    const choice = this.engineChoice(configured, this.config.visualization.model ?? this.config.model);
+    const role = this.roleProfile('visualization', workspace, this.config.visualization.engine ?? this.config.engine, this.config.visualization.model ?? this.config.model);
+    const choice = this.engineChoice(role.engine, role.model, role.reasoningEffort);
     if (!choice) return false; // nothing may run; the review pass decides for itself
-    if (choice.engine !== configured) this.console.log(`[reviewer] ${key}: ${configured} disabled on the board; visualizing via ${choice.engine}`);
-    const { engine, model } = choice;
+    if (choice.engine !== role.engine) this.console.log(`[reviewer] ${key}: ${role.engine} disabled on the board; visualizing via ${choice.engine}`);
+    const { engine, model, reasoningEffort } = choice;
     let prompt: string;
     try {
       const { diffRef, diff } = await this.prepareDiff(detail);
@@ -573,7 +638,7 @@ export class Reviewer {
 
     const label = `${workspace}#${key}-viz${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
-    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, prompt, label, fileBase, vizKey });
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, vizKey });
     this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
