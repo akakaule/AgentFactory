@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Actor, DeliveryProvider, ReviewBrief, Status } from '../types.js';
+import type { Actor, DeliveryProvider, ReviewBrief, ReviewRevision, Status } from '../types.js';
 import { NEXT_STAGE } from '../types.js';
 import { buildReviewBrief } from '../reviewBrief.js';
 import type { TaskRow } from '../repo/tasks.js';
@@ -59,8 +59,10 @@ function openIssuesPhrase(brief: ReviewBrief): string {
  * (e.g. 'auto-approved: clean AI review; stage description → implementation').
  * `overrideReason` is the human's why, recorded on the override comment; it is required when the
  * review brief has must-fix issues or open decisions (headline changes_needed / your_call).
+ * `revision` is the submission the human approved (reviewApprove's revision gate); it rides the
+ * implementation status_change note and the delivery row (approved head vs the PR head seen later).
  */
-export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null): void {
+export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null, revision: ReviewRevision | null = null): void {
   // Break-glass audit trail: approving while the *current* AI review has open findings
   // logs an override comment. Derived, no schema change; the override-rate KPI reads the
   // same condition from the activity log (findingsAtApproval). Pending/clean ⇒ no override.
@@ -89,13 +91,15 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     // not reset it or CI can bounce forever.
     if (delivery) {
       const newDeliveryEpisode = deliveryRowFor(db, row.id) === undefined;
-      upsertDelivery(db, row.id, { provider: delivery.provider, branch: row.branch!, prUrl: latestPrLinkUrl(db, row.id) }, ts);
+      upsertDelivery(db, row.id, { provider: delivery.provider, branch: row.branch!, prUrl: latestPrLinkUrl(db, row.id), submissionId: revision?.submissionId ?? null, approvedHeadSha: revision?.headSha ?? null }, ts);
       if (newDeliveryEpisode)
         resetRetryBudgetRow(db, row.id, 'delivery', DEFAULT_DELIVERY_REPAIR_ATTEMPTS, ts, 'new delivery episode');
     }
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: to, createdAt: ts,
-      body: delivery ? 'approved — awaiting PR merge; check results remain visible' : '', actorUserId,
+      body: [delivery ? 'approved — awaiting PR merge; check results remain visible' : '',
+        revision ? `approved submission #${revision.submissionId} at ${revision.headSha ? revision.headSha.slice(0, 7) : 'an unknown revision'}` : '']
+        .filter(Boolean).join('; '), actorUserId,
     });
     return;
   }

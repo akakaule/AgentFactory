@@ -6,6 +6,7 @@ import { saveVisualization, visualizationMetaFor, getVisualizationHtml as readVi
 import { NotFoundError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { assertExecutionOwnership } from '../repo/execution.js';
+import { latestSubmissionFor } from '../repo/submissions.js';
 
 /**
  * Standalone entry points for the per-task change visualization (the `/visualize-task` command
@@ -24,8 +25,11 @@ export function attachVisualization(db: DB, key: string, input: AttachVisualizat
     if (!row) throw new NotFoundError(`task ${key} not found`);
     assertExecutionOwnership(db, row.id, key, input.executionId, { requireRunning: true });
     const ts = now();
-    saveVisualization(db, { taskId: row.id, html: input.html, now: ts });
-    return { generatedAt: ts, bytes: input.html.length };
+    // stamp the submission under review, so the overview names the revision it depicts
+    const sub = latestSubmissionFor(db, row.id, row.stage);
+    const revision = sub ? { submissionId: sub.id, headSha: sub.head_sha } : null;
+    saveVisualization(db, { taskId: row.id, html: input.html, now: ts, revision });
+    return { generatedAt: ts, bytes: input.html.length, revision };
   });
 }
 

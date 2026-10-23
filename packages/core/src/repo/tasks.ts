@@ -1,11 +1,12 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, criteriaClaimsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
 import { RESERVED_BY_OTHER_SQL, reservedByOtherParams } from './execution.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
+import { latestSubmissionFor, reviewBinding, toSubmissionSummary, type DocContent } from './submissions.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
 import { buildReviewBrief } from '../reviewBrief.js';
@@ -181,10 +182,21 @@ function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> 
     if (!parsed) continue;
     const resultId = results.get(taskId);
     const superseded = resultId !== undefined && resultId > reviewId;
-    const summary = summarizeAiReview(parsed, superseded);
+    const binding = parsed.revision ? reviewBinding(db, taskId, docContentFor(db, taskId), parsed.revision) : 'legacy';
+    const summary = summarizeAiReview(parsed, superseded, binding);
     if (summary) out.set(taskId, summary);
   }
   return out;
+}
+
+function docContentFor(db: DB, taskId: number): DocContent {
+  return db.prepare('SELECT spec, acceptance_criteria, plan FROM task WHERE id = ?').get(taskId) as unknown as DocContent;
+}
+
+/** The current stage's latest submission, with its freshness (migration #29); null when none. */
+export function submissionFor(db: DB, r: TaskRow): SubmissionSummary | null {
+  const s = latestSubmissionFor(db, r.id, r.stage);
+  return s ? toSubmissionSummary(s, r) : null;
 }
 
 /** Latest ai-review verdict for one task (or null). Used by the approve path. */
@@ -206,6 +218,8 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     intake: intakeForTask(db, r),
     hasVisualization: viz !== null,
     visualizationGeneratedAt: viz?.generatedAt ?? null,
+    visualizationRevision: viz?.revision ?? null,
+    submission: submissionFor(db, r),
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     plan: r.plan,

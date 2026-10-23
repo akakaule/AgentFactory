@@ -6,7 +6,7 @@
  * block: `{ reviewer, verdict, findings: [{ severity, file, line?, title, detail }] }`.
  * See docs/superpowers/specs/2026-06-12-ai-review-tier.md for the full contract.
  */
-import type { AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity } from './types.js';
+import type { AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBinding, ReviewRevision } from './types.js';
 import type { ActivityStep } from './metrics.js';
 import { parseConsensusReview, type ReviewConsensus } from './reviewConsensus.js';
 
@@ -28,6 +28,7 @@ export interface ParsedAiReview {
   reviewer: string | null;
   findings: AiReviewFinding[];
   consensus?: ReviewConsensus;
+  revision?: ReviewRevision | null;
 }
 
 /** The fenced ```json block if present, else the first `{…}` span; null if neither parses. */
@@ -98,7 +99,7 @@ export function parseAiReviewComment(body: string): ParsedAiReview | null {
   const json = extractJson(body);
   if (/^ai-review\/v2\b/i.test(body.trimStart())) {
     const review = parseConsensusReview(json);
-    return review ? { reviewer: review.reviewer, findings: review.findings, consensus: review.consensus } : null;
+    return review ? { reviewer: review.reviewer, findings: review.findings, consensus: review.consensus, ...withRevision(body) } : null;
   }
   if (!json || typeof json !== 'object') return null;
   const obj = json as Record<string, unknown>;
@@ -107,7 +108,7 @@ export function parseAiReviewComment(body: string): ParsedAiReview | null {
     .map(normalizeFinding)
     .filter((f): f is AiReviewFinding => f !== null);
   const reviewer = typeof obj.reviewer === 'string' && obj.reviewer.trim() ? obj.reviewer.trim() : null;
-  return { reviewer, findings };
+  return { reviewer, findings, ...withRevision(body) };
 }
 
 /**
@@ -115,11 +116,12 @@ export function parseAiReviewComment(body: string): ParsedAiReview | null {
  * `superseded` = a result activity newer than this review exists ⇒ the verdict reads
  * `pending` (a fresh re-review is due). Otherwise `clean` (0) or `findings` (N>0).
  */
-export function summarizeAiReview(parsed: ParsedAiReview | null, superseded: boolean): AiReviewSummary | null {
+export function summarizeAiReview(parsed: ParsedAiReview | null, superseded: boolean, binding: ReviewBinding = parsed?.revision ? 'current' : 'legacy'): AiReviewSummary | null {
   if (!parsed) return null;
   const findings = parsed.findings.length;
-  const verdict: AiReviewVerdict = superseded ? 'pending' : parsed.consensus?.status === 'disputed' ? 'disputed' : findings > 0 ? 'findings' : 'clean';
-  return { verdict, findings, reviewer: parsed.reviewer, items: parsed.findings, ...(parsed.consensus ? { consensus: parsed.consensus } : {}) };
+  // a review bound to a superseded submission or a moved head is not proof for what is there now
+  const verdict: AiReviewVerdict = superseded || binding === 'stale' ? 'pending' : parsed.consensus?.status === 'disputed' ? 'disputed' : findings > 0 ? 'findings' : 'clean';
+  return { verdict, findings, reviewer: parsed.reviewer, items: parsed.findings, ...(parsed.consensus ? { consensus: parsed.consensus } : {}), binding, revision: parsed.revision ?? null };
 }
 
 /**
@@ -145,4 +147,29 @@ export function findingsAtApproval(steps: ActivityStep[]): number | null {
     }
   }
   return atDone;
+}
+
+/**
+ * The revision line a reviewer appends to its ai-review comment (outside the JSON, so v1/v2
+ * parsing is untouched): which submission it reviewed and the head/base it diffed. A review
+ * without one is a legacy, unbound review — readable, never proof for a newer revision.
+ */
+const REVISION_LINE = /^review-revision\/v1 submission=#(\d+)(?: head=([0-9a-f]{40,64}))?(?: base=([0-9a-f]{40,64}))?[ \t]*\r?$/gm;
+
+export function formatReviewRevision(r: { submissionId: number; headSha?: string | null | undefined; baseSha?: string | null | undefined }): string {
+  return `review-revision/v1 submission=#${r.submissionId}${r.headSha ? ` head=${r.headSha}` : ''}${r.baseSha ? ` base=${r.baseSha}` : ''}`;
+}
+
+/** Spread helper: the revision key only when the review is bound (keeps unbound parses unchanged). */
+function withRevision(body: string): { revision?: ReviewRevision } {
+  const revision = parseReviewRevision(body);
+  return revision ? { revision } : {};
+}
+
+/** The last revision line in a review body, or null for an unbound (legacy) review. */
+export function parseReviewRevision(body: string): ReviewRevision | null {
+  let last: RegExpExecArray | null = null;
+  for (const m of body.matchAll(REVISION_LINE)) last = m;
+  if (!last) return null;
+  return { submissionId: Number(last[1]), headSha: last[2] ?? null, ...(last[3] ? { baseSha: last[3] } : {}) };
 }

@@ -420,3 +420,31 @@ CREATE TABLE IF NOT EXISTS task_execution (
 CREATE INDEX IF NOT EXISTS idx_task_execution_current ON task_execution(task_id, id, state);
 CREATE INDEX IF NOT EXISTS idx_task_execution_reserved ON task_execution(state, reserved_at);
 `;
+
+// Migration #29 — revision-bound submissions. Each submit_result records the revision it hands
+// over: an implementation's pushed head SHA + diff base SHA (resolved at the git boundary), a doc
+// stage's content hash. Reviews/visualizations/approvals then name the submission they concern;
+// last_* hold the latest observation of the branch head (git at approve time, the provider's PR
+// head while delivering) so a later push reads as stale instead of inheriting a green review.
+// The rows outlive the worktree and the branch, so the reviewed snapshot stays reproducible.
+// (ALTERs for task_visualization/task_delivery run guarded in migrate.ts.)
+export const MIGRATION_29_SQL = `
+CREATE TABLE IF NOT EXISTS task_submission (
+  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id                 INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  stage                   TEXT NOT NULL CHECK (stage IN ('description','plan','implementation')),
+  execution_id            TEXT,
+  branch                  TEXT,
+  head_sha                TEXT,
+  base_sha                TEXT,
+  content_hash            TEXT,
+  revision_source         TEXT NOT NULL CHECK (revision_source IN ('origin','local','content','unknown')),
+  observed_at             TEXT NOT NULL,
+  created_at              TEXT NOT NULL,
+  last_head_sha           TEXT,
+  last_observed_at        TEXT,
+  last_observation_source TEXT CHECK (last_observation_source IS NULL OR last_observation_source IN ('submit','git','provider')),
+  last_observation_error  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_task_submission_task ON task_submission(task_id, id);
+`;

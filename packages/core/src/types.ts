@@ -106,7 +106,43 @@ export interface AiReviewSummary {
   reviewer: string | null;
   items: AiReviewFinding[];
   consensus?: ReviewConsensus;
+  // which submission/revision the review concerns (migration #29). 'legacy' = an unbound review
+  // (posted before revisions were recorded); 'stale' = bound to a superseded submission or a
+  // head that is no longer the submitted one — the verdict then reads 'pending'.
+  binding?: ReviewBinding;
+  revision?: ReviewRevision | null;
 }
+
+/** The revision a review/visualization/approval names: a submission id, plus the head SHA it saw. */
+export interface ReviewRevision { submissionId: number; headSha: string | null; baseSha?: string | null; }
+export type ReviewBinding = 'current' | 'stale' | 'legacy';
+
+/** Where a submission's revision came from: the pushed branch on origin, the local worktree,
+ *  a doc stage's content hash, or nothing resolvable (an older worker / an unreachable origin). */
+export type RevisionSource = 'origin' | 'local' | 'content' | 'unknown';
+export type RevisionObservationSource = 'submit' | 'git' | 'provider';
+/** 'stale' = the branch head (or doc content) moved since the submission; 'unknown' = the
+ *  revision was never resolved or the latest observation failed. */
+export type RevisionFreshness = 'current' | 'stale' | 'unknown';
+export interface SubmissionRevisionInput { headSha: string; baseSha?: string | null | undefined; source: 'origin' | 'local'; }
+export interface RevisionObservation { headSha: string | null; source: RevisionObservationSource; observedAt: string; error: string | null; }
+/** One submit_result's handed-over revision (migration #29) — outlives the worktree and branch. */
+export interface SubmissionSummary {
+  id: number;
+  stage: Stage;
+  executionId: string | null;
+  branch: string | null;
+  headSha: string | null;
+  baseSha: string | null;
+  contentHash: string | null;
+  source: RevisionSource;
+  observedAt: string;
+  createdAt: string;
+  lastObservation: RevisionObservation | null;
+  freshness: RevisionFreshness;
+}
+/** What a human approves: the submission (and head) they looked at. A mismatch is refused. */
+export interface ExpectedRevision { submissionId: number; headSha?: string | null | undefined; }
 
 /**
  * The AI review as the human decides on it (docs/spec/2026-10-21-review-decision-panel-design.md
@@ -277,6 +313,8 @@ export interface DeliverySummary {
   failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing')
   checkedAt: string | null;            // last watcher poll; null until the first one
   stateChangedAt: string;              // last time the observed state actually changed
+  approvedHeadSha?: string | null;     // the submitted head the human approved (migration #29)
+  headSha?: string | null;             // the PR head the provider last reported; differs ⇒ pushed after approval
 }
 
 export interface Task {
@@ -422,6 +460,10 @@ export interface TaskDetail extends Task {
   // GET /api/tasks/:key/visualization (kept off TaskDetail — it's tens of KB).
   hasVisualization: boolean;
   visualizationGeneratedAt: string | null;
+  visualizationRevision?: ReviewRevision | null; // the submission the visualization was attached under
+  // the current stage's latest submission (migration #29); null for historical tasks / before
+  // the stage's first submit. Optional so older servers' payloads still type.
+  submission?: SubmissionSummary | null;
   metrics: TaskMetricsView;
   // the implementing agent's claim per acceptance criterion from the latest result
   // (criteria-claims/v1, src/criteriaClaims.ts); null when that result reported none.
@@ -466,6 +508,7 @@ export interface SubmitResultInput {
   plan?: string | undefined;               // plan stage: the implementation plan
   verification?: string | undefined;       // implementation/harden: reported outcome of the workspace verify command
   criteria?: CriterionClaim[] | undefined;   // implementation: the agent's claim per acceptance criterion
+  revision?: SubmissionRevisionInput | undefined; // implementation: the pushed head/base SHA, resolved at the git boundary
 }
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;

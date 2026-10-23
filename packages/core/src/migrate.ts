@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL, MIGRATION_29_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -163,6 +163,17 @@ const MIGRATIONS: Migration[] = [
       if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
       db.exec(MIGRATION_28_SQL);
     },
+  },
+  // #29 — revision-bound submissions: task_submission (IF NOT EXISTS) plus revision columns on
+  // task_visualization/task_delivery via ADD COLUMN, each guarded with table_info like #19/#20.
+  (db) => {
+    db.exec(MIGRATION_29_SQL);
+    const addMissing = (table: string, columns: Array<[string, string]>) => {
+      const have = (db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name);
+      for (const [name, type] of columns) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    };
+    addMissing('task_visualization', [['submission_id', 'INTEGER'], ['head_sha', 'TEXT']]);
+    addMissing('task_delivery', [['submission_id', 'INTEGER'], ['approved_head_sha', 'TEXT'], ['head_sha', 'TEXT']]);
   },
 ];
 

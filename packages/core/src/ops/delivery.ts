@@ -11,6 +11,7 @@ import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySu
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { observeRevisionInTx } from './observeRevision.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
@@ -64,6 +65,10 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     const ts = now();
     const { changed, accepted } = updateDeliveryObservation(db, d, obs, ts);
     if (!accepted) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
+    // The provider's PR head is a revision observation too: a head that is not the approved one
+    // means the branch moved after approval, and the approved submission reads stale.
+    if (obs.headSha && d.submission_id !== null)
+      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha, source: 'provider' }, ts);
     const stateChangedAt = changed ? ts : d.state_changed_at;
     if (reconcileMergedDelivery(db, row, ts)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);

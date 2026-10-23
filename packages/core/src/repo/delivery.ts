@@ -7,6 +7,8 @@ export interface DeliveryRow {
   pr_state: DeliveryPrState; checks_state: DeliveryChecksState;
   detail: string | null; checked_at: string | null; state_changed_at: string;
   created_at: string; updated_at: string;
+  // migration #29: the approved submission/head, and the PR head the provider last reported
+  submission_id: number | null; approved_head_sha: string | null; head_sha: string | null;
 }
 
 /** What a watcher poll observed — the delta applied by updateDeliveryObservation. */
@@ -20,6 +22,8 @@ export interface DeliveryObservation {
   prState: DeliveryPrState;
   checksState: DeliveryChecksState;
   failing?: DeliveryFailingCheck[] | undefined;
+  /** The PR's head commit as the provider reports it; undefined = not reported (keeps the stored one). */
+  headSha?: string | null | undefined;
 }
 
 const parseFailing = (detail: string | null): DeliveryFailingCheck[] => {
@@ -42,11 +46,12 @@ export function toDeliverySummary(r: DeliveryRow): DeliverySummary {
     prState: r.pr_state, checksState: r.checks_state,
     failing: parseFailing(r.detail),
     checkedAt: r.checked_at, stateChangedAt: r.state_changed_at,
+    approvedHeadSha: r.approved_head_sha, headSha: r.head_sha,
   };
 }
 
 /** Seed (or reset — INSERT OR REPLACE, so a re-approval starts a fresh observation) the delivery row. */
-export function upsertDelivery(db: DB, taskId: number, seed: { provider: DeliveryProvider; branch: string; prUrl: string | null }, ts: string): void {
+export function upsertDelivery(db: DB, taskId: number, seed: { provider: DeliveryProvider; branch: string; prUrl: string | null; submissionId?: number | null; approvedHeadSha?: string | null }, ts: string): void {
   const previous = deliveryRowFor(db, taskId);
   // state_changed_at doubles as the watcher fence token. Keep it monotonic when a deterministic
   // test clock or a fast pair of approvals supplies the same timestamp for two episodes.
@@ -57,9 +62,9 @@ export function upsertDelivery(db: DB, taskId: number, seed: { provider: Deliver
     : ts;
   db.prepare(
     `INSERT OR REPLACE INTO task_delivery
-       (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, NULL, 'unknown', 'unknown', NULL, NULL, ?, ?, ?)`,
-  ).run(taskId, seed.provider, seed.branch, seed.prUrl, episodeTs, episodeTs, episodeTs);
+       (task_id, provider, branch, pr_url, pr_id, pr_state, checks_state, detail, checked_at, state_changed_at, created_at, updated_at, submission_id, approved_head_sha, head_sha)
+     VALUES (?, ?, ?, ?, NULL, 'unknown', 'unknown', NULL, NULL, ?, ?, ?, ?, ?, NULL)`,
+  ).run(taskId, seed.provider, seed.branch, seed.prUrl, episodeTs, episodeTs, episodeTs, seed.submissionId ?? null, seed.approvedHeadSha ?? null);
 }
 
 export function deliveryRowFor(db: DB, taskId: number): DeliveryRow | undefined {
@@ -92,14 +97,15 @@ export function updateDeliveryObservation(db: DB, row: DeliveryRow, obs: Deliver
   const prUrl = obs.prUrl !== undefined ? obs.prUrl : row.pr_url;
   const prId = obs.prId !== undefined ? obs.prId : row.pr_id;
   const detail = obs.failing && obs.failing.length > 0 ? JSON.stringify({ failing: obs.failing }) : null;
+  const headSha = obs.headSha !== undefined ? obs.headSha : row.head_sha;
   const changed =
     prUrl !== row.pr_url || prId !== row.pr_id ||
     obs.prState !== row.pr_state || obs.checksState !== row.checks_state ||
-    detail !== row.detail;
+    detail !== row.detail || headSha !== row.head_sha;
   db.prepare(
-    `UPDATE task_delivery SET pr_url = ?, pr_id = ?, pr_state = ?, checks_state = ?, detail = ?,
+    `UPDATE task_delivery SET pr_url = ?, pr_id = ?, pr_state = ?, checks_state = ?, detail = ?, head_sha = ?,
        checked_at = ?, state_changed_at = ?, updated_at = ?
      WHERE task_id = ?`,
-  ).run(prUrl, prId, obs.prState, obs.checksState, detail, ts, changed ? ts : row.state_changed_at, ts, row.task_id);
+  ).run(prUrl, prId, obs.prState, obs.checksState, detail, headSha, ts, changed ? ts : row.state_changed_at, ts, row.task_id);
   return { changed, accepted: true };
 }
