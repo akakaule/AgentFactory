@@ -259,3 +259,38 @@ describe('ReviewPanel — approve', () => {
     expect(screen.queryByRole('heading', { name: /Your call/ })).toBeNull();
   });
 });
+
+describe('ReviewPanel — revision (AF-148)', () => {
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+  const submission = (over: Partial<NonNullable<TaskDetailView['submission']>> = {}): NonNullable<TaskDetailView['submission']> => ({
+    id: 7, stage: 'implementation', executionId: null, branch: 'feature/AF-146-x', headSha: A, baseSha: null, contentHash: null,
+    source: 'origin', observedAt: 't', createdAt: 't', lastObservation: null, freshness: 'current', ...over,
+  });
+
+  it('names the submission and commit under review', () => {
+    renderPanel({ submission: submission() });
+    expect(screen.getByText(/Submission #7 · commit aaaaaaa/)).toBeInTheDocument();
+  });
+
+  it('a push after submit blocks approval and says why', () => {
+    renderPanel({ submission: submission({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', observedAt: 't2', error: null } }) });
+    expect(screen.getByRole('alert')).toHaveTextContent(/moved to bbbbbbb after this submission/);
+    expect(screen.getByRole('button', { name: 'Approve anyway…' })).toBeDisabled();
+  });
+
+  it('shows unknown freshness with the observation error', () => {
+    renderPanel({ submission: submission({ freshness: 'unknown', lastObservation: { headSha: null, source: 'git', observedAt: 't2', error: 'origin unreachable' } }) });
+    expect(screen.getByText(/freshness unknown: origin unreachable/i)).toBeInTheDocument();
+  });
+
+  it('labels an AI review of an older revision', () => {
+    renderPanel({ submission: submission(), aiReview: { ...af146Review({ links: true }), binding: 'stale', revision: { submissionId: 6, headSha: B } } });
+    expect(screen.getByText(/AI review is for an older revision/)).toBeInTheDocument();
+  });
+
+  it('historical tasks (no submission) render without a revision line', () => {
+    renderPanel();
+    expect(screen.queryByText(/Submission #/)).toBeNull();
+  });
+});

@@ -17,8 +17,9 @@ export { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
 export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution, EXECUTION_LEASE_MS, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
-export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
-export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, type ParsedAiReview } from './aiReview.js';
+export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, remoteBranchHead, revisionDiff, GitError, type BranchDiff, type RemoteHead } from './git.js';
+export { observeRevision, type RevisionObservationInput } from './ops/observeRevision.js';
+export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, formatReviewRevision, parseReviewRevision, type ParsedAiReview } from './aiReview.js';
 export { parseAcceptanceCriteria, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
 export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
@@ -104,6 +105,8 @@ import { reviewApprove } from './ops/reviewApprove.js';
 import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
+import { observeRevision, type RevisionObservationInput } from './ops/observeRevision.js';
+import { remoteBranchHead, type RemoteHead } from './git.js';
 import { resolveGitAuth } from './gitAuth.js';
 import { getWorkspacePat } from './repo/workspaces.js';
 import { getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt } from './agentPrompts.js';
@@ -132,6 +135,8 @@ import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideI
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
+import type { ExpectedRevision, SubmissionSummary } from './types.js';
+import type { GitAuth } from './gitAuth.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput, FailureTriageFeedbackInput } from './types.js';
 
 export interface CoreOptions {
@@ -140,11 +145,14 @@ export interface CoreOptions {
   resolveOrigin?: ((repoPath: string) => string | null) | undefined;
   /** Keep HTTP adapters strict: only the request's executionId may fence a mutation. */
   autoFence?: boolean | undefined;
+  /** Injectable approve-time head observation (tests pass a fake; production runs `git ls-remote`). */
+  resolveRemoteHead?: ((repoPath: string, branch: string, auth: GitAuth | null) => Promise<RemoteHead>) | undefined;
 }
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB, opts: CoreOptions = {}) {
   const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
+  const resolveRemoteHead = opts.resolveRemoteHead ?? remoteBranchHead;
   // Keep the public in-process facade as ergonomic as the HTTP client: once a claim returns an
   // execution identity, subsequent mutations from that same facade are fenced automatically.
   // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
@@ -234,7 +242,18 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
      *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
     addPrFeedback: (key: string, input: AddPrFeedbackInput) => addPrFeedback(db, key, input),
     applyFeedbackFix: (key: string, actorUserId: number | null = null) => applyFeedbackFix(db, key, actorUserId),
-    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null),
+    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null, expected?: ExpectedRevision | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null, expected ?? null),
+    observeRevision: (key: string, input: RevisionObservationInput) => observeRevision(db, key, input),
+    /** The git adapter's approve-time refresh: observe the current implementation submission's
+     *  branch head on origin (outside any transaction) and record it — a later push then reads
+     *  stale, an unreachable origin reads unknown. No-op for doc stages / unresolved revisions. */
+    refreshRevision: async (key: string): Promise<SubmissionSummary | null> => {
+      const task = getTask(db, key);
+      const sub = task.submission ?? null;
+      if (!sub || sub.stage !== 'implementation' || sub.headSha === null || task.branch === null) return sub;
+      const head = await resolveRemoteHead(task.repoPath, task.branch, resolveGitAuth(db, task.workspace, { env: process.env, resolveOrigin }));
+      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error });
+    },
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),

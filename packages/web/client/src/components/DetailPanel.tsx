@@ -339,7 +339,10 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
           key={task.key}
           task={task}
           willDeliver={task.stage === 'implementation' && task.branch != null}
-          onApprove={(reason) => api.approve(task.key, reason).then(afterMutation)}
+          onApprove={(reason) => (task.submission
+            // approve exactly the submission shown; the board refuses it if it was superseded or pushed over
+            ? api.approve(task.key, reason, { submissionId: task.submission.id, headSha: task.submission.headSha })
+            : api.approve(task.key, reason)).then(afterMutation)}
           onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation)}
           onOpenChanges={() => setTab('changes')}
         />
@@ -623,7 +626,8 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
               {task.hasVisualization && showViz
                 ? <div className="af-dt-viz"><VisualizationFrame taskKey={task.key} /></div>
                 : branchLink
-                  ? <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} inline />
+                  ? <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} inline
+                      submitted={task.submission ? { id: task.submission.id, headSha: task.submission.headSha } : null} />
                   : <div className="af-dt-empty">No branch linked yet — changes appear once the agent pushes one.</div>}
             </>
           )}

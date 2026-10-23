@@ -46,6 +46,9 @@ export const feedbackBody = z.object({ feedback: z.string().min(1) });
 // when one is required). Blank normalizes to absent so core's message, not zod's, explains it.
 export const approveBody = z.object({
   reason: z.string().max(2000, 'reason must be at most 2000 characters').transform((s) => s.trim() || undefined).optional(),
+  // the submission (and head) the human reviewed; core refuses a superseded or moved revision
+  submissionId: z.number().int().positive().optional(),
+  headSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'headSha must be a full commit SHA').nullable().optional(),
 });
 // "Mark reviewed" for a pr-review: an optional review body captured for the PR (empty = closed with no comment).
 export const prReviewedBody = z.object({ review: z.string().optional() });

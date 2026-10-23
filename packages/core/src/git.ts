@@ -106,3 +106,48 @@ export async function branchDiff(repoPath: string, branch: string): Promise<Bran
   if (!count.ok) throw new GitError(`git rev-list failed for ${baseRef}..${branch}`);
   return { baseRef, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0, headSha, baseSha };
 }
+
+/** What `remoteBranchHead` saw: the branch's head on origin, or why it could not be read. */
+export interface RemoteHead { headSha: string | null; error: string | null; }
+
+/**
+ * Observe a branch's current head on origin (`git ls-remote`, nothing fetched) — the approve-time
+ * refresh that tells a reviewed submission from a later push. Never throws for an unreachable or
+ * misconfigured remote: the failure is returned so the board can show unknown freshness. With a
+ * resolved workspace credential the bare origin URL is queried with an `http.extraheader` (the
+ * inherited key is reset first so an injected header cannot be sent twice).
+ */
+export async function remoteBranchHead(repoPath: string, branch: string, auth: { remoteUrl: string; configKey: string; configValue: string } | null = null): Promise<RemoteHead> {
+  if (!SAFE_REF.test(branch)) return { headSha: null, error: `branch ref is not checkable: ${branch}` };
+  if (!existsSync(repoPath)) return { headSha: null, error: `repository path does not exist: ${repoPath}` };
+  const authArgs = auth ? ['-c', `${auth.configKey}=`, '-c', `${auth.configKey}=${auth.configValue}`] : [];
+  let r: { ok: boolean; stdout: string };
+  try {
+    r = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', auth ? auth.remoteUrl : 'origin', `refs/heads/${branch}`]);
+  } catch (err) {
+    return { headSha: null, error: (err as Error).message };
+  }
+  if (!r.ok) return { headSha: null, error: 'origin unreachable' };
+  const sha = r.stdout.trim().split(/\s+/)[0] ?? '';
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) return { headSha: null, error: `branch ${branch} is not on origin` };
+  return { headSha: sha, error: null };
+}
+
+/**
+ * The diff of one recorded revision — `base..head` exactly as submitted — so the reviewed snapshot
+ * stays reproducible after the branch moved or the worktree was removed. Both ids must be full SHAs
+ * (they come from task_submission, never from a request).
+ */
+export async function revisionDiff(repoPath: string, baseSha: string, headSha: string): Promise<BranchDiff> {
+  const sha = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+  if (!sha.test(baseSha) || !sha.test(headSha)) throw new ValidationError('revision diff needs full commit SHAs');
+  if (!existsSync(repoPath)) throw new GitError(`repository path does not exist: ${repoPath}`);
+  for (const id of [baseSha, headSha]) {
+    const has = await runGit(repoPath, ['cat-file', '-e', '--end-of-options', `${id}^{commit}`]);
+    if (!has.ok) throw new NotFoundError(`commit ${id.slice(0, 7)} is not in the board's repository (fetch the branch)`);
+  }
+  const diff = await runGit(repoPath, ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '--find-renames', '--end-of-options', `${baseSha}..${headSha}`, '--']);
+  if (!diff.ok) throw new GitError(`git diff failed for ${baseSha.slice(0, 7)}..${headSha.slice(0, 7)}`);
+  const count = await runGit(repoPath, ['rev-list', '--count', '--end-of-options', `${baseSha}..${headSha}`, '--']);
+  return { baseRef: baseSha, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0, headSha, baseSha };
+}

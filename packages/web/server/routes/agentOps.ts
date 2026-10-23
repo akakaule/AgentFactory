@@ -37,6 +37,7 @@ const deliveryCheckBody = z.object({
   prUrl: z.string().nullable(), prId: z.string().nullable(),
   prState: z.string(), checksState: z.string(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
+  headSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable().optional(), // the PR head the provider reports
 }).passthrough();
 const deliveryCompleteBody = z.object({ note: z.string(), expectedStateChangedAt: z.string().optional() });
 const deliveryFailBody = z.object({ reason: z.string().min(1), detail: z.string(), body: z.string().optional() }).passthrough();

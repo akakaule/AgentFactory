@@ -8,6 +8,8 @@ import { resolveCredential } from './credentials.js';
 import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
 import { syncInbound, syncOutbound } from './adoSync.js';
 
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
 /** HTTP statuses that mean "the credential is wrong", not "back off and retry" (see provider guards). */
 const AUTH_STATUSES = new Set([203, 401, 403]);
 
@@ -246,6 +248,9 @@ export class Watcher {
       prState: pr ? pr.state : 'not_found',
       checksState: checks.state,
       failing: checks.failing,
+      // the PR head as the host reports it: persisted next to the approved head, so a push after
+      // approval marks the approved submission stale (only full SHAs — the board validates them)
+      ...(pr?.headSha && FULL_SHA.test(pr.headSha) ? { headSha: pr.headSha } : {}),
     });
     if (recorded.skipped) return;
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);

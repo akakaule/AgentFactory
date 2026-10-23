@@ -120,7 +120,7 @@ export function summarizeAiReview(parsed: ParsedAiReview | null, superseded: boo
   if (!parsed) return null;
   const findings = parsed.findings.length;
   // a review bound to a superseded submission or a moved head is not proof for what is there now
-  const verdict: AiReviewVerdict = superseded || binding === 'stale' ? 'pending' : parsed.consensus?.status === 'disputed' ? 'disputed' : findings > 0 ? 'findings' : 'clean';
+  const verdict: AiReviewVerdict = superseded || binding === 'stale' || binding === 'superseded' ? 'pending' : parsed.consensus?.status === 'disputed' ? 'disputed' : findings > 0 ? 'findings' : 'clean';
   return { verdict, findings, reviewer: parsed.reviewer, items: parsed.findings, ...(parsed.consensus ? { consensus: parsed.consensus } : {}), binding, revision: parsed.revision ?? null };
 }
 

@@ -47,7 +47,8 @@ describe('auto-visualization', () => {
 
     const comment = core.getTask(key).activity.find((a) => a.type === 'comment' && a.body.startsWith('ai-review/v1'));
     expect(comment).toBeDefined();
-    expect(comment!.body.endsWith(`Visualization: /api/tasks/${key}/visualization`)).toBe(true);
+    // the revision line (AF-148) follows the link, so the link is no longer the last line
+    expect(comment!.body).toContain(`\n\nVisualization: /api/tasks/${key}/visualization`);
     expect(core.getTask(key).aiReview?.verdict).toBe('clean'); // trailing link line doesn't break the parser
 
     await r.tick(); // all served — nothing new

@@ -900,6 +900,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv { --rv-must: var(--st-blocked); --rv-call: var(--st-progress); --rv-should: var(--accent-2); --rv-fyi: var(--ink-2); --rv-clear: var(--st-done); display: flex; flex-direction: column; gap: 18px; margin-bottom: 8px; }
 .af-rv-muted { color: var(--ink-2); font-size: 13px; }
 .af-rv-error { margin: 6px 0 0; color: var(--st-blocked); font-size: 13.5px; }
+.af-rv-revision { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; }
+.af-rv-revision.unknown { color: var(--active-2); }
 .af-rv-link { padding: 0; border: 0; background: none; color: var(--accent-2); font-size: 13px; font-weight: 500; cursor: pointer; }
 .af-rv-link:hover { text-decoration: underline; }
 .af-rv-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }

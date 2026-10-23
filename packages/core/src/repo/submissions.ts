@@ -83,15 +83,15 @@ export function toSubmissionSummary(s: SubmissionRow, task: DocContent): Submiss
 }
 
 /**
- * How a review's named revision relates to what is there now: 'legacy' when unbound; 'stale' when
- * its submission was superseded (by a newer one of the same stage), its head is not the submitted
- * head, or the submission itself went stale; otherwise 'current'.
+ * How a review's named revision relates to what is there now: 'legacy' when unbound; 'superseded'
+ * when a newer submission of its stage replaced the one it names; 'stale' when its head is not the
+ * submitted head or the submission itself went stale; otherwise 'current'.
  */
 export function reviewBinding(db: DB, taskId: number, task: DocContent, revision: { submissionId: number; headSha: string | null } | null | undefined): ReviewBinding {
   if (!revision) return 'legacy';
   const s = submissionById(db, revision.submissionId);
-  if (!s || s.task_id !== taskId) return 'stale';
-  if (latestSubmissionFor(db, taskId, s.stage)?.id !== s.id) return 'stale';
+  if (!s || s.task_id !== taskId) return 'superseded';
+  if (latestSubmissionFor(db, taskId, s.stage)?.id !== s.id) return 'superseded';
   if (s.head_sha !== null && revision.headSha !== null && revision.headSha !== s.head_sha) return 'stale';
   return freshnessOf(s, task) === 'stale' ? 'stale' : 'current';
 }

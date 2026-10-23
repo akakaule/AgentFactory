@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution } from '@agentfactory/core';
+import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, ReviewRevision } from '@agentfactory/core';
+import { formatReviewRevision } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
@@ -42,6 +43,8 @@ interface ReviewSession {
   settled: boolean;
   timedOut: boolean;
   round?: ReviewRound | undefined;
+  /** review sessions: the submission reviewed and the head actually diffed (core binds the verdict to it). */
+  bound?: ReviewRevision | undefined;
   deadlineTimer?: ReturnType<typeof setTimeout>;
   /** visualize sessions only: the vizAttempts budget key, pinned at spawn so a result submitted
    *  mid-session cannot shift it. */
@@ -267,8 +270,11 @@ export class Reviewer {
   // -- polling + spawning ----------------------------------------------------
 
   /** A task needs review iff no current AI review exists, or the latest is `pending` (superseded). */
+  /** A 'stale' review names the current submission whose revision moved since (a later push,
+   *  edited doc content): reviewing it again cannot bind, only a resubmission can — so skip it
+   *  rather than burn an attempt every tick. A superseded review (newer submission) is due. */
   private needsReview(task: Task): boolean {
-    return !task.aiReview || task.aiReview.verdict === 'pending';
+    return !task.aiReview || (task.aiReview.verdict === 'pending' && task.aiReview.binding !== 'stale');
   }
 
   private hasRunningFor(key: string): boolean {
@@ -451,6 +457,7 @@ export class Reviewer {
     let prompt: string;
     let stage: Stage;
     let round: ReviewRound | undefined;
+    let bound: ReviewRevision | undefined;
     let detail: TaskDetail;
     try {
       detail = await this.deps.core.getTask(key);
@@ -484,8 +491,13 @@ export class Reviewer {
         const systemPrompt = await this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
         let makePrompt: (reviewEngine: ReviewEngine) => string;
         let revision: ReviewRound['revision'];
+        // Bind the verdict to the stage's current submission. For code, the head is the one this
+        // review actually diffed — if the branch moved since submit, core reads the verdict stale.
+        const sub = detail.submission?.stage === detail.stage ? detail.submission : null;
+        if (sub) bound = { submissionId: sub.id, headSha: null };
         if (detail.stage === 'implementation') {
           const { diffRef, diff } = await this.prepareDiff(detail);
+          if (sub) bound = { submissionId: sub.id, headSha: diff.headSha ?? null, baseSha: diff.baseSha ?? null };
           if (this.config.consensus?.enabled) {
             if (!diff.headSha || !diff.baseSha) throw new Error('consensus requires immutable review revisions');
             revision = { headSha: diff.headSha, baseSha: diff.baseSha };
@@ -504,6 +516,7 @@ export class Reviewer {
           results: [],
           ...(deadlineMs !== undefined ? { deadlineMs } : {}),
           ...(revision ? { revision } : {}),
+          ...(bound ? { bound } : {}),
         };
       }
     } catch (err) {
@@ -519,7 +532,7 @@ export class Reviewer {
     }
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
-    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase });
+    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, bound });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -624,6 +637,7 @@ export class Reviewer {
     model: string | undefined;
     reasoningEffort?: ReasoningEffort | undefined;
     round?: ReviewRound | undefined;
+    bound?: ReviewRevision | undefined;
     prompt: string;
     label: string;
     /** Log/output path base: `${fileBase}.log` + (codex) `${fileBase}.out`. */
@@ -646,6 +660,7 @@ export class Reviewer {
 
     const child = this.deps.spawn({ command: this.resolveCommand(engine), args, cwd: this.deps.logDir, env, stdin: prompt });
     const session: ReviewSession = {
+      bound: opts.round?.bound ?? opts.bound,
       label,
       workspace,
       key,
@@ -810,6 +825,8 @@ export class Reviewer {
         const detail = await this.deps.core.getTask(session.key);
         if (detail.hasVisualization) body += `\n\nVisualization: /api/tasks/${session.key}/visualization`;
       } catch { /* link line is best-effort */ }
+      // last line: which submission/head this verdict concerns (outside the JSON; core binds on it)
+      if (session.bound) body += `\n\n${formatReviewRevision(session.bound)}`;
     }
     try {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation

@@ -188,3 +188,19 @@ describe('revision-bound submissions', () => {
     expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
   });
 });
+
+describe('review binding: superseded vs stale', () => {
+  it('a review of an older submission reads superseded; a moved head on the current one reads stale', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const first = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: first.id, headSha: A }) }, now);
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
+    const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'superseded' });
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: second.id, headSha: B }) }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'clean', binding: 'current' });
+    observeRevision(db, key, { headSha: A, source: 'git' }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+  });
+});
