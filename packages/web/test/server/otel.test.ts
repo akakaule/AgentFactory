@@ -6,6 +6,8 @@ const postLogs = (app: ReturnType<typeof buildApp>, body: unknown, headers: Reco
   app.request('/v1/logs', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
 // A Claude `claude_code.api_request` OTLP/JSON logs payload (int64 attrs encoded as strings).
+// Claude Code 2.x carries the prefixed name in `body` only; its `event.name` attribute is the
+// UNPREFIXED `api_request` — which must not shadow the body the way codex's `eventName` may not.
 function claudeBody(taskKey: string | null) {
   return {
     resourceLogs: [{
@@ -14,6 +16,7 @@ function claudeBody(taskKey: string | null) {
         logRecords: [{
           body: { stringValue: 'claude_code.api_request' },
           attributes: [
+            { key: 'event.name', value: { stringValue: 'api_request' } },
             { key: 'input_tokens', value: { intValue: '1000' } },
             { key: 'output_tokens', value: { intValue: '200' } },
             { key: 'cache_read_tokens', value: { intValue: '50' } },
