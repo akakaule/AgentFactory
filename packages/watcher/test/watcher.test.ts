@@ -204,6 +204,7 @@ describe('watcher tick', () => {
     const key = deliverTask(core);
     const fetchJson = fakeFetch([
       ['/pulls?head=', { body: [ghPr()] }],
+      ['/pulls/42', { body: ghPr() }], // the second tick reads the attributed PR directly
       ['/check-runs', { body: running }],
       ['/status', { body: { statuses: [] } }],
     ]);

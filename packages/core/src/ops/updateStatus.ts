@@ -9,7 +9,7 @@ import { NotFoundError, InvalidTransitionError, ValidationError } from '../error
 import { nowIso } from '../time.js';
 import { assertExecutionOwnership, currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
-import { deliveryRowFor } from '../repo/delivery.js';
+import { deliveryRowFor, bindDeliveryRevision } from '../repo/delivery.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { approvalNeedsReason, assertApprovableRevision } from './approval.js';
 
@@ -54,8 +54,8 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     if (row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human' && approvalNeedsReason(db, row))
       throw new ValidationError('approving over must-fix issues or open decisions needs a reason — use the approve action');
     // ...nor the revision gate: a branch observed at a new head since submit is not approvable by any route.
-    if (row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human')
-      assertApprovableRevision(db, row, null);
+    const approved = row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human'
+      ? assertApprovableRevision(db, row, null) : null;
     // A retry already in flight must not reopen a repair that the watcher just completed.
     if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
       && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);
@@ -67,9 +67,15 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     if ((status === 'queued' || status === 'in_progress') && reconcileMergedDelivery(db, row, ts))
       return toDetail(db, findRowByKey(db, key)!);
     setStatus(db, row.id, status, ts);
+    // A raw approval keeps the approve action's revision binding: a delivery row surviving an
+    // earlier episode is pointed at this submission (beginDelivery binds a freshly seeded one),
+    // and the note names what was approved.
+    if (approved && status === 'delivering' && deliveryRowFor(db, row.id))
+      bindDeliveryRevision(db, row.id, approved.id, approved.headSha);
+    const approvedNote = approved ? `approved submission #${approved.id} at ${approved.headSha ? approved.headSha.slice(0, 7) : 'an unknown revision'}` : '';
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, body: note?.trim() || '', createdAt: ts, actorUserId });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, body: [note?.trim() || '', approvedNote].filter(Boolean).join('; '), createdAt: ts, actorUserId });
     // Releasing a stranded claim (in_progress → queued by a human) abandons the worker — end its
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).

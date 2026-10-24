@@ -8,7 +8,7 @@ import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { getTask } from '../src/ops/getTask.js';
 import { observeRevision } from '../src/ops/observeRevision.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
-import { recordDeliveryCheck } from '../src/ops/delivery.js';
+import { recordDeliveryCheck, beginDelivery, failDelivery, recordDeliveryCheckFailure } from '../src/ops/delivery.js';
 import { attachVisualization } from '../src/ops/visualization.js';
 import { formatReviewRevision } from '../src/aiReview.js';
 import { InvalidTransitionError } from '../src/errors.js';
@@ -255,5 +255,59 @@ describe('revision gate holds across every human close and through observation f
     observeRevision(db, key, { submissionId: sub.id, headSha: null, source: 'git', error: 'origin unreachable' }, now);
     observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git' }, now);
     expect(getTask(db, key).submission).toMatchObject({ freshness: 'current', lastObservation: { headSha: A, error: null } });
+  });
+});
+
+describe('raw delivery approvals and provider failures keep the revision binding', () => {
+  it('a raw drag to delivering binds the seeded delivery row to the approved submission', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
+    updateStatus(db, key, 'delivering', 'human', now);
+    expect(getTask(db, key).activity.at(-1)?.body).toMatch(new RegExp(`approved submission #${sub.id} at ${A.slice(0, 7)}`));
+    expect(beginDelivery(db, key, { provider: 'github', branch: 'feature/x' }, now)).toMatchObject({ approvedHeadSha: A });
+    recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: B }, now);
+    const d = getTask(db, key);
+    expect(d.delivery).toMatchObject({ approvedHeadSha: A, headSha: B });
+    expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
+    expect(d.aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+  });
+
+  it('a raw drag after a bounced delivery rebinds the surviving delivery row to the new submission', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const first = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: first.id, headSha: A });
+    failDelivery(db, key, { reason: 'ci_failed', detail: 'red' }, now);
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
+    const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
+    updateStatus(db, key, 'delivering', 'human', now);
+    expect(getTask(db, key).delivery).toMatchObject({ approvedHeadSha: B });
+    recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: A }, now);
+    expect(getTask(db, key).submission).toMatchObject({ id: second.id, freshness: 'stale', lastObservation: { headSha: A, source: 'provider' } });
+  });
+
+  it('a failed provider check makes freshness unknown; a later check clears it', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: sub.id, headSha: A });
+    recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: A }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'current' });
+    recordDeliveryCheckFailure(db, key, { error: 'GitHub 503' }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'unknown', lastObservation: { headSha: A, source: 'provider', error: 'GitHub 503' } });
+    recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending' }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'current', lastObservation: { headSha: A, error: null } });
+  });
+
+  it('a failed provider check after a known mismatch keeps the submission stale', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: sub.id, headSha: A });
+    recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: B }, now);
+    recordDeliveryCheckFailure(db, key, { error: 'GitHub 503' }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, error: 'GitHub 503' } });
   });
 });

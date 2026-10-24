@@ -51,3 +51,25 @@ describe('watcher persists the provider-observed PR head', () => {
     expect(core.getTask(key).delivery).toMatchObject({ headSha: null });
   });
 });
+
+describe('watcher persists provider failures as unknown freshness', () => {
+  it('a failed provider poll after observing A marks the submission unknown with the error', async () => {
+    const core = makeCore();
+    const key = deliverAt(core, A);
+    await poll(core, A);
+    const failing = fakeFetch([['/pulls', { status: 503, body: { message: 'unavailable' } }]]);
+    await new Watcher(makeConfig(), makeDeps(core, failing)).tick();
+    const d = core.getTask(key);
+    expect(d.submission).toMatchObject({ freshness: 'unknown', lastObservation: { headSha: A, source: 'provider' } });
+    expect(d.submission?.lastObservation?.error).toMatch(/503/);
+  });
+
+  it('a failed provider poll after a push keeps the submission stale', async () => {
+    const core = makeCore();
+    const key = deliverAt(core, A);
+    await poll(core, B);
+    const failing = fakeFetch([['/pulls', { status: 503, body: { message: 'unavailable' } }]]);
+    await new Watcher(makeConfig(), makeDeps(core, failing)).tick();
+    expect(core.getTask(key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B } });
+  });
+});

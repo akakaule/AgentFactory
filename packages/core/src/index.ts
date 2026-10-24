@@ -33,7 +33,7 @@ export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
-export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+export { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
@@ -102,7 +102,7 @@ import { executionById } from './repo/execution.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
-import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+import { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
 import { observeRevision, type RevisionObservationInput } from './ops/observeRevision.js';
@@ -256,6 +256,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     },
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
+    recordDeliveryCheckFailure: (key: string, input: { error: string }) => recordDeliveryCheckFailure(db, key, input),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),
     completeDelivery: (key: string, note: string, expectedStateChangedAt?: string) => completeDelivery(db, key, note, expectedStateChangedAt),
     failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined }) => failDelivery(db, key, input),

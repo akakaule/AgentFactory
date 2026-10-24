@@ -46,7 +46,7 @@ export type HttpCore = Pick<
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
-  | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
+  | 'beginDelivery' | 'recordDeliveryCheck' | 'recordDeliveryCheckFailure' | 'completeDelivery' | 'failDelivery'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
   | 'recordIntakeAssessment' | 'beginIntakeAssessment' | 'intakeRuntimeSettings'
 > & {
@@ -167,6 +167,7 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     // ── delivery (watcher) ───────────────────────────────────────────────────
     beginDelivery: async (key, seed) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/begin`, seed)) as never,
     recordDeliveryCheck: async (key, obs) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check`, obs)) as never,
+    recordDeliveryCheckFailure: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check-failed`, input)) as never,
     completeDelivery: async (key, note, expectedStateChangedAt) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note, ...(expectedStateChangedAt !== undefined ? { expectedStateChangedAt } : {}) })) as never,
     failDelivery: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/fail`, input)) as never,
 

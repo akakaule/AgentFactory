@@ -13,7 +13,7 @@ export type WatcherCore = AwaitableSlice<
   Core,
   | 'listWorkspaces' | 'listTasks' | 'getTask'
   | 'recordSupervisorHeartbeat' | 'getWorkspacePat'
-  | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
+  | 'beginDelivery' | 'recordDeliveryCheck' | 'recordDeliveryCheckFailure' | 'completeDelivery' | 'failDelivery'
   | 'importTask'
 >;
 

@@ -81,6 +81,17 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect((await http.getTask(task.key)).delivery?.prState).toBe('merged');
   });
 
+  it('records a failed provider check over HTTP as unknown revision freshness', async () => {
+    const task = core.createTask({ title: 'Delivery outage', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
+    core.submitResult(task.key, { summary: 'done', revision: { headSha: 'a'.repeat(40), source: 'origin' } });
+    core.updateStatus(task.key, 'delivering', 'human');
+    await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503' })).toEqual({ recorded: true });
+    expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'unknown', lastObservation: { source: 'provider', error: 'GitHub 503' } });
+  });
+
   it('reads round-trip: listTasks filters, getTask, listWorkspaces', async () => {
     core.createWorkspace({ name: 'shop', repoPath: '/repo' });
     const a = core.createTask({ title: 'A', spec: 'S', acceptanceCriteria: 'A', workspace: 'shop' });

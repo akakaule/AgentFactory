@@ -12,6 +12,7 @@ import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { observeRevisionInTx } from './observeRevision.js';
+import { latestSubmissionFor, submissionById } from '../repo/submissions.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
@@ -42,7 +43,11 @@ export function beginDelivery(db: DB, key: string, seed: { provider: DeliveryPro
   return transaction(db, () => {
     const row = requireRow(db, key);
     if (row.status !== 'delivering') throw new ValidationError(`beginDelivery requires status 'delivering' (got ${row.status})`);
-    upsertDelivery(db, row.id, { provider: seed.provider, branch: seed.branch, prUrl: seed.prUrl ?? null }, now());
+    // The drag passed the revision gate on the current implementation submission (nothing can
+    // resubmit while delivering): bind it, so a later PR head is compared with what was approved.
+    const sub = row.stage === 'implementation' ? latestSubmissionFor(db, row.id, 'implementation') : undefined;
+    upsertDelivery(db, row.id, { provider: seed.provider, branch: seed.branch, prUrl: seed.prUrl ?? null,
+      submissionId: sub?.id ?? null, approvedHeadSha: sub?.head_sha ?? null }, now());
     return toDeliverySummary(deliveryRowFor(db, row.id)!);
   });
 }
@@ -67,12 +72,36 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     if (!accepted) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     // The provider's PR head is a revision observation too: a head that is not the approved one
     // means the branch moved after approval, and the approved submission reads stale.
-    if (obs.headSha && d.submission_id !== null)
-      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha, source: 'provider' }, ts);
+    // A check that learned no head still proves the provider is reachable again: it clears an
+    // earlier provider failure (the known head is kept, so a proven mismatch stays stale).
+    if (d.submission_id !== null && (obs.headSha || providerErrorPending(db, d.submission_id)))
+      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider' }, ts);
     const stateChangedAt = changed ? ts : d.state_changed_at;
     if (reconcileMergedDelivery(db, row, ts)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);
     return { changed, accepted, stateChangedAt };
+  });
+}
+
+function providerErrorPending(db: DB, submissionId: number): boolean {
+  const s = submissionById(db, submissionId);
+  return s?.last_observation_source === 'provider' && s.last_observation_error !== null;
+}
+
+/**
+ * The watcher could not reach the provider for this delivery: record a failed revision
+ * observation for the approved submission, so the board shows unknown freshness during the
+ * outage instead of the last good answer. The known head is kept (a proven mismatch stays
+ * stale). No-op for unbound (historical) deliveries and tasks the watcher no longer owns.
+ */
+export function recordDeliveryCheckFailure(db: DB, key: string, input: { error: string }, now: () => string = nowIso): { recorded: boolean } {
+  return transaction(db, () => {
+    const row = requireRow(db, key);
+    if (row.archived_at || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { recorded: false };
+    const d = deliveryRowFor(db, row.id);
+    if (!d || d.submission_id === null) return { recorded: false };
+    const error = input.error.trim().slice(0, 500) || 'provider check failed';
+    return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error }, now()) !== null };
   });
 }
 
