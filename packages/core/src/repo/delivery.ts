@@ -67,12 +67,6 @@ export function upsertDelivery(db: DB, taskId: number, seed: { provider: Deliver
   ).run(taskId, seed.provider, seed.branch, seed.prUrl, episodeTs, episodeTs, episodeTs, seed.submissionId ?? null, seed.approvedHeadSha ?? null);
 }
 
-/** Point the delivery row at the submission a human approved (a raw in_review → delivering move
- *  onto a surviving row): later provider heads are then compared with that revision. */
-export function bindDeliveryRevision(db: DB, taskId: number, submissionId: number | null, approvedHeadSha: string | null): void {
-  db.prepare('UPDATE task_delivery SET submission_id = ?, approved_head_sha = ? WHERE task_id = ?').run(submissionId, approvedHeadSha, taskId);
-}
-
 export function deliveryRowFor(db: DB, taskId: number): DeliveryRow | undefined {
   return db.prepare('SELECT * FROM task_delivery WHERE task_id = ?').get(taskId) as DeliveryRow | undefined;
 }

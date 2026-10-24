@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rmSync, existsSync } from 'node:fs';
-import { openDb, runMigrations, createCore, type DB } from '@agentfactory/core';
+import { openDb, runMigrations, createCore, formatReviewRevision, type DB } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
 
 const DB_PATH = join(tmpdir(), 'agentfactory_e2e_pipeline_test.db');
@@ -38,6 +38,8 @@ const get = (app: App, path: string) => app.request(path);
 const review = (findings: unknown[]) =>
   `ai-review/v1 — ${findings.length} findings (claude)\nReviewed.\n\`\`\`json\n${JSON.stringify({ reviewer: 'claude', verdict: findings.length ? 'findings' : 'clean', findings })}\n\`\`\``;
 const CLEAN = review([]);
+/** A clean verdict bound to the submission it read — the only kind that auto-advances a tracked doc stage. */
+const cleanFor = (submissionId: number) => `${CLEAN}\n${formatReviewRevision({ submissionId })}`;
 const FINDINGS = review([{ severity: 'warning', title: 'tighten the acceptance criteria', detail: 'AC 2 is not verifiable' }]);
 
 describe('e2e: default flow (spec/description → implementation)', () => {
@@ -75,14 +77,14 @@ describe('e2e: default flow (spec/description → implementation)', () => {
     const claim1 = coreAgent.claimNextTask();
     expect(claim1).toMatchObject({ key: KEY, stage: 'description', branch: null, branchCreated: false });
 
-    coreAgent.submitResult(KEY, {
+    const described = coreAgent.submitResult(KEY, {
       summary: 'feature description written',
       spec: 'GET /ping returns 200 {"ok":true}. Used by the uptime monitor.',
       acceptanceCriteria: '- GET /ping responds 200 with {"ok":true}\n- responds within 100ms',
     });
 
     // reviewer posts a CLEAN verdict through the HTTP comment route (the bridge's path)
-    const reviewRes = await post(app, `/api/tasks/${KEY}/comment`, { body: CLEAN });
+    const reviewRes = await post(app, `/api/tasks/${KEY}/comment`, { body: cleanFor(described.submission!.id) });
     expect(reviewRes.status).toBe(201);
 
     // auto-advance: queued at the implementation stage, claimant cleared, agent-actor trail
@@ -157,8 +159,8 @@ describe('e2e: default flow (spec/description → implementation)', () => {
     expect(reclaim!.stage).toBe('description');
     expect(reclaim!.activity.some((a) => a.type === 'feedback' && a.body.includes('measurable'))).toBe(true);
 
-    coreAgent.submitResult(KEY, { summary: 'v2', spec: 'tight draft', acceptanceCriteria: '- responds in <100ms' });
-    await post(app, `/api/tasks/${KEY}/comment`, { body: CLEAN });
+    const v2 = coreAgent.submitResult(KEY, { summary: 'v2', spec: 'tight draft', acceptanceCriteria: '- responds in <100ms' });
+    await post(app, `/api/tasks/${KEY}/comment`, { body: cleanFor(v2.submission!.id) });
 
     detail = await (await get(app, `/api/tasks/${KEY}`)).json() as { status: string; stage: string };
     expect(detail).toMatchObject({ status: 'queued', stage: 'implementation' });

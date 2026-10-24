@@ -53,7 +53,12 @@ export function addComment(
     // (agent). Findings, malformed markers, and the implementation stage all escalate to
     // the human gate instead. Reviewers stay advisory; this policy lives here, in core.
     // A review bound to content that changed since its submission is not proof: no auto-approve.
-    const stale = revision ? reviewBinding(db, row.id, current, revision) !== 'current' : false;
+    // Nor is an unbound review of a stage whose submission is tracked — it names no revision, so
+    // it cannot vouch for the current content. Only historical stages (nothing tracked) keep the
+    // legacy unbound auto-approve.
+    const stale = revision
+      ? reviewBinding(db, row.id, current, revision) !== 'current'
+      : latestSubmissionFor(db, row.id, current.stage) !== undefined;
     if (parsed && !stale && parsed.consensus?.status !== 'disputed' && parsed.findings.length === 0 && current.status === 'in_review' && current.stage !== 'implementation') {
       applyApproval(db, current, 'agent', ts, 'auto-approved: clean AI review');
     }

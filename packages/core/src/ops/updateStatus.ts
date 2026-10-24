@@ -9,9 +9,10 @@ import { NotFoundError, InvalidTransitionError, ValidationError } from '../error
 import { nowIso } from '../time.js';
 import { assertExecutionOwnership, currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
-import { deliveryRowFor, bindDeliveryRevision } from '../repo/delivery.js';
+import { deliveryRowFor, upsertDelivery } from '../repo/delivery.js';
+import { latestPrLinkUrl } from '../repo/links.js';
 import { advanceRetryBudget } from '../repo/retry.js';
-import { approvalNeedsReason, assertApprovableRevision } from './approval.js';
+import { approvalNeedsReason, assertApprovableRevision, auditUnknownFreshness } from './approval.js';
 
 export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
@@ -68,10 +69,15 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
       return toDetail(db, findRowByKey(db, key)!);
     setStatus(db, row.id, status, ts);
     // A raw approval keeps the approve action's revision binding: a delivery row surviving an
-    // earlier episode is pointed at this submission (beginDelivery binds a freshly seeded one),
-    // and the note names what was approved.
-    if (approved && status === 'delivering' && deliveryRowFor(db, row.id))
-      bindDeliveryRevision(db, row.id, approved.id, approved.headSha);
+    // earlier episode is re-seeded for this submission exactly as a re-approval does — a fresh
+    // observation and an advanced fence, so a provider request started under the previous
+    // approval cannot land on this one (beginDelivery binds a freshly seeded row). An unknown
+    // freshness is audited, and the note names what was approved.
+    const surviving = approved && status === 'delivering' ? deliveryRowFor(db, row.id) : undefined;
+    if (approved && surviving)
+      upsertDelivery(db, row.id, { provider: surviving.provider, branch: row.branch ?? surviving.branch, prUrl: latestPrLinkUrl(db, row.id),
+        submissionId: approved.id, approvedHeadSha: approved.headSha }, ts);
+    auditUnknownFreshness(db, row, approved, ts, actorUserId);
     const approvedNote = approved ? `approved submission #${approved.id} at ${approved.headSha ? approved.headSha.slice(0, 7) : 'an unknown revision'}` : '';
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).

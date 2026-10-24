@@ -2,11 +2,10 @@ import type { DB } from '../db.js';
 import type { TaskDetail } from '../types.js';
 import { transaction } from '../transaction.js';
 import { findRowByKey, toDetail } from '../repo/tasks.js';
-import { applyApproval, assertApprovableRevision, type DeliverySeed } from './approval.js';
+import { applyApproval, assertApprovableRevision, auditUnknownFreshness, type DeliverySeed } from './approval.js';
 import { parseRemoteUrl, resolveOriginUrl } from '../remote.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { appendActivity } from '../repo/activity.js';
 import type { ExpectedRevision } from '../types.js';
 
 /**
@@ -43,14 +42,7 @@ export function reviewApprove(
       throw new InvalidTransitionError(`task changed while resolving its delivery: ${key}`);
     const ts = now();
     const approved = assertApprovableRevision(db, current, expected);
-    // Approving while the git/provider observation of the head failed is allowed, but it is its
-    // own audited human action, never a silent pass. (A submission that never recorded a head —
-    // an older worker, no origin — says so in the approval note: 'at an unknown revision'.)
-    const failed = approved?.stage === 'implementation' ? approved.lastObservation : null;
-    if (approved && failed?.error) {
-      appendActivity(db, { taskId: current.id, type: 'comment', actor: 'human', createdAt: ts, actorUserId,
-        body: `approved submission #${approved.id} with unknown revision freshness: the ${failed.source} observation at ${failed.observedAt} failed (${failed.error})` });
-    }
+    auditUnknownFreshness(db, current, approved, ts, actorUserId);
     applyApproval(db, current, 'human', ts, undefined, actorUserId, delivery, overrideReason,
       approved ? { submissionId: approved.id, headSha: approved.headSha } : null);
     return toDetail(db, findRowByKey(db, key)!);

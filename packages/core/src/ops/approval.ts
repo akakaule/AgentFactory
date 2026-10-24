@@ -37,6 +37,19 @@ export function assertApprovableRevision(db: DB, row: TaskRow, expected: Expecte
   return sub;
 }
 
+/**
+ * Approving while the git/provider observation of the head failed is allowed, but it is its own
+ * audited human action, never a silent pass — on the approve action and a raw status close alike.
+ * (A submission that never recorded a head — an older worker, no origin — says so in the approval
+ * note instead: 'at an unknown revision'.)
+ */
+export function auditUnknownFreshness(db: DB, row: TaskRow, approved: SubmissionSummary | null, ts: string, actorUserId: number | null): void {
+  const failed = approved?.stage === 'implementation' ? approved.lastObservation : null;
+  if (!approved || !failed?.error) return;
+  appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', createdAt: ts, actorUserId,
+    body: `approved submission #${approved.id} with unknown revision freshness: the ${failed.source} observation at ${failed.observedAt} failed (${failed.error})` });
+}
+
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
 /** Approve-time routing decision: non-null ⇒ the implementation approve enters 'delivering'

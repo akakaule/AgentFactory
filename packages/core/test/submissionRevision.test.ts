@@ -311,3 +311,55 @@ describe('raw delivery approvals and provider failures keep the revision binding
     expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, error: 'GitHub 503' } });
   });
 });
+
+describe('round 4: unbound doc reviews, the rebind fence, the raw-close audit', () => {
+  const unboundClean = 'ai-review/v1 - clean (codex)\n```json\n{"reviewer":"codex","verdict":"clean","findings":[]}\n```';
+
+  it('an unbound clean review does not auto-approve a doc stage with a tracked submission', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(t.key);
+    submitResult(db, t.key, { summary: 'd1', spec: 'Spec v1', acceptanceCriteria: '- AC1 works' }, now);
+    db.prepare("UPDATE task SET spec='edited' WHERE key=?").run(t.key);
+    addComment(db, t.key, { actor: 'agent', body: unboundClean }, now);
+    expect(getTask(db, t.key)).toMatchObject({ status: 'in_review', stage: 'description' });
+  });
+
+  it('an unbound clean review still auto-approves a historical doc task with no tracked submission', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(t.key);
+    addComment(db, t.key, { actor: 'agent', body: unboundClean }, now);
+    expect(getTask(db, t.key)).toMatchObject({ status: 'queued', stage: 'implementation' });
+  });
+
+  it('a raw reapproval advances the delivery fence: a delayed observation from the previous approval is rejected', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const first = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: first.id, headSha: A });
+    const pr = 'https://github.com/o/r/pull/1';
+    recordDeliveryCheck(db, key, { prUrl: pr, prId: '1', prState: 'open', checksState: 'pending', headSha: A }, now);
+    // the watcher reads the episode, then its provider request is in flight across the bounce
+    const seen = getTask(db, key).delivery!;
+    const expected = { status: 'delivering' as const, branch: 'feature/x', prUrl: pr, stateChangedAt: seen.stateChangedAt };
+    failDelivery(db, key, { reason: 'ci_failed', detail: 'red' }, now);
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
+    const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
+    updateStatus(db, key, 'delivering', 'human', now);
+    expect(getTask(db, key).delivery!.stateChangedAt).not.toBe(seen.stateChangedAt);
+    const late = recordDeliveryCheck(db, key, { expected, expectedStateChangedAt: seen.stateChangedAt, prUrl: pr, prId: '1', prState: 'open', checksState: 'pending', headSha: A }, now);
+    expect(late.accepted).toBe(false);
+    expect(getTask(db, key).submission).toMatchObject({ id: second.id, freshness: 'current' });
+  });
+
+  it('a raw human close with unknown freshness writes the same distinct audit note as approve', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    observeRevision(db, key, { submissionId: sub.id, headSha: null, source: 'git', error: 'origin unreachable' }, now);
+    const d = updateStatus(db, key, 'done', 'human', now);
+    expect(d.status).toBe('done');
+    expect(d.activity.some((a) => a.type === 'comment' && a.actor === 'human' && /unknown revision freshness/.test(a.body) && a.body.includes('origin unreachable'))).toBe(true);
+  });
+});

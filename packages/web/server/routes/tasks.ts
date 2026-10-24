@@ -172,9 +172,13 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     // not masquerade as a human in the activity log (the agent surface is the preferred route).
     c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
-  r.post('/:key/status', rejectService, validated('json', statusBody), (c) => {
+  r.post('/:key/status', rejectService, validated('json', statusBody), async (c) => {
     const b = c.req.valid('json');
-    if (b.status === 'queued' && core.getTask(c.req.param('key')).status === 'backlog') {
+    const from = core.getTask(c.req.param('key')).status;
+    // Closing a review by status is an approval: refresh the branch head first, as /approve does,
+    // so a push nobody observed yet reads stale (409) and an unreachable origin is audited.
+    if (from === 'in_review' && (b.status === 'done' || b.status === 'delivering')) await core.refreshRevision(c.req.param('key'));
+    if (b.status === 'queued' && from === 'backlog') {
       return c.json(core.queueWithIntakeAcknowledgment(c.req.param('key'), {
         ...(b.expectedRevision !== undefined ? { expectedRevision: b.expectedRevision } : {}),
         ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),

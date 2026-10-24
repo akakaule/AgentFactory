@@ -69,6 +69,39 @@ describe('approve names the reviewed revision', () => {
   });
 });
 
+describe('a raw status close refreshes the revision like approve', () => {
+  it('refuses (409) a raw in_review → done/delivering move once the refresh sees a newer push', async () => {
+    let reads = 0;
+    const { core, app } = boardWith(() => { reads++; return { headSha: B, error: null }; });
+    const { key } = submitted(core, A);
+    for (const status of ['done', 'delivering']) {
+      const res = await post(app, `/api/tasks/${key}/status`, { status });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { message: string }).message).toMatch(/changed since/);
+    }
+    expect(reads).toBeGreaterThan(0);
+    expect(core.getTask(key)).toMatchObject({ status: 'in_review', submission: { freshness: 'stale' } });
+  });
+
+  it('closes a current implementation and audits an unreachable origin as unknown freshness', async () => {
+    const { core, app } = boardWith(() => ({ headSha: null, error: 'origin unreachable' }));
+    const { key } = submitted(core, A);
+    const res = await post(app, `/api/tasks/${key}/status`, { status: 'done' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; activity: Array<{ type: string; body: string }> };
+    expect(body.status).toBe('done');
+    expect(body.activity.some((a) => a.type === 'comment' && /unknown revision freshness/.test(a.body) && a.body.includes('origin unreachable'))).toBe(true);
+  });
+
+  it('does not touch git for status moves that do not close a review', async () => {
+    let reads = 0;
+    const { core, app } = boardWith(() => { reads++; return { headSha: A, error: null }; });
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' });
+    expect((await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' })).status).toBe(200);
+    expect(reads).toBe(0);
+  });
+});
+
 describe('diff of the submitted revision', () => {
   let repo: string | undefined;
   afterEach(() => { if (repo) cleanupRepo(repo); repo = undefined; });
