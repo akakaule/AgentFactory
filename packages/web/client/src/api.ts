@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
@@ -114,6 +114,9 @@ export const api = {
   getAgentModels: () => req<AgentModelsView>('/api/agent-models'),
   // always the WHOLE document (global + every workspace's overrides): a save replaces it
   setAgentModels: (doc: AgentModels) => req<AgentModelsView>('/api/agent-models', { method: 'PUT', body: JSON.stringify(doc) }),
+  getModelPrices: () => req<{ prices: ModelPrices }>('/api/model-prices'),
+  // the WHOLE table: a save replaces it
+  setModelPrices: (prices: ModelPrices) => req<{ prices: ModelPrices }>('/api/model-prices', { method: 'PUT', body: JSON.stringify(prices) }),
   updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),

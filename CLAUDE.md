@@ -65,6 +65,11 @@ override → board global → config file → CLI default. A board-set stage dro
 charset-restricted because argv can pass through cmd.exe. Supervisors report their file defaults to
 `agent_model_defaults` so the UI can show them.
 
+Model prices (`model_prices`, `core/src/modelPrices.ts`, Agents › Prices, human-only `PUT /api/model-prices`)
+are USD per 1M input/cached/output tokens. The OTLP receiver (`web/server/routes/otel.ts`) prices an event
+that arrives without a cost (Codex) on ingest, for the live feed and `task_metric`; Claude's own `cost_usd`
+always wins, and nothing is re-priced retroactively. Nothing stored reads as the built-in defaults.
+
 ### Lifecycle is the core invariant
 
 **Default flow:** intent → **spec** (the `description` stage writes spec + acceptance criteria; a clean AI review auto-advances it) → **implementation** (worker pushes before review) → human approves the implementation review → **watcher opens the PR** → PR merged ⇒ `done`. REST/MCP `create_task` default code tasks to the spec stage (pr-review tasks stay implementation-only; core's own `createTask` default is still implementation). `plan` is a **legacy** stage: it still runs and advances to implementation via `NEXT_STAGE` (`src/types.ts`), but nothing routes new tasks there.

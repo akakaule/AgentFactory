@@ -27,6 +27,7 @@ export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef 
 export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { EFFORTS, MODEL_CATALOG, MODEL_ID_PATTERN, MAX_REVIEWERS, emptyAgentModels, normalizeAgentModels, resolveAgentModel, resolveReviewers, modelProfileArgs, profileFromArgs, type Effort, type ModelCatalogEntry, type ModelProfile, type AgentModelStages, type AgentModelLayer, type WorkspaceModelLayer, type AgentModels, type AgentModelRole, type ReportedProfile, type ReportedRoles, type AgentModelDefaultsReport, type AgentModelDefaults } from './agentModels.js';
+export { DEFAULT_MODEL_PRICES, priceUsage, type ModelPrice, type ModelPrices } from './modelPrices.js';
 export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
@@ -132,6 +133,7 @@ import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { getAgentModels, setAgentModels, getAgentModelDefaults, reportAgentModelDefaults } from './agentModels.js';
+import { getModelPrices, setModelPrices } from './modelPrices.js';
 import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput, FailureTriageFeedbackInput } from './types.js';
@@ -224,6 +226,9 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     /** Supervisors' config-file model defaults, reported so the board can show them. */
     getAgentModelDefaults: () => getAgentModelDefaults(db),
     reportAgentModelDefaults: (report: unknown) => { reportAgentModelDefaults(db, report); },
+    /** Board-editable USD-per-1M-token prices; the OTLP receiver prices Codex usage with them. */
+    getModelPrices: () => getModelPrices(db),
+    setModelPrices: (prices: unknown) => setModelPrices(db, prices),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
     addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
