@@ -404,6 +404,10 @@ recorded (below) because override frequency is a primary success metric.
 
 ### Stage 4 (enforced, later, separately approved) — gate the claim
 
+> **2026-10-23:** the *pending* branch below (no current assessment ⇒ held ≤ `maxHoldMinutes`,
+> then fail open) shipped on its own for queued implementation work. See
+> `2026-10-23-intake-pending-hold-design.md`. Holding on `attention_required` is still unapproved.
+
 ```text
 queued task
    │

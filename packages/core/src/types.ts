@@ -334,6 +334,7 @@ export interface Task {
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
+  intakeHold?: { until: string } | null; // derived: queued implementation work waiting (≤ maxHoldMinutes) for its revision's intake assessment; unclaimable meanwhile
   failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
   createdAt: string; updatedAt: string;
 }

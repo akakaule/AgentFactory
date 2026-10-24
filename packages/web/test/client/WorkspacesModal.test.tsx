@@ -8,6 +8,8 @@ vi.mock('../../client/src/api.js', () => ({
   api: {
     updateWorkspace: vi.fn().mockResolvedValue({}),
     createWorkspace: vi.fn().mockResolvedValue({}),
+    getAgentModels: vi.fn().mockResolvedValue({ settings: { global: {}, workspaces: {} }, defaults: {}, catalog: [] }),
+    setAgentModels: vi.fn(),
   },
 }));
 import { api } from '../../client/src/api.js';

@@ -46,6 +46,7 @@ export type HttpCore = Pick<
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
+  | 'getAgentModels' | 'reportAgentModelDefaults'
   | 'beginDelivery' | 'recordDeliveryCheck' | 'recordDeliveryCheckFailure' | 'completeDelivery' | 'failDelivery'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
   | 'recordIntakeAssessment' | 'beginIntakeAssessment' | 'intakeRuntimeSettings'
@@ -161,6 +162,8 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
       ((await req('GET', `/api/agent/prompts/${enc(key)}?workspace=${enc(workspace)}`)) as { prompt: string }).prompt,
     resolveGitAuth: async (workspace) => (await req('GET', `/api/agent/workspaces/${enc(workspace)}/git-auth`)) as never,
     getEngineSettings: async () => (await req('GET', '/api/agent/engines')) as never,
+    getAgentModels: async () => (await req('GET', '/api/agent/agent-models')) as never,
+    reportAgentModelDefaults: async (report) => { await req('POST', '/api/agent/agent-models/defaults', report); },
     getWorkspacePat: async (workspace) =>
       ((await req('GET', `/api/agent/workspaces/${enc(workspace)}/pat`)) as { pat: string | null }).pat,
 

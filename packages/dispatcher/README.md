@@ -76,6 +76,23 @@ Unspecified stages use Claude. Stage args belong to the selected CLI: Codex neve
 receives `claudeArgs`. Unknown configuration keys now fail startup. Agent Prompts
 in the UI configure instructions, not model/engine selection.
 
+### Setting models from the board
+
+The **Agents** modal's *Models* tab sets the engine, model and reasoning effort for each
+stage on the board (stored in `app_kv` `agent_models`, `GET|PUT /api/agent-models`), and
+a workspace can override any stage in *Workspaces › Edit › Agent models*. The dispatcher
+reads the settings every tick. For each task it takes the workspace override, then the
+board's global setting, then this config file:
+
+- when the board sets a stage, the session runs `<engine global args> + <profile flags>`
+  (`--model`/`--effort` for Claude, `-m`/`-c model_reasoning_effort=…` for Codex). The
+  stage's `stageArgs` are **not** passed, because they hold the model the board now owns;
+- when the board sets nothing, the session runs exactly as this file describes.
+
+At startup the dispatcher reports what this file sets per stage
+(`POST /api/agent/agent-models/defaults`), so the Models tab can show it next to a stage
+the board leaves unset.
+
 ### Disabling an engine from the board
 
 The **Agents** modal has an *Engines* row with a *Claude enabled* / *Codex enabled*

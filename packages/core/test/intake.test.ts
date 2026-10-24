@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createCore, evaluateIntakePolicy, intakeRevision, isIntakeMarker, parseIntakeComment, type IntakeAssessmentV1 } from '../src/index.js';
 import { makeTestDb } from './helpers.js';
+import { claimNextTask } from '../src/ops/claimNextTask.js';
 
 function assessed(key: string, revision: string, stage: 'description' | 'plan' | 'implementation' = 'implementation', attemptId: string | null = null): IntakeAssessmentV1 {
   const parts = stage === 'description' ? { outcomeClear: 0.4, scopeBounded: 0.8 } : { outcomeClear: 0.4, scopeBounded: 0.8, verifiable: 0.7 };
@@ -37,13 +38,15 @@ describe('task intake core contract', () => {
   });
 
   it('excludes stale assessments from claim coverage', () => {
-    const core = createCore(makeTestDb());
+    const db = makeTestDb();
+    const core = createCore(db);
     core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'] });
     const task = core.createTask({ title: 'one', spec: 's', acceptanceCriteria: 'a' });
     core.recordIntakeAssessment(task.key, assessed(task.key, intakeRevision(core.getTask(task.key))));
     core.updateTask(task.key, { title: 'edited' });
     core.updateStatus(task.key, 'queued', 'human');
-    core.claimNextTask();
+    // a stale revision is held for maxHoldMinutes (intake pending hold); claim once it fails open
+    claimNextTask(db, {}, () => new Date(Date.now() + 11 * 60_000).toISOString());
     expect(core.analyticsRows().intake.coverage).toEqual({ numerator: 0, denominator: 1 });
   });
   it('hashes only material normalized content and preserves null versus empty plan', () => {

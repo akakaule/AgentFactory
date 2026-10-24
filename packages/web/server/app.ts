@@ -6,6 +6,7 @@ import { agentOpsRoutes } from './routes/agentOps.js';
 import { workspaceRoutes } from './routes/workspaces.js';
 import { agentPromptRoutes } from './routes/agentPrompts.js';
 import { engineRoutes } from './routes/engines.js';
+import { agentModelRoutes } from './routes/agentModels.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { agentRoutes } from './routes/agents.js';
@@ -46,6 +47,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/api/workspaces', workspaceRoutes(core, { resolveOrigin: opts.resolveOrigin }));
   app.route('/api/agent-prompts', agentPromptRoutes(core));
   app.route('/api/engines', engineRoutes(core));
+  app.route('/api/agent-models', agentModelRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
   app.route('/api/attachments', attachmentRoutes(core));
   app.route('/api/agents', agentRoutes(core));

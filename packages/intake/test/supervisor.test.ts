@@ -116,6 +116,22 @@ describe('intake supervisor', () => {
     expect(attempts.every((a) => a.state === 'succeeded')).toBe(true);
   });
 
+  it('assesses a held task (spec written, waiting to be built) without waiting out settleSeconds, and releases it', async () => {
+    const { core, config } = setup();
+    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'], settleSeconds: 3600 });
+    const t = core.createTask({ title: 'feature', spec: 'intent', stage: 'description' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'writer' });
+    core.submitResult(t.key, { summary: 'spec', spec: 'the written spec', acceptanceCriteria: 'AC1' });
+    core.addComment(t.key, { actor: 'agent', body: 'ai-review/v1 - clean (codex)\nok\n```json\n{"reviewer":"codex","verdict":"clean","findings":[]}\n```' });
+    expect(core.getTask(t.key).intakeHold).not.toBeNull();
+    const provider = new FixtureTaskIntakeDecisionProvider();
+    const assess = vi.spyOn(provider, 'assess');
+    await new IntakeSupervisor(config, { core, provider }).tick();
+    expect(assess).toHaveBeenCalledTimes(1); // the held task only: the settling backlog task waits
+    expect(core.getTask(t.key)).toMatchObject({ intakeHold: null, intake: { state: 'current' } });
+  });
+
   it('accepts default-off configuration without a provider for safe startup checks', () => {
     expect(parseConfig({ db: ':memory:' }).provider).toBeUndefined();
   });

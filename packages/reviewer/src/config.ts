@@ -13,9 +13,9 @@ export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 const reviewerProfileSchema = z.object({
   engine: z.enum(REVIEW_ENGINES),
   model: z.string().min(1).optional(),
+  /** codex: `-c model_reasoning_effort=…`; claude: `--effort …`. Omitted = the CLI's own default. */
   reasoningEffort: reasoningEffortSchema.optional(),
-}).strict().refine((p) => p.engine === 'codex' || p.reasoningEffort === undefined,
-  'reasoningEffort is only supported for codex');
+}).strict();
 export type ReviewerProfile = z.infer<typeof reviewerProfileSchema>;
 
 /**

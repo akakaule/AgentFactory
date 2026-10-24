@@ -51,7 +51,9 @@ function extract(rec: LogRecord): TokenHit | null {
   const a = rec.attributes;
   const name = eventNameOf(rec);
 
-  if (name === 'claude_code.api_request') {
+  // Claude Code 2.x sets `event.name` to the UNPREFIXED "api_request" and keeps the prefixed
+  // name in `body` — so `eventNameOf` alone (attribute first, for codex) would miss it.
+  if (name === 'claude_code.api_request' || asStr(rec.body) === 'claude_code.api_request') {
     const input = asNum(attrOf(a, 'input_tokens')) ?? 0;
     const output = asNum(attrOf(a, 'output_tokens')) ?? 0;
     const cacheRead = asNum(attrOf(a, 'cache_read_tokens')) ?? 0;

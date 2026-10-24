@@ -1,6 +1,6 @@
 import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS } from '@agentfactory/core';
-import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings } from '@agentfactory/core';
-import { resolveEngine, defaultEngineSettings } from '@agentfactory/core';
+import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings, AgentModels, ModelProfile, ReportedRoles } from '@agentfactory/core';
+import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, modelProfileArgs, profileFromArgs } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
 import type { DispatcherDeps, SpawnedChild, LogWriter, RetryReservationLike, ExecutionLike } from './types.js';
 import { buildWorkerPrompt, buildMcpConfig, buildSpawnArgs } from './claude.js';
@@ -66,8 +66,13 @@ export class Dispatcher {
   private readonly skipped = new Map<string, number>(); // task key → when it was observed at the persisted cap (ms)
 
   private engineSettings: EngineSettings = defaultEngineSettings();
+  /** Board per-role model settings, read once per tick (empty = the config file decides). */
+  private agentModels: AgentModels = emptyAgentModels();
+  private reportedDefaults = false;
 
   private warnedNoEngine = false;
+  /** Held task keys already logged, so the wait is reported once rather than every tick. */
+  private readonly warnedIntakeHold = new Set<string>();
   /** In-flight async reaps kicked off by child exit/error events. The next tick awaits them
    *  first, so reap ordering stays deterministic (and tests see settled state after a tick). */
   private readonly settling = new Set<Promise<void>>();
@@ -142,6 +147,8 @@ export class Dispatcher {
     await this.cancelCompletedSessions();
     await Promise.all([...this.settling]);
     await this.refreshEngineSettings();
+    await this.refreshAgentModels();
+    await this.reportModelDefaults();
     await this.reconcileAbandonedReservations();
     await this.drainPendingReleases();
     await this.enforceTimeouts();
@@ -165,11 +172,44 @@ export class Dispatcher {
     }
   }
 
-  /** The engine a stage runs on right now: configured → other enabled engine → null (nothing may run). */
-  private engineFor(stage: Stage): { engine: WorkerEngine; configured: WorkerEngine } | null {
-    const configured = this.config.stageEngines?.[stage] ?? 'claude';
+  /** Board model settings, read once per tick. A failed read keeps the previous tick's answer. */
+  private async refreshAgentModels(): Promise<void> {
+    if (!this.deps.core.getAgentModels) return;
+    try {
+      this.agentModels = await this.deps.core.getAgentModels();
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not read agent model settings; keeping previous: ${(err as Error).message}`);
+    }
+  }
+
+  /** Tell the board what this config file sets per stage (shown next to unset roles). Sent on the
+   *  first tick that reaches the board; best-effort and informational. */
+  private async reportModelDefaults(): Promise<void> {
+    if (this.reportedDefaults || !this.deps.core.reportAgentModelDefaults) return;
+    const stages: NonNullable<ReportedRoles['stages']> = {};
+    for (const stage of ['description', 'plan', 'implementation'] as const) {
+      const engine = this.config.stageEngines?.[stage] ?? 'claude';
+      const globalArgs = engine === 'codex' ? (this.config.codexArgs ?? []) : this.config.claudeArgs;
+      stages[stage] = profileFromArgs(engine, globalArgs, this.config.stageArgs?.[stage] ?? []);
+    }
+    try {
+      await this.deps.core.reportAgentModelDefaults({ supervisor: this.config.name || 'dispatcher', kind: 'dispatcher', roles: { stages } });
+      this.reportedDefaults = true;
+    } catch (err) {
+      this.console.warn(`[dispatcher] could not report model defaults: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * The engine a stage runs on right now for this workspace: the board profile's engine (workspace
+   * override → board global) or else the config file's, then the enable switches — configured →
+   * other enabled engine → null (nothing may run). `profile` is set when the board decides.
+   */
+  private engineFor(stage: Stage, workspace: string): { engine: WorkerEngine; configured: WorkerEngine; profile: ModelProfile | null } | null {
+    const profile = resolveAgentModel(this.agentModels, stage, workspace);
+    const configured = profile?.engine ?? this.config.stageEngines?.[stage] ?? 'claude';
     const engine = resolveEngine(configured, this.engineSettings);
-    return engine ? { engine, configured } : null;
+    return engine ? { engine, configured, profile } : null;
   }
 
   private async reconcileAbandonedReservations(): Promise<void> {
@@ -501,9 +541,17 @@ export class Dispatcher {
         }
       }
       if (task.unmetDependencyCount > 0) continue;
+      if (task.intakeHold) {
+        // Intake pending hold: claims are refused until the current revision is assessed (bounded
+        // by maxHoldMinutes) — spawning would only produce a worker that claims nothing.
+        if (!this.warnedIntakeHold.has(task.key)) this.console.log(`[dispatcher] ${task.key}: waiting for its intake assessment (at most until ${task.intakeHold.until})`);
+        this.warnedIntakeHold.add(task.key);
+        continue;
+      }
+      this.warnedIntakeHold.delete(task.key);
       if (this.skipped.has(task.key)) continue;
       if (this.hasRunningFor(task.key)) continue; // already spawned this cycle / not yet claimed
-      if (!this.engineFor(task.stage)) {
+      if (!this.engineFor(task.stage, workspace)) {
         // Every engine is switched off on the board: leave the task queued and untouched (no
         // attempt burned) until an operator re-enables one.
         if (!this.warnedNoEngine) this.console.warn('[dispatcher] all agent engines are disabled on the board; leaving queued tasks untouched');
@@ -612,12 +660,14 @@ export class Dispatcher {
     // Keep the established worker label stable for claim reconciliation and activity analytics.
     // The execution fence and the per-run file suffix provide uniqueness without changing the
     // label contract consumed by existing workers.
-    const choice = this.engineFor(stage);
+    const choice = this.engineFor(stage, workspace);
     if (!choice) return false; // toggled off between the poll and the spawn
-    const { engine, configured } = choice;
-    // stageArgs tier the model for the CONFIGURED engine (e.g. a Codex --model); they would be
-    // gibberish to the fallback engine, which therefore runs on its global args only.
-    const stageArgs = engine === configured ? (this.config.stageArgs?.[stage] ?? []) : [];
+    const { engine, configured, profile } = choice;
+    // The model/effort args for the CONFIGURED engine: the board profile's flags when the board sets
+    // this stage (the file's stageArgs then stay out — they express the model the board now owns,
+    // and both would send two --model flags), else the file's stageArgs. Either would be gibberish
+    // to the fallback engine, which therefore runs on its global args only.
+    const stageArgs = engine !== configured ? [] : profile ? modelProfileArgs(profile) : (this.config.stageArgs?.[stage] ?? []);
     if (engine !== configured) this.console.log(`[dispatcher] ${key}: ${configured} is disabled on the board; falling back to ${engine} for ${stage}`);
     const codexCommand = engine === 'codex' ? this.deps.resolveCodex() : null;
     const label = `${workspace}#${key}-a${attempt}`;

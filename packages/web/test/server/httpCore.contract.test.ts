@@ -133,6 +133,17 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect(released.status).toBe('queued');
   });
 
+  it('agent model settings: read the board document and report file defaults', async () => {
+    core.createWorkspace({ name: 'kl-dis', repoPath: '/r' });
+    const doc = { global: { stages: { description: { engine: 'claude' as const, model: 'claude-opus-5-5', effort: 'high' as const } } },
+      workspaces: { 'kl-dis': { reviewers: [{ engine: 'codex' as const, model: 'gpt-6.1-sol' }] } } };
+    core.setAgentModels(doc);
+    expect(await http.getAgentModels()).toEqual(core.getAgentModels());
+    await http.reportAgentModelDefaults({ supervisor: 'remote-dispatcher', kind: 'dispatcher', roles: { stages: { implementation: { engine: 'claude', model: 'claude-opus-5-5' } } } });
+    expect(core.getAgentModelDefaults()['remote-dispatcher']?.roles.stages?.implementation?.model).toBe('claude-opus-5-5');
+    await expect(http.reportAgentModelDefaults({ supervisor: '', kind: 'dispatcher', roles: {} })).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it('importTask: idempotent create + queue over HTTP, attributed to the human-configured import', async () => {
     core.createWorkspace({ name: 'dis', repoPath: '/repo' });
     const input = {
