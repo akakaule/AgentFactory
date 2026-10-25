@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { featureBranch } from '@agentfactory/core';
+import { featureBranch, intakeRevision } from '@agentfactory/core';
 import { makeClient, textOf } from './harness.js';
 
 // Helper to create a task with non-empty required fields
@@ -110,6 +110,29 @@ describe('get_next_task', () => {
 // get_next_task — claim-time protocol payload
 // ---------------------------------------------------------------------------
 describe('claim protocol payload', () => {
+  it('a placeholder-criteria implementation task gets defineCriteria instead of a claim on the placeholder', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ title: 'Fix typo', spec: 'teh → the', stage: 'description' });
+    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'], skipSpec: true });
+    core.updateStatus(t.key, 'queued', 'human');
+    // what Task Intelligence's skip leaves behind: implementation stage, placeholder criteria
+    core.recordIntakeAssessment(t.key, {
+      schema: 'intake/v1', status: 'assessed', taskKey: t.key, sourceRevision: intakeRevision(core.getTask(t.key)), attemptId: null, stage: 'description',
+      questionSet: 'intake-questions/v1', provider: { name: 'fixture', model: 'fixture-v1' }, usage: { inputTokens: null, outputTokens: null },
+      assessedAt: '2026-10-25T00:00:00.000Z', latencyMs: 1,
+      decisions: {
+        readiness: { probability: 0.95, parts: { outcomeClear: 0.95, scopeBounded: 0.95 } },
+        complexity: { value: 'trivial', probabilities: { trivial: 0.8, small: 0.15, medium: 0.03, large: 0.01, architectural: 0.01 }, confidence: null },
+        risk: { value: 'low', probabilities: { low: 0.9, medium: 0.08, high: 0.01, critical: 0.01 }, confidence: null },
+      },
+    });
+    expect(core.getTask(t.key).stage).toBe('implementation');
+
+    const payload = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(payload.protocol.setup.join('\n')).toMatch(/skipped the spec stage/);
+    expect(payload.protocol.finish.at(-1)).not.toMatch(/Ids: AC1/);
+  });
+
   it('first claim returns a protocol block with the server-named branch and create-form setup', async () => {
     const { client, core } = await makeClient();
     const t = core.createTask(makeTaskInput('Barcode scanner intake form'));
@@ -125,7 +148,7 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(8);
+    expect(payload.protocol.version).toBe(9);
     expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));

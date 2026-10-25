@@ -134,6 +134,12 @@ input, textarea, select { font-family: inherit; font-size: 0.875rem; }
 .af-intake-switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
 .af-intake-switch[aria-checked="true"]::after { transform: translateX(16px); background: #fff; }
 .af-intake-switch:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.af-intake-simple { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 0 0 16px; font-size: 12.5px; }
+.af-intake-simple .lbl { font-size: 12.5px; }
+.af-intake-simple .af-dt-seg { margin-bottom: 0; }
+.af-intake-simple label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.af-intake-modal .af-intake-simple select, .af-intake-modal .af-intake-simple input { width: auto; height: 30px; padding: 0 8px; font-size: 12.5px; }
+.af-intake-modal .af-intake-simple input { width: 64px; }
 .af-intake-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--line); }
 .af-intake-foot .sp { flex: 1; }
 .af-intake-foot .af-mini { height: 34px; }

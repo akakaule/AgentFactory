@@ -59,7 +59,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(8);
+    expect(p.version).toBe(9);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -73,7 +73,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(8);
+    expect(p.version).toBe(9);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -95,10 +95,32 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(8);
+    expect(p.version).toBe(9);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
+  });
+
+  it('v9: a task whose spec stage was skipped asks the worker to write and submit acceptance criteria', () => {
+    const p = buildProtocol({
+      stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-7',
+      branch: 'feature/AF-7-typo', branchCreated: true, defineCriteria: true,
+    });
+    expect(p.setup.join('\n')).toMatch(/skipped the spec stage/);
+    expect(p.setup.join('\n')).toMatch(/2–5 acceptance criteria/);
+    const submit = p.finish.at(-1)!;
+    expect(submit).toMatch(/`acceptanceCriteria`/);
+    expect(submit).toMatch(/`criteria`: one `\{ id, claim \}` per criterion you wrote/);
+  });
+
+  it('a task with real criteria is not asked to write them', () => {
+    const p = buildProtocol({
+      stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-8',
+      branch: 'feature/AF-8-x', branchCreated: true, criteria: [{ id: 'AC1', name: 'Race' }],
+    });
+    expect(p.setup.join('\n')).not.toMatch(/skipped the spec stage/);
+    expect(p.finish.at(-1)!).not.toMatch(/`acceptanceCriteria`/);
+    expect(p.finish.at(-1)!).toMatch(/Ids: AC1 Race/);
   });
 
   it('implementation finish runs the workspace verify command before push and worktree removal', () => {

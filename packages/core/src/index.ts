@@ -1,7 +1,7 @@
 export { openDb, type DB } from './db.js';
 export { runMigrations } from './migrate.js';
 export * from './types.js';
-export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
+export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, skipSpecDecision, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
 export { defaultIntakeSettings, normalizeIntakeSettings, parseIntakeSettingsUpdate, intakeEnabledFor, INTAKE_SETTINGS_KEY } from './intakeSettings.js';
 export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, consensusFindingSchema, criterionIdsSchema, VOTE_REASON_MAX, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
@@ -19,7 +19,7 @@ export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecut
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, type ParsedAiReview } from './aiReview.js';
-export { parseAcceptanceCriteria, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
+export { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
 export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';

@@ -248,6 +248,8 @@ export interface IntakeSettings {
   settleSeconds: number; maxPerTick: number; maxAttempts: number;
   readinessNeedsAttention: boolean; readinessThreshold: number;
   architecturalNeedsAttention: boolean; riskAttentionLevel: Risk | null; maxHoldMinutes: number;
+  /** Skip the spec stage for a queued spec-stage task assessed at or under these thresholds. */
+  skipSpec: boolean; skipSpecMaxComplexity: 'trivial' | 'small'; skipSpecMaxRisk: Risk; skipSpecMinReadiness: number;
 }
 export interface TaskIntakeState {
   key: string; title: string; spec: string; acceptanceCriteria: string; stage: Stage; plan: string | null;

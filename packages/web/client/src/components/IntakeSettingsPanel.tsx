@@ -27,7 +27,9 @@ export function IntakeSettingsPanel({ workspaces, onSaved, onClose }: { workspac
 
   const off = settings.mode === 'off';
   const dirty = settings.mode !== saved.mode || settings.sendWorkspacePolicy !== saved.sendWorkspacePolicy
-    || !sameSet(settings.workspaces, saved.workspaces);
+    || !sameSet(settings.workspaces, saved.workspaces)
+    || settings.skipSpec !== saved.skipSpec || settings.skipSpecMaxComplexity !== saved.skipSpecMaxComplexity
+    || settings.skipSpecMaxRisk !== saved.skipSpecMaxRisk || settings.skipSpecMinReadiness !== saved.skipSpecMinReadiness;
   const query = filter.trim().toLowerCase();
   const shown = ordered.filter((name) => name.toLowerCase().includes(query));
   const setMode = (mode: IntakeSettings['mode']) => setSettings({ ...settings, mode });
@@ -39,7 +41,7 @@ export function IntakeSettingsPanel({ workspaces, onSaved, onClose }: { workspac
         <div className="af-intake-mhead">
           <div>
             <h3>Task Intelligence</h3>
-            <p>Scores each task's readiness, complexity and risk before an agent claims it. Advisory only — it never blocks work.</p>
+            <p>Scores each task's readiness, complexity and risk before an agent claims it. Its verdicts never block work; optionally it skips the spec for simple tasks.</p>
           </div>
           <button className="af-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
@@ -102,6 +104,46 @@ export function IntakeSettingsPanel({ workspaces, onSaved, onClose }: { workspac
               onClick={() => setSettings({ ...settings, sendWorkspacePolicy: !settings.sendWorkspacePolicy })}
             />
           </div>
+
+          <div className={'af-intake-row' + (off ? ' dim' : '')}>
+            <div className="txt">
+              <div className="lbl">Skip spec for simple tasks</div>
+              <p className="af-intake-help">A queued task assessed as simple goes straight to implementation, and the worker writes its acceptance criteria. Spec-stage tasks wait for the assessment (up to {settings.maxHoldMinutes} min) before a worker starts.</p>
+            </div>
+            <button
+              className="af-intake-switch"
+              role="switch"
+              aria-checked={settings.skipSpec}
+              aria-label="Skip spec for simple tasks"
+              onClick={() => setSettings({ ...settings, skipSpec: !settings.skipSpec })}
+            />
+          </div>
+          {settings.skipSpec && (
+            <div className={'af-intake-simple' + (off ? ' dim' : '')} role="group" aria-label="Simple means at most">
+              <span className="lbl">Simple means</span>
+              <div className="af-dt-seg" role="group" aria-label="Highest complexity">
+                <button aria-pressed={settings.skipSpecMaxComplexity === 'trivial'} onClick={() => setSettings({ ...settings, skipSpecMaxComplexity: 'trivial' })}>Trivial</button>
+                <button aria-pressed={settings.skipSpecMaxComplexity === 'small'} onClick={() => setSettings({ ...settings, skipSpecMaxComplexity: 'small' })}>Up to small</button>
+              </div>
+              <label>
+                risk at most
+                <select aria-label="Highest risk" value={settings.skipSpecMaxRisk} onChange={(e) => setSettings({ ...settings, skipSpecMaxRisk: e.target.value as IntakeSettings['skipSpecMaxRisk'] })}>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </label>
+              <label>
+                ready at least
+                <input
+                  type="number" min={0} max={100} step={5} aria-label="Minimum readiness %"
+                  value={Math.round(settings.skipSpecMinReadiness * 100)}
+                  onChange={(e) => setSettings({ ...settings, skipSpecMinReadiness: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 })}
+                />
+                %
+              </label>
+            </div>
+          )}
         </div>
 
         <div className="af-intake-foot">

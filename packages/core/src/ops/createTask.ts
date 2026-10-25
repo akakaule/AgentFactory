@@ -9,6 +9,7 @@ import { findByKey } from '../repo/tasks.js';
 import { insertLinks } from '../repo/links.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { nowIso } from '../time.js';
+import { PLACEHOLDER_ACCEPTANCE_CRITERIA } from '../acceptanceCriteria.js';
 
 export function createTask(db: DB, input: CreateTaskInput, now: () => string = nowIso): Task {
   return transaction(db, () => createTaskWithinTransaction(db, input, now));
@@ -24,7 +25,7 @@ export function createTaskWithinTransaction(db: DB, input: CreateTaskInput, now:
       `INSERT INTO task(key,title,spec,acceptance_criteria,status,stage,kind,result_summary,seq,workspace_id,created_at,updated_at)
        VALUES ('',?,?,?,'backlog',?,?,NULL,0,?,?,?)`
       // AC may only be omitted at the description stage (validated) — that stage writes them
-    ).run(title, spec, acceptanceCriteria ?? 'To be defined by the description stage.', stage ?? 'implementation', kind ?? 'code', ws.id, ts, ts);
+    ).run(title, spec, acceptanceCriteria ?? PLACEHOLDER_ACCEPTANCE_CRITERIA, stage ?? 'implementation', kind ?? 'code', ws.id, ts, ts);
     const id = Number(info.lastInsertRowid);
     const key = assignKeyAndSeq(db, id);
     // a PR-review task arrives with its head-branch link (the reviewer/diff route read it) + an optional pr link

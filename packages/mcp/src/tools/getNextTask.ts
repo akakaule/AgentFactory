@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseAcceptanceCriteria } from '@agentfactory/core';
+import { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA } from '@agentfactory/core';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpCore } from '../types.js';
 import { localizeRepo, taskGitEnabled, type ServerOptions } from '../server.js';
@@ -62,7 +62,9 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
             managedGit: taskGitEnabled(opts),
             ...(base ? { base } : {}),
             ...(task.verifyCommand ? { verifyCommand: task.verifyCommand } : {}),
-            criteria: parseAcceptanceCriteria(task.acceptanceCriteria).items.map(({ id, name }) => ({ id, name })),
+            ...(task.acceptanceCriteria === PLACEHOLDER_ACCEPTANCE_CRITERIA
+              ? { defineCriteria: true } // spec stage skipped: never ask for a claim on the placeholder
+              : { criteria: parseAcceptanceCriteria(task.acceptanceCriteria).items.map(({ id, name }) => ({ id, name })) }),
           });
         }
         return { content: await detailContent(core, task, protocol ? { protocol } : undefined) };

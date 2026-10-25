@@ -12,16 +12,18 @@ import { reconcileMergedDelivery } from './delivery.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { assertExecutionOwnership, executionById, isLatestOfPhase, settleExecution } from '../repo/execution.js';
-import { parseAcceptanceCriteria } from '../acceptanceCriteria.js';
+import { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA } from '../acceptanceCriteria.js';
 import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
  * stage a rewritten spec + acceptance criteria, the plan stage the implementation
  * plan, the implementation stage the code (summary + links). The error text is the
- * agent's only feedback over MCP — it names the stage and the expected fields.
+ * agent's only feedback over MCP — it names the stage and the expected fields. An implementation
+ * task whose spec stage was skipped still has the placeholder criteria: only then does its submit
+ * carry the acceptanceCriteria the worker wrote.
  */
-function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCriteria: string | undefined, plan: string | undefined, verification: string | undefined, criteria: CriterionClaim[] | undefined): void {
+function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCriteria: string | undefined, plan: string | undefined, verification: string | undefined, criteria: CriterionClaim[] | undefined, currentCriteria: string): void {
   switch (stage) {
     case 'description':
       if (spec === undefined || acceptanceCriteria === undefined || plan !== undefined || verification !== undefined || criteria !== undefined)
@@ -32,8 +34,10 @@ function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCrit
         throw new ValidationError('plan stage submit delivers the implementation plan: pass { summary, plan }; spec/acceptanceCriteria/verification/criteria are not accepted');
       return;
     case 'implementation':
-      if (spec !== undefined || acceptanceCriteria !== undefined || plan !== undefined)
-        throw new ValidationError('implementation stage submit delivers code: pass { summary, links, verification, criteria }; spec/acceptanceCriteria/plan are not accepted');
+      if (spec !== undefined || plan !== undefined)
+        throw new ValidationError('implementation stage submit delivers code: pass { summary, links, verification, criteria }; spec/plan are not accepted');
+      if (acceptanceCriteria !== undefined && currentCriteria !== PLACEHOLDER_ACCEPTANCE_CRITERIA)
+        throw new ValidationError('this task already has acceptance criteria: acceptanceCriteria is only accepted when the spec stage was skipped');
       return;
   }
 }
@@ -61,8 +65,8 @@ export function submitResult(
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
-    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria);
-    if (criteria) assertCriterionIds(row.acceptance_criteria, criteria);
+    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria, row.acceptance_criteria);
+    if (criteria) assertCriterionIds(acceptanceCriteria ?? row.acceptance_criteria, criteria);
 
     // A response can be lost after the transaction commits. A retry of that same successful
     // execution is an acknowledgement, not a second result — also once the reviewer has reserved
@@ -103,6 +107,7 @@ export function submitResult(
       applyEdit(db, row.id, { spec: spec!, acceptanceCriteria: acceptanceCriteria! }, ts);
     }
     else if (row.stage === 'plan') setPlan(db, row.id, plan!, ts);
+    else if (acceptanceCriteria !== undefined) applyEdit(db, row.id, { acceptanceCriteria }, ts); // spec stage skipped: the worker wrote them
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);
     endSession(db, row.id, ts); // the agent finished — drop it from the live view
