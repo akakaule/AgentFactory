@@ -7,7 +7,7 @@ import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATIO
  * data-driven — the new table's DDL is the table's OWN sqlite_master sql with only the CHECK list
  * replaced, and the copy uses the live column list from table_info — so columns this repo's history
  * doesn't know about (a diverged DB, e.g. the task-priority branch's `priority`) survive intact.
- * Idempotent: a no-op when the stored DDL already contains `newList`; fails loudly when it contains
+ * Idempotent: a no-op when the stored DDL already contains `newList` (or a list extending it); fails loudly when it contains
  * neither list (an unexpected shape must never be "fixed" by guesswork). Secondary indexes are
  * captured and replayed (DROP TABLE takes them with it); UNIQUE/PK auto-indexes recreate themselves.
  * MUST run with foreign_keys=OFF (see the fkOff migration mode below): with FK enforcement on,
@@ -17,7 +17,9 @@ import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATIO
 export function widenCheck(db: DB, table: string, oldList: string, newList: string): void {
   const master = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?").get(table) as { sql: string } | undefined;
   if (!master) throw new Error(`widenCheck: table not found: ${table}`);
-  if (master.sql.includes(newList)) return; // already widened (re-slotted/diverged DB) — no-op
+  // already widened (re-slotted/diverged DB), or widened further by a later migration that appended
+  // to this list (#29 extends #18's) — no-op
+  if (master.sql.includes(newList) || master.sql.includes(`${newList.slice(0, -1)},`)) return;
   if (!master.sql.includes(oldList)) throw new Error(`widenCheck: ${table} DDL contains neither the expected old nor new CHECK list`);
   const tmp = `${table}_new`;
   const createTmp = master.sql
@@ -36,6 +38,7 @@ export function widenCheck(db: DB, table: string, oldList: string, newList: stri
 
 const STATUS_LIST_17 = `('backlog','queued','in_progress','in_review','done','blocked')`;
 const STATUS_LIST_18 = `('backlog','queued','in_progress','in_review','delivering','done','blocked')`;
+const STATUS_LIST_29 = `('backlog','queued','in_progress','in_review','delivering','done','blocked','cancelled')`;
 const SUPERVISOR_KIND_LIST_17 = `('dispatcher','reviewer')`;
 const SUPERVISOR_KIND_LIST_18 = `('dispatcher','reviewer','watcher')`;
 const SUPERVISOR_KIND_LIST_26 = `('dispatcher','reviewer','watcher','intake')`;
@@ -164,6 +167,8 @@ const MIGRATIONS: Migration[] = [
       db.exec(MIGRATION_28_SQL);
     },
   },
+  // #29 — the human-only terminal 'cancelled' status: widen task.status like #18 did (fkOff rebuild).
+  { fkOff: true, run: (db) => widenCheck(db, 'task', STATUS_LIST_18, STATUS_LIST_29) },
 ];
 
 export function runMigrations(db: DB): void {

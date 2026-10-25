@@ -2,7 +2,7 @@ import type { AgentPrompts } from './agentPrompts.js';
 import type { ReviewConsensus } from './reviewConsensus.js';
 import type { AdoSyncSettings, AdoSyncSettingsInput } from './adoSync.js';
 
-export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
+export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked' | 'cancelled';
 export type Actor = 'human' | 'agent';
 /** Wire capabilities that must be present before supervisors and workers are restarted together. */
 export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
@@ -287,7 +287,7 @@ export interface Task {
   workspace: string; // workspace slug
   unmetDependencyCount: number; // queued tasks with a non-zero count are waiting and cannot be claimed
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
-  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
+  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done' or 'cancelled')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   reviewBrief?: ReviewBrief | null; // derived from aiReview + acceptance criteria; null with no review, on list reads outside in_review, and in agent payloads
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
