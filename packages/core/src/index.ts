@@ -71,6 +71,7 @@ export { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings, type BeginIntakeAssessmentResult } from './ops/intake.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
+export { type RecentTokenMetric } from './repo/metrics.js';
 export {
   FAILURE_TRIAGE_MARKER, FAILURE_TRIAGE_FEEDBACK_MARKER, FAILURE_TRIAGE_MARKER_PREFIXES, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY,
   FAILURE_TRIAGE_DISPLAY_VERSION, FAILURE_TRIAGE_NOTE_MAX, isFailureTriageMarker, classifyFailureNote, summarizeFailureTriage,
@@ -128,6 +129,7 @@ import { attachVisualization, getVisualization, getVisualizationHtml, type Attac
 import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
+import { recentTokenMetrics } from './repo/metrics.js';
 import { getKv, setKv } from './repo/kv.js';
 import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
@@ -228,6 +230,8 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     reportAgentModelDefaults: (report: unknown) => { reportAgentModelDefaults(db, report); },
     /** Board-editable USD-per-1M-token prices; the OTLP receiver prices Codex usage with them. */
     getModelPrices: () => getModelPrices(db),
+    /** Latest OTel usage rows (newest first) — the live Telemetry feed restores these on a restart. */
+    recentTokenMetrics: (limit: number) => recentTokenMetrics(db, limit),
     setModelPrices: (prices: unknown) => setModelPrices(db, prices),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),

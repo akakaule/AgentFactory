@@ -29,8 +29,9 @@ export interface TelemetryEvent {
   agent: 'claude-code' | 'codex';
   model: string | null;
   tokensIn: number;
-  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive). */
-  tokensCached: number;
+  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive); null for an
+   *  event restored after a board restart. */
+  tokensCached: number | null;
   tokensOut: number;
   costUsd: number | null;
 }
