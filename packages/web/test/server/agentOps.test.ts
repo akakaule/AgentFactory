@@ -114,6 +114,17 @@ describe('agent ops — authorization boundary', () => {
     core.submitResult(t.key, { summary: 'done' });
     expect((await post(app, `/api/agent/tasks/${t.key}/status`, { status: 'done' }, service)).status).toBe(409);
   });
+
+  it('cancel is human-only: a service token is refused, a human cancels a claimed task', async () => {
+    const t = queuedTask(core);
+    core.claimNextTask({ claimedBy: 'w1' });
+
+    expect((await post(app, `/api/tasks/${t.key}/status`, { status: 'cancelled' }, service)).status).toBe(403);
+    expect((await post(app, `/api/agent/tasks/${t.key}/status`, { status: 'cancelled' }, service)).status).toBe(409);
+    const res = await post(app, `/api/tasks/${t.key}/status`, { status: 'cancelled', note: 'dropped' }, user);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'cancelled', claimedBy: null });
+  });
 });
 
 describe('agent ops — the worked loop over HTTP', () => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const StatusEnum = z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']);
+export const StatusEnum = z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked', 'cancelled']);
 export const workspaceSlug = z
   .string()
   .max(64)

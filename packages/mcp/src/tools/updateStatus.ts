@@ -31,6 +31,13 @@ export function registerUpdateStatus(server: McpServer, core: McpCore, opts: Ser
             content: [{ type: 'text' as const, text: 'this task is in delivery verification — the watcher owns it; a human can force-complete or re-queue from the board' }],
           };
         }
+        // A cancelled task is over: say so plainly, so a worker that outlived the cancel stops.
+        if (current.status === 'cancelled') {
+          return {
+            isError: true as const,
+            content: [{ type: 'text' as const, text: 'this task was cancelled by a human — stop working on it; only a human can reopen it from the board' }],
+          };
+        }
         const executionId = opts.executionContext?.get() ?? opts.executionId;
         const task = await core.updateStatus(key, status, 'agent', null, note, executionId);
         return { content: [{ type: 'text', text: JSON.stringify(forAgent(task), null, 2) }] };

@@ -31,7 +31,7 @@ const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branc
 const deliveryCheckBody = z.object({
   expectedStateChangedAt: z.string().optional(),
   expected: z.object({
-    status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
+    status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked', 'cancelled']),
     branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
   }).optional(),
   prUrl: z.string().nullable(), prId: z.string().nullable(),
