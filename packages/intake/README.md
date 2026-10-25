@@ -54,3 +54,11 @@ open a new terminal or load them explicitly into the launching process.
 
 Use the board's Task Intelligence settings to select Advisory mode and explicitly
 opt in workspaces. Workspace policy text is sent only when the live setting permits it.
+
+**Skip spec for simple tasks** (Task Intelligence settings, off by default) is the one routing
+decision intake makes. With it on, a queued spec-stage task in an opted-in workspace waits (at most
+`maxHoldMinutes`) for its assessment; when it comes back at or under the configured thresholds
+(default: complexity trivial or small, risk low, readiness ≥ 80%), core moves the task straight to
+implementation with a `Task Intelligence: simple task (…)` note, and the worker writes the
+acceptance criteria (protocol v9). No supervisor change is involved: the move happens inside
+`recordIntakeAssessment`. See `docs/spec/2026-10-25-intake-skip-spec-design.md`.

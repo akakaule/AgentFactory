@@ -422,6 +422,12 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-models-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .af-models-count { margin-right: auto; font-size: 12px; color: var(--ink-3); }
 .af-models-confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.af-prices { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.af-prices th { text-align: left; font-weight: 600; color: var(--ink-2); padding: 0 6px 6px 0; white-space: nowrap; }
+.af-prices td { padding: 3px 6px 3px 0; vertical-align: middle; }
+.af-prices td:last-child, .af-prices th:last-child { width: 1%; padding-right: 0; }
+.af-prices-unit { font-weight: 400; color: var(--ink-3); }
+@media (max-width: 640px) { .af-prices thead { display: none; } .af-prices tr { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 8px; } .af-prices td:first-child, .af-prices td:last-child { grid-column: 1 / -1; } }
 .af-wsm-row { border-top: 1px solid var(--line-soft); padding: 8px 0; display: flex; flex-direction: column; gap: 8px; }
 .af-wsm-row-h { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12.5px; }
 .af-wsm-row-h strong { min-width: 110px; color: var(--ink); }

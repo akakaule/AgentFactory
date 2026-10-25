@@ -76,6 +76,24 @@ export function tokenBreakdownFor(db: DB, taskId: number): TaskTokenUsage[] {
     || (a.model ?? 'unknown').localeCompare(b.model ?? 'unknown'));
 }
 
+/** One OTel-reported usage row with its task key and workspace name. */
+export interface RecentTokenMetric {
+  taskKey: string; workspace: string | null; reportedBy: 'otel:claude-code' | 'otel:codex'; model: string | null;
+  tokensIn: number | null; tokensOut: number | null; costUsd: number | null; createdAt: string;
+}
+
+/** The latest OTel-reported usage rows, newest first — what the live Telemetry feed restores on a
+ *  board restart. Agent/self-reported rows are left out: they never reach the live feed either. */
+export function recentTokenMetrics(db: DB, limit: number): RecentTokenMetric[] {
+  return db.prepare(
+    `SELECT t.key AS taskKey, w.name AS workspace, m.reported_by AS reportedBy, m.model, m.tokens_in AS tokensIn,
+            m.tokens_out AS tokensOut, m.cost_usd AS costUsd, m.created_at AS createdAt
+     FROM task_metric m JOIN task t ON t.id = m.task_id LEFT JOIN workspace w ON w.id = t.workspace_id
+     WHERE m.reported_by IN ('otel:claude-code', 'otel:codex')
+     ORDER BY m.id DESC LIMIT ?`,
+  ).all(limit) as unknown as RecentTokenMetric[];
+}
+
 export interface MetricInsert {
   taskId: number; model: string | null; tokensIn: number | null; tokensOut: number | null;
   costUsd: number | null; reportedBy: string | null; createdAt: string;

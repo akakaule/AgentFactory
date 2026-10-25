@@ -3,6 +3,7 @@ import type { AgentPrompts, EngineSettings, AgentEngine } from '../types.js';
 import { api } from '../api.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 import { AgentModelsPanel } from './AgentModelsPanel.js';
+import { ModelPricesPanel } from './ModelPricesPanel.js';
 
 const ENGINE_TOGGLES: ReadonlyArray<{ key: AgentEngine; label: string }> = [
   { key: 'claude', label: 'Claude enabled' },
@@ -11,9 +12,10 @@ const ENGINE_TOGGLES: ReadonlyArray<{ key: AgentEngine; label: string }> = [
 
 /** The Agents modal. Models: the engine switches and the GLOBAL per-step engine/model/effort.
  *  System prompts: the GLOBAL default agent system prompts. A workspace can override either per repo
- *  (Workspaces modal). Effective prompt an agent runs with = workspace override ?? global ?? ''. */
+ *  (Workspaces modal). Effective prompt an agent runs with = workspace override ?? global ?? ''.
+ *  Prices: USD per 1M tokens for pricing Codex usage, which reports no cost of its own. */
 export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<'models' | 'prompts'>('models');
+  const [tab, setTab] = useState<'models' | 'prompts' | 'prices'>('models');
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,7 +64,13 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
         <div className="af-tabs" role="tablist" aria-label="Agent settings">
           <button type="button" role="tab" aria-selected={tab === 'models'} className={tab === 'models' ? 'on' : ''} onClick={() => setTab('models')}>Models</button>
           <button type="button" role="tab" aria-selected={tab === 'prompts'} className={tab === 'prompts' ? 'on' : ''} onClick={() => setTab('prompts')}>System prompts</button>
+          <button type="button" role="tab" aria-selected={tab === 'prices'} className={tab === 'prices' ? 'on' : ''} onClick={() => setTab('prices')}>Prices</button>
         </div>
+        {tab === 'prices' && (
+          <div style={{ maxHeight: '64vh', overflowY: 'auto', paddingRight: '4px' }}>
+            <ModelPricesPanel onClose={onClose} />
+          </div>
+        )}
         {tab === 'models' && <>
         <div className="af-engines" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 18px', padding: '10px 12px', marginBottom: '14px', border: '1px solid var(--line-soft)', borderRadius: '9px', background: 'var(--bg-deep)' }}>
           <span style={{ fontWeight: 600, fontSize: '13px' }}>Engines</span>

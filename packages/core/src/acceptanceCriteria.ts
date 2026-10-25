@@ -4,6 +4,10 @@
  * (docs/spec/2026-10-21-review-decision-panel-design.md §4.1). Ids are positional (AC1…ACn in
  * order of appearance), whatever numbers the author typed.
  */
+/** What a task created at the spec stage carries until that stage writes real criteria. A task whose
+ *  spec stage was skipped still has it at implementation, where the worker submits the criteria. */
+export const PLACEHOLDER_ACCEPTANCE_CRITERIA = 'To be defined by the description stage.';
+
 export interface AcceptanceCriterion { id: string; name: string | null; text: string }
 export interface ParsedCriteria { items: AcceptanceCriterion[]; general: string | null }
 

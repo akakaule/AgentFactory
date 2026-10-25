@@ -7,6 +7,7 @@ import { workspaceRoutes } from './routes/workspaces.js';
 import { agentPromptRoutes } from './routes/agentPrompts.js';
 import { engineRoutes } from './routes/engines.js';
 import { agentModelRoutes } from './routes/agentModels.js';
+import { modelPriceRoutes } from './routes/modelPrices.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { agentRoutes } from './routes/agents.js';
@@ -18,12 +19,14 @@ import { authRoutes } from './routes/auth.js';
 import { authMiddleware, type AuthConfig } from './auth.js';
 import { mapError } from './errors.js';
 import { registerSse } from './sse.js';
-import { createTelemetryStore, type TelemetryStore } from './telemetry.js';
+import { createTelemetryStore, seedFromMetrics, DEFAULT_CAP, type TelemetryStore } from './telemetry.js';
 
 export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: AuthConfig; telemetry?: TelemetryStore; resolveOrigin?: (repoPath: string) => string | null } = {}): Hono {
   const auth = opts.auth ?? { mode: 'none' };
-  // One ring shared between the OTLP receiver (writes) and the /api/telemetry read route.
+  // One ring shared between the OTLP receiver (writes) and the /api/telemetry read route. A ring
+  // this app creates starts from the newest durable OTel rows, so a restart doesn't blank the view.
   const telemetry = opts.telemetry ?? createTelemetryStore();
+  if (!opts.telemetry) seedFromMetrics(telemetry, core.recentTokenMetrics(DEFAULT_CAP));
   const app = new Hono();
   // Guard the data surface (/api/* and /events); the SPA shell (mounted later in the
   // production entry) and /auth stay public so the login flow can bootstrap. In 'none'
@@ -48,6 +51,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/api/agent-prompts', agentPromptRoutes(core));
   app.route('/api/engines', engineRoutes(core));
   app.route('/api/agent-models', agentModelRoutes(core));
+  app.route('/api/model-prices', modelPriceRoutes(core));
   app.route('/api/analytics', analyticsRoutes(core));
   app.route('/api/attachments', attachmentRoutes(core));
   app.route('/api/agents', agentRoutes(core));

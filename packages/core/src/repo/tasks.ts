@@ -18,7 +18,7 @@ import { nowIso } from '../time.js';
 import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 import { getKv } from './kv.js';
 import { normalizeIntakeSettings, intakeEnabledFor } from '../intakeSettings.js';
-import { evaluateIntakePolicy, intakeOverrideRevision, intakeRevision, parseIntakeComment } from '../intake.js';
+import { evaluateIntakePolicy, intakeOverrideRevision, intakeRevision, parseIntakeComment, SKIP_SPEC_NOTE_PREFIX } from '../intake.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
@@ -91,16 +91,16 @@ export function intakeByTaskIds(db: DB, rows: TaskRow[]): Map<number, IntakeSumm
   return out;
 }
 
-/** The latest move into `queued` per task — where an intake pending hold starts. */
-function queuedAtByTaskIds(db: DB, ids: number[]): Map<number, string> {
-  const out = new Map<number, string>();
+/** The latest move into `queued` per task — where an intake pending hold starts — and its note. */
+function latestQueuedByTaskIds(db: DB, ids: number[]): Map<number, { at: string; body: string }> {
+  const out = new Map<number, { at: string; body: string }>();
   if (ids.length === 0) return out;
   const rows = db.prepare(
-    `SELECT task_id, MAX(created_at) AS at FROM activity
+    `SELECT task_id, created_at AS at, body FROM activity
      WHERE type = 'status_change' AND to_status = 'queued' AND task_id IN (${ids.map(() => '?').join(',')})
-     GROUP BY task_id`,
-  ).all(...ids) as Array<{ task_id: number; at: string }>;
-  for (const r of rows) out.set(r.task_id, r.at);
+     ORDER BY created_at, id`,
+  ).all(...ids) as Array<{ task_id: number; at: string; body: string }>;
+  for (const r of rows) out.set(r.task_id, { at: r.at, body: r.body }); // ascending: the last one wins
   return out;
 }
 
@@ -111,23 +111,28 @@ function queuedAtByTaskIds(db: DB, ids: number[]): Map<number, string> {
  * it), for at most `maxHoldMinutes` after it was queued, then fails open. A current or unavailable
  * assessment releases it; the verdict itself stays advisory. A send-back or bounce re-queue keeps
  * an unchanged revision — still `current` — so it is never re-held.
+ *
+ * With `skipSpec` on, queued spec-stage work waits the same way, so intake decides whether to skip
+ * the spec before a worker starts writing one. A task intake just moved to implementation (its
+ * latest queue entry is the skip note) is not held again: that assessment was its intake review.
  */
 export function intakeHoldFor(
-  r: TaskRow, intake: IntakeSummary | null, settings: ReturnType<typeof normalizeIntakeSettings>, queuedAt: string | undefined, now: string,
+  r: TaskRow, intake: IntakeSummary | null, settings: ReturnType<typeof normalizeIntakeSettings>, queued: { at: string; body: string } | undefined, now: string,
 ): { until: string } | null {
-  if (r.status !== 'queued' || r.stage !== 'implementation' || r.kind === 'pr-review' || r.archived_at !== null) return null;
-  if (!intakeEnabledFor(settings, r.workspace_name) || queuedAt === undefined) return null;
+  if (r.status !== 'queued' || !holdsStage(r.stage, settings) || r.kind === 'pr-review' || r.archived_at !== null) return null;
+  if (!intakeEnabledFor(settings, r.workspace_name) || queued === undefined) return null;
   if (intake !== null && intake.state !== 'stale') return null;
-  const until = Date.parse(queuedAt) + settings.maxHoldMinutes * 60_000;
+  if (r.stage === 'implementation' && queued.body.startsWith(SKIP_SPEC_NOTE_PREFIX)) return null;
+  const until = Date.parse(queued.at) + settings.maxHoldMinutes * 60_000;
   return until > Date.parse(now) ? { until: new Date(until).toISOString() } : null;
 }
 
 function intakeHoldsByRows(db: DB, rows: TaskRow[], intakes: Map<number, IntakeSummary | null>, now: string): Map<number, { until: string } | null> {
   const out = new Map<number, { until: string } | null>();
   const settings = storedIntakeSettings(db);
-  const candidates = rows.filter((r) => r.status === 'queued' && r.stage === 'implementation' && intakeEnabledFor(settings, r.workspace_name));
-  const queuedAt = queuedAtByTaskIds(db, candidates.map((r) => r.id));
-  for (const r of candidates) out.set(r.id, intakeHoldFor(r, intakes.get(r.id) ?? null, settings, queuedAt.get(r.id), now));
+  const candidates = rows.filter((r) => r.status === 'queued' && holdsStage(r.stage, settings) && intakeEnabledFor(settings, r.workspace_name));
+  const queued = latestQueuedByTaskIds(db, candidates.map((r) => r.id));
+  for (const r of candidates) out.set(r.id, intakeHoldFor(r, intakes.get(r.id) ?? null, settings, queued.get(r.id), now));
   return out;
 }
 
@@ -135,12 +140,16 @@ function intakeHoldsByRows(db: DB, rows: TaskRow[], intakes: Map<number, IntakeS
 export function intakeHeldTaskIds(db: DB, now: string = nowIso(), workspaceId?: number): number[] {
   if (!intakeEnabledAnywhere(storedIntakeSettings(db))) return [];
   const rows = (workspaceId === undefined
-    ? db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage = 'implementation' AND task.archived_at IS NULL`).all()
-    : db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage = 'implementation' AND task.archived_at IS NULL AND task.workspace_id = ?`).all(workspaceId)
+    ? db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage IN ('implementation', 'description') AND task.archived_at IS NULL`).all()
+    : db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage IN ('implementation', 'description') AND task.archived_at IS NULL AND task.workspace_id = ?`).all(workspaceId)
   ) as unknown as TaskRow[];
   const holds = intakeHoldsByRows(db, rows, intakeByTaskIds(db, rows), now);
   return rows.filter((r) => holds.get(r.id)).map((r) => r.id);
 }
+
+/** Stages a pending hold applies to: implementation always, the spec stage while skip-spec is on. */
+const holdsStage = (stage: Stage, settings: ReturnType<typeof normalizeIntakeSettings>): boolean =>
+  stage === 'implementation' || (stage === 'description' && settings.skipSpec);
 
 const intakeEnabledAnywhere = (settings: ReturnType<typeof normalizeIntakeSettings>): boolean =>
   settings.mode !== 'off' && settings.workspaces.length > 0;

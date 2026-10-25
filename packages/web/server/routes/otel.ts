@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { priceUsage } from '@agentfactory/core';
 import type { Core } from '../types.js';
 import type { TelemetryStore } from '../telemetry.js';
 
@@ -88,6 +89,8 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
     const headerKey = c.req.header('x-task-key')?.trim() || undefined;
     let payload: OtlpLogs;
     try { payload = (await c.req.json()) as OtlpLogs; } catch { return c.json({}, 200); }
+    // Codex reports token counts but no cost: price those from the board's table (Claude's own wins).
+    const prices = core.getModelPrices();
 
     for (const rl of payload.resourceLogs ?? []) {
       // Resource attributes the dispatcher stamps once per session (otel block in its config).
@@ -100,6 +103,10 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
           if (!hit) continue;
           const key = headerKey ?? resourceKey ?? asStr(attrOf(rec.attributes, 'task.key'));
           if (!key) continue; // unattributed — drop from both the live feed and the durable aggregate
+          if (hit.costUsd === undefined && hit.model !== undefined) {
+            const cost = priceUsage(prices, hit.model, hit);
+            if (cost !== undefined) hit.costUsd = cost;
+          }
 
           // Live feed: every task-attributed event, for "what's flowing right now" visibility.
           telemetry?.add({

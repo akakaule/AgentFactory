@@ -31,7 +31,7 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
     const byAgent: Record<TelemetryEvent['agent'], number> = { 'claude-code': 0, codex: 0 };
     const byModel = new Map<string, number>();
     for (const e of events) {
-      tin += e.tokensIn; tcached += e.tokensCached; tout += e.tokensOut;
+      tin += e.tokensIn; tcached += e.tokensCached ?? 0; tout += e.tokensOut;
       if (e.costUsd != null) { cost += e.costUsd; hasCost = true; }
       byAgent[e.agent]++;
       const m = e.model ?? 'unknown';
@@ -99,7 +99,7 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
                     <td><span className={'af-tel-agent ' + ag.cls}><span className="d"></span>{ag.label}</span></td>
                     <td className="mono dim">{e.model ?? '–'}</td>
                     <td className="r mono">{fmtTokens(e.tokensIn)}</td>
-                    <td className="r mono dim" title="cache-hit tokens, included in In">{fmtTokens(e.tokensCached)}</td>
+                    <td className="r mono dim" title="cache-hit tokens, included in In">{e.tokensCached == null ? '–' : fmtTokens(e.tokensCached)}</td>
                     <td className="r mono">{fmtTokens(e.tokensOut)}</td>
                     <td className="r mono">{fmtCost(e.costUsd)}</td>
                   </tr>

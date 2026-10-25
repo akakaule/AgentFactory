@@ -9,7 +9,7 @@ export type Workspace = Omit<CoreWorkspace, 'adoSync'> & {
   adoSyncWiql?: string | null;
 };
 
-export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage, Effort, ModelCatalogEntry, ModelProfile, AgentModelStages, AgentModelLayer, WorkspaceModelLayer, AgentModels, ReportedProfile, ReportedRoles, AgentModelDefaults } from '@agentfactory/core';
+export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage, Effort, ModelCatalogEntry, ModelProfile, AgentModelStages, AgentModelLayer, WorkspaceModelLayer, AgentModels, ReportedProfile, ReportedRoles, AgentModelDefaults, ModelPrice, ModelPrices } from '@agentfactory/core';
 
 /** GET/PUT /api/agent-models: the board's model settings, supervisors' file defaults, the catalogue. */
 export interface AgentModelsView {
@@ -29,8 +29,9 @@ export interface TelemetryEvent {
   agent: 'claude-code' | 'codex';
   model: string | null;
   tokensIn: number;
-  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive). */
-  tokensCached: number;
+  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive); null for an
+   *  event restored after a board restart. */
+  tokensCached: number | null;
   tokensOut: number;
   costUsd: number | null;
 }
