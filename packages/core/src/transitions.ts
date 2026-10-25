@@ -41,7 +41,7 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'delivering',  to: 'done',        by: 'human' }, // force-complete (no CI configured / watcher down)
   { from: 'delivering',  to: 'queued',      by: 'human' }, // manual pull-back for rework
 
-  // Cancel (migration #30): a human can always drop a task, whatever it is doing. Terminal for
+  // Cancel (migration #29): a human can always drop a task, whatever it is doing. Terminal for
   // agents — ops/updateStatus.ts settles the live execution so a running worker or reviewer is
   // fenced off — and reopenable by a human: to the queue, or (kind-gated) back to review.
   ...(['backlog', 'queued', 'in_progress', 'in_review', 'blocked', 'delivering', 'done'] as const)

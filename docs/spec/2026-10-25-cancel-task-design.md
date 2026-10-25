@@ -12,7 +12,7 @@ A worker, review or visualization already running on an unwanted task kept spend
 
 ## Behaviour
 
-A human can always cancel a task. `cancelled` is a new terminal status (migration #30).
+A human can always cancel a task. `cancelled` is a new terminal status (migration #29).
 
 - **Reachable from every status:** backlog, queued, in_progress, in_review, blocked, delivering, done. It's human-only: agents have no `cancelled` edges, and the MCP `update_status` tool neither offers it nor touches a cancelled task.
 - **Running work stops:**
@@ -42,4 +42,4 @@ A human can always cancel a task. `cancelled` is a new terminal status (migratio
 
 ## Deploy
 
-Migration #30 sits on top of AF-148's #29. Rebuild, then restart the board (:8787), MCP sessions, and the dispatcher, reviewer and watcher together, because older builds reject the `cancelled` status.
+Migration #29 widens the task status CHECK (AF-148, still in review, moves its own migration to #30). Rebuild, then restart the board (:8787), MCP sessions, and the dispatcher, reviewer and watcher together, because older builds reject the `cancelled` status.

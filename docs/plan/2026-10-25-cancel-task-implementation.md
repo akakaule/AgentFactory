@@ -25,6 +25,8 @@ A worker, review or visualization that is already running keeps spending tokens 
 - The Done column's "Archive all" stays done-only. Cancelled tasks are archived one at a time.
 - Cancel settles the current execution and attempt as `cancelled`, which refunds the retry attempt. A cancel is not a failure.
 
+**Migration slot (as merged):** the branch was rebased onto `main` without AF-148, so cancel took **#29** and AF-148 renumbers its own migration to #30. The original plan below:
+
 **Migration slot:** AF-148 (in review, branch `feature/AF-148-bind-submissions-reviews-and-approvals-t`) already uses **#29**. This change takes **#30** and is built **on top of the AF-148 branch**, then merged after it, to avoid a slot collision. If AF-148 changes again, I rebase onto it. Live DB `user_version` is 28.
 
 ## Design
