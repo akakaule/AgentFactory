@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError, NotFoundError } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, AgentModels, ModelProfile } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, resolveReviewers } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
