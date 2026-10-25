@@ -7,7 +7,7 @@ import { appendActivity } from '../repo/activity.js';
 import { endSession } from '../repo/agentSessions.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { assertExecutionOwnership, currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
+import { assertExecutionOwnership, currentExecution, liveExecutions, operationPhase, settleExecution } from '../repo/execution.js';
 import { reconcileMergedDelivery } from './delivery.js';
 import { deliveryRowFor } from '../repo/delivery.js';
 import { advanceRetryBudget, settleRetry } from '../repo/retry.js';
@@ -82,9 +82,9 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // as cancelled refunds the retry it never finished; the supervisor kills the process next tick.
     if (status === 'cancelled') {
       endSession(db, row.id, ts);
-      const live = currentExecution(db, row.id);
-      if (live && !(live.retry_id && settleRetry(db, live.retry_id, 'cancelled', ts, 'task cancelled')))
-        settleExecution(db, live.id, 'cancelled', ts, 'task cancelled');
+      for (const live of liveExecutions(db, row.id))
+        if (!(live.retry_id && settleRetry(db, live.retry_id, 'cancelled', ts, 'task cancelled')))
+          settleExecution(db, live.id, 'cancelled', ts, 'task cancelled');
     }
     // A human unblocking or reopening a task hands the worker new work, not another retry of the
     // rounds that ended there — without a fresh budget the dispatcher silently skips it. (Releasing

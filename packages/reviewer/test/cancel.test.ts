@@ -59,6 +59,39 @@ describe('a human cancels a task under review', () => {
     expect(core.getTask(key).aiReview).toBeNull();
   });
 
+  it('still kills the review when a pr-review task is cancelled and reopened between two ticks', async () => {
+    const core = makeCore();
+    const key = core.createTask({ title: 'Teammate PR', spec: 's', acceptanceCriteria: 'a', workspace: 'ws', kind: 'pr-review',
+      links: [{ kind: 'branch', label: 'feature/teammate', url: 'https://github.com/o/r/pull/1' }] }).key;
+    core.updateStatus(key, 'in_review', 'human');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { console: log }));
+
+    await r.tick();
+    expect(calls).toHaveLength(1);
+    core.updateStatus(key, 'cancelled', 'human');
+    core.updateStatus(key, 'in_review', 'human');
+    await r.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(failureNotes(core, key)).toHaveLength(0);
+    expect([...log.errors, ...log.warnings]).toEqual([]);
+  });
+
+  it('kills the review of a task a human deleted', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Deleted in review', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+
+    await r.tick();
+    core.deleteTask(key);
+    await r.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+  });
+
   it('kills a running visualization without a failure note', async () => {
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Cancelled while visualizing', 'implementation');

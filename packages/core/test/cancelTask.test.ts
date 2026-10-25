@@ -3,6 +3,7 @@ import { createCore, InvalidTransitionError, type Status } from '../src/index.js
 import { openDb } from '../src/db.js';
 import { runMigrations, widenCheck } from '../src/migrate.js';
 import { isValidTransition } from '../src/transitions.js';
+import { createExecution } from '../src/repo/execution.js';
 import { makeTestDb } from './helpers.js';
 
 const prUrl = 'https://github.com/acme/widgets/pull/42';
@@ -88,6 +89,20 @@ describe('cancelling live work', () => {
 
     expect(core.getRetryBudget(key, 'reviewer:implementation')).toMatchObject({ attemptsUsed: 0 });
     expect(() => core.addComment(key, { body: 'late verdict', actor: 'agent', executionId: review.id })).toThrow(InvalidTransitionError);
+  });
+
+  it('settles every live execution on the task, not only the newest', () => {
+    const { db, core, key } = taskIn('in_review');
+    const taskId = (db.prepare('SELECT id FROM task WHERE key = ?').get(key) as { id: number }).id;
+    // an older execution of another operation still running alongside the newest one
+    const older = createExecution(db, { taskId, taskKey: key, stage: 'implementation', operation: 'visualization:old', generation: 1,
+      attempt: 1, maxAttempts: 1, owner: 'reviewer-1', now: '2026-01-01T00:00:00.000Z' });
+    core.reserveExecution(key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1', startImmediately: true });
+
+    core.updateStatus(key, 'cancelled', 'human');
+
+    expect(db.prepare("SELECT COUNT(*) AS c FROM task_execution WHERE task_id = ? AND state IN ('reserved','running')").get(taskId)).toEqual({ c: 0 });
+    expect(db.prepare('SELECT state FROM task_execution WHERE id = ?').get(older.id)).toEqual({ state: 'cancelled' });
   });
 
   it('a merged delivery never resurrects a cancelled task', () => {

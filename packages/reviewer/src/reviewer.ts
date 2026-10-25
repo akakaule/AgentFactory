@@ -243,16 +243,23 @@ export class Reviewer {
   }
 
   /** Kill every live session (review, round member, visualization, feedback-eval) whose task a
-   *  human cancelled; its reap settles without a failure note (see reapSettled). */
+   *  human cancelled since it started — even if it was reopened before this tick — or deleted;
+   *  its reap settles without a failure note (see reapSettled). */
   private async stopCancelledSessions(): Promise<void> {
     for (const session of this.running.values()) {
       if (session.settled || session.humanCancelled) continue;
-      let status: string;
-      try { status = (await this.deps.core.getTask(session.key)).status; } catch { continue; }
-      if (status !== 'cancelled') continue;
+      let dropped: string | null = null;
+      try {
+        const detail = await this.deps.core.getTask(session.key);
+        if (detail.status === 'cancelled' || detail.activity.some((a) => a.type === 'status_change' && a.toStatus === 'cancelled'
+          && Date.parse(a.createdAt) >= session.startedAtMs)) dropped = 'cancelled';
+      } catch (err) {
+        if (err instanceof NotFoundError) dropped = 'deleted';
+      }
+      if (!dropped) continue;
       session.humanCancelled = true;
       this.appendLog(session, `
-[reviewer] ${session.key} was cancelled by a human; terminating
+[reviewer] ${session.key} was ${dropped} by a human; terminating
 `);
       try {
         this.deps.terminateProcessTree(session.child, 'SIGKILL');

@@ -155,7 +155,8 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
 
   r.post('/:key/status', rejectService, validated('json', statusBody), (c) => {
     const b = c.req.valid('json');
-    if (b.status === 'queued' && core.getTask(c.req.param('key')).status === 'backlog') {
+    const from = core.getTask(c.req.param('key')).status;
+    if (b.status === 'queued' && (from === 'backlog' || from === 'cancelled')) {
       return c.json(core.queueWithIntakeAcknowledgment(c.req.param('key'), {
         ...(b.expectedRevision !== undefined ? { expectedRevision: b.expectedRevision } : {}),
         ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),
