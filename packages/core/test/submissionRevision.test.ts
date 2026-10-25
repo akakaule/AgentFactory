@@ -167,6 +167,39 @@ describe('revision-bound submissions', () => {
     expect(reviewApprove(db, t.key, now).status).toBe('done');
   });
 
+  it('an unbound review of a tracked submission is not proof: it reads pending and a bound review replaces it', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, baseSha: BASE, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: 'ai-review/v1 - clean\n```json\n{"verdict":"clean","findings":[]}\n```' }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'legacy', revision: null });
+    // a push observed after the unbound review must not leave it green either
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git' }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'legacy' });
+    expect(getTask(db, key).reviewBrief?.headline).toBe('pending');
+    // the reviewer's bound re-review takes over (here: stale, since head B was observed)
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A, baseSha: BASE }) }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'stale', revision: { submissionId: sub.id } });
+  });
+
+  it('an unbound review with must-fix findings keeps its verdict and still needs an approval reason', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: 'ai-review/v1 - 1 finding\n```json\n{"verdict":"findings","findings":[{"severity":"error","title":"Broken"}]}\n```' }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'findings', binding: 'legacy' });
+    expect(() => reviewApprove(db, key, now, null, () => null, null, { submissionId: sub.id, headSha: A })).toThrow(/needs a reason/);
+  });
+
+  it('an unbound review on a done task keeps rendering as it was recorded', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now);
+    addComment(db, key, { actor: 'agent', body: 'ai-review/v1 - clean\n```json\n{"verdict":"clean","findings":[]}\n```' }, now);
+    db.prepare("UPDATE task SET status='done' WHERE key=?").run(key);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'clean', binding: 'legacy' });
+  });
+
   it('visualizations are stamped with the submission they were attached under', () => {
     const db = makeTestDb();
     const key = implTask(db);

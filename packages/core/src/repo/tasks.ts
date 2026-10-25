@@ -245,15 +245,22 @@ function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> 
     if (!parsed) continue;
     const resultId = results.get(taskId);
     const superseded = resultId !== undefined && resultId > reviewId;
-    const binding = parsed.revision ? reviewBinding(db, taskId, docContentFor(db, taskId), parsed.revision) : 'legacy';
-    const summary = summarizeAiReview(parsed, superseded, binding);
+    const task = reviewedTaskFor(db, taskId);
+    const binding = parsed.revision ? reviewBinding(db, taskId, task, parsed.revision) : 'legacy';
+    let summary = summarizeAiReview(parsed, superseded, binding);
+    // An unbound green review cannot prove a tracked submission (it may predate a push the board
+    // observes only later), so it reads pending until the reviewer posts a bound one. Unbound
+    // findings keep their verdict — they still gate approval. A done task keeps its recorded
+    // verdict, and tasks with no tracked submission keep the historical legacy reading.
+    if (summary?.verdict === 'clean' && binding === 'legacy' && task.status !== 'done' && latestSubmissionFor(db, taskId, task.stage) !== undefined)
+      summary = summarizeAiReview(parsed, true, binding);
     if (summary) out.set(taskId, summary);
   }
   return out;
 }
 
-function docContentFor(db: DB, taskId: number): DocContent {
-  return db.prepare('SELECT spec, acceptance_criteria, plan FROM task WHERE id = ?').get(taskId) as unknown as DocContent;
+function reviewedTaskFor(db: DB, taskId: number): DocContent & { stage: Stage; status: Status } {
+  return db.prepare('SELECT spec, acceptance_criteria, plan, stage, status FROM task WHERE id = ?').get(taskId) as unknown as DocContent & { stage: Stage; status: Status };
 }
 
 /** The current stage's latest submission, with its freshness (migration #29); null when none. */

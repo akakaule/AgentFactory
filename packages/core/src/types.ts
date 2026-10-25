@@ -107,7 +107,8 @@ export interface AiReviewSummary {
   items: AiReviewFinding[];
   consensus?: ReviewConsensus;
   // which submission/revision the review concerns (migration #29). 'legacy' = an unbound review
-  // (posted before revisions were recorded); 'superseded' = a newer submission replaced the one it
+  // (posted before revisions were recorded; a clean one reads 'pending' while its stage has a
+  // tracked submission it cannot prove, unless the task is done); 'superseded' = a newer submission replaced the one it
   // reviewed (a re-review is due); 'stale' = it names the current submission but that revision moved
   // (a later head, a head other than the submitted one, edited doc content) — only a resubmission
   // helps. Both non-current bindings read verdict 'pending'.
