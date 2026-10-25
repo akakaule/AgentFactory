@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { featureBranch, intakeRevision } from '@agentfactory/core';
+import { readFileSync } from 'node:fs';
 import { makeClient, textOf } from './harness.js';
 
 // Helper to create a task with non-empty required fields
@@ -788,5 +789,38 @@ describe('create_task', () => {
     const res = await client.callTool({ name: 'create_task', arguments: { title: 'Idea', spec: 'raw intent' } });
     expect(res.isError).toBeFalsy();
     expect(JSON.parse(textOf(res)).stage).toBe('description');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /review-task: an MCP reviewer binds its verdict to the submission it reviewed
+// ---------------------------------------------------------------------------
+describe('MCP review binding', () => {
+  it('get_task carries the submission; a clean review ending with its revision line reads current/clean', async () => {
+    const { client, core } = await makeClient();
+    const head = 'a'.repeat(40);
+    const t = core.createTask({ ...makeTaskInput('Reviewed'), stage: 'implementation' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'worker' });
+    core.submitResult(t.key, { summary: 'done', revision: { headSha: head, source: 'origin' } });
+
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect(detail.submission).toMatchObject({ id: expect.any(Number), headSha: head });
+    // exactly the comment shape .claude/commands/review-task.md prescribes
+    const body = [
+      'ai-review/v1 — clean (claude)', 'Looks right.',
+      '```json', '{ "reviewer": "claude", "verdict": "clean", "findings": [] }', '```',
+      `review-revision/v1 submission=#${detail.submission.id} head=${detail.submission.headSha}`,
+    ].join('\n');
+    await client.callTool({ name: 'add_comment', arguments: { key: t.key, body } });
+    expect(core.getTask(t.key).aiReview).toMatchObject({ verdict: 'clean', binding: 'current' });
+    const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: { status: 'in_review' } })));
+    expect(listed[0].aiReview).toMatchObject({ verdict: 'clean' });
+  });
+
+  it('/review-task instructs the reviewer to append the revision line from the task submission', () => {
+    const doc = readFileSync(new URL('../../../.claude/commands/review-task.md', import.meta.url), 'utf8');
+    expect(doc).toContain('review-revision/v1 submission=#<submission.id>');
+    expect(doc).toContain('head=<submission.headSha>');
   });
 });

@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail, DeliverySummary, DeliveryProvider } from '../types.js';
+import type { TaskDetail, DeliverySummary, DeliveryProvider, Status } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
@@ -88,18 +88,33 @@ function providerErrorPending(db: DB, submissionId: number): boolean {
   return s?.last_observation_source === 'provider' && s.last_observation_error !== null;
 }
 
+export interface DeliveryCheckFailureInput {
+  error: string;
+  /** The delivery episode the failed poll was started for (same fence as recordDeliveryCheck). */
+  expected?: { status: Status; branch: string; prUrl: string | null; stateChangedAt: string } | undefined;
+  /** The approved submission that episode was bound to. */
+  submissionId?: number | null | undefined;
+}
+
 /**
  * The watcher could not reach the provider for this delivery: record a failed revision
  * observation for the approved submission, so the board shows unknown freshness during the
  * outage instead of the last good answer. The known head is kept (a proven mismatch stays
- * stale). No-op for unbound (historical) deliveries and tasks the watcher no longer owns.
+ * stale). No-op for unbound (historical) deliveries, tasks the watcher no longer owns, and a poll
+ * fenced to a delivery episode or submission that is no longer current.
  */
-export function recordDeliveryCheckFailure(db: DB, key: string, input: { error: string }, now: () => string = nowIso): { recorded: boolean } {
+export function recordDeliveryCheckFailure(db: DB, key: string, input: DeliveryCheckFailureInput, now: () => string = nowIso): { recorded: boolean } {
   return transaction(db, () => {
     const row = requireRow(db, key);
     if (row.archived_at || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { recorded: false };
     const d = deliveryRowFor(db, row.id);
     if (!d || d.submission_id === null) return { recorded: false };
+    // The poll that failed was started for one delivery episode: once that episode changed (a bounce,
+    // a re-approval of another submission), its failure says nothing about the current one.
+    const expected = input.expected;
+    if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
+        expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { recorded: false };
+    if (input.submissionId !== undefined && input.submissionId !== d.submission_id) return { recorded: false };
     const error = input.error.trim().slice(0, 500) || 'provider check failed';
     return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error }, now()) !== null };
   });

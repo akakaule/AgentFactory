@@ -46,7 +46,7 @@ export function toDeliverySummary(r: DeliveryRow): DeliverySummary {
     prState: r.pr_state, checksState: r.checks_state,
     failing: parseFailing(r.detail),
     checkedAt: r.checked_at, stateChangedAt: r.state_changed_at,
-    approvedHeadSha: r.approved_head_sha, headSha: r.head_sha,
+    approvedHeadSha: r.approved_head_sha, headSha: r.head_sha, submissionId: r.submission_id,
   };
 }
 

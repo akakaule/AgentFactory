@@ -35,7 +35,7 @@ export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
-export { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+export { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
 export { type DeliveryObservation } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
@@ -105,7 +105,7 @@ import { executionById } from './repo/execution.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
-import { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+import { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
 import { observeRevision, type RevisionObservationInput } from './ops/observeRevision.js';
@@ -164,6 +164,9 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
   // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
   const autoFence = opts.autoFence ?? true;
   const executionIds = new Map<string, string>();
+  // refreshRevision generations per submission: started vs last persisted (see refreshRevision).
+  const refreshStarted = new Map<number, number>();
+  const refreshApplied = new Map<number, number>();
   const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
     if (!autoFence || input.executionId !== undefined) return input;
     const executionId = executionIds.get(key);
@@ -263,17 +266,24 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     observeRevision: (key: string, input: RevisionObservationInput) => observeRevision(db, key, input),
     /** The git adapter's approve-time refresh: observe the current implementation submission's
      *  branch head on origin (outside any transaction) and record it — a later push then reads
-     *  stale, an unreachable origin reads unknown. No-op for doc stages / unresolved revisions. */
+     *  stale, an unreachable origin reads unknown. No-op for doc stages / unresolved revisions.
+     *  Overlapping refreshes persist in the order they STARTED: one that returns after a later-started
+     *  refresh was recorded is dropped (an in-process generation; readStartedAt fences other writers). */
     refreshRevision: async (key: string): Promise<SubmissionSummary | null> => {
       const task = getTask(db, key);
       const sub = task.submission ?? null;
       if (!sub || sub.stage !== 'implementation' || sub.headSha === null || task.branch === null) return sub;
+      const readStartedAt = nowIso();
+      const generation = (refreshStarted.get(sub.id) ?? 0) + 1;
+      refreshStarted.set(sub.id, generation);
       const head = await resolveRemoteHead(task.repoPath, task.branch, resolveGitAuth(db, task.workspace, { env: process.env, resolveOrigin }));
-      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error });
+      if (generation < (refreshApplied.get(sub.id) ?? 0)) return getTask(db, key).submission ?? null;
+      refreshApplied.set(sub.id, generation);
+      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error, readStartedAt });
     },
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
-    recordDeliveryCheckFailure: (key: string, input: { error: string }) => recordDeliveryCheckFailure(db, key, input),
+    recordDeliveryCheckFailure: (key: string, input: DeliveryCheckFailureInput) => recordDeliveryCheckFailure(db, key, input),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),
     completeDelivery: (key: string, note: string, expectedStateChangedAt?: string) => completeDelivery(db, key, note, expectedStateChangedAt),
     failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined }) => failDelivery(db, key, input),

@@ -87,8 +87,12 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     const claim = core.claimNextTask({ claimedBy: 'worker' })!;
     core.submitResult(task.key, { summary: 'done', revision: { headSha: 'a'.repeat(40), source: 'origin' } });
     core.updateStatus(task.key, 'delivering', 'human');
-    await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
-    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503' })).toEqual({ recorded: true });
+    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    const episode = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
+    // a failure fenced to another episode or submission is ignored; the current one is recorded
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: { ...episode, stateChangedAt: '1970-01-01T00:00:00.000Z' } })).toEqual({ recorded: false });
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: (seeded.submissionId ?? 0) + 1 })).toEqual({ recorded: false });
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: seeded.submissionId ?? null })).toEqual({ recorded: true });
     expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'unknown', lastObservation: { source: 'provider', error: 'GitHub 503' } });
   });
 

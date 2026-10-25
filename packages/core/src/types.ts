@@ -323,6 +323,7 @@ export interface DeliverySummary {
   stateChangedAt: string;              // last time the observed state actually changed
   approvedHeadSha?: string | null;     // the submitted head the human approved (migration #29)
   headSha?: string | null;             // the PR head the provider last reported; differs ⇒ pushed after approval
+  submissionId?: number | null;        // the approved submission this delivery episode is bound to (migration #29)
 }
 
 export interface Task {

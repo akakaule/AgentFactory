@@ -73,3 +73,21 @@ describe('watcher persists provider failures as unknown freshness', () => {
     expect(core.getTask(key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B } });
   });
 });
+
+describe('watcher fences a failed poll to the delivery it was started for', () => {
+  it('a failure that returns after a newer submission was approved and observed leaves it current', async () => {
+    const core = makeCore();
+    const key = deliverAt(core, A);
+    // while the poll for submission A is in flight: A bounces, B is approved and observed current
+    const failing = (async () => {
+      core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+      core.claimNextTask({ claimedBy: 'worker-1' });
+      const sub = core.submitResult(key, { summary: 'fix', revision: { headSha: B, source: 'origin' } }).submission!;
+      core.reviewApprove(key, null, null, { submissionId: sub.id, headSha: B });
+      core.recordDeliveryCheck(key, { prUrl: null, prId: null, prState: 'not_found', checksState: 'unknown', failing: [], headSha: B });
+      return { status: 503, headers: {}, body: { message: 'unavailable' } };
+    }) as unknown as Parameters<typeof makeDeps>[1];
+    await new Watcher(makeConfig(), makeDeps(core, failing)).tick();
+    expect(core.getTask(key).submission).toMatchObject({ headSha: B, freshness: 'current' });
+  });
+});

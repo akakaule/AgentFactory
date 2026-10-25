@@ -12,6 +12,7 @@ import { recordDeliveryCheck, beginDelivery, failDelivery, recordDeliveryCheckFa
 import { attachVisualization } from '../src/ops/visualization.js';
 import { formatReviewRevision } from '../src/aiReview.js';
 import { InvalidTransitionError } from '../src/errors.js';
+import { createCore } from '../src/index.js';
 import type { DB } from '../src/db.js';
 
 const A = 'a'.repeat(40);
@@ -394,5 +395,87 @@ describe('round 4: unbound doc reviews, the rebind fence, the raw-close audit', 
     const d = updateStatus(db, key, 'done', 'human', now);
     expect(d.status).toBe('done');
     expect(d.activity.some((a) => a.type === 'comment' && a.actor === 'human' && /unknown revision freshness/.test(a.body) && a.body.includes('origin unreachable'))).toBe(true);
+  });
+});
+
+describe('round 6: observations superseded during a refresh, fenced provider failures', () => {
+  function deferredHeads() {
+    const pending: Array<(h: { headSha: string | null; error: string | null }) => void> = [];
+    const resolveRemoteHead = () => new Promise<{ headSha: string | null; error: string | null }>((r) => { pending.push(r); });
+    return { pending, resolveRemoteHead };
+  }
+
+  it('an older refresh that returns after a newer one recorded B does not overwrite it', async () => {
+    const db = makeTestDb();
+    const { pending, resolveRemoteHead } = deferredHeads();
+    const core = createCore(db, { resolveOrigin: () => 'https://github.com/o/r.git', resolveRemoteHead });
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
+    const older = core.refreshRevision(key); // reads A ...
+    const newer = core.refreshRevision(key); // ... reads B, and returns first
+    pending[1]!({ headSha: B, error: null });
+    await newer;
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B } });
+    pending[0]!({ headSha: A, error: null });
+    await older;
+    const d = getTask(db, key);
+    expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B } });
+    expect(d.aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+    expect(() => core.reviewApprove(key, null, null, { submissionId: sub.id, headSha: A })).toThrow(InvalidTransitionError);
+  });
+
+  it('refreshes that return in order still record the newest head', async () => {
+    const db = makeTestDb();
+    const { pending, resolveRemoteHead } = deferredHeads();
+    const core = createCore(db, { resolveOrigin: () => null, resolveRemoteHead });
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    const first = core.refreshRevision(key);
+    const second = core.refreshRevision(key);
+    pending[0]!({ headSha: B, error: null });
+    await first;
+    pending[1]!({ headSha: A, error: null });
+    await second;
+    expect(getTask(db, key).submission).toMatchObject({ id: sub.id, freshness: 'current', lastObservation: { headSha: A } });
+  });
+
+  it('an observation whose read began before the latest recorded one is dropped (cross-process)', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    const startedEarly = now();
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'provider' }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git', readStartedAt: startedEarly }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
+  });
+
+  it('a failed poll fenced to an earlier delivery episode does not mark the current one unknown', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const first = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: first.id, headSha: A });
+    const seen = getTask(db, key).delivery!;
+    const fence = { expected: { status: 'delivering' as const, branch: seen.branch, prUrl: seen.prUrl, stateChangedAt: seen.stateChangedAt }, submissionId: first.id };
+    // the poll for submission A is in flight while A bounces and B is approved and observed
+    failDelivery(db, key, { reason: 'ci_failed', detail: 'red' }, now);
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
+    const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: second.id, headSha: B });
+    recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: B }, now);
+    expect(recordDeliveryCheckFailure(db, key, { error: 'GitHub 503', ...fence }, now)).toEqual({ recorded: false });
+    expect(getTask(db, key).submission).toMatchObject({ id: second.id, freshness: 'current' });
+  });
+
+  it('a failed poll naming the current delivery episode still records unknown freshness', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: sub.id, headSha: A });
+    const seen = getTask(db, key).delivery!;
+    expect(seen.submissionId).toBe(sub.id);
+    const fence = { expected: { status: 'delivering' as const, branch: seen.branch, prUrl: seen.prUrl, stateChangedAt: seen.stateChangedAt }, submissionId: sub.id };
+    expect(recordDeliveryCheckFailure(db, key, { error: 'GitHub 503', ...fence }, now)).toEqual({ recorded: true });
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'unknown' });
   });
 });

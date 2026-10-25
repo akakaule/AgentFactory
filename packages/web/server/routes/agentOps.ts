@@ -28,18 +28,19 @@ const heartbeatBody = z.object({
   pollSeconds: z.number().nullable().optional(), version: z.string().nullable().optional(),
 });
 const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branch: z.string().min(1), prUrl: z.string().nullable().optional() });
+const deliveryEpisode = z.object({
+  status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
+  branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
+});
 const deliveryCheckBody = z.object({
   expectedStateChangedAt: z.string().optional(),
-  expected: z.object({
-    status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
-    branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
-  }).optional(),
+  expected: deliveryEpisode.optional(),
   prUrl: z.string().nullable(), prId: z.string().nullable(),
   prState: z.string(), checksState: z.string(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
   headSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable().optional(), // the PR head the provider reports
 }).passthrough();
-const deliveryCheckFailedBody = z.object({ error: z.string().min(1).max(2000) });
+const deliveryCheckFailedBody = z.object({ error: z.string().min(1).max(2000), expected: deliveryEpisode.optional(), submissionId: z.number().int().positive().nullable().optional() });
 const deliveryCompleteBody = z.object({ note: z.string(), expectedStateChangedAt: z.string().optional() });
 const deliveryFailBody = z.object({ reason: z.string().min(1), detail: z.string(), body: z.string().optional() }).passthrough();
 const retryReserveBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive() });
@@ -274,7 +275,7 @@ export function agentOpsRoutes(core: Core): Hono {
   r.post('/tasks/:key/delivery/check', requireSupervisor, validated('json', deliveryCheckBody), (c) =>
     c.json(core.recordDeliveryCheck(c.req.param('key'), c.req.valid('json') as Parameters<Core['recordDeliveryCheck']>[1])));
   r.post('/tasks/:key/delivery/check-failed', requireSupervisor, validated('json', deliveryCheckFailedBody), (c) =>
-    c.json(core.recordDeliveryCheckFailure(c.req.param('key'), c.req.valid('json'))));
+    c.json(core.recordDeliveryCheckFailure(c.req.param('key'), c.req.valid('json') as Parameters<Core['recordDeliveryCheckFailure']>[1])));
   r.post('/tasks/:key/delivery/complete', requireSupervisor, validated('json', deliveryCompleteBody), (c) =>
     c.json(core.completeDelivery(c.req.param('key'), c.req.valid('json').note, c.req.valid('json').expectedStateChangedAt)));
   r.post('/tasks/:key/delivery/fail', requireSupervisor, validated('json', deliveryFailBody), (c) =>
