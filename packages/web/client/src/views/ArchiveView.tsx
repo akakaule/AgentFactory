@@ -3,6 +3,7 @@ import type { Task } from '../types.js';
 import { api } from '../api.js';
 import { useEventStream } from '../useEventStream.js';
 import { shortTime } from '../time.js';
+import { STATUS_LABELS, STATUS_COLORS } from '../status.js';
 
 interface Props {
   wsFilter: string; // 'all' or a workspace slug — same filter the board uses
@@ -35,6 +36,7 @@ export function ArchiveView({ wsFilter, query, multiWs, onOpen }: Props) {
               <th style={{ width: 70 }}>Key</th>
               <th>Title</th>
               {multiWs && <th style={{ width: 110 }}>Workspace</th>}
+              <th style={{ width: 130 }}>Status</th>
               <th style={{ width: 110 }}>Archived</th>
             </tr>
           </thead>
@@ -44,6 +46,12 @@ export function ArchiveView({ wsFilter, query, multiWs, onOpen }: Props) {
                 <td className="k">{t.key}</td>
                 <td className="ti">{t.title}</td>
                 {multiWs && <td className="k">{t.workspace}</td>}
+                <td>
+                  <span className="st" style={{ color: STATUS_COLORS[t.status] }}>
+                    <span className="dot" style={{ background: STATUS_COLORS[t.status] }}></span>
+                    {STATUS_LABELS[t.status]}
+                  </span>
+                </td>
                 <td className="k" style={{ color: 'var(--ink-3)' }}>{t.archivedAt ? shortTime(t.archivedAt) : '—'}</td>
               </tr>
             ))}
