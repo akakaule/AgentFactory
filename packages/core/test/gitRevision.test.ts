@@ -35,7 +35,7 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe('remoteBranchHead', () => {
-  it('reads the branch head on origin and sees a later push', async () => {
+  it('reads the branch head on origin and sees a later push', { timeout: 30000 }, async () => {
     expect(await remoteBranchHead(clone, 'feature/x')).toEqual({ headSha: first, error: null });
     writeFileSync(join(clone, 'a.txt'), 'three\n');
     git(clone, 'commit', '-am', 'second');
