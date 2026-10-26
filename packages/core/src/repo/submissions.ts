@@ -3,7 +3,7 @@ import type { DB } from '../db.js';
 import type { Stage, SubmissionSummary, RevisionSource, RevisionObservationSource, RevisionFreshness, ReviewBinding } from '../types.js';
 
 /**
- * Repo primitives for `task_submission` (migration #29): one row per accepted submit_result,
+ * Repo primitives for `task_submission` (migration #30): one row per accepted submit_result,
  * naming the revision it handed over. Run INSIDE a caller's transaction. The rows are never
  * rewritten by cleanup — deleting the worktree or branch leaves the reviewed revision readable.
  */

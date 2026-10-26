@@ -42,6 +42,8 @@ interface ReviewSession {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
+  /** Set when a human cancels the task: core already settled the attempt and fenced the execution. */
+  humanCancelled?: boolean;
   round?: ReviewRound | undefined;
   /** review sessions: the submission reviewed and the head actually diffed (core binds the verdict to it). */
   bound?: ReviewRevision | undefined;
@@ -135,6 +137,7 @@ export class Reviewer {
     // after its lease (reserveExecution), so a reconcile from this cadence could only cancel the
     // dispatcher's healthy pre-claim executions between its touches.
     await this.touchLiveSessions();
+    await this.stopCancelledSessions();
     await this.refreshEngineSettings();
     await this.refreshAgentModels();
     await this.reportModelDefaults();
@@ -239,6 +242,34 @@ export class Reviewer {
       await this.deps.core.reconcileAbandonedRetryReservations(RETRY_RESERVATION_GRACE_MS);
     } catch (err) {
       this.console.warn(`[reviewer] could not reconcile abandoned retry reservations: ${(err as Error).message}`);
+    }
+  }
+
+  /** Kill every live session (review, round member, visualization, feedback-eval) whose task a
+   *  human cancelled since it started — even if it was reopened before this tick — or deleted;
+   *  its reap settles without a failure note (see reapSettled). */
+  private async stopCancelledSessions(): Promise<void> {
+    for (const session of this.running.values()) {
+      if (session.settled || session.humanCancelled) continue;
+      let dropped: string | null = null;
+      try {
+        const detail = await this.deps.core.getTask(session.key);
+        if (detail.status === 'cancelled' || detail.activity.some((a) => a.type === 'status_change' && a.toStatus === 'cancelled'
+          && Date.parse(a.createdAt) >= session.startedAtMs)) dropped = 'cancelled';
+      } catch (err) {
+        if (err instanceof NotFoundError) dropped = 'deleted';
+      }
+      if (!dropped) continue;
+      session.humanCancelled = true;
+      this.appendLog(session, `
+[reviewer] ${session.key} was ${dropped} by a human; terminating
+`);
+      try {
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
+      } catch (err) {
+        session.humanCancelled = false;
+        this.console.warn(`[reviewer] could not stop cancelled ${session.key}: ${(err as Error).message}`);
+      }
     }
   }
 
@@ -824,6 +855,17 @@ export class Reviewer {
   private async reapSettled(session: ReviewSession, code: number | null): Promise<void> {
     if (session.deadlineTimer) clearTimeout(session.deadlineTimer);
     session.logWriter.end();
+    // A cancelled task is not a failed review: no failure note, no burnt attempt, no next round
+    // member. Core already refunded the attempt; this settle is an idempotent no-op backstop.
+    if (session.humanCancelled) {
+      if (session.reservationId) {
+        try {
+          await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'task cancelled by a human' });
+        } catch { /* best-effort: the cancel itself already settled it */ }
+      }
+      this.console.log(`[reviewer] stopped ${session.label}: ${session.key} was cancelled`);
+      return;
+    }
     if (session.mode === 'visualize') return this.reapVisualization(session, code);
 
     if (session.round) {

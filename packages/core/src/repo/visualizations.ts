@@ -14,7 +14,7 @@ import type { ReviewRevision } from '../types.js';
 export interface VisualizationMeta {
   generatedAt: string; // when the HTML was authored/attached
   bytes: number;       // uncompressed HTML size
-  revision?: ReviewRevision | null; // the submission it was attached under (migration #29); null when unbound
+  revision?: ReviewRevision | null; // the submission it was attached under (migration #30); null when unbound
 }
 
 export interface SaveVisualizationInput { taskId: number; html: string; now: string; revision?: ReviewRevision | null; }

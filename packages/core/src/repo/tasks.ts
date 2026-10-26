@@ -204,12 +204,12 @@ export function feedbackFromActivity(a: Activity): FailureTriageFeedback | null 
 
 /**
  * Failure triage per task (spec §7): only for tasks with a current failure that are neither
- * archived nor done. Two batched reads beyond the failure selection — the feedback markers — and
+ * archived nor finished (done or cancelled). Two batched reads beyond the failure selection — the feedback markers — and
  * the rules run in-process.
  */
 function failureTriageFromEvents(db: DB, rows: TaskRow[], events: Map<number, CurrentFailureEvent>): Map<number, FailureTriageSummary> {
   const out = new Map<number, FailureTriageSummary>();
-  const eligible = rows.filter((r) => r.archived_at === null && r.status !== 'done' && events.has(r.id));
+  const eligible = rows.filter((r) => r.archived_at === null && r.status !== 'done' && r.status !== 'cancelled' && events.has(r.id));
   if (eligible.length === 0) return out;
   const feedback = failureTriageFeedbackActivities(db, eligible.map((r) => r.id));
   for (const r of eligible) {
@@ -263,7 +263,7 @@ function reviewedTaskFor(db: DB, taskId: number): DocContent & { stage: Stage; s
   return db.prepare('SELECT spec, acceptance_criteria, plan, stage, status FROM task WHERE id = ?').get(taskId) as unknown as DocContent & { stage: Stage; status: Status };
 }
 
-/** The current stage's latest submission, with its freshness (migration #29); null when none. */
+/** The current stage's latest submission, with its freshness (migration #30); null when none. */
 export function submissionFor(db: DB, r: TaskRow): SubmissionSummary | null {
   const s = latestSubmissionFor(db, r.id, r.stage);
   return s ? toSubmissionSummary(s, r) : null;
@@ -321,8 +321,8 @@ export function findByKey(db: DB, key: string): Task | null {
 }
 export function setStatus(db: DB, id: number, status: Status, ts: string): void {
   // a re-queued task must not advertise a stale claimant — every path into 'queued'
-  // (release, request-changes, blocked → queued) flows through here
-  if (status === 'queued') {
+  // (release, request-changes, blocked → queued) flows through here — nor may a cancelled one
+  if (status === 'queued' || status === 'cancelled') {
     db.prepare('UPDATE task SET status = ?, claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?').run(status, ts, id);
   } else {
     db.prepare('UPDATE task SET status = ?, updated_at = ? WHERE id = ?').run(status, ts, id);
@@ -403,7 +403,7 @@ export function heldClaimRow(db: DB, claimedBy: string, workspaceId?: number): T
 }
 
 // Claim eligibility, shared by queue selection, a claim through a reservation, and the reservation
-// itself. Archived rows are always done, but the guard makes "never claim an archived task" hold
+// itself. Archived rows are always done or cancelled, but the guard makes "never claim an archived task" hold
 // unconditionally rather than by inference. The kind guard is defense in depth: a pr-review task
 // is reviewed, never implemented (updateStatus blocks it from ever reaching 'queued'), so a worker
 // must never claim one even if one is stranded there.

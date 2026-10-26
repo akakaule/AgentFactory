@@ -7,7 +7,7 @@ export interface DeliveryRow {
   pr_state: DeliveryPrState; checks_state: DeliveryChecksState;
   detail: string | null; checked_at: string | null; state_changed_at: string;
   created_at: string; updated_at: string;
-  // migration #29: the approved submission/head, and the PR head the provider last reported
+  // migration #30: the approved submission/head, and the PR head the provider last reported
   submission_id: number | null; approved_head_sha: string | null; head_sha: string | null;
 }
 

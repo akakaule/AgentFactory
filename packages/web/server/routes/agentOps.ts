@@ -29,7 +29,7 @@ const heartbeatBody = z.object({
 });
 const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branch: z.string().min(1), prUrl: z.string().nullable().optional() });
 const deliveryEpisode = z.object({
-  status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked']),
+  status: z.enum(['backlog', 'queued', 'in_progress', 'in_review', 'delivering', 'done', 'blocked', 'cancelled']),
   branch: z.string(), prUrl: z.string().nullable(), stateChangedAt: z.string(),
 });
 const deliveryCheckBody = z.object({

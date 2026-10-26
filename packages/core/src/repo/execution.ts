@@ -87,6 +87,11 @@ export function currentExecution(db: DB, taskId: number): ExecutionRow | undefin
   ).get(taskId, taskId) as ExecutionRow | undefined;
 }
 
+/** Every reserved/running execution of a task, whatever its phase (a cancel retires them all). */
+export function liveExecutions(db: DB, taskId: number): ExecutionRow[] {
+  return db.prepare("SELECT * FROM task_execution WHERE task_id = ? AND state IN ('reserved','running')").all(taskId) as unknown as ExecutionRow[];
+}
+
 export function latestExecution(db: DB, taskId: number): ExecutionRow | undefined {
   return db.prepare(
     'SELECT * FROM task_execution WHERE task_id = ? ORDER BY reserved_at DESC, rowid DESC LIMIT 1',

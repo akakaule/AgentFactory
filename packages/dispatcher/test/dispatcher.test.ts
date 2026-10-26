@@ -482,6 +482,87 @@ describe('live agent session', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('terminates a worker whose task a human cancels, without a failure note or a spent attempt', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Cancelled mid-run');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    await d.tick(); // observes the claim
+    expect(calls[0]!.child.killed).toBe(false);
+
+    core.updateStatus(key, 'cancelled', 'human');
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(true);
+    await d.tick(); // settles the reap
+
+    const detail = core.getTask(key);
+    expect(detail.status).toBe('cancelled');
+    expect(detail.activity.filter((a) => a.type === 'comment' && a.body.startsWith('failure/v1'))).toHaveLength(0);
+    expect(core.getRetryBudget(key, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 0 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('still terminates the worker when its task is cancelled and reopened between two ticks', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Cancelled then reopened');
+    const { spawn, calls } = makeFakeSpawn();
+    const log = makeFakeConsole();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: log }));
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    await d.tick();
+
+    core.updateStatus(key, 'cancelled', 'human');
+    core.updateStatus(key, 'queued', 'human');
+    await d.tick();
+
+    expect(calls[0]!.child.killed).toBe(true);
+    expect(core.getTask(key).activity.filter((a) => a.type === 'comment' && a.body.startsWith('failure/v1'))).toHaveLength(0);
+    expect(log.errors).toEqual([]);
+  });
+
+  it('a worker that exits on its own after a cancel is not a failure, and the reopened task runs again', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Exits after cancel');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
+    await d.tick();
+
+    core.updateStatus(key, 'cancelled', 'human');
+    calls[0]!.child.emitStdout(JSON.stringify({ type: 'result', total_cost_usd: 0.25, usage: { input_tokens: 100, output_tokens: 10 } }));
+    await calls[0]!.child.exit(0); // told to stop by update_status, before the dispatcher noticed
+
+    const detail = core.getTask(key);
+    expect(detail.activity.filter((a) => a.type === 'comment' && a.body.startsWith('failure/v1'))).toHaveLength(0);
+    expect(detail.metrics.costUsd).toBe(0.25); // tokens spent on a cancelled run are still counted
+    expect(d.isSkipListed(key)).toBe(false);
+
+    core.updateStatus(key, 'queued', 'human');
+    await d.tick();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('terminates a spawned worker whose queued task is cancelled before it claims', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Cancelled before claim');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
+    await d.tick();
+
+    core.updateStatus(key, 'cancelled', 'human');
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(true);
+    await d.tick();
+
+    expect(core.getTask(key).status).toBe('cancelled');
+    expect(core.getRetryBudget(key, 'dispatcher:implementation')).toMatchObject({ attemptsUsed: 0 });
+    expect(calls).toHaveLength(1);
+  });
+
   it('terminates a worker whose actual claim completed before the dispatcher observed it', async () => {
     const core = makeCore();
     const predictedKey = seedQueued(core, 'ws', 'Predicted');
@@ -1014,6 +1095,36 @@ describe('restart recovery of an abandoned pre-claim execution', () => {
       });
     }
   }
+});
+
+describe('human cancel over the board transport', () => {
+  it('http: terminates a claimed worker whose task a human cancels, without a failure note', async () => {
+    const core = openCore(':memory:', { autoFence: false });
+    core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
+    const key = seedQueued(core, 'ws', 'Cancelled over HTTP');
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch;
+    const supervisorToken = core.createApiToken({ label: 'dispatcher', isService: true, isSupervisor: true }).token;
+    const workerToken = core.createApiToken({ label: 'worker', isService: true }).token;
+    const { spawn, calls } = makeFakeSpawn();
+    const deps = makeDeps(core, spawn, { console: makeFakeConsole() });
+    deps.core = createHttpCore('http://board', supervisorToken, { fetchImpl }) as unknown as typeof deps.core;
+    const d = new Dispatcher(makeConfig({ db: undefined, board: { url: 'http://board', token: supervisorToken, workerToken } }), deps);
+
+    await d.tick();
+    const executionId = calls[0]!.req.env['AGENTFACTORY_EXECUTION_ID'];
+    core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env), ...(executionId ? { executionId } : {}) });
+    await d.tick();
+    core.updateStatus(key, 'cancelled', 'human');
+    await d.tick();
+    expect(calls[0]!.child.killed).toBe(true);
+    await d.tick();
+
+    const detail = core.getTask(key);
+    expect(detail.status).toBe('cancelled');
+    expect(detail.activity.filter((a) => a.type === 'comment' && a.body.startsWith('failure/v1'))).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

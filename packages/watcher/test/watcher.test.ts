@@ -422,6 +422,23 @@ describe('watcher tick', () => {
     expect(new Set(originArgs)).toEqual(new Set([local])); // never the board path
   });
 
+  it('stops tracking a delivering task a human cancelled: no poll, no PR opened, never completed', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.updateStatus(key, 'cancelled', 'human');
+    const urls: string[] = [];
+    const fetchJson = async (url: string, init?: { method?: string }) => {
+      urls.push(`${init?.method ?? 'GET'} ${url}`);
+      const body = url.includes('/pulls?') ? [ghPr({ merged: true, state: 'closed' })] : url.includes('/check-runs') ? green : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    await w.tick();
+    expect(urls).toEqual([]);
+    expect(core.getTask(key).status).toBe('cancelled');
+  });
+
   it('losing a race to a human move is settled, not an error', async () => {
     const core = makeCore();
     const key = deliverTask(core);

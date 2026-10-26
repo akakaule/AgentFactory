@@ -421,14 +421,14 @@ CREATE INDEX IF NOT EXISTS idx_task_execution_current ON task_execution(task_id,
 CREATE INDEX IF NOT EXISTS idx_task_execution_reserved ON task_execution(state, reserved_at);
 `;
 
-// Migration #29 — revision-bound submissions. Each submit_result records the revision it hands
+// Migration #30 — revision-bound submissions. Each submit_result records the revision it hands
 // over: an implementation's pushed head SHA + diff base SHA (resolved at the git boundary), a doc
 // stage's content hash. Reviews/visualizations/approvals then name the submission they concern;
 // last_* hold the latest observation of the branch head (git at approve time, the provider's PR
 // head while delivering) so a later push reads as stale instead of inheriting a green review.
 // The rows outlive the worktree and the branch, so the reviewed snapshot stays reproducible.
 // (ALTERs for task_visualization/task_delivery run guarded in migrate.ts.)
-export const MIGRATION_29_SQL = `
+export const MIGRATION_30_SQL = `
 CREATE TABLE IF NOT EXISTS task_submission (
   id                      INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id                 INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,

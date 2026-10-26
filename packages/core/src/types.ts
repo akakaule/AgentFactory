@@ -2,7 +2,7 @@ import type { AgentPrompts } from './agentPrompts.js';
 import type { ReviewConsensus } from './reviewConsensus.js';
 import type { AdoSyncSettings, AdoSyncSettingsInput } from './adoSync.js';
 
-export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
+export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked' | 'cancelled';
 export type Actor = 'human' | 'agent';
 /** Wire capabilities that must be present before supervisors and workers are restarted together. */
 export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
@@ -106,7 +106,7 @@ export interface AiReviewSummary {
   reviewer: string | null;
   items: AiReviewFinding[];
   consensus?: ReviewConsensus;
-  // which submission/revision the review concerns (migration #29). 'legacy' = an unbound review
+  // which submission/revision the review concerns (migration #30). 'legacy' = an unbound review
   // (posted before revisions were recorded; a clean one reads 'pending' while its stage has a
   // tracked submission it cannot prove, unless the task is done); 'superseded' = a newer submission replaced the one it
   // reviewed, or it names an earlier stage's submission (a re-review is due); 'stale' = it names the current submission but that revision moved
@@ -134,7 +134,7 @@ export interface SubmissionRevisionInput { headSha: string; baseSha?: string | n
 /** `headSha` is the last head actually seen; source/observedAt/error describe the latest attempt,
  *  so a failed refresh (error set) keeps the previously known head. */
 export interface RevisionObservation { headSha: string | null; source: RevisionObservationSource; observedAt: string; error: string | null; }
-/** One submit_result's handed-over revision (migration #29) — outlives the worktree and branch. */
+/** One submit_result's handed-over revision (migration #30) — outlives the worktree and branch. */
 export interface SubmissionSummary {
   id: number;
   stage: Stage;
@@ -323,9 +323,9 @@ export interface DeliverySummary {
   failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing')
   checkedAt: string | null;            // last watcher poll; null until the first one
   stateChangedAt: string;              // last time the observed state actually changed
-  approvedHeadSha?: string | null;     // the submitted head the human approved (migration #29)
+  approvedHeadSha?: string | null;     // the submitted head the human approved (migration #30)
   headSha?: string | null;             // the PR head the provider last reported; differs ⇒ pushed after approval
-  submissionId?: number | null;        // the approved submission this delivery episode is bound to (migration #29)
+  submissionId?: number | null;        // the approved submission this delivery episode is bound to (migration #30)
 }
 
 export interface Task {
@@ -334,7 +334,7 @@ export interface Task {
   workspace: string; // workspace slug
   unmetDependencyCount: number; // queued tasks with a non-zero count are waiting and cannot be claimed
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
-  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
+  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done' or 'cancelled')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   reviewBrief?: ReviewBrief | null; // derived from aiReview + acceptance criteria; null with no review, on list reads outside in_review, and in agent payloads
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
@@ -473,7 +473,7 @@ export interface TaskDetail extends Task {
   hasVisualization: boolean;
   visualizationGeneratedAt: string | null;
   visualizationRevision?: ReviewRevision | null; // the submission the visualization was attached under
-  // the current stage's latest submission (migration #29); null for historical tasks / before
+  // the current stage's latest submission (migration #30); null for historical tasks / before
   // the stage's first submit. Optional so older servers' payloads still type.
   submission?: SubmissionSummary | null;
   metrics: TaskMetricsView;

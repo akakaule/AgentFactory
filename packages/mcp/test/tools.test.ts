@@ -611,6 +611,46 @@ describe('update_status', () => {
     // the task never entered delivery
     expect(core.getTask(t.key).status).toBe('in_review');
   });
+
+  it('tells a worker its task was cancelled instead of moving it', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+    core.updateStatus(t.key, 'cancelled', 'human');
+
+    const res = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'blocked', note: 'stuck' } });
+    expect(res.isError).toBe(true);
+    expect(textOf(res).toLowerCase()).toContain('cancelled by a human');
+    expect(core.getTask(t.key).status).toBe('cancelled');
+  });
+
+  it('rejects cancelled as a target status (excluded from the agent input schema)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    let caught: unknown;
+    let res: any;
+    try {
+      res = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'cancelled' } });
+    } catch (err) {
+      caught = err;
+    }
+    if (caught !== undefined) expect(caught).toBeTruthy();
+    else expect(res.isError).toBe(true);
+    expect(core.getTask(t.key).status).toBe('in_progress');
+  });
+
+  it('lists cancelled tasks by status', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'cancelled', 'human');
+    const res = await client.callTool({ name: 'list_tasks', arguments: { status: 'cancelled' } });
+    expect(res.isError).toBeFalsy();
+    expect(textOf(res)).toContain(t.key);
+  });
 });
 
 // ---------------------------------------------------------------------------

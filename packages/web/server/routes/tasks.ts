@@ -178,7 +178,7 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     // Closing a review by status is an approval: refresh the branch head first, as /approve does,
     // so a push nobody observed yet reads stale (409) and an unreachable origin is audited.
     if (from === 'in_review' && (b.status === 'done' || b.status === 'delivering')) await core.refreshRevision(c.req.param('key'));
-    if (b.status === 'queued' && from === 'backlog') {
+    if (b.status === 'queued' && (from === 'backlog' || from === 'cancelled')) {
       return c.json(core.queueWithIntakeAcknowledgment(c.req.param('key'), {
         ...(b.expectedRevision !== undefined ? { expectedRevision: b.expectedRevision } : {}),
         ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),

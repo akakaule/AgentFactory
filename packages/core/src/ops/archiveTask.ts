@@ -17,12 +17,12 @@ function applyArchive(db: DB, taskId: number, archivedAt: string | null, ts: str
   });
 }
 
-/** Archive one done task: hidden from default listings, status and data untouched. */
+/** Archive one done or cancelled task: hidden from default listings, status and data untouched. */
 export function archiveTask(db: DB, key: string, now: () => string = nowIso): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
-  if (row.status !== 'done')
-    throw new InvalidTransitionError(`only a done task can be archived: ${key} is ${row.status}`);
+  if (row.status !== 'done' && row.status !== 'cancelled')
+    throw new InvalidTransitionError(`only a done or cancelled task can be archived: ${key} is ${row.status}`);
   if (row.archived_at !== null)
     throw new InvalidTransitionError(`task is already archived: ${key}`);
   return transaction(db, () => {
@@ -32,7 +32,7 @@ export function archiveTask(db: DB, key: string, now: () => string = nowIso): Ta
   });
 }
 
-/** Restore an archived task to the default listings (status is still 'done'). */
+/** Restore an archived task to the default listings (its done or cancelled status is unchanged). */
 export function unarchiveTask(db: DB, key: string, now: () => string = nowIso): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);

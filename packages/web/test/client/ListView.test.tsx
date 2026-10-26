@@ -28,6 +28,13 @@ describe('ListView', () => {
     expect(titles).toEqual(['In-progress task', 'In-review task', 'Backlog task', 'Done task']);
   });
 
+  it('sorts cancelled tasks after done, labelled Cancelled', () => {
+    render(<ListView tasks={[makeTask('AF-7', 'Cancelled task', 'cancelled'), ...tasks]} onOpen={vi.fn()} />);
+    const titles = screen.getAllByRole('row').slice(1).map((r) => r.querySelector('.ti')?.textContent);
+    expect(titles.at(-1)).toBe('Cancelled task');
+    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+  });
+
   it('shows status with its label and owner', () => {
     const claimed = { ...makeTask('AF-9', 'Claimed task', 'in_progress'), claimedBy: 'worker-1', claimedAt: '2024-01-01T00:00:00Z' };
     render(<ListView tasks={[claimed, makeTask('AF-1', 'Plain task', 'backlog')]} onOpen={vi.fn()} />);
