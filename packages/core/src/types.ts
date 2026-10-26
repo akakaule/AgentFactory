@@ -279,6 +279,7 @@ export interface DeliverySummary {
   failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing')
   checkedAt: string | null;            // last watcher poll; null until the first one
   stateChangedAt: string;              // last time the observed state actually changed
+  repairExhausted?: boolean;           // derived on task reads: the repair budget is spent and its repair_exhausted note posted (until Restart task)
 }
 
 export interface Task {

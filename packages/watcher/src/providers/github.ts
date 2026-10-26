@@ -134,12 +134,14 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       }
       // Pre-merge semantics check the PR head; postMergeChecks moves a merged PR's target to
       // the merge commit (falling back to the head when the API returns no merge sha).
-      const sha = obs.state === 'merged' && postMergeChecks ? (obs.mergeCommitSha ?? obs.headSha) : obs.headSha;
-      if (!sha) return { pr: obs, checks: { state: 'unknown', failing: [] } };
+      const onMergeCommit = obs.state === 'merged' && postMergeChecks && !!obs.mergeCommitSha;
+      const sha = onMergeCommit ? obs.mergeCommitSha : obs.headSha;
+      const checksTarget = onMergeCommit ? 'merge_commit' : 'head';
+      if (!sha) return { pr: obs, checks: { state: 'unknown', failing: [] }, checksTarget };
 
       const runsBody = (await get(`${repo}/commits/${sha}/check-runs?per_page=100`)) as { check_runs?: CheckRun[] };
       const statusBody = (await get(`${repo}/commits/${sha}/status`)) as { statuses?: CommitStatus[] };
-      return { pr: obs, checks: combineChecks(runsBody.check_runs ?? [], statusBody.statuses ?? []) };
+      return { pr: obs, checks: combineChecks(runsBody.check_runs ?? [], statusBody.statuses ?? []), checksTarget };
     },
 
     async describeFailures(remote, result, { postMergeChecks }): Promise<string[]> {

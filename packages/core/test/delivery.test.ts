@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { openCore, type Core } from '../src/index.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { openCore, POST_MERGE_CHECK_PUBLICATION_MS, type Core } from '../src/index.js';
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
-import { isFailureMarker, parseFailureComment } from '../src/failure.js';
+import { buildFailureComment, isFailureMarker, parseFailureComment } from '../src/failure.js';
 import { InvalidTransitionError, ValidationError } from '../src/errors.js';
 
 const GH = 'https://github.com/acme/widgets.git';
@@ -249,6 +249,160 @@ describe('delivery ops', () => {
     expect(() => core.completeDelivery(key, 'again')).toThrow(InvalidTransitionError);
   });
 
+  it('failing post-merge checks create exactly one linked backlog follow-up task', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    const merged = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'failing' as const, checksTarget: 'merge_commit' as const, failing: [{ name: 'deploy', url: 'https://ci/1' }] };
+    core.recordDeliveryCheck(key, merged);
+    core.recordDeliveryCheck(key, merged);
+    core.recordDeliveryCheck(key, { ...merged, failing: [{ name: 'deploy', url: 'https://ci/2' }] });
+
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+    expect(done.dependents).toHaveLength(1);
+    const follow = core.getTask(done.dependents[0]!.key);
+    expect(follow).toMatchObject({ status: 'backlog', workspace: done.workspace });
+    expect(follow.title).toContain(key);
+    expect(follow.spec).toContain('deploy');
+    // A reference, not a delivery: a 'pr' link would seed the follow-up's own delivery with the
+    // original (already merged) PR when its implementation is approved.
+    expect(follow.links).toEqual([expect.objectContaining({ kind: 'url', url: prUrl })]);
+    expect(follow.dependencies.map((d) => d.key)).toEqual([key]);
+    expect(done.activity.at(-1)!.body).toContain(follow.key);
+  });
+
+  it('post-merge checks that turn red after completion still create one follow-up', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    const pending = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'pending' as const, checksTarget: 'merge_commit' as const, failing: [] };
+    core.recordDeliveryCheck(key, pending);
+    expect(core.getTask(key)).toMatchObject({ status: 'done', dependents: [] });
+
+    const failing = { ...pending, checksState: 'failing' as const, failing: [{ name: 'deploy', url: null }] };
+    core.recordDeliveryCheck(key, failing);
+    core.recordDeliveryCheck(key, failing);
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
+  });
+
+  it("approving the follow-up's implementation delivers its own branch, not the original PR", () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    core.recordDeliveryCheck(key, { prUrl, prId: '#1', prState: 'merged', checksState: 'failing', checksTarget: 'merge_commit', failing: [{ name: 'deploy', url: null }] });
+    const followKey = core.getTask(key).dependents[0]!.key;
+
+    core.updateStatus(followKey, 'queued', 'human');
+    expect(core.claimNextTask({ claimedBy: 'w2' })?.key).toBe(followKey);
+    core.submitResult(followKey, { summary: 'spec', spec: 'repair the deploy check', acceptanceCriteria: '1. deploy is green' });
+    core.reviewApprove(followKey);
+    expect(core.getTask(followKey).stage).toBe('implementation');
+    if (core.getTask(followKey).status !== 'queued') core.updateStatus(followKey, 'queued', 'human');
+    expect(core.claimNextTask({ claimedBy: 'w3' })?.key).toBe(followKey);
+    core.submitResult(followKey, { summary: 'fixed' });
+    expect(core.reviewApprove(followKey).status).toBe('delivering');
+    expect(core.getDelivery(followKey)).toMatchObject({ prUrl: null, prState: 'unknown' });
+  });
+
+  describe('post-merge checks not yet published', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    const obs = (checksState: 'none' | 'unknown' | 'pending' | 'passing' | 'failing') =>
+      ({ prUrl, prId: '#1', prState: 'merged' as const, checksState, checksTarget: 'merge_commit' as const,
+        failing: checksState === 'failing' ? [{ name: 'deploy', url: null }] : [] });
+
+    it('none → pending → failing on a done task still creates exactly one follow-up', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('none'));
+      expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'none' }, dependents: [] });
+      expect(core.recordDeliveryCheck(key, obs('pending')).accepted).toBe(true);
+      expect(core.getTask(key).delivery).toMatchObject({ checksState: 'pending' });
+      core.recordDeliveryCheck(key, obs('failing'));
+      core.recordDeliveryCheck(key, obs('failing'));
+      expect(core.getTask(key).dependents).toHaveLength(1);
+    });
+
+    it('unknown checks after the merge are also still observed', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('unknown'));
+      expect(core.getTask(key).status).toBe('done');
+      core.recordDeliveryCheck(key, obs('failing'));
+      expect(core.getTask(key).dependents).toHaveLength(1);
+    });
+
+    it('passing → pending → failing (a check published after a fast one passed) still creates exactly one follow-up', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('passing'));
+      expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'passing' }, dependents: [] });
+      expect(core.recordDeliveryCheck(key, obs('pending')).accepted).toBe(true);
+      core.recordDeliveryCheck(key, obs('failing'));
+      core.recordDeliveryCheck(key, obs('failing'));
+      expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'failing' } });
+      expect(core.getTask(key).dependents).toHaveLength(1);
+    });
+
+    it('passing checks stop being observed after the publication window', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.parse('2026-10-26T12:00:00Z');
+      vi.setSystemTime(t0);
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('passing'));
+      vi.setSystemTime(t0 + POST_MERGE_CHECK_PUBLICATION_MS + 1000);
+      expect(core.recordDeliveryCheck(key, obs('failing'))).toMatchObject({ skipped: true, accepted: false });
+      expect(core.getTask(key).dependents).toEqual([]);
+    });
+
+    it('a done task accepts no observation without post-merge (merge-commit) check evidence', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('pending'));
+      const { checksTarget: _t, ...headOnly } = obs('failing');
+      expect(core.recordDeliveryCheck(key, headOnly)).toMatchObject({ skipped: true, accepted: false });
+      expect(core.recordDeliveryCheck(key, { ...obs('failing'), checksTarget: 'head' })).toMatchObject({ skipped: true, accepted: false });
+      expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'pending' }, dependents: [] });
+    });
+
+    it('checks that never appear stop being observed after the publication window', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.parse('2026-10-26T12:00:00Z');
+      vi.setSystemTime(t0);
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('none'));
+      vi.setSystemTime(t0 + POST_MERGE_CHECK_PUBLICATION_MS - 1000);
+      expect(core.recordDeliveryCheck(key, obs('none')).accepted).toBe(true); // still within the window
+      vi.setSystemTime(t0 + POST_MERGE_CHECK_PUBLICATION_MS + 1000);
+      expect(core.recordDeliveryCheck(key, obs('failing'))).toMatchObject({ skipped: true, accepted: false });
+      expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'none' }, dependents: [] });
+    });
+  });
+
+  it('failing PR-head checks on a merged PR create no follow-up (no post-merge evidence)', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const head = { prUrl: 'https://github.com/acme/widgets/pull/1', prId: '#1', prState: 'merged' as const, checksState: 'failing' as const, failing: [{ name: 'build', url: null }] };
+    core.recordDeliveryCheck(key, head);
+    core.recordDeliveryCheck(key, { ...head, checksTarget: 'head' });
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+    expect(done.dependents).toEqual([]);
+    expect(done.activity.filter((a) => a.type === 'status_change').at(-1)!.body).toContain('further CI repair is separate work');
+  });
+
+  it('passing post-merge checks create no follow-up', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/1', prId: '#1', prState: 'merged', checksState: 'passing' });
+    expect(core.getTask(key).dependents).toEqual([]);
+  });
+
   it('failDelivery re-queues, clears the claimant, and posts exactly one parseable failure/v1', () => {
     const core = makeCore();
     const key = deliverTask(core);
@@ -302,6 +456,68 @@ describe('delivery ops', () => {
 
     core.restartTask(key);
     expect(core.claimNextTask({ claimedBy: 'interactive-worker' })?.key).toBe(key);
+  });
+
+  it('an exhausted repair budget posts exactly one repair_exhausted note and keeps the task delivering', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'delivery', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op); // 2 of 2 repairs already spent
+
+    const first = core.failDelivery(key, { reason: 'ci_failed', detail: 'PR #1 checks failed: build' });
+    const again = core.failDelivery(key, { reason: 'ci_failed', detail: 'PR #1 checks failed: build' });
+
+    expect(first.status).toBe('delivering');
+    expect(again.status).toBe('delivering');
+    const notes = again.activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body));
+    expect(notes).toHaveLength(1);
+    expect(parseFailureComment(notes[0]!.body)).toMatchObject({ reason: 'repair_exhausted', source: 'watcher', attempt: 2, maxAttempts: 2 });
+    expect(notes[0]!.body).toMatch(/restart/i);
+    expect(again.failure).toMatchObject({ reason: 'repair_exhausted', skipListed: true });
+    expect(again.activity.filter((a) => a.type === 'status_change').at(-1)).toMatchObject({ toStatus: 'delivering' });
+  });
+
+  it('a later supervisor failure note does not reopen the exhausted episode: one note until Restart task', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'delivery', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    expect(core.getTask(key).delivery?.repairExhausted).toBe(true);
+    // a feedback evaluation already in flight posts its own failure after the exhaustion note
+    core.addComment(key, { actor: 'human', body: buildFailureComment({ reason: 'review_failed', source: 'reviewer', detail: 'feedback eval crashed', attempt: 1, maxAttempts: 2 }) });
+    expect(core.getTask(key).failure).toMatchObject({ reason: 'review_failed', source: 'reviewer' });
+
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    const after = core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    expect(after.status).toBe('delivering');
+    expect(after.delivery?.repairExhausted).toBe(true);
+    const exhausted = after.activity.filter((a) => a.type === 'comment' && parseFailureComment(a.body)?.reason === 'repair_exhausted');
+    expect(exhausted).toHaveLength(1);
+
+    // Restart task still finds the exhausted delivery behind the newer reviewer note
+    const restarted = core.restartTask(key);
+    expect(restarted.delivery?.repairExhausted).toBe(false);
+    expect(core.failDelivery(key, { reason: 'ci_failed', detail: 'red again' }).status).toBe('queued');
+  });
+
+  it('Restart task on an exhausted delivery restores the allowance; the next failure bounces normally', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'delivery', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+
+    const restarted = core.restartTask(key);
+    expect(restarted.status).toBe('delivering');
+    expect(restarted.failure).toBeNull();
+
+    const bounced = core.failDelivery(key, { reason: 'ci_failed', detail: 'red again' });
+    expect(bounced.status).toBe('queued');
+    expect(bounced.failure).toMatchObject({ reason: 'ci_failed', attempt: 1, maxAttempts: 2, skipListed: false });
   });
 
   it('beginDelivery requires delivering status', () => {

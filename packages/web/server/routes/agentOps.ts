@@ -36,6 +36,7 @@ const deliveryCheckBody = z.object({
   }).optional(),
   prUrl: z.string().nullable(), prId: z.string().nullable(),
   prState: z.string(), checksState: z.string(),
+  checksTarget: z.enum(['head', 'merge_commit']).optional(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
 }).passthrough();
 const deliveryCompleteBody = z.object({ note: z.string(), expectedStateChangedAt: z.string().optional() });

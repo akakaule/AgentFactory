@@ -1,4 +1,4 @@
-import { InvalidTransitionError, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type Workspace } from '@agentfactory/core';
+import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -91,7 +91,8 @@ export class Watcher {
     const servedSet = new Set(served);
     const mine = (t: Task): boolean => servedSet.has(t.workspace);
     const tasks = (await core.listTasks()).filter(t => mine(t) && !t.archivedAt &&
-      (t.status === 'delivering' || (t.delivery && ['queued', 'in_progress', 'blocked', 'in_review'].includes(t.status))));
+      (t.status === 'delivering' || (t.delivery && ['queued', 'in_progress', 'blocked', 'in_review'].includes(t.status)) ||
+        (t.status === 'done' && this.awaitingPostMergeChecks(t.delivery))));
     try {
       await core.recordSupervisorHeartbeat({
         name: this.config.name, kind: 'watcher', workspaces: served,
@@ -169,12 +170,22 @@ export class Watcher {
     this.deps.console.warn(msg);
   }
 
+  /**
+   * A completed delivery whose merged PR's post-merge checks have no verdict yet — pending, or not
+   * published within core's publication window (followed up on red).
+   */
+  private awaitingPostMergeChecks(delivery: Task['delivery'] | undefined): boolean {
+    return this.config.postMergeChecks && !!delivery && awaitingPostMergeChecks(delivery, this.deps.now());
+  }
+
   private async checkTask(key: string): Promise<void> {
     const { core, console, now } = this.deps;
     if ((this.backoffUntil.get(key) ?? 0) > now()) return;
 
     const detail = await core.getTask(key);
-    if (detail.archivedAt || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(detail.status)) return;
+    if (detail.archivedAt) return;
+    if (!['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(detail.status) &&
+        !(detail.status === 'done' && this.awaitingPostMergeChecks(detail.delivery))) return;
     let delivery = detail.delivery;
 
     // Self-heal a raw in_review → delivering drag: approve seeds the delivery row, a drag
@@ -245,6 +256,7 @@ export class Watcher {
       prId: pr?.id ?? null,
       prState: pr ? pr.state : 'not_found',
       checksState: checks.state,
+      checksTarget: result.checksTarget ?? 'head',
       failing: checks.failing,
     });
     if (recorded.skipped) return;
@@ -255,33 +267,43 @@ export class Watcher {
     if (pr?.state === 'merged') return;
     // Only Delivering can bounce an open/closed PR; other states already have a repair owner.
     if (detail.status !== 'delivering') return;
+    // The repair budget is spent and the human was told once: wait for Restart task (which
+    // supersedes the note) instead of re-attempting the bounce every poll.
+    if (detail.delivery?.repairExhausted) return;
 
     // Transitions run through core's assertTransition inside a transaction; racing a human
     // override throws InvalidTransitionError — the board already settled it, not an error.
+    // An exhausted repair budget is its own outcome: core keeps the task in Delivering and posts
+    // one `repair_exhausted` note instead of bouncing it.
+    const bounce = async (input: Parameters<typeof core.failDelivery>[1], what: string): Promise<void> => {
+      const after = await core.failDelivery(key, input);
+      if (after.status === 'delivering' && after.delivery?.repairExhausted) {
+        console.warn(`[watcher] ${key}: ${what}, but the delivery repair budget is exhausted — left in Delivering until a human restarts the task`);
+      } else {
+        console.log(`[watcher] ${key}: bounced — ${what}`);
+      }
+    };
     try {
       if (pr && pr.state === 'closed') {
-        await core.failDelivery(key, {
+        await bounce({
           reason: 'pr_closed',
           detail: `PR ${pr.id} was closed without merging`,
           body: `PR: ${pr.url} (closed unmerged, head ${delivery.branch})\n\nThe branch still exists. If the close was intentional, a human should re-scope or archive this task; otherwise fix the work on the SAME branch — after the implementation review is approved again, a fresh PR is opened from it. Do not open a PR yourself.`,
-        });
-        console.log(`[watcher] ${key}: bounced — PR ${pr.id} closed without merge`);
+        }, `PR ${pr.id} closed without merge`);
       } else if (pr && pr.mergeConflict) {
-        await core.failDelivery(key, {
+        await bounce({
           reason: 'merge_conflict',
           detail: `PR ${pr.id} has merge conflicts`,
           body: this.mergeConflictBody(pr.url, delivery.branch, pr.mergeConflict.detail),
-        });
-        console.log(`[watcher] ${key}: bounced — PR ${pr.id} has merge conflicts`);
+        }, `PR ${pr.id} has merge conflicts`);
       } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
         const errors = await this.captureErrors(provider, remote, result);
-        await core.failDelivery(key, {
+        await bounce({
           reason: 'ci_failed',
           detail: `PR ${pr.id} checks failed: ${names}`,
           body: this.ciFailureBody(pr.url, delivery.branch, checks.failing, errors),
-        });
-        console.log(`[watcher] ${key}: bounced — checks failed (${names})${errors.length ? ` · captured ${errors.length} error line(s)` : ''}`);
+        }, `checks failed (${names})${errors.length ? ` · captured ${errors.length} error line(s)` : ''}`);
       }
       // open + pending/passing/none/unknown, or no PR yet: recorded; keep waiting.
     } catch (err) {

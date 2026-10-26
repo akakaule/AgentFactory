@@ -288,6 +288,24 @@ export function advanceRetryBudget(db: DB, taskId: number, operation: RetryOpera
   ).run(taskId, row.operation, row.generation + 1, row.max_attempts, now, reason);
 }
 
+/**
+ * The current delivery repair budget is spent AND its `repair_exhausted` note was already posted
+ * for this generation (the note is newer than the generation's start). Derived from the budget
+ * row + activity log, so a later supervisor failure note superseding Task.failure cannot make the
+ * watcher report the same episode twice; Restart task starts a new generation and clears it.
+ */
+export function deliveryExhaustionReported(db: DB, taskId: number): boolean {
+  const row = currentBudgetRow(db, taskId, 'delivery');
+  if (!row || row.attempts_used < row.max_attempts) return false;
+  const notes = db.prepare(
+    `SELECT body FROM activity WHERE task_id = ? AND type = 'comment' AND created_at >= ? AND lower(body) LIKE 'failure/v1%'`,
+  ).all(taskId, row.created_at) as Array<{ body: string }>;
+  return notes.some((n) => {
+    const parsed = parseFailureComment(n.body);
+    return parsed?.reason === 'repair_exhausted' && parsed.source === 'watcher';
+  });
+}
+
 export function deliveryBudgetExhausted(db: DB, taskId: number): boolean {
   const row = currentBudgetRow(db, taskId, 'delivery');
   return row !== undefined && row.attempts_used >= row.max_attempts;

@@ -9,7 +9,9 @@ import { azdoGuard, basicPat } from './azdoHttp.js';
  * PR search is the ado-bridge `Build-AdoPrSearchPath` shape, broadened from status=completed
  * to status=all so open/abandoned PRs classify too. "Checks" are the PR status records
  * (build-validation policies and external status writers post there); a merged/abandoned
- * PR keeps its final statuses, so the same read works pre- and post-merge.
+ * PR keeps its final statuses, so the same read works pre- and post-merge. With postMergeChecks,
+ * a completed PR is judged on its merge commit instead: the commit's statuses plus the builds of
+ * that commit on the target branch (CI pipelines post no PR status after completion).
  */
 
 interface AdoPr {
@@ -19,7 +21,17 @@ interface AdoPr {
   mergeFailureMessage?: string | null;
   lastMergeSourceCommit?: { commitId: string } | null;
   lastMergeCommit?: { commitId: string } | null;
+  targetRefName?: string;
+  repository?: { id?: string } | null;
   creationDate?: string;
+}
+/** One Azure Pipelines build (`_apis/build/builds`). */
+interface AdoBuild {
+  id: number;
+  status?: string; // notStarted | inProgress | cancelling | postponed | completed
+  result?: string | null; // succeeded | partiallySucceeded | failed | canceled
+  sourceVersion?: string;
+  definition?: { name?: string } | null;
 }
 interface AdoPrStatus {
   state: string; // succeeded | failed | error | pending | notSet | notApplicable
@@ -78,6 +90,27 @@ export function combineAdoStatuses(statuses: AdoPrStatus[]): { state: DeliveryCh
   return { state: 'passing', failing: [] };
 }
 
+/**
+ * Fold a merge commit's statuses and builds into one verdict (red beats pending beats green).
+ * Only builds of `commitId` count; a failed/canceled build fails, an unfinished one is pending.
+ */
+export function combineAdoMergeCommitChecks(
+  statuses: AdoPrStatus[], builds: AdoBuild[], commitId: string, buildUrl: (id: number) => string,
+): { state: DeliveryChecksState; failing: DeliveryFailingCheck[] } {
+  const fromStatuses = combineAdoStatuses(statuses);
+  const failing = [...fromStatuses.failing];
+  let pending = fromStatuses.state === 'pending';
+  const own = builds.filter((b) => b.sourceVersion === commitId);
+  for (const b of own) {
+    if (b.status !== 'completed') pending = true;
+    else if (b.result === 'failed' || b.result === 'canceled') failing.push({ name: b.definition?.name ?? `build ${b.id}`, url: buildUrl(b.id) });
+  }
+  if (failing.length > 0) return { state: 'failing', failing };
+  if (pending) return { state: 'pending', failing: [] };
+  if (statuses.length === 0 && own.length === 0) return { state: 'none', failing: [] };
+  return { state: 'passing', failing: [] };
+}
+
 export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | null; apiVersion: string }): DeliveryProviderApi {
   const { fetchJson, pat, apiVersion } = opts;
   const headers: Record<string, string> = {
@@ -95,7 +128,7 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
 
   return {
     key: 'azdo',
-    async check(remote, branch, prUrl, _opts): Promise<DeliveryCheckResult> {
+    async check(remote, branch, prUrl, { postMergeChecks }): Promise<DeliveryCheckResult> {
       if (remote.provider !== 'azdo') throw new Error('azdo provider got a non-azdo remote');
       const e = encodeURIComponent;
       const base = `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}/_apis/git/repositories/${e(remote.repo)}`;
@@ -119,10 +152,25 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       if (obs.state === 'open' && obs.mergeConflict) {
         return { pr: obs, checks: { state: 'failing', failing: [{ name: 'merge conflict', url: obs.url }] } };
       }
+      const mergeCommit = obs.state === 'merged' && postMergeChecks ? obs.mergeCommitSha : null;
+      if (mergeCommit) {
+        // Post-merge evidence: the merge commit's own statuses + the builds of that commit.
+        const projectBase = `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}`;
+        const repoId = pr.repository?.id ?? ((await get(`${base}?api-version=${apiVersion}`)) as { id?: string }).id ?? remote.repo;
+        const commitStatuses = (await get(`${base}/commits/${e(mergeCommit)}/statuses?latestOnly=true&api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
+        const builds = (await get(
+          `${projectBase}/_apis/build/builds?repositoryId=${e(repoId)}&repositoryType=TfsGit` +
+          `${pr.targetRefName ? `&branchName=${e(pr.targetRefName)}` : ''}&queryOrder=queueTimeDescending&$top=50&api-version=${apiVersion}`,
+        )) as { value?: AdoBuild[] };
+        const checks = combineAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit,
+          (id) => `${projectBase}/_build/results?buildId=${id}`);
+        return { pr: obs, checks, checksTarget: 'merge_commit' };
+      }
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       const checks = combineAdoStatuses(statuses.value ?? []);
       // Merge completion is independent of checks; preserve the provider's actual status evidence.
-      return { pr: obs, checks };
+      // PR statuses describe the PR, never the merge commit, so they are not post-merge evidence.
+      return { pr: obs, checks, checksTarget: 'head' };
     },
 
     async describeFailures(remote, result): Promise<string[]> {

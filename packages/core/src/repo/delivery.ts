@@ -1,4 +1,5 @@
 import type { DB } from '../db.js';
+import { deliveryExhaustionReported } from './retry.js';
 import type { DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, Status } from '../types.js';
 
 export interface DeliveryRow {
@@ -19,8 +20,15 @@ export interface DeliveryObservation {
   prId?: string | null | undefined;
   prState: DeliveryPrState;
   checksState: DeliveryChecksState;
+  /**
+   * Which commit the checks describe: the PR head, or (with the watcher's postMergeChecks) the
+   * merge commit. Only 'merge_commit' evidence is post-merge; absent means head.
+   */
+  checksTarget?: DeliveryChecksTarget | undefined;
   failing?: DeliveryFailingCheck[] | undefined;
 }
+
+export type DeliveryChecksTarget = 'head' | 'merge_commit';
 
 const parseFailing = (detail: string | null): DeliveryFailingCheck[] => {
   if (!detail) return [];
@@ -77,7 +85,7 @@ export function deliveryByTaskIds(db: DB, ids: number[]): Map<number, DeliverySu
   const placeholders = ids.map(() => '?').join(',');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (db.prepare(`SELECT * FROM task_delivery WHERE task_id IN (${placeholders})`).all as (...a: any[]) => unknown)(...ids) as DeliveryRow[];
-  for (const r of rows) out.set(r.task_id, toDeliverySummary(r));
+  for (const r of rows) out.set(r.task_id, { ...toDeliverySummary(r), repairExhausted: deliveryExhaustionReported(db, r.task_id) });
   return out;
 }
 
