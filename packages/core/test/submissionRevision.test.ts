@@ -679,3 +679,50 @@ describe('round 10: named approvals, board-issued observation generations', () =
     expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
   });
 });
+
+describe('round 11: generation-aware provider answers are ordered on the board clock', () => {
+  const PR = { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open' as const, checksState: 'pending' as const };
+  function delivering(db: DB) {
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: sub.id, headSha: A });
+    recordDeliveryCheck(db, key, { ...PR, headSha: A }, now);
+    return { key, sub };
+  }
+
+  it('a watcher whose clock runs behind still records head B read with a current generation', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git', readStartedAt: now() }, now); // git sees A
+    const episode = getTask(db, key).delivery!;
+    const expected = { status: 'delivering' as const, branch: episode.branch, prUrl: episode.prUrl, stateChangedAt: episode.stateChangedAt };
+    const watcherClockBehind = new Date(Date.parse(now()) - 5_000).toISOString();
+    recordDeliveryCheck(db, key, { ...PR, expected, headSha: B, readStartedAt: watcherClockBehind, observationGeneration: episode.observationGeneration! }, now);
+    const d = getTask(db, key);
+    expect(d.delivery).toMatchObject({ headSha: B });
+    expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
+    expect(d.aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+  });
+
+  it('a watcher whose clock runs behind still records a failed poll with a current generation as unknown', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git', readStartedAt: now() }, now);
+    const generation = getTask(db, key).delivery!.observationGeneration!;
+    const watcherClockBehind = new Date(Date.parse(now()) - 5_000).toISOString();
+    expect(recordDeliveryCheckFailure(db, key, { error: 'GitHub 503', readStartedAt: watcherClockBehind, observationGeneration: generation }, now)).toEqual({ recorded: true });
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'unknown', lastObservation: { headSha: A, source: 'provider', error: 'GitHub 503' } });
+  });
+
+  it('a git read that began after the generation was issued still wins over the provider answer recorded first', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    const generation = getTask(db, key).delivery!.observationGeneration!;
+    const gitReadStarted = now(); // the board's git refresh starts while the provider request is in flight
+    const watcherClockBehind = new Date(Date.parse(now()) - 5_000).toISOString();
+    recordDeliveryCheck(db, key, { ...PR, headSha: A, readStartedAt: watcherClockBehind, observationGeneration: generation }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: gitReadStarted }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git' } });
+  });
+});

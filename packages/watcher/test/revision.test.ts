@@ -140,3 +140,22 @@ describe('watcher echoes the board-issued observation generation (round 10)', ()
     expect(core.getTask(key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git' } });
   });
 });
+
+describe('watcher clock behind the board (round 11)', () => {
+  it('a poll with a current generation that reads head B is recorded although its clock runs behind', async () => {
+    const core = makeCore();
+    const key = deliverAt(core, A);
+    await poll(core, A);
+    const sub = core.getTask(key).submission!;
+    core.observeRevision(key, { submissionId: sub.id, headSha: A, source: 'git', readStartedAt: new Date().toISOString() });
+    const pushed = fakeFetch([
+      ['/pulls/42', { body: ghPr({ head: { sha: B } }) }],
+      ['/pulls?head=', { body: [ghPr({ head: { sha: B } })] }],
+      ['/check-runs', { body: running }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const clockBehind = () => Date.now() - 5_000;
+    await new Watcher(makeConfig(), makeDeps(core, pushed, { now: clockBehind })).tick();
+    expect(core.getTask(key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
+  });
+});

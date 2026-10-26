@@ -114,7 +114,7 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     // late answer can't restore an older head: by the board-issued generation the watcher captured
     // before its request (clock-independent), else by observeRevision's readStartedAt ordering.
     if (d.submission_id !== null && !lateHead && (obs.headSha || providerErrorPending(db, d.submission_id)))
-      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider', readStartedAt: boardClamped(obs.readStartedAt, ts) }, ts);
+      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider', readStartedAt: providerReadStart(db, d.submission_id, obs.readStartedAt, obs.observationGeneration, ts) }, ts);
     const stateChangedAt = changed ? ts : d.state_changed_at;
     if (awaitingPostMerge) {
       const followUp = ensurePostMergeFollowUp(db, row, ts);
@@ -133,6 +133,20 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
  *  record an observation in the future, which would fence out the next real one. */
 function boardClamped(readStartedAt: string | undefined, ts: string): string | undefined {
   return readStartedAt === undefined || readStartedAt <= ts ? readStartedAt : ts;
+}
+
+/**
+ * A provider poll's read start on the board's clock. With a current generation no observation was
+ * recorded since the watcher read it, so the poll began no earlier than the latest recorded one:
+ * the watcher's clock (which may run behind) is raised to that bound and never fences the answer out,
+ * while a git read that began after it still records over the answer. Without a generation (an older
+ * watcher) the watcher's read start is only clamped.
+ */
+function providerReadStart(db: DB, submissionId: number, readStartedAt: string | undefined, generation: number | undefined, ts: string): string | undefined {
+  const clamped = boardClamped(readStartedAt, ts);
+  if (clamped === undefined || generation === undefined) return clamped;
+  const last = submissionById(db, submissionId)?.last_observed_at ?? null;
+  return last !== null && clamped < last ? last : clamped;
 }
 
 /** Another observation of the submission was recorded since the caller captured `generation`. */
@@ -178,8 +192,8 @@ export function recordDeliveryCheckFailure(db: DB, key: string, input: DeliveryC
     if (input.submissionId !== undefined && input.submissionId !== d.submission_id) return { recorded: false };
     const error = input.error.trim().slice(0, 500) || 'provider check failed';
     const ts = now();
-    const readStartedAt = boardClamped(input.readStartedAt, ts);
     if (generationMoved(db, d.submission_id, input.observationGeneration)) return { recorded: false };
+    const readStartedAt = providerReadStart(db, d.submission_id, input.readStartedAt, input.observationGeneration, ts);
     const before = submissionById(db, d.submission_id);
     if (readStartedAt !== undefined && before?.last_observed_at != null && readStartedAt < before.last_observed_at) return { recorded: false };
     return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error, readStartedAt }, ts) !== null };
