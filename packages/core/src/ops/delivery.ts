@@ -13,7 +13,7 @@ import { createTaskWithinTransaction } from './createTask.js';
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget, budgetByTask } from '../repo/retry.js';
+import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget, budgetByTask, deliveryExhaustionReported } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
@@ -207,9 +207,10 @@ export function failDelivery(
     const repair = reserveRetryRow(db, row.id, key, { operation: 'delivery', maxAttempts: DEFAULT_DELIVERY_REPAIR_ATTEMPTS }, ts);
     if (!repair) {
       // Out of repairs: no bounce. The task stays in Delivering with one skip-listed
-      // `repair_exhausted` note per episode, so the board and the notifier ask a human to Restart
-      // task — which resets the delivery budget and supersedes this note.
-      if (toDetail(db, row).failure?.reason !== 'repair_exhausted') {
+      // `repair_exhausted` note per budget generation (not per Task.failure, which a later
+      // supervisor note can supersede), so the board and the notifier ask a human to Restart
+      // task — which starts a new delivery budget generation and supersedes this note.
+      if (!deliveryExhaustionReported(db, row.id)) {
         const max = budgetByTask(db, row.id, 'delivery')?.maxAttempts ?? DEFAULT_DELIVERY_REPAIR_ATTEMPTS;
         appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', createdAt: ts, body: buildFailureComment({
           reason: 'repair_exhausted', source: 'watcher', attempt: max, maxAttempts: max,

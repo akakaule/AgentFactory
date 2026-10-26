@@ -6,7 +6,7 @@ import { appendActivity } from '../repo/activity.js';
 import { buildRestartComment } from '../failure.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { resetRetryBudget as resetRetryBudgetRow } from '../repo/retry.js';
+import { resetRetryBudget as resetRetryBudgetRow, deliveryExhaustionReported, budgetByTask } from '../repo/retry.js';
 
 /**
  * Operator "restart" for a stuck (skip-listed) task: post a `restart/v1` marker that supersedes
@@ -27,9 +27,11 @@ export function restartTask(db: DB, key: string, actorUserId: number | null = nu
   const dispatcherRetry = row.status === 'queued' && failure?.skipListed === true &&
     (failure.source === 'dispatcher' || failure.source === null);
   // A spent delivery repair budget skip-lists from Queued (the final bounce) or from Delivering
-  // (a later failure with no repair left: the `repair_exhausted` note).
-  const deliveryRetry = failure?.source === 'watcher' && failure.skipListed &&
-    (row.status === 'queued' || (row.status === 'delivering' && failure.reason === 'repair_exhausted'));
+  // (a later failure with no repair left: the `repair_exhausted` note). The Delivering case is
+  // the durable budget-generation outcome, so a newer supervisor note cannot hide it.
+  const exhaustedDelivery = row.status === 'delivering' && deliveryExhaustionReported(db, row.id);
+  const deliveryRetry = exhaustedDelivery ||
+    (failure?.source === 'watcher' && failure.skipListed && row.status === 'queued');
   const reviewerRetry = failure?.source === 'reviewer' && failure.skipListed &&
     (row.status === 'in_review' || row.status === 'delivering');
   if (!dispatcherRetry && !reviewerRetry && !deliveryRetry) {
@@ -47,12 +49,16 @@ export function restartTask(db: DB, key: string, actorUserId: number | null = nu
       createdAt: ts,
       actorUserId,
     });
+    if (exhaustedDelivery) {
+      resetRetryBudgetRow(db, row.id, 'delivery', budgetByTask(db, row.id, 'delivery')?.maxAttempts ?? 2, ts, 'operator restart');
+    }
+    // The restart marker supersedes the latest failure note, so its owner's budget resets too.
     const operation = dispatcherRetry
       ? `dispatcher:${row.stage}`
       : reviewerRetry
         ? (row.status === 'delivering' ? 'reviewer:feedback-eval' : `reviewer:${row.stage}`)
-        : 'delivery';
-    resetRetryBudgetRow(db, row.id, operation, failure!.maxAttempts ?? 2, ts, 'operator restart');
+        : exhaustedDelivery ? null : 'delivery';
+    if (operation) resetRetryBudgetRow(db, row.id, operation, failure!.maxAttempts ?? 2, ts, 'operator restart');
     touch(db, row.id, ts); // bump updated_at so getVersion() moves and clients/dispatcher refetch
     return toDetail(db, findRowByKey(db, key)!);
   });

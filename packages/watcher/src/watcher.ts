@@ -269,7 +269,7 @@ export class Watcher {
     if (detail.status !== 'delivering') return;
     // The repair budget is spent and the human was told once: wait for Restart task (which
     // supersedes the note) instead of re-attempting the bounce every poll.
-    if (detail.failure?.reason === 'repair_exhausted') return;
+    if (detail.delivery?.repairExhausted) return;
 
     // Transitions run through core's assertTransition inside a transaction; racing a human
     // override throws InvalidTransitionError — the board already settled it, not an error.
@@ -277,7 +277,7 @@ export class Watcher {
     // one `repair_exhausted` note instead of bouncing it.
     const bounce = async (input: Parameters<typeof core.failDelivery>[1], what: string): Promise<void> => {
       const after = await core.failDelivery(key, input);
-      if (after.status === 'delivering' && after.failure?.reason === 'repair_exhausted') {
+      if (after.status === 'delivering' && after.delivery?.repairExhausted) {
         console.warn(`[watcher] ${key}: ${what}, but the delivery repair budget is exhausted — left in Delivering until a human restarts the task`);
       } else {
         console.log(`[watcher] ${key}: bounced — ${what}`);

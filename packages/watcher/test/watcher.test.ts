@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isFailureMarker, parseFailureComment } from '@agentfactory/core';
+import { buildFailureComment, isFailureMarker, parseFailureComment } from '@agentfactory/core';
 import { Watcher } from '../src/watcher.js';
 import { ADO_ORIGIN, deliverTask, fakeFetch, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
 
@@ -461,6 +461,22 @@ describe('watcher tick', () => {
       expect(logs.join('\n')).not.toMatch(/raced a human move/);
     });
 
+    it('a newer reviewer failure does not make the watcher re-report an exhausted budget', async () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      const deps = makeDeps(core, failingPr());
+      await new Watcher(makeConfig(), deps).tick();
+      core.addComment(key, { actor: 'human', body: buildFailureComment({ reason: 'review_failed', source: 'reviewer', detail: 'feedback eval crashed', attempt: 1, maxAttempts: 2 }) });
+      const w = new Watcher(makeConfig(), deps);
+      await w.tick();
+      await w.tick();
+      const exhausted = failureNotes(core, key).filter((n) => parseFailureComment(n.body)?.reason === 'repair_exhausted');
+      expect(exhausted).toHaveLength(1);
+      expect(core.getTask(key).status).toBe('delivering');
+    });
+
     it('Restart task restores the allowance: the next failure bounces normally', async () => {
       const core = makeCore();
       const key = deliverTask(core);
@@ -563,6 +579,41 @@ describe('watcher tick', () => {
     const done = core.getTask(key);
     expect(done.status).toBe('done');
     expect(done.dependents).toEqual([]);
+  });
+
+  it('Azure DevOps: a merge-commit build that fails after completion creates exactly one linked follow-up', async () => {
+    const core = makeCore(ADO_ORIGIN);
+    const key = deliverTask(core);
+    const completed = {
+      pullRequestId: 7, status: 'completed', targetRefName: 'refs/heads/main', repository: { id: 'repo-guid' },
+      lastMergeSourceCommit: { commitId: 'srcsha' }, lastMergeCommit: { commitId: 'mrgsha' },
+    };
+    let builds: unknown[] = [{ id: 31, status: 'inProgress', result: null, sourceVersion: 'mrgsha', definition: { name: 'CI' } }];
+    const fetchJson = async (url: string) => {
+      const body = url.includes('/pullrequests?searchCriteria') ? { value: [completed] }
+        : url.includes('/pullrequests/7?') ? completed
+        : url.includes('/commits/mrgsha/statuses') ? { value: [] }
+        : url.includes('/_apis/build/builds?') ? { value: builds }
+        : url.includes('/timeline') ? { records: [] }
+        : url.includes('/pullRequests/7/statuses') ? { value: [{ state: 'succeeded', context: { name: 'PR build' } }] }
+        : null;
+      if (body === null) throw new Error(`unrouted ${url}`);
+      return { status: 200, headers: {}, body };
+    };
+    const deps = makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN });
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), deps);
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'pending' }, dependents: [] });
+    builds = [{ id: 31, status: 'completed', result: 'failed', sourceVersion: 'mrgsha', definition: { name: 'CI' } }];
+    await w.tick();
+    await w.tick();
+    await new Watcher(makeConfig({ postMergeChecks: true }), deps).tick(); // a watcher restart
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing', failing: [{ name: 'CI' }] });
+    expect(done.dependents).toHaveLength(1);
+    const followUp = core.getTask(done.dependents[0]!.key);
+    expect(followUp).toMatchObject({ status: 'backlog', workspace: done.workspace });
+    expect(followUp.links).toEqual([expect.objectContaining({ kind: 'url', url: done.delivery!.prUrl })]);
   });
 
   it('losing a race to a human move is settled, not an error', async () => {

@@ -3,7 +3,7 @@ import { openCore, POST_MERGE_CHECK_PUBLICATION_MS, type Core } from '../src/ind
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
-import { isFailureMarker, parseFailureComment } from '../src/failure.js';
+import { buildFailureComment, isFailureMarker, parseFailureComment } from '../src/failure.js';
 import { InvalidTransitionError, ValidationError } from '../src/errors.js';
 
 const GH = 'https://github.com/acme/widgets.git';
@@ -476,6 +476,31 @@ describe('delivery ops', () => {
     expect(notes[0]!.body).toMatch(/restart/i);
     expect(again.failure).toMatchObject({ reason: 'repair_exhausted', skipListed: true });
     expect(again.activity.filter((a) => a.type === 'status_change').at(-1)).toMatchObject({ toStatus: 'delivering' });
+  });
+
+  it('a later supervisor failure note does not reopen the exhausted episode: one note until Restart task', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'delivery', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    expect(core.getTask(key).delivery?.repairExhausted).toBe(true);
+    // a feedback evaluation already in flight posts its own failure after the exhaustion note
+    core.addComment(key, { actor: 'human', body: buildFailureComment({ reason: 'review_failed', source: 'reviewer', detail: 'feedback eval crashed', attempt: 1, maxAttempts: 2 }) });
+    expect(core.getTask(key).failure).toMatchObject({ reason: 'review_failed', source: 'reviewer' });
+
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    const after = core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+    expect(after.status).toBe('delivering');
+    expect(after.delivery?.repairExhausted).toBe(true);
+    const exhausted = after.activity.filter((a) => a.type === 'comment' && parseFailureComment(a.body)?.reason === 'repair_exhausted');
+    expect(exhausted).toHaveLength(1);
+
+    // Restart task still finds the exhausted delivery behind the newer reviewer note
+    const restarted = core.restartTask(key);
+    expect(restarted.delivery?.repairExhausted).toBe(false);
+    expect(core.failDelivery(key, { reason: 'ci_failed', detail: 'red again' }).status).toBe('queued');
   });
 
   it('Restart task on an exhausted delivery restores the allowance; the next failure bounces normally', () => {
