@@ -13,6 +13,12 @@ import { resetRetryBudget as resetRetryBudgetRow } from '../repo/retry.js';
 
 const short = (sha: string | null | undefined): string => (sha ? sha.slice(0, 7) : 'unknown');
 
+/** The approval expectation for the submission a reader currently sees on a task (detail or list
+ *  row); null when none is tracked (historical tasks approve unnamed). */
+export function expectedRevisionOf(task: { submission?: { id: number; headSha: string | null } | null }): ExpectedRevision | null {
+  return task.submission ? { submissionId: task.submission.id, headSha: task.submission.headSha } : null;
+}
+
 /**
  * The revision gate: the human approves the submission they looked at. A named submission that is
  * no longer the stage's latest, or a named head that is not the submitted one, is refused. An
@@ -34,11 +40,12 @@ export function assertApprovableRevision(db: DB, row: TaskRow, expected: Expecte
     const seen = sub.lastObservation;
     throw new InvalidTransitionError(`${row.key} changed since submission #${sub.id} (${short(sub.headSha)}) was reviewed: the branch is now at ${short(seen?.headSha)} (observed via ${seen?.source ?? 'git'} at ${seen?.observedAt ?? 'an unknown time'}${seen?.error ? `; the latest refresh failed: ${seen.error}` : ''}); request changes so the new revision is submitted and reviewed`);
   }
-  // A raw status close (a board drag) is resolved against whatever is current when it lands, so
-  // with a tracked submission it must say which one it approves: a replacement that arrived after
-  // the human looked would otherwise be approved unseen. Historical tasks have none to name.
+  // A human approval (the approve action or a raw status close — a board drag) is resolved against
+  // whatever is current when it lands, so with a tracked submission it must say which one it
+  // approves: a replacement that arrived after the human looked would otherwise be approved unseen.
+  // Historical tasks have none to name.
   if (requireExpected && !expected && sub)
-    throw new InvalidTransitionError(`closing the review of ${row.key} must name the submission it approves (current: #${sub.id}); reload and retry, or use the approve action`);
+    throw new InvalidTransitionError(`closing the review of ${row.key} must name the submission it approves (current: #${sub.id}); reload and retry`);
   return sub;
 }
 

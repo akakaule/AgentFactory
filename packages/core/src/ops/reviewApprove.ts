@@ -17,7 +17,7 @@ import type { ExpectedRevision } from '../types.js';
  * remotes). `resolveOrigin` is injectable for tests; it shells out to git, so it runs
  * BEFORE the transaction — never inside the write lock. `overrideReason` is required when the
  * review has must-fix issues or open decisions (see applyApproval). `expected` names the submission
- * (and head) the human reviewed; see assertApprovableRevision.
+ * (and head) the human reviewed and is required once a submission is tracked; see assertApprovableRevision.
  */
 export function reviewApprove(
   db: DB,
@@ -41,7 +41,7 @@ export function reviewApprove(
     if (!current || current.status !== 'in_review' || current.updated_at !== row.updated_at)
       throw new InvalidTransitionError(`task changed while resolving its delivery: ${key}`);
     const ts = now();
-    const approved = assertApprovableRevision(db, current, expected);
+    const approved = assertApprovableRevision(db, current, expected, true);
     auditUnknownFreshness(db, current, approved, ts, actorUserId);
     applyApproval(db, current, 'human', ts, undefined, actorUserId, delivery, overrideReason,
       approved ? { submissionId: approved.id, headSha: approved.headSha } : null);

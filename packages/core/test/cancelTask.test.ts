@@ -5,6 +5,7 @@ import { runMigrations, widenCheck } from '../src/migrate.js';
 import { isValidTransition } from '../src/transitions.js';
 import { createExecution } from '../src/repo/execution.js';
 import { makeTestDb } from './helpers.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
 
 const prUrl = 'https://github.com/acme/widgets/pull/42';
 
@@ -27,7 +28,7 @@ function taskIn(status: Status) {
   if (status === 'blocked') { f.core.updateStatus(key, 'blocked', 'agent', null, 'stuck', claim.executionId); return { ...f, key, claim }; }
   f.core.submitResult(key, { summary: 'done', links: [{ kind: 'pr', label: '#42', url: prUrl }], executionId: claim.executionId });
   if (status === 'in_review') return { ...f, key, claim };
-  f.core.reviewApprove(key);
+  f.core.reviewApprove(key, undefined, undefined, expectedRevisionOf(f.core.getTask(key)));
   if (status === 'delivering') return { ...f, key, claim };
   f.core.updateStatus(key, 'done', 'human');
   return { ...f, key, claim };

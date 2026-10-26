@@ -12,6 +12,7 @@ const FAILURE_LABELS: Record<string, string> = {
   ci_failed: 'CI failed',
   pr_closed: 'PR closed',
   merge_conflict: 'Merge conflict',
+  repair_exhausted: 'Repairs exhausted',
 };
 
 export function failureLabel(failure: FailureSummary): string {

@@ -21,7 +21,7 @@ export interface TokenTrendPoint { date: string; tokensIn: number; tokensOut: nu
 export const FAILURE_LABELS: Record<string, string> = {
   timeout: 'Timed out', crashed: 'Crashed', stale: 'Stale claim', permission_denied: 'Permission denied',
   max_attempts: 'Out of attempts', review_failed: 'Auto-review failed', ci_failed: 'CI failed',
-  pr_closed: 'PR closed', merge_conflict: 'Merge conflict',
+  pr_closed: 'PR closed', merge_conflict: 'Merge conflict', repair_exhausted: 'Repairs exhausted',
 };
 
 export type StageKey = 'queue' | 'work' | 'review' | 'blocked' | 'delivering';

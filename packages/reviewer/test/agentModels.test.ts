@@ -3,6 +3,7 @@ import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
 import { parseConfig } from '../src/config.js';
 import { aiReviewBody, makeCore, makeDeps, makeFakeConsole, makeFakeSpawn, seedInReview } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 // The file default: one Codex review on its default model.
 const fileConfig = (over: Record<string, unknown> = {}) =>
@@ -143,7 +144,7 @@ describe('board agent model settings → reviewer', () => {
     core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
     core.setAgentModels({ global: { feedbackEval: { engine: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' } }, workspaces: {} });
     const key = seedInReview(core, 'ws', 'Delivered', 'implementation');
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     core.addPrFeedback(key, { feedback: 'missing guard' });
     const { spawn, calls } = makeFakeSpawn();
     const r = new Reviewer(fileConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));

@@ -333,7 +333,8 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
           activity={task.activity}
           triage={task.failureTriage ?? null}
           onChanged={afterMutation}
-          {...(task.failure.skipListed
+          repairExhausted={task.delivery?.repairExhausted === true}
+          {...(task.failure.skipListed || task.delivery?.repairExhausted
             ? { onRestart: () => {
               const requestedKey = task.key;
               setError(null);

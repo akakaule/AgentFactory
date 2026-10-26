@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openCore } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 const post = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
   app.request(path, {
@@ -23,7 +24,7 @@ describe('archive REST API', () => {
     core.updateStatus(task.key, 'queued', 'human');
     core.claimNextTask(workspace ? { workspace } : {});
     core.submitResult(task.key, { summary: 'done' });
-    core.reviewApprove(task.key);
+    core.reviewApprove(task.key, undefined, undefined, expectedRevisionOf(core.getTask(task.key)));
     return task.key;
   }
 

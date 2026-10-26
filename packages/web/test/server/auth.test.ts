@@ -68,7 +68,7 @@ describe('auth: token mode', () => {
     core.claimNextTask();
     core.submitResult(created.key, { summary: 'done' });
 
-    expect((await app.request(`/api/tasks/${created.key}/approve`, { method: 'POST', ...bearer(token) })).status).toBe(200);
+    expect((await app.request(`/api/tasks/${created.key}/approve`, postJson(token, { submissionId: core.getTask(created.key).submission!.id }))).status).toBe(200);
 
     const detail = await (await app.request(`/api/tasks/${created.key}`, bearer(token))).json() as {
       activity: Array<{ type: string; toStatus: string | null; actorUserId: number | null; actorName: string | null }>;

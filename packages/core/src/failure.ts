@@ -38,7 +38,7 @@ export function buildRestartComment(detail: string): string {
  * Reasons the supervisors emit today. The parser keeps any non-empty string as the reason
  * (forward-compatible with new emitters); this list is just the set the UI styles and labels.
  */
-export const FAILURE_REASONS = ['timeout', 'crashed', 'stale', 'permission_denied', 'max_attempts', 'review_failed', 'ci_failed', 'pr_closed', 'merge_conflict'] as const;
+export const FAILURE_REASONS = ['timeout', 'crashed', 'stale', 'permission_denied', 'max_attempts', 'review_failed', 'ci_failed', 'pr_closed', 'merge_conflict', 'repair_exhausted'] as const;
 export type FailureReason = (typeof FAILURE_REASONS)[number];
 
 /** True iff a comment body carries the `failure/v1` marker (regardless of JSON well-formedness). */

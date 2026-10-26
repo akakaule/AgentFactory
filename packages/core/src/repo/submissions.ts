@@ -13,6 +13,7 @@ export interface SubmissionRow {
   revision_source: RevisionSource; observed_at: string; created_at: string;
   last_head_sha: string | null; last_observed_at: string | null;
   last_observation_source: RevisionObservationSource | null; last_observation_error: string | null;
+  observation_generation: number; // bumped by every recorded observation (the provider fence)
 }
 
 /** The task content a doc-stage submission's identity is computed from. */
@@ -59,7 +60,7 @@ export function recordObservation(db: DB, id: number, o: { headSha: string | nul
   if (!before) return false;
   const head = o.headSha ?? before.last_head_sha;
   const changed = before.last_head_sha !== head || before.last_observation_error !== o.error || before.last_observation_source !== o.source;
-  db.prepare('UPDATE task_submission SET last_head_sha = ?, last_observed_at = ?, last_observation_source = ?, last_observation_error = ? WHERE id = ?')
+  db.prepare('UPDATE task_submission SET last_head_sha = ?, last_observed_at = ?, last_observation_source = ?, last_observation_error = ?, observation_generation = observation_generation + 1 WHERE id = ?')
     .run(head, o.ts, o.source, o.error, id);
   return changed;
 }

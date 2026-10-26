@@ -12,6 +12,7 @@ import { getTask } from '../src/ops/getTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
 import { analyticsRows } from '../src/ops/analyticsRows.js';
 import { formatReviewRevision } from '../src/aiReview.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
 
 const BASE = Date.parse('2026-06-01T00:00:00.000Z');
 const HEAD = 'a'.repeat(40);
@@ -124,7 +125,7 @@ describe('review brief on list reads', () => {
     const task = driveToReview(db);
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(2)), executionId: task.executionId }, at(95));
     expect(listTasks(db)[0]!.reviewBrief).not.toBeNull();
-    reviewApprove(db, task.key, at(150)); // minor issues: no reason needed
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key))); // minor issues: no reason needed
     expect(listTasks(db)[0]!.reviewBrief).toBeNull();
     expect(getTask(db, task.key).reviewBrief?.headline).toBe('minor');
   });
@@ -135,7 +136,7 @@ describe('reviewApprove override logging', () => {
     const db = makeTestDb();
     const task = driveToReview(db);
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(2)), executionId: task.executionId }, at(95));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
 
     const override = getTask(db, task.key).activity.find((a) => a.type === 'comment' && a.body.startsWith('override:'));
     expect(override).toBeDefined();
@@ -147,7 +148,7 @@ describe('reviewApprove override logging', () => {
     const db = makeTestDb();
     const task = driveToReview(db);
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(0)), executionId: task.executionId }, at(95));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(getTask(db, task.key).activity.some((a) => a.body.startsWith('override:'))).toBe(false);
   });
 
@@ -158,7 +159,7 @@ describe('reviewApprove override logging', () => {
     reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
     submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120)); // pending: result newer than review
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(getTask(db, task.key).activity.some((a) => a.body.startsWith('override:'))).toBe(false);
   });
 });
@@ -170,7 +171,7 @@ describe('analyticsRows aiReviewFindings', () => {
   it('is null for a done task with no AI review (excluded from override rate)', () => {
     const db = makeTestDb();
     const task = driveToReview(db);
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(findFindings(db, task.key)).toBeNull();
   });
 
@@ -178,7 +179,7 @@ describe('analyticsRows aiReviewFindings', () => {
     const db = makeTestDb();
     const task = driveToReview(db);
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(0)), executionId: task.executionId }, at(95));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(findFindings(db, task.key)).toBe(0);
   });
 
@@ -186,7 +187,7 @@ describe('analyticsRows aiReviewFindings', () => {
     const db = makeTestDb();
     const task = driveToReview(db);
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(2)), executionId: task.executionId }, at(95));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(findFindings(db, task.key)).toBe(2);
   });
 
@@ -197,7 +198,7 @@ describe('analyticsRows aiReviewFindings', () => {
     reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
     submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(findFindings(db, task.key)).toBeNull();
   });
 
@@ -210,7 +211,7 @@ describe('analyticsRows aiReviewFindings', () => {
     submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120));
     const review = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-2', startImmediately: true }, at(124));
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(0)), executionId: review!.id }, at(125));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(findFindings(db, task.key)).toBe(0);
   });
 });

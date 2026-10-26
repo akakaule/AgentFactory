@@ -93,8 +93,8 @@ describe('e2e: two workspaces, two scoped workers, shared file DB', () => {
 
     // ── Workers deliver, human approves — both loops reach done ─────────────
     for (const [worker, key] of [[workerA, a1], [workerB, b1], [workerA, a2]] as const) {
-      worker.submitResult(key, { summary: `done: ${key}` });
-      expect((await post(app, `/api/tasks/${key}/approve`)).status).toBe(200);
+      const submitted = worker.submitResult(key, { summary: `done: ${key}` });
+      expect((await post(app, `/api/tasks/${key}/approve`, { submissionId: submitted.submission!.id })).status).toBe(200);
     }
 
     const doneA = await (await app.request('/api/tasks?workspace=repo-a&status=done')).json() as Array<{ key: string }>;
@@ -139,7 +139,7 @@ describe('e2e: two workspaces, two scoped workers, shared file DB', () => {
     )).toBe(true);
 
     // the rescued loop completes
-    workerRescue.submitResult(t.key, { summary: 'rescued and finished' });
-    expect((await post(app, `/api/tasks/${t.key}/approve`)).status).toBe(200);
+    const rescued = workerRescue.submitResult(t.key, { summary: 'rescued and finished' });
+    expect((await post(app, `/api/tasks/${t.key}/approve`, { submissionId: rescued.submission!.id })).status).toBe(200);
   });
 });

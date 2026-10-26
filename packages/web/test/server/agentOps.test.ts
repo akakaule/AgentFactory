@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openCore, AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 /** #45 agent-ops surface: service-token-only routes with the actor derived server-side. */
 
@@ -91,7 +92,7 @@ describe('agent ops — authorization boundary', () => {
     expect((await post(app, `/api/tasks/${t.key}/approve`, {}, service)).status).toBe(403);
     expect((await post(app, `/api/tasks/${t.key}/status`, { status: 'done' }, service)).status).toBe(403);
     // the human token still works
-    expect((await post(app, `/api/tasks/${t.key}/approve`, {}, user)).status).toBe(200);
+    expect((await post(app, `/api/tasks/${t.key}/approve`, { submissionId: core.getTask(t.key).submission!.id }, user)).status).toBe(200);
   });
 
   it('comments through the agent surface are forced to actor agent', async () => {
@@ -284,7 +285,7 @@ describe('agent ops — the worked loop over HTTP', () => {
     const t = queuedTask(core);
     const claim = core.claimNextTask({ claimedBy: 'w1' });
     core.submitResult(t.key, { summary: 'done', executionId: claim!.executionId });
-    core.reviewApprove(t.key);
+    core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
 
     expect((await post(app, '/api/tasks/archive-done', {}, service)).status).toBe(403);
 

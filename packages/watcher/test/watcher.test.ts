@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isFailureMarker, parseFailureComment } from '@agentfactory/core';
+import { buildFailureComment, isFailureMarker, parseFailureComment } from '@agentfactory/core';
 import { Watcher } from '../src/watcher.js';
 import { ADO_ORIGIN, deliverTask, fakeFetch, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
 
@@ -437,6 +437,201 @@ describe('watcher tick', () => {
     await w.tick();
     expect(urls).toEqual([]);
     expect(core.getTask(key).status).toBe('cancelled');
+  });
+
+  describe('delivery repair budget', () => {
+    const failingPr = () => fakeFetch([
+      ['/pulls?head=', { body: [ghPr()] }],
+      ['/pulls/42', { body: ghPr() }],
+      ['/check-runs', { body: red }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    const failureNotes = (core: ReturnType<typeof makeCore>, key: string) =>
+      core.getTask(key).activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body));
+
+    it('N polls of the same failing delivery post one failure/v1 note and spend one attempt', async () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      const w = new Watcher(makeConfig(), makeDeps(core, failingPr()));
+      for (let i = 0; i < 4; i++) await w.tick();
+      expect(failureNotes(core, key)).toHaveLength(1);
+      expect(core.getRetryBudget(key, 'delivery')).toMatchObject({ attemptsUsed: 1 });
+    });
+
+    it('an exhausted budget leaves one repair_exhausted note, no status change, across polls and restarts', async () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 }); // 2 of 2 repairs spent
+      const logs: string[] = [];
+      const deps = makeDeps(core, failingPr(), { console: { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m), error: () => {} } });
+      const w = new Watcher(makeConfig(), deps);
+      await w.tick();
+      await w.tick();
+      await new Watcher(makeConfig(), deps).tick(); // a watcher restart
+      const t = core.getTask(key);
+      expect(t.status).toBe('delivering');
+      const notes = failureNotes(core, key);
+      expect(notes).toHaveLength(1);
+      expect(parseFailureComment(notes[0]!.body)).toMatchObject({ reason: 'repair_exhausted', source: 'watcher' });
+      expect(t.failure).toMatchObject({ reason: 'repair_exhausted', skipListed: true });
+      expect(logs.join('\n')).toMatch(/repair budget is exhausted/);
+      expect(logs.join('\n')).not.toMatch(/raced a human move/);
+    });
+
+    it('a newer reviewer failure does not make the watcher re-report an exhausted budget', async () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      const deps = makeDeps(core, failingPr());
+      await new Watcher(makeConfig(), deps).tick();
+      core.addComment(key, { actor: 'human', body: buildFailureComment({ reason: 'review_failed', source: 'reviewer', detail: 'feedback eval crashed', attempt: 1, maxAttempts: 2 }) });
+      const w = new Watcher(makeConfig(), deps);
+      await w.tick();
+      await w.tick();
+      const exhausted = failureNotes(core, key).filter((n) => parseFailureComment(n.body)?.reason === 'repair_exhausted');
+      expect(exhausted).toHaveLength(1);
+      expect(core.getTask(key).status).toBe('delivering');
+    });
+
+    it('Restart task restores the allowance: the next failure bounces normally', async () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      core.reserveRetry(key, { operation: 'delivery', maxAttempts: 2 });
+      const w = new Watcher(makeConfig(), makeDeps(core, failingPr()));
+      await w.tick();
+      core.restartTask(key);
+      await w.tick();
+      const t = core.getTask(key);
+      expect(t.status).toBe('queued');
+      expect(t.failure).toMatchObject({ reason: 'ci_failed', attempt: 1, maxAttempts: 2, skipListed: false });
+    });
+  });
+
+  it('post-merge checks that fail after completion create exactly one linked follow-up task', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    let checks: unknown = running;
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/check-runs') ? checks : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'pending' }, dependents: [] });
+    checks = red;
+    await w.tick();
+    await w.tick();
+    await new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, fetchJson)).tick();
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
+    expect(core.getTask(done.dependents[0]!.key)).toMatchObject({ status: 'backlog', links: [expect.objectContaining({ kind: 'url' })] });
+  });
+
+  it('post-merge checks published after the merge poll (none → pending → failing) still get a follow-up', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    let checks: unknown = { total_count: 0, check_runs: [] };
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/check-runs') ? checks : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'none' }, dependents: [] });
+    await w.tick(); // still nothing published
+    checks = running;
+    await w.tick();
+    expect(core.getTask(key).delivery).toMatchObject({ checksState: 'pending' });
+    checks = red;
+    await w.tick();
+    await w.tick();
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
+  });
+
+  it('post-merge checks published after a fast one passed (passing → pending → failing) still get one follow-up', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    let checks: unknown = green;
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/check-runs') ? checks : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'passing' }, dependents: [] });
+    checks = { check_runs: [...green.check_runs, { ...running.check_runs[0]!, name: 'deploy' }] };
+    await w.tick();
+    expect(core.getTask(key).delivery).toMatchObject({ checksState: 'pending' });
+    checks = { check_runs: [...green.check_runs, { ...red.check_runs[0]!, name: 'deploy' }] };
+    await w.tick();
+    await w.tick();
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
+  });
+
+  it.each([false, true])('a merged PR with red head checks and a green merge commit gets no follow-up (postMergeChecks %s)', async (postMergeChecks) => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/commits/headsha/check-runs') ? red : url.includes('/commits/mergesha/check-runs') ? green : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks }), makeDeps(core, fetchJson));
+    await w.tick();
+    await w.tick();
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+    expect(done.dependents).toEqual([]);
+  });
+
+  it('Azure DevOps: a merge-commit build that fails after completion creates exactly one linked follow-up', async () => {
+    const core = makeCore(ADO_ORIGIN);
+    const key = deliverTask(core);
+    const completed = {
+      pullRequestId: 7, status: 'completed', targetRefName: 'refs/heads/main', repository: { id: 'repo-guid' },
+      lastMergeSourceCommit: { commitId: 'srcsha' }, lastMergeCommit: { commitId: 'mrgsha' },
+    };
+    let builds: unknown[] = [{ id: 31, status: 'inProgress', result: null, sourceVersion: 'mrgsha', definition: { name: 'CI' } }];
+    const fetchJson = async (url: string) => {
+      const body = url.includes('/pullrequests?searchCriteria') ? { value: [completed] }
+        : url.includes('/pullrequests/7?') ? completed
+        : url.includes('/commits/mrgsha/statuses') ? { value: [] }
+        : url.includes('/_apis/build/builds?') ? { value: builds }
+        : url.includes('/timeline') ? { records: [] }
+        : url.includes('/pullRequests/7/statuses') ? { value: [{ state: 'succeeded', context: { name: 'PR build' } }] }
+        : null;
+      if (body === null) throw new Error(`unrouted ${url}`);
+      return { status: 200, headers: {}, body };
+    };
+    const deps = makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN });
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), deps);
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'pending' }, dependents: [] });
+    builds = [{ id: 31, status: 'completed', result: 'failed', sourceVersion: 'mrgsha', definition: { name: 'CI' } }];
+    await w.tick();
+    await w.tick();
+    await new Watcher(makeConfig({ postMergeChecks: true }), deps).tick(); // a watcher restart
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing', failing: [{ name: 'CI' }] });
+    expect(done.dependents).toHaveLength(1);
+    const followUp = core.getTask(done.dependents[0]!.key);
+    expect(followUp).toMatchObject({ status: 'backlog', workspace: done.workspace });
+    expect(followUp.links).toEqual([expect.objectContaining({ kind: 'url', url: done.delivery!.prUrl })]);
   });
 
   it('losing a race to a human move is settled, not an error', async () => {

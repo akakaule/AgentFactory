@@ -113,3 +113,30 @@ describe('watcher carries its provider poll start (round 9)', () => {
     expect(core.getTask(key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git' } });
   });
 });
+
+describe('watcher echoes the board-issued observation generation (round 10)', () => {
+  it('with its clock ahead, a poll that read head A while git observed a push to B cannot restore the review to green', async () => {
+    const core = makeCore();
+    const key = deliverAt(core, A);
+    await poll(core, A);
+    const sub = core.getTask(key).submission!;
+    const pushedDuringPoll = fakeFetch([
+      ['/pulls/42', { body: ghPr({ head: { sha: A } }) }],
+      ['/pulls?head=', { body: [ghPr({ head: { sha: A } })] }],
+      ['/check-runs', { body: running }],
+      ['/status', { body: { statuses: [] } }],
+    ]);
+    let seen = false;
+    const fetchJson = (async (url: string, ...rest: unknown[]) => {
+      // the board's git refresh (board clock) sees the push while the provider request is in flight
+      if (url.includes('/pulls') && !seen) {
+        seen = true;
+        core.observeRevision(key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: new Date().toISOString() });
+      }
+      return (pushedDuringPoll as (...a: unknown[]) => unknown)(url, ...rest);
+    }) as typeof pushedDuringPoll;
+    const clockAhead = () => Date.now() + 5_000;
+    await new Watcher(makeConfig(), makeDeps(core, fetchJson, { now: clockAhead })).tick();
+    expect(core.getTask(key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git' } });
+  });
+});

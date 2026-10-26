@@ -183,6 +183,7 @@ const MIGRATIONS: Migration[] = [
         const have = (db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name);
         for (const [name, type] of columns) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
       };
+      addMissing('task_submission', [['observation_generation', 'INTEGER NOT NULL DEFAULT 0']]);
       addMissing('task_visualization', [['submission_id', 'INTEGER'], ['head_sha', 'TEXT']]);
       addMissing('task_delivery', [['submission_id', 'INTEGER'], ['approved_head_sha', 'TEXT'], ['head_sha', 'TEXT']]);
     },

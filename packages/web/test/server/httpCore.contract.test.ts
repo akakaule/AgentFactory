@@ -112,6 +112,24 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', error: null } });
   });
 
+  it('carries the observation generation over HTTP: a late answer from a clock-ahead watcher cannot overwrite a newer git observation', async () => {
+    const A = 'a'.repeat(40), B = 'b'.repeat(40);
+    const task = core.createTask({ title: 'Clock ahead', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
+    const sub = core.submitResult(task.key, { summary: 'done', revision: { headSha: A, source: 'origin' } }).submission!;
+    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: sub.id });
+    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    expect(typeof seeded.observationGeneration).toBe('number');
+    const episode = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
+    const generation = seeded.observationGeneration!;
+    const aheadStart = new Date(Date.now() + 60_000).toISOString(); // the watcher's clock runs a minute ahead
+    core.observeRevision(task.key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: new Date().toISOString() });
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: sub.id, readStartedAt: aheadStart, observationGeneration: generation })).toEqual({ recorded: false });
+    await http.recordDeliveryCheck(task.key, { expected: episode, prUrl: null, prId: null, prState: 'not_found', checksState: 'unknown', failing: [], headSha: A, readStartedAt: aheadStart, observationGeneration: generation });
+    expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', error: null } });
+  });
+
   it('reads round-trip: listTasks filters, getTask, listWorkspaces', async () => {
     core.createWorkspace({ name: 'shop', repoPath: '/repo' });
     const a = core.createTask({ title: 'A', spec: 'S', acceptanceCriteria: 'A', workspace: 'shop' });

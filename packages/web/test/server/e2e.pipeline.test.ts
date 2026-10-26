@@ -119,7 +119,7 @@ describe('e2e: default flow (spec/description → implementation)', () => {
     expect(afterImplReview.stage).toBe('implementation');
 
     // human approves (over the open finding → override is logged by core)
-    const approveRes = await post(app, `/api/tasks/${KEY}/approve`);
+    const approveRes = await post(app, `/api/tasks/${KEY}/approve`, { submissionId: coreAgent.getTask(KEY).submission!.id });
     expect(approveRes.status).toBe(200);
     const approved = await approveRes.json() as { status: string; stage: string };
     expect(approved.status).toBe('done');

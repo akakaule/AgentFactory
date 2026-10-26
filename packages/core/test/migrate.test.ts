@@ -440,10 +440,11 @@ describe('migration #30 revision-bound submissions', () => {
     db.prepare(
       "INSERT INTO task_submission(task_id,stage,revision_source,observed_at,created_at,head_sha) VALUES ((SELECT id FROM task WHERE key='AF-1'),'implementation','origin','2026-01-01','2026-01-01','abc')",
     ).run();
+    db.exec('ALTER TABLE task_submission DROP COLUMN observation_generation'); // the pre-merge table predates it
     db.exec('PRAGMA user_version = 29');
     runMigrations(db);
     expect(() => insertCancelled(db, 'AF-2')).not.toThrow();
-    expect(db.prepare("SELECT head_sha FROM task_submission WHERE task_id = (SELECT id FROM task WHERE key='AF-1')").get()).toEqual({ head_sha: 'abc' });
+    expect(db.prepare("SELECT head_sha, observation_generation FROM task_submission WHERE task_id = (SELECT id FROM task WHERE key='AF-1')").get()).toEqual({ head_sha: 'abc', observation_generation: 0 });
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 30 });
   });

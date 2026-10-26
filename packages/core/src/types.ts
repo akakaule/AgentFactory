@@ -326,6 +326,8 @@ export interface DeliverySummary {
   approvedHeadSha?: string | null;     // the submitted head the human approved (migration #30)
   headSha?: string | null;             // the PR head the provider last reported; differs ⇒ pushed after approval
   submissionId?: number | null;        // the approved submission this delivery episode is bound to (migration #30)
+  observationGeneration?: number | null; // that submission's observation generation: the watcher echoes it to fence a late provider answer
+  repairExhausted?: boolean;           // derived on task reads: the repair budget is spent and its repair_exhausted note posted (until Restart task)
 }
 
 export interface Task {

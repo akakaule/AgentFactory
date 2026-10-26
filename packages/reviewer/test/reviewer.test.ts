@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
 import { makeCore, seedInReview, aiReviewBody, makeConfig, makeDeps, makeFakeSpawn, makeFakeConsole } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 // ---------------------------------------------------------------------------
 // delivering-feedback evaluation
@@ -13,7 +14,7 @@ describe('delivering-feedback evaluation', () => {
     const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });
     core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
     const key = seedInReview(core, 'ws', 'Delivered feature', 'implementation');
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     expect(core.getTask(key).status).toBe('delivering');
     core.addPrFeedback(key, { feedback: 'the null check is missing' });
 

@@ -11,6 +11,7 @@ import { addTaskMetrics } from '../src/ops/addTaskMetrics.js';
 import { buildFailureComment } from '../src/failure.js';
 import { featureBranch } from '../src/branch.js';
 import { getTask } from '../src/ops/getTask.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
 
 const BASE = Date.parse('2026-06-01T00:00:00.000Z');
 const at = (min: number) => () => new Date(BASE + min * 60000).toISOString();
@@ -21,7 +22,7 @@ function driveDone(db: ReturnType<typeof makeTestDb>, claimedBy?: string) {
   updateStatus(db, task.key, 'queued', 'human', at(10));
   const claim = claimNextTask(db, claimedBy ? { claimedBy } : {}, at(30));
   submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId }, at(90));
-  reviewApprove(db, task.key, at(150));
+  reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
   return task;
 }
 
@@ -54,7 +55,7 @@ describe('analyticsRows', () => {
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(30)); // implementation-stage session starts here
     addTaskMetrics(db, task.key, { tokensIn: 8000, tokensOut: 2000, executionId: claim!.executionId }, at(60));
     submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId }, at(90));
-    reviewApprove(db, task.key, at(150));
+    reviewApprove(db, task.key, at(150), undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(analyticsRows(db, at(999)).tasks[0]!.stageTokens).toEqual({ implementation: 10000 });
   });
 

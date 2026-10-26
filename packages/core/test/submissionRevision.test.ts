@@ -621,3 +621,61 @@ describe('round 9: late provider reads, drag expectations, visualized heads', ()
     expect(() => attachVisualization(db, key, { html: '<p>old</p>', revision: { submissionId: first.id, headSha: A } }, now)).toThrow(InvalidTransitionError);
   });
 });
+
+describe('round 10: named approvals, board-issued observation generations', () => {
+  const PR = { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open' as const, checksState: 'pending' as const };
+  function delivering(db: DB) {
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: sub.id, headSha: A });
+    recordDeliveryCheck(db, key, { ...PR, headSha: A }, now);
+    return { key, sub };
+  }
+
+  it('the approve action must name a tracked submission; a historical task without one still approves unnamed', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    expect(() => reviewApprove(db, key, now, null, () => null)).toThrow(/name the submission/);
+    expect(getTask(db, key).status).toBe('in_review');
+    expect(reviewApprove(db, key, now, null, () => null, null, { submissionId: sub.id, headSha: A }).status).toBe('done');
+    const legacy = createTask(db, { title: 'L', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(legacy.key);
+    expect(reviewApprove(db, legacy.key, now, null, () => null).status).toBe('done');
+  });
+
+  it('the delivery carries the bound submission\'s observation generation, bumped by every recorded observation', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    const g = getTask(db, key).delivery!.observationGeneration!;
+    expect(typeof g).toBe('number');
+    observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git' }, now);
+    expect(getTask(db, key).delivery!.observationGeneration).toBe(g + 1);
+  });
+
+  it('a late provider response from a watcher whose clock runs ahead cannot restore green after git observed B', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    const episode = getTask(db, key).delivery!;
+    const expected = { status: 'delivering' as const, branch: episode.branch, prUrl: episode.prUrl, stateChangedAt: episode.stateChangedAt };
+    const generation = episode.observationGeneration!; // captured before the provider request (which reads A)
+    const watcherClockAhead = new Date(Date.parse(now()) + 5_000).toISOString();
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: now() }, now); // the push is seen
+    recordDeliveryCheck(db, key, { ...PR, expected, headSha: A, readStartedAt: watcherClockAhead, observationGeneration: generation }, now);
+    const d = getTask(db, key);
+    expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git' } });
+    expect(d.aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+    expect(d.delivery).toMatchObject({ checksState: 'pending' }); // the rest of the answer is kept, its head is not
+    expect(recordDeliveryCheckFailure(db, key, { error: 'GitHub 503', readStartedAt: watcherClockAhead, observationGeneration: generation }, now)).toEqual({ recorded: false });
+    expect(getTask(db, key).submission).toMatchObject({ lastObservation: { headSha: B, source: 'git', error: null } });
+  });
+
+  it('a provider response whose generation is still current is recorded', () => {
+    const db = makeTestDb();
+    const { key } = delivering(db);
+    const generation = getTask(db, key).delivery!.observationGeneration!;
+    recordDeliveryCheck(db, key, { ...PR, headSha: B, observationGeneration: generation }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'provider' } });
+  });
+});
