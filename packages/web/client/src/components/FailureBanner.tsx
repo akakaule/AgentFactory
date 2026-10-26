@@ -60,7 +60,9 @@ export function FailureBanner({ taskKey, failure, activity, triage = null, onRes
         <button
           className="af-mini go af-fail-restart"
           onClick={onRestart}
-          title={`Reset the attempt budget and retry — the ${failure.source === 'reviewer' ? 'reviewer' : 'dispatcher'} starts a fresh session. No supervisor restart needed.`}
+          title={failure.source === 'watcher' && failure.reason === 'repair_exhausted'
+            ? 'Reset the delivery repair budget — the next failing check bounces the task to a fresh repair. No supervisor restart needed.'
+            : `Reset the attempt budget and retry — the ${failure.source === 'reviewer' ? 'reviewer' : 'dispatcher'} starts a fresh session. No supervisor restart needed.`}
         >
           Restart task
         </button>

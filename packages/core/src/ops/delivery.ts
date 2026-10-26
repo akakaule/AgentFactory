@@ -8,10 +8,12 @@ import { endSession } from '../repo/agentSessions.js';
 import { currentExecution, operationPhase, settleExecution } from '../repo/execution.js';
 import { latestPrLinkUrl } from '../repo/links.js';
 import { deliveryRowFor, updateDeliveryObservation, upsertDelivery, toDeliverySummary, type DeliveryObservation } from '../repo/delivery.js';
+import { insertDependency } from '../repo/taskDependencies.js';
+import { createTaskWithinTransaction } from './createTask.js';
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
-import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget } from '../repo/retry.js';
+import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget, budgetByTask } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
@@ -55,9 +57,12 @@ export function beginDelivery(db: DB, key: string, seed: { provider: DeliveryPro
 export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservation, now: () => string = nowIso): { changed: boolean; skipped?: boolean; accepted: boolean; stateChangedAt: string | null } {
   return transaction(db, () => {
     const row = requireRow(db, key);
-    if (row.archived_at || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     const d = deliveryRowFor(db, row.id);
     if (!d) return { changed: false, skipped: true, accepted: false, stateChangedAt: null }; // nothing seeded
+    // A completed delivery stays observed while its merged PR's post-merge checks are pending, so
+    // a later red verdict still gets its follow-up task; nothing else about a done task is observed.
+    const awaitingPostMerge = row.status === 'done' && d.pr_state === 'merged' && d.checks_state === 'pending' && obs.prState === 'merged';
+    if (row.archived_at || !(awaitingPostMerge || ['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status))) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     const expected = obs.expected;
     if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
         expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
@@ -65,6 +70,13 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     const { changed, accepted } = updateDeliveryObservation(db, d, obs, ts);
     if (!accepted) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     const stateChangedAt = changed ? ts : d.state_changed_at;
+    if (awaitingPostMerge) {
+      const followUp = ensurePostMergeFollowUp(db, row, ts);
+      if (followUp) appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', createdAt: ts,
+        body: `Post-merge checks failed on PR ${d.pr_id ?? d.pr_url}; follow-up ${followUp} tracks the repair.` });
+      if (changed) touch(db, row.id, ts);
+      return { changed, accepted, stateChangedAt };
+    }
     if (reconcileMergedDelivery(db, row, ts)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);
     return { changed, accepted, stateChangedAt };
@@ -102,10 +114,41 @@ export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?:
   // its late output is stale and a reopened task is free for a new claimant.
   const live = currentExecution(db, row.id);
   if (live && operationPhase(live.operation) === 'queued') settleExecution(db, live.id, 'cancelled', ts, 'delivery already merged');
-  const body = `PR ${d.pr_id ?? d.pr_url} merged; checks ${d.checks_state}. Original delivery complete; further CI repair is separate work.`;
+  const followUp = ensurePostMergeFollowUp(db, row, ts);
+  const body = `PR ${d.pr_id ?? d.pr_url} merged; checks ${d.checks_state}. Original delivery complete; ` +
+    (followUp ? `follow-up ${followUp} tracks the post-merge check repair.` : 'further CI repair is separate work.');
   appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status,
     toStatus: 'done', body: note ? `${body}\n${note}` : body, createdAt: ts });
   return true;
+}
+
+/**
+ * Failing post-merge checks on a merged delivery become one linked backlog task in the same
+ * workspace: it carries the PR link, depends on the original task, and lists the red checks.
+ * Idempotent per PR (an existing dependent with that PR link counts). Returns the new task's key,
+ * or null when nothing was created. Runs inside the caller's transaction.
+ */
+function ensurePostMergeFollowUp(db: DB, row: TaskRow, ts: string): string | null {
+  const d = deliveryRowFor(db, row.id);
+  if (!d || d.pr_state !== 'merged' || d.checks_state !== 'failing' || !d.pr_url) return null;
+  const existing = db.prepare(
+    `SELECT t.key FROM task t JOIN task_dependency dep ON dep.task_id = t.id JOIN link l ON l.task_id = t.id
+      WHERE dep.depends_on_task_id = ? AND l.kind = 'pr' AND l.url = ? LIMIT 1`,
+  ).get(row.id, d.pr_url) as { key: string } | undefined;
+  if (existing) return null;
+  const pr = d.pr_id ?? d.pr_url;
+  const failing = toDeliverySummary(d).failing.map((f) => `- ${f.name}${f.url ? ` — ${f.url}` : ''}`).join('\n') || '- (no check names reported)';
+  const task = createTaskWithinTransaction(db, {
+    title: `Fix post-merge checks for ${row.key} (PR ${pr})`,
+    spec: `${row.key} "${row.title}" was merged in ${d.pr_url}, but the checks on the merge commit failed:\n${failing}\n\nThe original delivery is complete; this task repairs the post-merge failures on the default branch.`,
+    acceptanceCriteria: '1. The failing post-merge checks listed in the spec pass on the default branch.',
+    stage: 'description',
+    workspace: row.workspace_name,
+    links: [{ kind: 'pr', label: pr, url: d.pr_url }],
+    actor: 'agent',
+  }, () => ts);
+  insertDependency(db, task.id, row.id, ts);
+  return task.key;
 }
 
 /**
@@ -115,6 +158,8 @@ export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?:
  * the fixing session reads why) AND re-queuing the task.
  * Comment + requeue must not tear: a requeue without the why (or the why without the requeue)
  * would strand the next agent/human without context.
+ * With the delivery repair budget spent there is no bounce: the returned task is still
+ * `delivering` and its failure is `repair_exhausted` (posted once, until Restart task).
  */
 export function failDelivery(
   db: DB,
@@ -130,7 +175,21 @@ export function failDelivery(
       throw new InvalidTransitionError(`stale delivery observation for ${key}`);
     const ts = now();
     const repair = reserveRetryRow(db, row.id, key, { operation: 'delivery', maxAttempts: DEFAULT_DELIVERY_REPAIR_ATTEMPTS }, ts);
-    if (!repair) throw new InvalidTransitionError(`delivery repair budget exhausted for ${key}; operator restart is required`);
+    if (!repair) {
+      // Out of repairs: no bounce. The task stays in Delivering with one skip-listed
+      // `repair_exhausted` note per episode, so the board and the notifier ask a human to Restart
+      // task — which resets the delivery budget and supersedes this note.
+      if (toDetail(db, row).failure?.reason !== 'repair_exhausted') {
+        const max = budgetByTask(db, row.id, 'delivery')?.maxAttempts ?? DEFAULT_DELIVERY_REPAIR_ATTEMPTS;
+        appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', createdAt: ts, body: buildFailureComment({
+          reason: 'repair_exhausted', source: 'watcher', attempt: max, maxAttempts: max,
+          detail: `delivery repair budget exhausted — ${input.detail}`,
+          body: `${input.body ? `${input.body}\n\n` : ''}All ${max} automatic delivery repairs are spent, so the task stays in Delivering. A human must Restart task to allow another repair, or fix and merge the PR by hand.`,
+        }) });
+        touch(db, row.id, ts);
+      }
+      return toDetail(db, findRowByKey(db, key)!);
+    }
     const comment = buildFailureComment({
       reason: input.reason, detail: input.detail, source: 'watcher', attempt: repair.attempt, maxAttempts: repair.maxAttempts,
       ...(input.body !== undefined ? { body: input.body } : {}),

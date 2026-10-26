@@ -249,6 +249,50 @@ describe('delivery ops', () => {
     expect(() => core.completeDelivery(key, 'again')).toThrow(InvalidTransitionError);
   });
 
+  it('failing post-merge checks create exactly one linked backlog follow-up task', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    const merged = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'failing' as const, failing: [{ name: 'deploy', url: 'https://ci/1' }] };
+    core.recordDeliveryCheck(key, merged);
+    core.recordDeliveryCheck(key, merged);
+    core.recordDeliveryCheck(key, { ...merged, failing: [{ name: 'deploy', url: 'https://ci/2' }] });
+
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+    expect(done.dependents).toHaveLength(1);
+    const follow = core.getTask(done.dependents[0]!.key);
+    expect(follow).toMatchObject({ status: 'backlog', workspace: done.workspace });
+    expect(follow.title).toContain(key);
+    expect(follow.spec).toContain('deploy');
+    expect(follow.links).toEqual([expect.objectContaining({ kind: 'pr', url: prUrl })]);
+    expect(follow.dependencies.map((d) => d.key)).toEqual([key]);
+    expect(done.activity.at(-1)!.body).toContain(follow.key);
+  });
+
+  it('post-merge checks that turn red after completion still create one follow-up', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    const pending = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'pending' as const, failing: [] };
+    core.recordDeliveryCheck(key, pending);
+    expect(core.getTask(key)).toMatchObject({ status: 'done', dependents: [] });
+
+    const failing = { ...pending, checksState: 'failing' as const, failing: [{ name: 'deploy', url: null }] };
+    core.recordDeliveryCheck(key, failing);
+    core.recordDeliveryCheck(key, failing);
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
+  });
+
+  it('passing post-merge checks create no follow-up', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.recordDeliveryCheck(key, { prUrl: 'https://github.com/acme/widgets/pull/1', prId: '#1', prState: 'merged', checksState: 'passing' });
+    expect(core.getTask(key).dependents).toEqual([]);
+  });
+
   it('failDelivery re-queues, clears the claimant, and posts exactly one parseable failure/v1', () => {
     const core = makeCore();
     const key = deliverTask(core);
@@ -302,6 +346,43 @@ describe('delivery ops', () => {
 
     core.restartTask(key);
     expect(core.claimNextTask({ claimedBy: 'interactive-worker' })?.key).toBe(key);
+  });
+
+  it('an exhausted repair budget posts exactly one repair_exhausted note and keeps the task delivering', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'delivery', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op); // 2 of 2 repairs already spent
+
+    const first = core.failDelivery(key, { reason: 'ci_failed', detail: 'PR #1 checks failed: build' });
+    const again = core.failDelivery(key, { reason: 'ci_failed', detail: 'PR #1 checks failed: build' });
+
+    expect(first.status).toBe('delivering');
+    expect(again.status).toBe('delivering');
+    const notes = again.activity.filter((a) => a.type === 'comment' && isFailureMarker(a.body));
+    expect(notes).toHaveLength(1);
+    expect(parseFailureComment(notes[0]!.body)).toMatchObject({ reason: 'repair_exhausted', source: 'watcher', attempt: 2, maxAttempts: 2 });
+    expect(notes[0]!.body).toMatch(/restart/i);
+    expect(again.failure).toMatchObject({ reason: 'repair_exhausted', skipListed: true });
+    expect(again.activity.filter((a) => a.type === 'status_change').at(-1)).toMatchObject({ toStatus: 'delivering' });
+  });
+
+  it('Restart task on an exhausted delivery restores the allowance; the next failure bounces normally', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const op = { operation: 'delivery', maxAttempts: 2 } as const;
+    core.reserveRetry(key, op);
+    core.reserveRetry(key, op);
+    core.failDelivery(key, { reason: 'ci_failed', detail: 'red' });
+
+    const restarted = core.restartTask(key);
+    expect(restarted.status).toBe('delivering');
+    expect(restarted.failure).toBeNull();
+
+    const bounced = core.failDelivery(key, { reason: 'ci_failed', detail: 'red again' });
+    expect(bounced.status).toBe('queued');
+    expect(bounced.failure).toMatchObject({ reason: 'ci_failed', attempt: 1, maxAttempts: 2, skipListed: false });
   });
 
   it('beginDelivery requires delivering status', () => {
