@@ -105,6 +105,29 @@ describe('github provider', () => {
     const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
     const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: true });
     expect(r.checks.state).toBe('pending');
+    expect(r.checksTarget).toBe('merge_commit');
+  });
+
+  it('a merged PR without postMergeChecks reports PR-head check evidence', async () => {
+    const fetchJson = fakeFetch([
+      ['/pulls/42', { body: ghPr({ merged: true, state: 'closed' }) }],
+      ['/commits/headsha/check-runs', { body: { check_runs: [] } }],
+      ['/commits/headsha/status', { body: { statuses: [] } }],
+    ]);
+    const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
+    const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: false });
+    expect(r.checksTarget).toBe('head');
+  });
+
+  it('postMergeChecks without a merge sha falls back to the head and says so', async () => {
+    const fetchJson = fakeFetch([
+      ['/pulls/42', { body: ghPr({ merged: true, state: 'closed', merge_commit_sha: null }) }],
+      ['/commits/headsha/check-runs', { body: { check_runs: [] } }],
+      ['/commits/headsha/status', { body: { statuses: [] } }],
+    ]);
+    const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
+    const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: true });
+    expect(r.checksTarget).toBe('head');
   });
 
   it('rate limit (403 + remaining 0) throws with a pause anchored to x-ratelimit-reset', async () => {
@@ -174,6 +197,7 @@ describe('azdo provider', () => {
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
     expect(r.checks.state).toBe('failing');
+    expect(r.checksTarget).toBe('head'); // PR statuses describe the PR, never the merge commit
   });
 
   it('an OPEN PR with a pending status still waits', async () => {

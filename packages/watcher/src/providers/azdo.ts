@@ -122,7 +122,8 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       const checks = combineAdoStatuses(statuses.value ?? []);
       // Merge completion is independent of checks; preserve the provider's actual status evidence.
-      return { pr: obs, checks };
+      // PR statuses describe the PR, never the merge commit, so they are not post-merge evidence.
+      return { pr: obs, checks, checksTarget: 'head' };
     },
 
     async describeFailures(remote, result): Promise<string[]> {

@@ -1,4 +1,4 @@
-import type { RemoteRef, DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
+import type { RemoteRef, DeliveryChecksState, DeliveryChecksTarget, DeliveryFailingCheck } from '@agentfactory/core';
 
 /** What one provider poll observed about a task's PR. */
 export interface PrObservation {
@@ -14,6 +14,8 @@ export interface DeliveryCheckResult {
   /** null = no PR found for the branch (recorded as pr_state 'not_found'; the watcher keeps waiting). */
   pr: PrObservation | null;
   checks: { state: DeliveryChecksState; failing: DeliveryFailingCheck[] };
+  /** The commit the checks describe; only 'merge_commit' is post-merge evidence. Absent = head. */
+  checksTarget?: DeliveryChecksTarget;
 }
 
 export interface DeliveryProviderApi {

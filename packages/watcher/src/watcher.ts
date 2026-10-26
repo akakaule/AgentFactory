@@ -256,6 +256,7 @@ export class Watcher {
       prId: pr?.id ?? null,
       prState: pr ? pr.state : 'not_found',
       checksState: checks.state,
+      checksTarget: result.checksTarget ?? 'head',
       failing: checks.failing,
     });
     if (recorded.skipped) return;

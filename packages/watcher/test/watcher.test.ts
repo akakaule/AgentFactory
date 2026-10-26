@@ -524,6 +524,47 @@ describe('watcher tick', () => {
     expect(done.dependents).toHaveLength(1);
   });
 
+  it('post-merge checks published after a fast one passed (passing → pending → failing) still get one follow-up', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    let checks: unknown = green;
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/check-runs') ? checks : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'passing' }, dependents: [] });
+    checks = { check_runs: [...green.check_runs, { ...running.check_runs[0]!, name: 'deploy' }] };
+    await w.tick();
+    expect(core.getTask(key).delivery).toMatchObject({ checksState: 'pending' });
+    checks = { check_runs: [...green.check_runs, { ...red.check_runs[0]!, name: 'deploy' }] };
+    await w.tick();
+    await w.tick();
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
+  });
+
+  it.each([false, true])('a merged PR with red head checks and a green merge commit gets no follow-up (postMergeChecks %s)', async (postMergeChecks) => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/commits/headsha/check-runs') ? red : url.includes('/commits/mergesha/check-runs') ? green : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks }), makeDeps(core, fetchJson));
+    await w.tick();
+    await w.tick();
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+    expect(done.dependents).toEqual([]);
+  });
+
   it('losing a race to a human move is settled, not an error', async () => {
     const core = makeCore();
     const key = deliverTask(core);

@@ -18,15 +18,17 @@ import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advance
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
 
 /**
- * How long after the last observed delivery change (normally the merge) a merged PR with no
- * published checks yet ('none'/'unknown') stays observed: CI often publishes post-merge checks
- * only after the first poll. Pending checks stay observed until they settle.
+ * How long after the last observed delivery change (normally the merge) a merged PR without a red
+ * or pending verdict ('none'/'unknown'/'passing') stays observed: CI often publishes post-merge
+ * checks only after the first poll, or after a fast check already passed. Pending checks stay
+ * observed until they settle.
  */
 export const POST_MERGE_CHECK_PUBLICATION_MS = 60 * 60_000;
 
 /**
- * A merged delivery whose post-merge checks have no verdict yet — pending, or not published
- * within the publication window — so a later red verdict still gets its follow-up task.
+ * A merged delivery whose post-merge checks have no final verdict yet — pending, or none/unknown/
+ * passing within the publication window (another check may still be published) — so a later red
+ * verdict still gets its follow-up task.
  * Shared by core's acceptance guard and the watcher's selection so the two agree.
  */
 export function awaitingPostMergeChecks(
@@ -35,7 +37,7 @@ export function awaitingPostMergeChecks(
 ): boolean {
   if (d.prState !== 'merged') return false;
   if (d.checksState === 'pending') return true;
-  if (d.checksState !== 'none' && d.checksState !== 'unknown') return false;
+  if (d.checksState === 'failing') return false;
   const since = Date.parse(d.stateChangedAt);
   return Number.isFinite(since) && nowMs - since < POST_MERGE_CHECK_PUBLICATION_MS;
 }
@@ -82,11 +84,12 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     const row = requireRow(db, key);
     const d = deliveryRowFor(db, row.id);
     if (!d) return { changed: false, skipped: true, accepted: false, stateChangedAt: null }; // nothing seeded
-    // A completed delivery stays observed while its merged PR's post-merge checks have no verdict
-    // (pending, or not yet published), so a later red verdict still gets its follow-up task;
-    // nothing else about a done task is observed.
+    // A completed delivery stays observed while its merged PR's post-merge checks have no final
+    // verdict, so a later red verdict still gets its follow-up task; nothing else about a done
+    // task is observed, and only merge-commit check evidence counts as post-merge.
     const ts = now();
-    const awaitingPostMerge = row.status === 'done' && obs.prState === 'merged' &&
+    const postMergeEvidence = obs.prState === 'merged' && obs.checksTarget === 'merge_commit';
+    const awaitingPostMerge = row.status === 'done' && postMergeEvidence &&
       awaitingPostMergeChecks(toDeliverySummary(d), Date.parse(ts));
     if (row.archived_at || !(awaitingPostMerge || ['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status))) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     const expected = obs.expected;
@@ -102,7 +105,7 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
       if (changed) touch(db, row.id, ts);
       return { changed, accepted, stateChangedAt };
     }
-    if (reconcileMergedDelivery(db, row, ts)) return { changed: true, accepted, stateChangedAt };
+    if (reconcileMergedDelivery(db, row, ts, undefined, postMergeEvidence)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);
     return { changed, accepted, stateChangedAt };
   });
@@ -124,7 +127,7 @@ export function completeDelivery(db: DB, key: string, note: string, expectedStat
 }
 
 /** Runs inside the caller's transaction (observation, retry, or claim); never nests a transaction. */
-export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?: string): boolean {
+export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?: string, postMergeEvidence = false): boolean {
   if (row.archived_at || row.kind !== 'code' || row.stage !== 'implementation' ||
       !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return false;
   const d = deliveryRowFor(db, row.id);
@@ -139,7 +142,8 @@ export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?:
   // its late output is stale and a reopened task is free for a new claimant.
   const live = currentExecution(db, row.id);
   if (live && operationPhase(live.operation) === 'queued') settleExecution(db, live.id, 'cancelled', ts, 'delivery already merged');
-  const followUp = ensurePostMergeFollowUp(db, row, ts);
+  // Failing PR-head checks on a merged PR are history, not post-merge evidence: no follow-up.
+  const followUp = postMergeEvidence ? ensurePostMergeFollowUp(db, row, ts) : null;
   const body = `PR ${d.pr_id ?? d.pr_url} merged; checks ${d.checks_state}. Original delivery complete; ` +
     (followUp ? `follow-up ${followUp} tracks the post-merge check repair.` : 'further CI repair is separate work.');
   appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: row.status,
@@ -148,7 +152,7 @@ export function reconcileMergedDelivery(db: DB, row: TaskRow, ts: string, note?:
 }
 
 /**
- * Failing post-merge checks on a merged delivery become one linked backlog task in the same
+ * Failing post-merge (merge-commit) checks on a merged delivery become one linked backlog task in the same
  * workspace: it references the PR as a plain 'url' link (a 'pr' link would seed the follow-up's
  * own delivery with the already-merged PR on approval), depends on the original task, and lists
  * the red checks. Idempotent per PR (an existing dependent linking that PR counts). Returns the new task's key,

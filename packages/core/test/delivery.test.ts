@@ -253,7 +253,7 @@ describe('delivery ops', () => {
     const core = makeCore();
     const key = deliverTask(core);
     const prUrl = 'https://github.com/acme/widgets/pull/1';
-    const merged = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'failing' as const, failing: [{ name: 'deploy', url: 'https://ci/1' }] };
+    const merged = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'failing' as const, checksTarget: 'merge_commit' as const, failing: [{ name: 'deploy', url: 'https://ci/1' }] };
     core.recordDeliveryCheck(key, merged);
     core.recordDeliveryCheck(key, merged);
     core.recordDeliveryCheck(key, { ...merged, failing: [{ name: 'deploy', url: 'https://ci/2' }] });
@@ -276,7 +276,7 @@ describe('delivery ops', () => {
     const core = makeCore();
     const key = deliverTask(core);
     const prUrl = 'https://github.com/acme/widgets/pull/1';
-    const pending = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'pending' as const, failing: [] };
+    const pending = { prUrl, prId: '#1', prState: 'merged' as const, checksState: 'pending' as const, checksTarget: 'merge_commit' as const, failing: [] };
     core.recordDeliveryCheck(key, pending);
     expect(core.getTask(key)).toMatchObject({ status: 'done', dependents: [] });
 
@@ -292,7 +292,7 @@ describe('delivery ops', () => {
     const core = makeCore();
     const key = deliverTask(core);
     const prUrl = 'https://github.com/acme/widgets/pull/1';
-    core.recordDeliveryCheck(key, { prUrl, prId: '#1', prState: 'merged', checksState: 'failing', failing: [{ name: 'deploy', url: null }] });
+    core.recordDeliveryCheck(key, { prUrl, prId: '#1', prState: 'merged', checksState: 'failing', checksTarget: 'merge_commit', failing: [{ name: 'deploy', url: null }] });
     const followKey = core.getTask(key).dependents[0]!.key;
 
     core.updateStatus(followKey, 'queued', 'human');
@@ -310,8 +310,9 @@ describe('delivery ops', () => {
   describe('post-merge checks not yet published', () => {
     afterEach(() => { vi.useRealTimers(); });
     const prUrl = 'https://github.com/acme/widgets/pull/1';
-    const obs = (checksState: 'none' | 'unknown' | 'pending' | 'failing') =>
-      ({ prUrl, prId: '#1', prState: 'merged' as const, checksState, failing: checksState === 'failing' ? [{ name: 'deploy', url: null }] : [] });
+    const obs = (checksState: 'none' | 'unknown' | 'pending' | 'passing' | 'failing') =>
+      ({ prUrl, prId: '#1', prState: 'merged' as const, checksState, checksTarget: 'merge_commit' as const,
+        failing: checksState === 'failing' ? [{ name: 'deploy', url: null }] : [] });
 
     it('none → pending → failing on a done task still creates exactly one follow-up', () => {
       const core = makeCore();
@@ -334,6 +335,40 @@ describe('delivery ops', () => {
       expect(core.getTask(key).dependents).toHaveLength(1);
     });
 
+    it('passing → pending → failing (a check published after a fast one passed) still creates exactly one follow-up', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('passing'));
+      expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'passing' }, dependents: [] });
+      expect(core.recordDeliveryCheck(key, obs('pending')).accepted).toBe(true);
+      core.recordDeliveryCheck(key, obs('failing'));
+      core.recordDeliveryCheck(key, obs('failing'));
+      expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'failing' } });
+      expect(core.getTask(key).dependents).toHaveLength(1);
+    });
+
+    it('passing checks stop being observed after the publication window', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.parse('2026-10-26T12:00:00Z');
+      vi.setSystemTime(t0);
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('passing'));
+      vi.setSystemTime(t0 + POST_MERGE_CHECK_PUBLICATION_MS + 1000);
+      expect(core.recordDeliveryCheck(key, obs('failing'))).toMatchObject({ skipped: true, accepted: false });
+      expect(core.getTask(key).dependents).toEqual([]);
+    });
+
+    it('a done task accepts no observation without post-merge (merge-commit) check evidence', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('pending'));
+      const { checksTarget: _t, ...headOnly } = obs('failing');
+      expect(core.recordDeliveryCheck(key, headOnly)).toMatchObject({ skipped: true, accepted: false });
+      expect(core.recordDeliveryCheck(key, { ...obs('failing'), checksTarget: 'head' })).toMatchObject({ skipped: true, accepted: false });
+      expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'pending' }, dependents: [] });
+    });
+
     it('checks that never appear stop being observed after the publication window', () => {
       vi.useFakeTimers({ toFake: ['Date'] });
       const t0 = Date.parse('2026-10-26T12:00:00Z');
@@ -347,6 +382,18 @@ describe('delivery ops', () => {
       expect(core.recordDeliveryCheck(key, obs('failing'))).toMatchObject({ skipped: true, accepted: false });
       expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'none' }, dependents: [] });
     });
+  });
+
+  it('failing PR-head checks on a merged PR create no follow-up (no post-merge evidence)', () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const head = { prUrl: 'https://github.com/acme/widgets/pull/1', prId: '#1', prState: 'merged' as const, checksState: 'failing' as const, failing: [{ name: 'build', url: null }] };
+    core.recordDeliveryCheck(key, head);
+    core.recordDeliveryCheck(key, { ...head, checksTarget: 'head' });
+    const done = core.getTask(key);
+    expect(done.status).toBe('done');
+    expect(done.dependents).toEqual([]);
+    expect(done.activity.filter((a) => a.type === 'status_change').at(-1)!.body).toContain('further CI repair is separate work');
   });
 
   it('passing post-merge checks create no follow-up', () => {

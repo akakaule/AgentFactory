@@ -19,8 +19,15 @@ export interface DeliveryObservation {
   prId?: string | null | undefined;
   prState: DeliveryPrState;
   checksState: DeliveryChecksState;
+  /**
+   * Which commit the checks describe: the PR head, or (with the watcher's postMergeChecks) the
+   * merge commit. Only 'merge_commit' evidence is post-merge; absent means head.
+   */
+  checksTarget?: DeliveryChecksTarget | undefined;
   failing?: DeliveryFailingCheck[] | undefined;
 }
+
+export type DeliveryChecksTarget = 'head' | 'merge_commit';
 
 const parseFailing = (detail: string | null): DeliveryFailingCheck[] => {
   if (!detail) return [];
