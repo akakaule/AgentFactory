@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { openCore, type Core } from '../src/index.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { openCore, POST_MERGE_CHECK_PUBLICATION_MS, type Core } from '../src/index.js';
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
@@ -265,7 +265,9 @@ describe('delivery ops', () => {
     expect(follow).toMatchObject({ status: 'backlog', workspace: done.workspace });
     expect(follow.title).toContain(key);
     expect(follow.spec).toContain('deploy');
-    expect(follow.links).toEqual([expect.objectContaining({ kind: 'pr', url: prUrl })]);
+    // A reference, not a delivery: a 'pr' link would seed the follow-up's own delivery with the
+    // original (already merged) PR when its implementation is approved.
+    expect(follow.links).toEqual([expect.objectContaining({ kind: 'url', url: prUrl })]);
     expect(follow.dependencies.map((d) => d.key)).toEqual([key]);
     expect(done.activity.at(-1)!.body).toContain(follow.key);
   });
@@ -284,6 +286,67 @@ describe('delivery ops', () => {
     const done = core.getTask(key);
     expect(done.delivery).toMatchObject({ checksState: 'failing' });
     expect(done.dependents).toHaveLength(1);
+  });
+
+  it("approving the follow-up's implementation delivers its own branch, not the original PR", () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    core.recordDeliveryCheck(key, { prUrl, prId: '#1', prState: 'merged', checksState: 'failing', failing: [{ name: 'deploy', url: null }] });
+    const followKey = core.getTask(key).dependents[0]!.key;
+
+    core.updateStatus(followKey, 'queued', 'human');
+    expect(core.claimNextTask({ claimedBy: 'w2' })?.key).toBe(followKey);
+    core.submitResult(followKey, { summary: 'spec', spec: 'repair the deploy check', acceptanceCriteria: '1. deploy is green' });
+    core.reviewApprove(followKey);
+    expect(core.getTask(followKey).stage).toBe('implementation');
+    if (core.getTask(followKey).status !== 'queued') core.updateStatus(followKey, 'queued', 'human');
+    expect(core.claimNextTask({ claimedBy: 'w3' })?.key).toBe(followKey);
+    core.submitResult(followKey, { summary: 'fixed' });
+    expect(core.reviewApprove(followKey).status).toBe('delivering');
+    expect(core.getDelivery(followKey)).toMatchObject({ prUrl: null, prState: 'unknown' });
+  });
+
+  describe('post-merge checks not yet published', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    const prUrl = 'https://github.com/acme/widgets/pull/1';
+    const obs = (checksState: 'none' | 'unknown' | 'pending' | 'failing') =>
+      ({ prUrl, prId: '#1', prState: 'merged' as const, checksState, failing: checksState === 'failing' ? [{ name: 'deploy', url: null }] : [] });
+
+    it('none → pending → failing on a done task still creates exactly one follow-up', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('none'));
+      expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'none' }, dependents: [] });
+      expect(core.recordDeliveryCheck(key, obs('pending')).accepted).toBe(true);
+      expect(core.getTask(key).delivery).toMatchObject({ checksState: 'pending' });
+      core.recordDeliveryCheck(key, obs('failing'));
+      core.recordDeliveryCheck(key, obs('failing'));
+      expect(core.getTask(key).dependents).toHaveLength(1);
+    });
+
+    it('unknown checks after the merge are also still observed', () => {
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('unknown'));
+      expect(core.getTask(key).status).toBe('done');
+      core.recordDeliveryCheck(key, obs('failing'));
+      expect(core.getTask(key).dependents).toHaveLength(1);
+    });
+
+    it('checks that never appear stop being observed after the publication window', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.parse('2026-10-26T12:00:00Z');
+      vi.setSystemTime(t0);
+      const core = makeCore();
+      const key = deliverTask(core);
+      core.recordDeliveryCheck(key, obs('none'));
+      vi.setSystemTime(t0 + POST_MERGE_CHECK_PUBLICATION_MS - 1000);
+      expect(core.recordDeliveryCheck(key, obs('none')).accepted).toBe(true); // still within the window
+      vi.setSystemTime(t0 + POST_MERGE_CHECK_PUBLICATION_MS + 1000);
+      expect(core.recordDeliveryCheck(key, obs('failing'))).toMatchObject({ skipped: true, accepted: false });
+      expect(core.getTask(key)).toMatchObject({ delivery: { checksState: 'none' }, dependents: [] });
+    });
   });
 
   it('passing post-merge checks create no follow-up', () => {

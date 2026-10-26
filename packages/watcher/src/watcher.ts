@@ -1,4 +1,4 @@
-import { InvalidTransitionError, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type Workspace } from '@agentfactory/core';
+import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -170,9 +170,12 @@ export class Watcher {
     this.deps.console.warn(msg);
   }
 
-  /** A completed delivery whose merged PR's post-merge checks have no verdict yet (followed up on red). */
+  /**
+   * A completed delivery whose merged PR's post-merge checks have no verdict yet — pending, or not
+   * published within core's publication window (followed up on red).
+   */
   private awaitingPostMergeChecks(delivery: Task['delivery'] | undefined): boolean {
-    return this.config.postMergeChecks && delivery?.prState === 'merged' && delivery.checksState === 'pending';
+    return this.config.postMergeChecks && !!delivery && awaitingPostMergeChecks(delivery, this.deps.now());
   }
 
   private async checkTask(key: string): Promise<void> {

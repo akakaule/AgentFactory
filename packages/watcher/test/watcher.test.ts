@@ -496,7 +496,32 @@ describe('watcher tick', () => {
     const done = core.getTask(key);
     expect(done.delivery).toMatchObject({ checksState: 'failing' });
     expect(done.dependents).toHaveLength(1);
-    expect(core.getTask(done.dependents[0]!.key)).toMatchObject({ status: 'backlog', links: [expect.objectContaining({ kind: 'pr' })] });
+    expect(core.getTask(done.dependents[0]!.key)).toMatchObject({ status: 'backlog', links: [expect.objectContaining({ kind: 'url' })] });
+  });
+
+  it('post-merge checks published after the merge poll (none → pending → failing) still get a follow-up', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    let checks: unknown = { total_count: 0, check_runs: [] };
+    const fetchJson = async (url: string) => {
+      const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+      const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+        : url.includes('/check-runs') ? checks : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, fetchJson));
+    await w.tick();
+    expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { checksState: 'none' }, dependents: [] });
+    await w.tick(); // still nothing published
+    checks = running;
+    await w.tick();
+    expect(core.getTask(key).delivery).toMatchObject({ checksState: 'pending' });
+    checks = red;
+    await w.tick();
+    await w.tick();
+    const done = core.getTask(key);
+    expect(done.delivery).toMatchObject({ checksState: 'failing' });
+    expect(done.dependents).toHaveLength(1);
   });
 
   it('losing a race to a human move is settled, not an error', async () => {
