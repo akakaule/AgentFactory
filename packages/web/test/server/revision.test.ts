@@ -93,6 +93,25 @@ describe('a raw status close refreshes the revision like approve', () => {
     expect(body.activity.some((a) => a.type === 'comment' && /unknown revision freshness/.test(a.body) && a.body.includes('origin unreachable'))).toBe(true);
   });
 
+  it('a raw close names the reviewed submission: a superseded one or another head is refused (409), the current one closes', async () => {
+    const { core, app } = boardWith(() => ({ headSha: A, error: null }));
+    const { key, submissionId } = submitted(core, A);
+    const stale = await post(app, `/api/tasks/${key}/status`, { status: 'delivering', submissionId: submissionId + 1, headSha: A });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { message: string }).message).toMatch(/approval names submission/);
+    expect((await post(app, `/api/tasks/${key}/status`, { status: 'done', submissionId, headSha: B })).status).toBe(409);
+    expect(core.getTask(key).status).toBe('in_review');
+    const res = await post(app, `/api/tasks/${key}/status`, { status: 'done', submissionId, headSha: A });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'done' });
+  });
+
+  it('rejects a malformed expected head on a raw close (400)', async () => {
+    const { core, app } = boardWith(() => ({ headSha: A, error: null }));
+    const { key, submissionId } = submitted(core, A);
+    expect((await post(app, `/api/tasks/${key}/status`, { status: 'done', submissionId, headSha: 'HEAD' })).status).toBe(400);
+  });
+
   it('does not touch git for status moves that do not close a review', async () => {
     let reads = 0;
     const { core, app } = boardWith(() => { reads++; return { headSha: A, error: null }; });

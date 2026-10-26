@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Status, Task } from './types.js';
-import { STATUS_LABELS } from './status.js';
+import { STATUS_LABELS, reviewCloseRevision } from './status.js';
 import { useTasks } from './useTasks.js';
 import { useWorkspaces } from './useWorkspaces.js';
 import { api, getToken, setToken, setUnauthorizedHandler } from './api.js';
@@ -94,7 +94,8 @@ export function App() {
       api.setStatus(key, to, undefined, { expectedRevision: task.intake!.assessment.sourceRevision }).then(refetch).catch(() => {});
       return;
     }
-    api.setStatus(key, to).then(refetch).catch(() => {});
+    const revision = task ? reviewCloseRevision(task, to) : undefined;
+    api.setStatus(key, to, undefined, undefined, revision).then(refetch).catch(() => {});
   };
 
   const switchView = (v: View) => { setView(v); setSelectedKey(null); };

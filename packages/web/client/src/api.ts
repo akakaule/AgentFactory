@@ -133,7 +133,9 @@ export const api = {
     req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'DELETE' }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
-  setStatus: (key: string, status: Status, note?: string, intake?: { expectedRevision?: string; reason?: string }) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note, ...(intake ?? {}) })),
+  // `revision` names the reviewed submission when the move closes a review (core refuses a replaced one)
+  setStatus: (key: string, status: Status, note?: string, intake?: { expectedRevision?: string; reason?: string }, revision?: ApproveRevision) =>
+    req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note, ...(intake ?? {}), ...(revision ?? {}) })),
   overrideIntake: (key: string, expectedRevision: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/intake/override`, body({ expectedRevision, ...(reason ? { reason } : {}) })),
   // Advisory failure triage: exact source note by activity id, cursor-paginated history, human feedback.
   getFailureTriageSource: (key: string, activityId: number) => req<Activity>(`/api/tasks/${key}/failure-triage/source/${activityId}`),

@@ -53,3 +53,14 @@ export const STAGE_COLORS: Record<Stage, string> = {
   plan: '#C084FC',
   implementation: '#94A3B8',
 };
+
+/**
+ * Dragging a card out of review (to done or delivering) approves it, so the request names the
+ * submission whose review the card shows (AF-148): a submission that replaced it meanwhile is
+ * refused instead of approved. An unbound or absent review names nothing (historical behavior).
+ */
+export function reviewCloseRevision(task: Task, to: Status): { submissionId: number; headSha: string | null } | undefined {
+  if (task.status !== 'in_review' || (to !== 'done' && to !== 'delivering')) return undefined;
+  const rev = task.aiReview?.revision;
+  return rev ? { submissionId: rev.submissionId, headSha: rev.headSha } : undefined;
+}

@@ -248,7 +248,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     setKv: (key: string, value: string) => setKv(db, key, value),
     addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
-    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string, expected?: ExpectedRevision | null) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId, expected ?? null),
     releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, fenced(key, { executionId }).executionId),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),

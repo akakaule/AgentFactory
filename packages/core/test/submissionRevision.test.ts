@@ -259,6 +259,32 @@ describe('revision gate holds across every human close and through observation f
     expect(updateStatus(db, key, 'done', 'human', now).status).toBe('done');
   });
 
+  it('a raw human status close names the submission the human reviewed: a replacement is refused, not approved', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const first = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: first.id, headSha: A }) }, now);
+    // submission B replaces A before the human's status request lands
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
+    const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
+    expect(() => updateStatus(db, key, 'done', 'human', now, null, undefined, undefined, { submissionId: first.id, headSha: A }))
+      .toThrow(/approval names submission #\d+, but the current submission/);
+    expect(() => updateStatus(db, key, 'delivering', 'human', now, null, undefined, undefined, { submissionId: second.id, headSha: A }))
+      .toThrow(/approval names revision/);
+    expect(getTask(db, key).status).toBe('in_review');
+    const d = updateStatus(db, key, 'done', 'human', now, null, undefined, undefined, { submissionId: second.id, headSha: B });
+    expect(d.status).toBe('done');
+  });
+
+  it('a raw human status close naming a submission is refused on a historical task with none', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(t.key);
+    expect(() => updateStatus(db, t.key, 'done', 'human', now, null, undefined, undefined, { submissionId: 99 })).toThrow(/no recorded submission/);
+    // unbound compatibility: without an expectation the historical task closes as before
+    expect(updateStatus(db, t.key, 'done', 'human', now).status).toBe('done');
+  });
+
   it('a failed observation after a known mismatch keeps the submission stale and approval refused', () => {
     const db = makeTestDb();
     const key = implTask(db);

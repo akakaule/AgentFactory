@@ -184,7 +184,8 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
         ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),
       }));
     }
-    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note));
+    const expected = b.submissionId === undefined ? null : { submissionId: b.submissionId, headSha: b.headSha };
+    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note, undefined, expected));
   });
 
   r.post('/:key/metrics', validated('json', metricsBody), (c) => {

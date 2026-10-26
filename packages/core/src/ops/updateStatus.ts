@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail, Status, Actor } from '../types.js';
+import type { TaskDetail, Status, Actor, ExpectedRevision } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus } from '../repo/tasks.js';
@@ -14,17 +14,19 @@ import { latestPrLinkUrl } from '../repo/links.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 import { approvalNeedsReason, assertApprovableRevision, auditUnknownFreshness } from './approval.js';
 
-export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string): TaskDetail {
+export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string, expected: ExpectedRevision | null = null): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
-  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom, executionId));
+  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom, executionId, expected));
 }
 
 /**
  * The caller must hold a write transaction, so related audit writes commit atomically.
  * `requestedFrom` is the status the caller saw before opening the transaction (defaults to the
  * current one), letting a stale human retry detect a repair the watcher completed meanwhile.
+ * `expected` names the submission (and head) a human closing a review by status looked at; a
+ * replacement submission or another head is refused, exactly as on the approve action.
  */
-export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status, executionId?: string): TaskDetail {
+export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status, executionId?: string, expected: ExpectedRevision | null = null): TaskDetail {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     if (actor === 'agent') assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
@@ -54,9 +56,10 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // A human closing a review by status is an approval: it can't skip the reason the approve action requires.
     if (row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human' && approvalNeedsReason(db, row))
       throw new ValidationError('approving over must-fix issues or open decisions needs a reason — use the approve action');
-    // ...nor the revision gate: a branch observed at a new head since submit is not approvable by any route.
+    // ...nor the revision gate: a branch observed at a new head since submit is not approvable by any
+    // route, and a named submission that was replaced meanwhile is refused rather than approved.
     const approved = row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human'
-      ? assertApprovableRevision(db, row, null) : null;
+      ? assertApprovableRevision(db, row, expected) : null;
     // A retry already in flight must not reopen a repair that the watcher just completed.
     if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
       && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);

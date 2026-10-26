@@ -823,4 +823,14 @@ describe('MCP review binding', () => {
     expect(doc).toContain('review-revision/v1 submission=#<submission.id>');
     expect(doc).toContain('head=<submission.headSha>');
   });
+
+  it('/review-task reviews the submitted snapshot and binds the head it actually diffed', () => {
+    const doc = readFileSync(new URL('../../../.claude/commands/review-task.md', import.meta.url), 'utf8');
+    // the submitted revision, not the live branch, when the submission recorded its head/base
+    expect(doc).toContain('/api/tasks/<key>/diff?at=submission');
+    // the returned identity must match the submission noted in step 3 before reviewing
+    expect(doc).toMatch(/`submissionId`.*`headSha`.*match/s);
+    // a fallback live diff binds the head the diff returned, never the submitted SHA copied over
+    expect(doc).toContain('head=<diff headSha>');
+  });
 });
