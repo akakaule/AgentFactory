@@ -58,7 +58,7 @@ describe('repoPathOverrides', () => {
 
   it('computeDiff runs against the machine-local clone when an override is set', async () => {
     const core = makeCore('ws', '/board-machine/ws');
-    seedInReview(core, 'ws', 'Remote diff', 'implementation');
+    seedInReview(core, 'ws', 'Remote diff', 'implementation', undefined, false);
     const { spawn } = makeFakeSpawn();
     const diffRepos: string[] = [];
     const computeDiff = async (repoPath: string, _branch: string) => {
@@ -76,7 +76,7 @@ describe('repoPathOverrides', () => {
 
   it('without an override the board path is used, as before', async () => {
     const core = makeCore('ws', '/board-machine/ws');
-    seedInReview(core, 'ws', 'Local diff', 'implementation');
+    seedInReview(core, 'ws', 'Local diff', 'implementation', undefined, false);
     const { spawn } = makeFakeSpawn();
     const diffRepos: string[] = [];
     const computeDiff = async (repoPath: string, _branch: string) => {
@@ -191,7 +191,7 @@ describe('poll + spawn', () => {
     const core = makeCore();
     // The agent decorated the branch link's label with a trailing annotation — the whole
     // string must NOT reach git as a ref (it would fail SAFE_REF and skip-list the review).
-    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)');
+    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)', false);
     let seen: string | undefined;
     const computeDiff = async (_repo: string, branch: string) => {
       seen = branch;

@@ -332,9 +332,10 @@ export class Reviewer {
   /** A task needs review iff no current AI review exists, or the latest is `pending` (superseded). */
   /** A 'stale' review names the current submission whose revision moved since (a later push,
    *  edited doc content): reviewing it again cannot bind, only a resubmission can — so skip it
-   *  rather than burn an attempt every tick. A superseded review (newer submission) is due. */
+   *  rather than burn an attempt every tick. Likewise an 'unverified' one: its submission recorded
+   *  no head, so no review can bind to it. A superseded review (newer submission) is due. */
   private needsReview(task: Task): boolean {
-    return !task.aiReview || (task.aiReview.verdict === 'pending' && task.aiReview.binding !== 'stale');
+    return !task.aiReview || (task.aiReview.verdict === 'pending' && task.aiReview.binding !== 'stale' && task.aiReview.binding !== 'unverified');
   }
 
   private hasRunningFor(key: string): boolean {

@@ -109,16 +109,18 @@ export interface AiReviewSummary {
   // which submission/revision the review concerns (migration #29). 'legacy' = an unbound review
   // (posted before revisions were recorded; a clean one reads 'pending' while its stage has a
   // tracked submission it cannot prove, unless the task is done); 'superseded' = a newer submission replaced the one it
-  // reviewed (a re-review is due); 'stale' = it names the current submission but that revision moved
+  // reviewed, or it names an earlier stage's submission (a re-review is due); 'stale' = it names the current submission but that revision moved
   // (a later head, a head other than the submitted one, edited doc content) — only a resubmission
-  // helps. Both non-current bindings read verdict 'pending'.
+  // helps; 'unverified' = it names the current implementation submission, but that submission
+  // recorded no head, so no review can prove it (a human approves it at an unknown revision).
+  // Every non-current, non-legacy binding reads verdict 'pending'.
   binding?: ReviewBinding;
   revision?: ReviewRevision | null;
 }
 
 /** The revision a review/visualization/approval names: a submission id, plus the head SHA it saw. */
 export interface ReviewRevision { submissionId: number; headSha: string | null; baseSha?: string | null; }
-export type ReviewBinding = 'current' | 'stale' | 'superseded' | 'legacy';
+export type ReviewBinding = 'current' | 'stale' | 'superseded' | 'unverified' | 'legacy';
 
 /** Where a submission's revision came from: the pushed branch on origin, the local worktree,
  *  a doc stage's content hash, or nothing resolvable (an older worker / an unreachable origin). */

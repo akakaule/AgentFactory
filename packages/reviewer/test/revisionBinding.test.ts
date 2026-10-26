@@ -110,6 +110,23 @@ describe('reviewer does not loop on a revision only a resubmission can fix', () 
     expect(calls).toHaveLength(1);
   });
 
+  it('a review of a submission with no recorded head is not re-reviewed every tick', async () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'Old', spec: 'S', acceptanceCriteria: 'A', workspace: 'ws', stage: 'implementation' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const claim = core.claimNextTask({ workspace: 'ws', claimedBy: 'worker' })!;
+    core.submitResult(t.key, { summary: 'impl', links: [{ kind: 'branch', label: claim.branch!, url: 'https://example.test/b' }] });
+    const { spawn, calls } = makeFakeSpawn();
+    const computeDiff = async () => ({ baseRef: 'main', diff: 'diff --git a/a b/a\n+x', commits: 1, headSha: A, baseSha: BASE });
+    const r = new Reviewer(makeConfig({ visualization: { enabled: false } }), makeDeps(core, spawn, { computeDiff, readOutput: () => aiReviewBody(0), console: makeFakeConsole() }));
+    await r.tick();
+    await calls[0]!.child.exit(0);
+    expect(core.getTask(t.key).aiReview).toMatchObject({ verdict: 'pending', binding: 'unverified' });
+    await r.tick();
+    await r.tick();
+    expect(calls).toHaveLength(1);
+  });
+
   it('a review superseded by a newer submission is re-reviewed', async () => {
     const { core, key } = implInReview(A);
     await reviewOnce(core, A);

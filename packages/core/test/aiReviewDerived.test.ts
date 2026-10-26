@@ -14,6 +14,7 @@ import { analyticsRows } from '../src/ops/analyticsRows.js';
 import { formatReviewRevision } from '../src/aiReview.js';
 
 const BASE = Date.parse('2026-06-01T00:00:00.000Z');
+const HEAD = 'a'.repeat(40);
 const at = (min: number) => () => new Date(BASE + min * 60000).toISOString();
 
 /** An `ai-review/v1` comment body with N findings (fenced JSON), reviewer optional. */
@@ -34,7 +35,7 @@ function driveToReview(db: ReturnType<typeof makeTestDb>, title = 'T') {
   const task = createTask(db, { title, spec: 'S', acceptanceCriteria: 'A' }, at(0));
   updateStatus(db, task.key, 'queued', 'human', at(10));
   const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
-  submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId }, at(90));
+  submitResult(db, task.key, { summary: 'done', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(90));
   const review = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-1', startImmediately: true }, at(91));
   return { ...task, executionId: review!.id };
 }
@@ -96,7 +97,7 @@ describe('derived aiReview field', () => {
     // request changes → re-claim → resubmit: a new result now postdates the review
     reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
-    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId }, at(120));
+    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120));
 
     expect(getTask(db, task.key).aiReview).toMatchObject({ verdict: 'pending', findings: 2 });
   });
@@ -156,7 +157,7 @@ describe('reviewApprove override logging', () => {
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(2)), executionId: task.executionId }, at(95));
     reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
-    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId }, at(120)); // pending: result newer than review
+    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120)); // pending: result newer than review
     reviewApprove(db, task.key, at(150));
     expect(getTask(db, task.key).activity.some((a) => a.body.startsWith('override:'))).toBe(false);
   });
@@ -195,7 +196,7 @@ describe('analyticsRows aiReviewFindings', () => {
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(2)), executionId: task.executionId }, at(95));
     reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(100));
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
-    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId }, at(120));
+    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120));
     reviewApprove(db, task.key, at(150));
     expect(findFindings(db, task.key)).toBeNull();
   });
@@ -206,7 +207,7 @@ describe('analyticsRows aiReviewFindings', () => {
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(2)), executionId: task.executionId }, at(95));
     reviewRequestChanges(db, task.key, { feedback: 'address the AI findings' }, at(100));
     const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(110));
-    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId }, at(120));
+    submitResult(db, task.key, { summary: 'fixed', executionId: claim!.executionId, revision: { headSha: HEAD, source: 'origin' } }, at(120));
     const review = reserveExecution(db, task.key, { operation: 'reviewer:implementation', maxAttempts: 2, owner: 'reviewer-2', startImmediately: true }, at(124));
     addComment(db, task.key, { actor: 'agent', body: bound(db, task.key, reviewBody(0)), executionId: review!.id }, at(125));
     reviewApprove(db, task.key, at(150));

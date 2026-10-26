@@ -12,7 +12,7 @@ import { nowIso } from '../time.js';
 import { assertExecutionOwnership } from '../repo/execution.js';
 import { isIntakeMarker } from '../intake.js';
 import { isFailureTriageMarker } from '../failureTriage.js';
-import { latestSubmissionFor, reviewBinding, submissionById } from '../repo/submissions.js';
+import { isCurrentSubmission, latestSubmissionFor, reviewBinding, submissionById } from '../repo/submissions.js';
 
 export function addComment(
   db: DB,
@@ -35,12 +35,13 @@ export function addComment(
     if (submission && (submission.key !== key || submission.fingerprint !== reviewSubmissionFingerprint(toDetail(db, current)))) {
       throw new InvalidTransitionError('review submission changed before publication');
     }
-    // A review bound to a submission that is no longer its stage's latest reviewed something that
-    // was replaced: refuse it before publication, like a changed consensus fingerprint.
+    // A review bound to a submission that is not the current stage's latest reviewed something that
+    // was replaced (or an earlier stage's deliverable): refuse it before publication, like a
+    // changed consensus fingerprint.
     const revision = parsed?.revision;
     if (revision) {
       const named = submissionById(db, revision.submissionId);
-      if (!named || named.task_id !== row.id || latestSubmissionFor(db, row.id, named.stage)?.id !== named.id)
+      if (!named || !isCurrentSubmission(db, row, named))
         throw new InvalidTransitionError(`review names submission #${revision.submissionId}, which is not the current submission of ${key}`);
     }
     const ts = now();
@@ -57,7 +58,7 @@ export function addComment(
     // it cannot vouch for the current content. Only historical stages (nothing tracked) keep the
     // legacy unbound auto-approve.
     const stale = revision
-      ? reviewBinding(db, row.id, current, revision) !== 'current'
+      ? reviewBinding(db, current, revision) !== 'current'
       : latestSubmissionFor(db, row.id, current.stage) !== undefined;
     if (parsed && !stale && parsed.consensus?.status !== 'disputed' && parsed.findings.length === 0 && current.status === 'in_review' && current.stage !== 'implementation') {
       applyApproval(db, current, 'agent', ts, 'auto-approved: clean AI review');

@@ -6,7 +6,7 @@ You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a 
 
 ## Pick the task
 
-1. Call `list_tasks` with status `in_review`. Eligible tasks have `aiReview` null/absent (never reviewed) or `aiReview.verdict == "pending"` (resubmitted since the last review). A `clean` or `findings` verdict is current — skip those tasks.
+1. Call `list_tasks` with status `in_review`. Eligible tasks have `aiReview` null/absent (never reviewed) or `aiReview.verdict == "pending"` (resubmitted since the last review). A `clean` or `findings` verdict is current — skip those tasks. Also skip a pending review whose `aiReview.binding` is `stale` or `unverified`: its submission's branch moved, or it recorded no head, so no new review can bind to it — only a resubmission (or the human's unknown-revision approval) can.
 2. If the arguments contain a task key (`AF-<n>`), review that task. Otherwise review the oldest eligible task. If none is eligible, report "nothing to review" and stop.
 
 ## Gather the inputs
@@ -46,7 +46,7 @@ You are an AgentFactory **first-pass reviewer**. Your verdict is advisory — a 
    review-revision/v1 submission=#<submission.id> head=<submission.headSha>
    ````
 
-   The last line binds the verdict to the revision you reviewed: the `submission.id` from step 3, and the head of the diff you actually reviewed in step 4. After a `?at=submission` diff that is `submission.headSha`, which you checked matches. After a fallback live diff, write `head=<diff headSha>` (the `headSha` that diff returned), never the submitted SHA copied over: if the branch moved past the submission, the board then reads your verdict as `pending` rather than as proof for a revision you never saw. Drop ` head=…` at doc stages, or when no head is known, and omit the whole line only when the task has no `submission` (historical tasks). Keep it outside the JSON block. A verdict without it is unbound: on a task with a tracked submission the board reads it as `pending` (no proof of which revision it saw), it never auto-advances a doc stage, and the task stays eligible for review.
+   The last line binds the verdict to the revision you reviewed: the `submission.id` from step 3, and the head of the diff you actually reviewed in step 4. After a `?at=submission` diff that is `submission.headSha`, which you checked matches. After a fallback live diff, write `head=<diff headSha>` (the `headSha` that diff returned), never the submitted SHA copied over: if the branch moved past the submission, the board then reads your verdict as `pending` rather than as proof for a revision you never saw. A submission that recorded no head cannot be proven by any review: the board reads your verdict there as `pending` (binding `unverified`) and leaves the call to the human. Drop ` head=…` at doc stages, or when no head is known, and omit the whole line only when the task has no `submission` (historical tasks). Keep it outside the JSON block. A verdict without it is unbound: on a task with a tracked submission the board reads it as `pending` (no proof of which revision it saw), it never auto-advances a doc stage, and the task stays eligible for review.
 
    `criteria` lists the acceptance criteria the finding puts at risk, by position: the first criterion in the task's numbered list is `AC1`, the next `AC2`, and so on (a criteria text with no list is a single `AC1`). Use `[]` when the finding is outside them, and always `[]` at the doc stages, where the criteria are the deliverable. Keep `detail` to the problem and put the remedy in `fix`.
 

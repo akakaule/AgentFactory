@@ -98,12 +98,16 @@ const AC = 'the acceptance criteria';
  * Create a task at `stage` and legally walk it to `in_review`, submitting that stage's
  * deliverable (a branch link for implementation, so the diff is resolvable). Returns its key.
  */
+export const SEED_HEAD = 'e'.repeat(40);
+export const SEED_BASE = 'f'.repeat(40);
+
 export function seedInReview(
   core: Core,
   workspace: string,
   title: string,
   stage: Stage = 'implementation',
   branchLabel = 'feature/af-x',
+  withRevision = true,
 ): string {
   const t =
     stage === 'description'
@@ -118,6 +122,9 @@ export function seedInReview(
   } else {
     core.submitResult(t.key, {
       summary: 'implemented the feature',
+      // the revision the worker's submit guard resolves on origin: a submission with no recorded
+      // head can never get a current review (withRevision=false seeds that fallback-diff case)
+      ...(withRevision ? { revision: { headSha: SEED_HEAD, baseSha: SEED_BASE, source: 'origin' as const } } : {}),
       links: [{ kind: 'branch', label: branchLabel, url: 'https://example.test/branch' }],
     });
   }

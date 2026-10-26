@@ -289,6 +289,11 @@ describe('ReviewPanel — revision (AF-148)', () => {
     expect(screen.getByText(/AI review is for an older revision/)).toBeInTheDocument();
   });
 
+  it('labels an AI review of a submission that recorded no commit', () => {
+    renderPanel({ submission: submission({ headSha: null, freshness: 'unknown' }), aiReview: { ...af146Review({ links: true }), binding: 'unverified', revision: { submissionId: 7, headSha: A } } });
+    expect(screen.getByText(/AI review cannot be matched to the submitted commit/)).toBeInTheDocument();
+  });
+
   it('historical tasks (no submission) render without a revision line', () => {
     renderPanel();
     expect(screen.queryByText(/Submission #/)).toBeNull();

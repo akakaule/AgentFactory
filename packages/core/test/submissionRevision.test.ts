@@ -14,6 +14,7 @@ import { formatReviewRevision } from '../src/aiReview.js';
 import { InvalidTransitionError } from '../src/errors.js';
 import { createCore } from '../src/index.js';
 import type { DB } from '../src/db.js';
+import { appendActivity } from '../src/repo/activity.js';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -503,5 +504,47 @@ describe('round 6: observations superseded during a refresh, fenced provider fai
     const fence = { expected: { status: 'delivering' as const, branch: seen.branch, prUrl: seen.prUrl, stateChangedAt: seen.stateChangedAt }, submissionId: sub.id };
     expect(recordDeliveryCheckFailure(db, key, { error: 'GitHub 503', ...fence }, now)).toEqual({ recorded: true });
     expect(getTask(db, key).submission).toMatchObject({ freshness: 'unknown' });
+  });
+});
+
+describe('round 8: unresolved submitted heads, reviews of an earlier stage', () => {
+  it('a review of a submission with no recorded head stays pending, also after head B is observed; approval keeps its unknown-revision path', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1' }, now).submission!;
+    expect(sub.headSha).toBeNull();
+    // a fallback live-diff review bound to the head it saw
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'unverified' });
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git' }, now);
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'unverified' });
+    const approved = reviewApprove(db, key, now, null, () => null, null, { submissionId: sub.id });
+    expect(approved.status).toBe('done');
+  });
+
+  it('a delayed review naming the description submission is refused once implementation was submitted', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(t.key);
+    const d1 = submitResult(db, t.key, { summary: 'd1', spec: 'Spec v1', acceptanceCriteria: '- AC1 works' }, now).submission!;
+    reviewApprove(db, t.key, now, null, () => null, null, { submissionId: d1.id });
+    expect(getTask(db, t.key)).toMatchObject({ stage: 'implementation', status: 'queued' });
+    db.prepare("UPDATE task SET status='in_progress', branch='feature/x' WHERE key=?").run(t.key);
+    const i2 = submitResult(db, t.key, { summary: 'i2', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    expect(i2.stage).toBe('implementation');
+    expect(() => addComment(db, t.key, { actor: 'human', body: cleanReview({ submissionId: d1.id }) }, now)).toThrow(/not the current submission/);
+  });
+
+  it('an earlier-stage review that reached the log never provides current readiness for a later stage', () => {
+    const db = makeTestDb();
+    const t = createTask(db, { title: 'T', spec: 'S', stage: 'description' });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(t.key);
+    const d1 = submitResult(db, t.key, { summary: 'd1', spec: 'Spec v1', acceptanceCriteria: '- AC1 works' }, now).submission!;
+    reviewApprove(db, t.key, now, null, () => null, null, { submissionId: d1.id });
+    db.prepare("UPDATE task SET status='in_progress', branch='feature/x' WHERE key=?").run(t.key);
+    submitResult(db, t.key, { summary: 'i2', revision: { headSha: A, source: 'origin' } }, now);
+    const id = getTask(db, t.key).id;
+    appendActivity(db, { taskId: id, type: 'comment', actor: 'human', body: cleanReview({ submissionId: d1.id }), createdAt: now(), actorUserId: null });
+    expect(getTask(db, t.key).aiReview).toMatchObject({ verdict: 'pending', binding: 'superseded' });
   });
 });

@@ -51,7 +51,9 @@ function revisionLines(task: TaskDetailView): { line: string | null; stale: stri
     unknown: sub.stage === 'implementation' && sub.freshness === 'unknown'
       ? `Revision freshness unknown: ${seen?.error ?? 'no commit was recorded at submit'}. Approving records that.`
       : null,
-    review: binding === 'stale' || binding === 'superseded' ? 'This AI review is for an older revision.' : binding === 'legacy' ? 'This AI review names no revision (recorded before revisions were tracked).' : null,
+    review: binding === 'stale' || binding === 'superseded' ? 'This AI review is for an older revision.'
+      : binding === 'unverified' ? 'This AI review cannot be matched to the submitted commit: none was recorded at submit.'
+      : binding === 'legacy' ? 'This AI review names no revision (recorded before revisions were tracked).' : null,
   };
 }
 

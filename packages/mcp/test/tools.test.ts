@@ -293,7 +293,7 @@ describe('ai-review activity strip', () => {
     // list_tasks keeps the verdict and count, never a finding: an MCP reviewer (/review-task) uses it
     // to tell which in-review tasks still need a review
     const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: {} })));
-    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[{ verdict: 'findings', findings: 1, reviewer: 'codex', items: [] }, null]]);
+    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[{ verdict: 'findings', findings: 1, reviewer: 'codex', items: [], binding: 'legacy' }, null]]);
     expect(JSON.stringify(listed)).not.toContain('Unbounded loop');
 
     // a second round: the agent's own submit and status responses carry the full detail
@@ -816,6 +816,21 @@ describe('MCP review binding', () => {
     expect(core.getTask(t.key).aiReview).toMatchObject({ verdict: 'clean', binding: 'current' });
     const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: { status: 'in_review' } })));
     expect(listed[0].aiReview).toMatchObject({ verdict: 'clean' });
+  });
+
+  it('list_tasks carries the binding, so /review-task can skip a pending review only a resubmission can fix', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ ...makeTaskInput('Unresolved'), stage: 'implementation' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'worker' });
+    const sub = core.submitResult(t.key, { summary: 'done' }).submission!;
+    const body = ['ai-review/v1 — clean (claude)', '```json', '{ "reviewer": "claude", "verdict": "clean", "findings": [] }', '```',
+      `review-revision/v1 submission=#${sub.id} head=${'a'.repeat(40)}`].join('\n');
+    await client.callTool({ name: 'add_comment', arguments: { key: t.key, body } });
+    const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: { status: 'in_review' } })));
+    expect(listed[0].aiReview).toMatchObject({ verdict: 'pending', binding: 'unverified' });
+    const doc = readFileSync(new URL('../../../.claude/commands/review-task.md', import.meta.url), 'utf8');
+    expect(doc).toMatch(/`aiReview\.binding` is `stale` or `unverified`/);
   });
 
   it('/review-task instructs the reviewer to append the revision line from the task submission', () => {

@@ -90,15 +90,26 @@ export function toSubmissionSummary(s: SubmissionRow, task: DocContent): Submiss
 }
 
 /**
- * How a review's named revision relates to what is there now: 'legacy' when unbound; 'superseded'
- * when a newer submission of its stage replaced the one it names; 'stale' when its head is not the
- * submitted head or the submission itself went stale; otherwise 'current'.
+ * Is `s` the submission a review of the task can concern now — its current stage's latest? A
+ * submission of an earlier stage (a delayed spec review after implementation was submitted) or
+ * a replaced one is not.
  */
-export function reviewBinding(db: DB, taskId: number, task: DocContent, revision: { submissionId: number; headSha: string | null } | null | undefined): ReviewBinding {
+export function isCurrentSubmission(db: DB, task: { id: number; stage: Stage }, s: SubmissionRow): boolean {
+  return s.task_id === task.id && s.stage === task.stage && latestSubmissionFor(db, task.id, s.stage)?.id === s.id;
+}
+
+/**
+ * How a review's named revision relates to what is there now: 'legacy' when unbound; 'superseded'
+ * when it names a submission that is not the current stage's latest (replaced, or of an earlier
+ * stage); 'unverified' when it names an implementation submission whose head was never resolved —
+ * nothing ties the diff it saw to what was submitted; 'stale' when its head is not the submitted
+ * head or the submission itself went stale; otherwise 'current'.
+ */
+export function reviewBinding(db: DB, task: DocContent & { id: number; stage: Stage }, revision: { submissionId: number; headSha: string | null } | null | undefined): ReviewBinding {
   if (!revision) return 'legacy';
   const s = submissionById(db, revision.submissionId);
-  if (!s || s.task_id !== taskId) return 'superseded';
-  if (latestSubmissionFor(db, taskId, s.stage)?.id !== s.id) return 'superseded';
+  if (!s || !isCurrentSubmission(db, task, s)) return 'superseded';
+  if (s.stage === 'implementation' && s.head_sha === null) return 'unverified';
   if (s.head_sha !== null && revision.headSha !== null && revision.headSha !== s.head_sha) return 'stale';
   return freshnessOf(s, task) === 'stale' ? 'stale' : 'current';
 }

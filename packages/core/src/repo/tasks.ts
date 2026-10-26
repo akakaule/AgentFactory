@@ -246,7 +246,7 @@ function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> 
     const resultId = results.get(taskId);
     const superseded = resultId !== undefined && resultId > reviewId;
     const task = reviewedTaskFor(db, taskId);
-    const binding = parsed.revision ? reviewBinding(db, taskId, task, parsed.revision) : 'legacy';
+    const binding = parsed.revision ? reviewBinding(db, { ...task, id: taskId }, parsed.revision) : 'legacy';
     let summary = summarizeAiReview(parsed, superseded, binding);
     // An unbound green review cannot prove a tracked submission (it may predate a push the board
     // observes only later), so it reads pending until the reviewer posts a bound one. Unbound
