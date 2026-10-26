@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL, WORKSPACE_PROFILE_COLUMNS } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -163,6 +163,14 @@ const MIGRATIONS: Migration[] = [
       if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
       db.exec(MIGRATION_28_SQL);
     },
+  },
+  // #29 — workspace repository profile (base_branch / required_checks / ci_mode). Each column is
+  // added only when missing, so a DB that already took some of them under another slot reconciles.
+  // NOTE: the in-flight cancel-task (#29) and AF-148 (#30) branches claim the slots before this one —
+  // move this entry to the next free slot when they land (the guards keep the move idempotent).
+  (db) => {
+    const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    for (const [column, ddl] of WORKSPACE_PROFILE_COLUMNS) if (!cols.includes(column)) db.exec(ddl);
   },
 ];
 

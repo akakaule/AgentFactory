@@ -5,6 +5,7 @@ import { wsColor } from '../wsColor.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 import { AdoSyncSection, toDraft, fromDraft, type AdoSyncDraft } from './AdoSyncSection.js';
 import { WorkspaceAgentModels, workspaceModelsValid } from './WorkspaceAgentModels.js';
+import { RepoProfileSection, toProfileDraft, profilePatch, type ProfileDraft } from './RepoProfileSection.js';
 
 interface Props {
   workspaces: Workspace[];
@@ -33,6 +34,9 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
   // Azure DevOps work-item import settings (ADO origins only); sent only when the section changed
   const [adoInitial] = useState<AdoSyncDraft>(() => toDraft(workspace.adoSync));
   const [ado, setAdo] = useState<AdoSyncDraft>(adoInitial);
+  // repository profile; only the fields the user changed are sent
+  const [profileInitial] = useState<ProfileDraft>(() => toProfileDraft(workspace));
+  const [profile, setProfile] = useState<ProfileDraft>(profileInitial);
   const savedModels = models?.settings.workspaces[workspace.name] ?? {};
   const [modelDraft, setModelDraft] = useState<WorkspaceModelLayer | null>(null);
   const modelsDirty = modelDraft !== null && JSON.stringify(modelDraft) !== JSON.stringify(savedModels);
@@ -40,6 +44,7 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
   const [err, setErr] = useState<string | null>(null);
 
   const adoDirty = JSON.stringify(ado) !== JSON.stringify(adoInitial);
+  const profileChanges = profilePatch(profileInitial, profile);
   const overridesDirty = AGENT_PROMPT_FIELDS.some((f) => (overrides[f.key] ?? '').trim() !== (po[f.key] ?? ''));
   const dirty =
     repoPath !== workspace.repoPath ||
@@ -48,6 +53,7 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
     pat.trim() !== '' ||
     overridesDirty ||
     adoDirty ||
+    Object.keys(profileChanges).length > 0 ||
     modelsDirty;
 
   const handleSave = () => {
@@ -66,6 +72,7 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
       );
     }
     if (adoDirty) body.adoSync = fromDraft(ado);
+    Object.assign(body, profileChanges);
     // agent model overrides ride the board-wide document: re-read it and send it whole with only this
     // workspace's entry replaced (§9.2), so another row's or the global tab's save made meanwhile is
     // kept — the server drops an empty entry
@@ -163,6 +170,7 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
             ))}
           </div>
         </details>
+        <RepoProfileSection workspace={workspace} draft={profile} onChange={setProfile} />
         {models && <WorkspaceAgentModels view={models} draft={modelDraft ?? savedModels} onChange={setModelDraft} />}
         <AdoSyncSection workspace={workspace} draft={ado} onChange={setAdo} />
         {err && <div className="af-err">{err}</div>}

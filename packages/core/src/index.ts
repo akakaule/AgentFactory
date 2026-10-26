@@ -24,6 +24,8 @@ export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
+export { effectiveWorkspaceProfile, DEFAULT_CI_MODE, type EffectiveWorkspaceProfile, type ProfileSource } from './workspaceProfile.js';
+export { diagnoseWorkspace, defaultDiagnoseProbes, type DiagnoseProbes, type DiagnosticCheck, type DiagnosticId, type DiagnosticStatus, type WorkspaceDiagnosis } from './diagnoseWorkspace.js';
 export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { EFFORTS, MODEL_CATALOG, MODEL_ID_PATTERN, MAX_REVIEWERS, emptyAgentModels, normalizeAgentModels, resolveAgentModel, resolveReviewers, modelProfileArgs, profileFromArgs, type Effort, type ModelCatalogEntry, type ModelProfile, type AgentModelStages, type AgentModelLayer, type WorkspaceModelLayer, type AgentModels, type AgentModelRole, type ReportedProfile, type ReportedRoles, type AgentModelDefaultsReport, type AgentModelDefaults } from './agentModels.js';

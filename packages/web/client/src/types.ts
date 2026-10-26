@@ -1,10 +1,16 @@
-import type { TaskDetail, Workspace as CoreWorkspace, AdoSyncSettings, AgentModels, AgentModelDefaults, ModelCatalogEntry } from '@agentfactory/core';
+import type { TaskDetail, Workspace as CoreWorkspace, CiMode, EffectiveWorkspaceProfile, AdoSyncSettings, AgentModels, AgentModelDefaults, ModelCatalogEntry } from '@agentfactory/core';
 
 export type { AdoSyncSettings } from '@agentfactory/core';
-/** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin and, for
- *  an Azure DevOps import, the WIQL it runs. Optional so older payloads/fixtures stay valid. */
-export type Workspace = Omit<CoreWorkspace, 'adoSync'> & {
+export type { CiMode, EffectiveWorkspaceProfile, WorkspaceDiagnosis, DiagnosticCheck, DiagnosticId, DiagnosticStatus } from '@agentfactory/core';
+/** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin, for an
+ *  Azure DevOps import the WIQL it runs, and the effective repository profile. Optional so older
+ *  payloads/fixtures stay valid. */
+export type Workspace = Omit<CoreWorkspace, 'adoSync' | 'baseBranch' | 'requiredChecks' | 'ciMode'> & {
   adoSync?: AdoSyncSettings | null;
+  baseBranch?: string | null;
+  requiredChecks?: string[] | null;
+  ciMode?: CiMode | null;
+  profile?: EffectiveWorkspaceProfile;
   remote?: { provider: 'github' } | { provider: 'azdo'; organization: string; project: string } | null;
   adoSyncWiql?: string | null;
 };

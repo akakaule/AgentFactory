@@ -19,9 +19,12 @@ import { authRoutes } from './routes/auth.js';
 import { authMiddleware, type AuthConfig } from './auth.js';
 import { mapError } from './errors.js';
 import { registerSse } from './sse.js';
+import type { DiagnoseProbes } from '@agentfactory/core';
 import { createTelemetryStore, seedFromMetrics, DEFAULT_CAP, type TelemetryStore } from './telemetry.js';
 
-export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: AuthConfig; telemetry?: TelemetryStore; resolveOrigin?: (repoPath: string) => string | null } = {}): Hono {
+export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: AuthConfig; telemetry?: TelemetryStore; resolveOrigin?: (repoPath: string) => string | null;
+  detectBaseBranch?: (repoPath: string) => Promise<string | null>; diagnoseProbes?: DiagnoseProbes;
+} = {}): Hono {
   const auth = opts.auth ?? { mode: 'none' };
   // One ring shared between the OTLP receiver (writes) and the /api/telemetry read route. A ring
   // this app creates starts from the newest durable OTel rows, so a restart doesn't blank the view.
@@ -47,7 +50,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/auth', authRoutes(core, auth));
   app.route('/api/tasks', taskRoutes(core, { resolveOrigin: opts.resolveOrigin }));
   app.route('/api/agent', agentOpsRoutes(core)); // #45: service-token agent ops (claim/submit/…)
-  app.route('/api/workspaces', workspaceRoutes(core, { resolveOrigin: opts.resolveOrigin }));
+  app.route('/api/workspaces', workspaceRoutes(core, { resolveOrigin: opts.resolveOrigin, detectBaseBranch: opts.detectBaseBranch, diagnoseProbes: opts.diagnoseProbes }));
   app.route('/api/agent-prompts', agentPromptRoutes(core));
   app.route('/api/engines', engineRoutes(core));
   app.route('/api/agent-models', agentModelRoutes(core));
