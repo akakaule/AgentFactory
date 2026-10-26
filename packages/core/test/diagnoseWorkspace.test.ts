@@ -18,6 +18,7 @@ interface FakeOpts {
   originHead?: string | null;  // `git symbolic-ref refs/remotes/origin/HEAD`, null = unset
   refs?: string[];             // refs `git rev-parse --verify` resolves
   files?: string[];            // files that exist (PATH lookups)
+  executables?: string[];      // files with the execute bit (default: every file)
   status?: number | Error;     // host API answer
   env?: Record<string, string | undefined>;
 }
@@ -43,6 +44,7 @@ function fakeProbes(o: FakeOpts = {}) {
     },
     realPath: () => (o.realPath === undefined ? '/repos/Repo-A' : o.realPath),
     fileExists: (p) => (o.files ?? ['/usr/bin/npm']).includes(p),
+    isExecutable: (p) => (o.executables ?? o.files ?? ['/usr/bin/npm']).includes(p),
     async fetch(url, init) {
       calls.push({ url, headers: init.headers });
       if (o.status instanceof Error) throw o.status;
@@ -153,6 +155,16 @@ describe('diagnoseWorkspace', () => {
     expect(check(d, 'repo_path')).toMatchObject({ status: 'ok' });
   });
 
+  it('accepts a Windows path configured with forward slashes, but still reports a component case difference', async () => {
+    const { probes } = fakeProbes({ realPath: 'C:\\Git\\Repo' });
+    probes.platform = 'win32';
+    const ok = await diagnoseWorkspace({ workspace: ws({ repoPath: 'C:/Git/Repo/' }), pat: SECRET }, probes);
+    expect(check(ok, 'repo_path')).toMatchObject({ status: 'ok' });
+    expect(check(ok, 'origin')).toMatchObject({ status: 'ok' });
+    const bad = await diagnoseWorkspace({ workspace: ws({ repoPath: 'C:/git/repo' }), pat: SECRET }, probes);
+    expect(check(bad, 'repo_path')).toMatchObject({ status: 'failed', detail: 'C:\\Git\\Repo' });
+  });
+
   it('git not installed fails git and blocks the checks that need it', async () => {
     const { probes } = fakeProbes({ missing: ['git'] });
     const d = await diagnoseWorkspace({ workspace: ws(), pat: SECRET }, probes);
@@ -196,6 +208,15 @@ describe('diagnoseWorkspace', () => {
     expect(check(none, 'base_ref')).toMatchObject({ status: 'failed' });
   });
 
+  it('a dangling origin/HEAD does not pass: it falls back to main/master, or fails when nothing resolves', async () => {
+    const fallback = await diagnoseWorkspace({ workspace: ws(), pat: SECRET }, fakeProbes({ originHead: 'refs/remotes/origin/gone', refs: ['refs/remotes/origin/master'] }).probes);
+    expect(check(fallback, 'base_ref')).toMatchObject({ status: 'ok', detail: 'master' });
+    expect(check(fallback, 'base_ref').reason).toMatch(/gone/);
+    const none = await diagnoseWorkspace({ workspace: ws(), pat: SECRET }, fakeProbes({ originHead: 'refs/remotes/origin/gone', refs: [] }).probes);
+    expect(check(none, 'base_ref')).toMatchObject({ status: 'failed' });
+    expect(check(none, 'base_ref').reason).toMatch(/gone/);
+  });
+
   it('verify command: not applicable when unset, failed when its executable does not resolve', async () => {
     const unset = await diagnoseWorkspace({ workspace: ws({ verifyCommand: null }), pat: SECRET }, fakeProbes().probes);
     expect(check(unset, 'verify_command')).toMatchObject({ status: 'not_applicable' });
@@ -212,5 +233,15 @@ describe('diagnoseWorkspace', () => {
     probes.platform = 'linux';
     const rel = await diagnoseWorkspace({ workspace: ws({ verifyCommand: './scripts/verify.sh --all' }), pat: SECRET }, probes);
     expect(check(rel, 'verify_command')).toMatchObject({ status: 'ok' });
+  });
+
+  it('verify command on POSIX: a script without the execute bit fails, and a non-executable PATH entry does not mask a later one', async () => {
+    const noExec = fakeProbes({ files: ['/repos/Repo-A/scripts/verify.sh'], executables: [] });
+    const d = await diagnoseWorkspace({ workspace: ws({ verifyCommand: './scripts/verify.sh' }), pat: SECRET }, noExec.probes);
+    expect(check(d, 'verify_command')).toMatchObject({ status: 'failed' });
+    expect(check(d, 'verify_command').reason).toMatch(/execut/);
+    const masked = fakeProbes({ files: ['/opt/bin/npm', '/usr/bin/npm'], executables: ['/usr/bin/npm'], env: { PATH: '/opt/bin:/usr/bin' } });
+    const m = await diagnoseWorkspace({ workspace: ws(), pat: SECRET }, masked.probes);
+    expect(check(m, 'verify_command')).toMatchObject({ status: 'ok', detail: '/usr/bin/npm' });
   });
 });

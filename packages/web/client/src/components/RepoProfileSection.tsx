@@ -11,6 +11,11 @@ export function toProfileDraft(w: Workspace): ProfileDraft {
 
 const checkList = (s: string): string[] => s.split(',').map((x) => x.trim()).filter(Boolean);
 
+/** The draft as the server stores it (trimmed branch, normalized check list) — the baseline after a save. */
+export function normalizeProfileDraft(d: ProfileDraft): ProfileDraft {
+  return { baseBranch: d.baseBranch.trim(), requiredChecks: checkList(d.requiredChecks).join(', '), ciMode: d.ciMode };
+}
+
 /** The PATCH fields for the profile values the user changed (only those); '' / [] clears to null. */
 export function profilePatch(initial: ProfileDraft, d: ProfileDraft): { baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null } {
   const out: { baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null } = {};

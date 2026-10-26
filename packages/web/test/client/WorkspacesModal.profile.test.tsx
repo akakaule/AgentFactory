@@ -82,6 +82,23 @@ describe('WorkspacesModal — repository profile', () => {
     expect(api.updateWorkspace).toHaveBeenCalledWith('repo-a', expect.objectContaining({ baseBranch: null, ciMode: null }));
   });
 
+  it('after a save, the saved values become the baseline: clearing them again without reopening sends null', async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws()]} onCreated={noop} onClose={noop} />);
+    await user.type(screen.getByLabelText('Base branch'), ' develop ');
+    await user.type(screen.getByLabelText('Required checks'), 'build,  test');
+    await user.selectOptions(screen.getByLabelText('CI mode'), 'required');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.updateWorkspace).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText<HTMLInputElement>('Base branch').value).toBe('develop');
+    await user.clear(screen.getByLabelText('Base branch'));
+    await user.clear(screen.getByLabelText('Required checks'));
+    await user.selectOptions(screen.getByLabelText('CI mode'), '');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.updateWorkspace).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.updateWorkspace).mock.calls[1]![1]).toMatchObject({ baseBranch: null, requiredChecks: null, ciMode: null });
+  });
+
   it('Diagnose runs the read-only check and lists every result with its status and reason', async () => {
     const diagnosis: WorkspaceDiagnosis = {
       workspace: 'repo-a', repoPath: '/a',

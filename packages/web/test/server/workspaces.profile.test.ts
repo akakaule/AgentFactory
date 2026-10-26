@@ -23,6 +23,7 @@ const stubProbes = (): DiagnoseProbes => ({
   },
   realPath: (p) => p,
   fileExists: (p) => p === '/usr/bin/npm',
+  isExecutable: (p) => p === '/usr/bin/npm',
   fetch: async () => ({ status: 200 }),
 });
 

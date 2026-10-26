@@ -5,7 +5,7 @@ import { wsColor } from '../wsColor.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
 import { AdoSyncSection, toDraft, fromDraft, type AdoSyncDraft } from './AdoSyncSection.js';
 import { WorkspaceAgentModels, workspaceModelsValid } from './WorkspaceAgentModels.js';
-import { RepoProfileSection, toProfileDraft, profilePatch, type ProfileDraft } from './RepoProfileSection.js';
+import { RepoProfileSection, toProfileDraft, profilePatch, normalizeProfileDraft, type ProfileDraft } from './RepoProfileSection.js';
 
 interface Props {
   workspaces: Workspace[];
@@ -35,7 +35,7 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
   const [adoInitial] = useState<AdoSyncDraft>(() => toDraft(workspace.adoSync));
   const [ado, setAdo] = useState<AdoSyncDraft>(adoInitial);
   // repository profile; only the fields the user changed are sent
-  const [profileInitial] = useState<ProfileDraft>(() => toProfileDraft(workspace));
+  const [profileInitial, setProfileInitial] = useState<ProfileDraft>(() => toProfileDraft(workspace));
   const [profile, setProfile] = useState<ProfileDraft>(profileInitial);
   const savedModels = models?.settings.workspaces[workspace.name] ?? {};
   const [modelDraft, setModelDraft] = useState<WorkspaceModelLayer | null>(null);
@@ -83,7 +83,15 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
       : Promise.resolve();
     saveModels
       .then(() => api.updateWorkspace(workspace.name, body))
-      .then(() => { setPat(''); onSaved(); })
+      .then(() => {
+        setPat('');
+        // the row stays mounted after a save: the saved profile is the new comparison baseline, so a
+        // later edit (e.g. clearing a value just saved) still produces its patch
+        const saved = normalizeProfileDraft(profile);
+        setProfileInitial(saved);
+        setProfile(saved);
+        onSaved();
+      })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setSaving(false));
   };

@@ -9,7 +9,7 @@
  * against stubs and the board server supplies the real ones (`defaultDiagnoseProbes`).
  */
 import { execFile } from 'node:child_process';
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants as fsConstants, existsSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { Workspace } from './types.js';
 import { parseRemoteUrl, type RemoteRef } from './remote.js';
@@ -40,6 +40,8 @@ export interface DiagnoseProbes {
   realPath(p: string): string | null;
   /** Whether a regular file exists at `p`. */
   fileExists(p: string): boolean;
+  /** Whether the current user may execute `p` (consulted on POSIX only; Windows has no execute bit). */
+  isExecutable(p: string): boolean;
   fetch(url: string, init: { headers: Record<string, string> }): Promise<{ status: number }>;
 }
 
@@ -119,15 +121,17 @@ export async function diagnoseWorkspace(
   } else {
     const head = await probes.exec('git', ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], repoPath);
     const fromHead = head.ok ? head.stdout.trim().replace(/^refs\/remotes\/origin\//, '') : '';
-    if (fromHead) {
+    // symbolic-ref also succeeds for a dangling origin/HEAD, so its target must resolve to a commit.
+    if (fromHead && await resolves(probes, repoPath, `refs/remotes/origin/${fromHead}`)) {
       baseBranch = fromHead;
       put('base_ref', 'ok', `detected from origin/HEAD (no base branch configured)`, { detail: fromHead });
     } else {
       for (const name of ['main', 'master']) {
         if (await resolves(probes, repoPath, `refs/remotes/origin/${name}`) || await resolves(probes, repoPath, `refs/heads/${name}`)) { baseBranch = name; break; }
       }
-      if (baseBranch) put('base_ref', 'ok', `detected ${baseBranch} (origin/HEAD is unset; no base branch configured)`, { detail: baseBranch });
-      else put('base_ref', 'failed', 'cannot detect the default branch (no origin/HEAD, main or master); configure a base branch');
+      const headState = fromHead ? `origin/HEAD points at origin/${fromHead}, which does not resolve` : 'origin/HEAD is unset';
+      if (baseBranch) put('base_ref', 'ok', `detected ${baseBranch} (${headState}; no base branch configured)`, { detail: baseBranch });
+      else put('base_ref', 'failed', `cannot detect the default branch (${headState}; no main or master); configure a base branch`);
     }
   }
 
@@ -144,7 +148,7 @@ export async function diagnoseWorkspace(
           ? resolvePathLike(pathApi.resolve(repoPath, exe), probes)
           : findOnPath(exe, probes, pathApi);
         if (found) put('verify_command', 'ok', `\`${exe}\` resolves`, { detail: found });
-        else put('verify_command', 'failed', isPathLike ? `\`${exe}\` does not exist relative to the repository` : `\`${exe}\` is not found on PATH`);
+        else put('verify_command', 'failed', isPathLike ? `\`${exe}\` does not exist relative to the repository or is not executable` : `\`${exe}\` is not found on PATH as an executable`);
       }
     }
   }
@@ -195,9 +199,11 @@ async function resolves(probes: DiagnoseProbes, repoPath: string, ref: string): 
   return (await probes.exec('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repoPath)).ok;
 }
 
-/** Same path, same case — except a Windows drive letter, whose case carries no meaning. */
+/** Same path, same case — except a Windows drive letter and separator style, which carry no meaning. */
 function samePathCase(configured: string, real: string, platform: NodeJS.Platform): boolean {
-  const norm = (p: string) => (platform === 'win32' ? p.replace(/^[a-z]:/, (d) => d.toUpperCase()).replace(/[\\/]+$/, '') : p.replace(/\/+$/, ''));
+  const norm = (p: string) => (platform === 'win32'
+    ? p.replace(/[\\/]+/g, '\\').replace(/^[a-z]:/, (d) => d.toUpperCase()).replace(/\\$/, '')
+    : p.replace(/\/+$/, ''));
   return norm(configured) === norm(real);
 }
 
@@ -215,9 +221,11 @@ function firstToken(cmd: string): string {
   return m ? (m[1] ?? m[2] ?? m[3] ?? '') : '';
 }
 
+/** An existing file that can be run: on Windows via its PATHEXT extension, on POSIX via its execute bit. */
 function resolvePathLike(p: string, probes: DiagnoseProbes): string | null {
+  if (probes.platform !== 'win32') return probes.fileExists(p) && probes.isExecutable(p) ? p : null;
   if (probes.fileExists(p)) return p;
-  if (probes.platform === 'win32') for (const ext of pathExts(probes)) if (probes.fileExists(p + ext)) return p + ext;
+  for (const ext of pathExts(probes)) if (probes.fileExists(p + ext)) return p + ext;
   return null;
 }
 function pathExts(probes: DiagnoseProbes): string[] {
@@ -249,6 +257,9 @@ export function defaultDiagnoseProbes(): DiagnoseProbes {
     },
     fileExists: (p) => {
       try { return statSync(p).isFile(); } catch { return false; }
+    },
+    isExecutable: (p) => {
+      try { accessSync(p, fsConstants.X_OK); return true; } catch { return false; }
     },
     fetch: async (url, init) => {
       const res = await fetch(url, { headers: init.headers, signal: AbortSignal.timeout(10_000), redirect: 'manual' });
