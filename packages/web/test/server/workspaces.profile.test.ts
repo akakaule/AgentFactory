@@ -19,6 +19,7 @@ const stubProbes = (): DiagnoseProbes => ({
     if (args[0] === '--version') return { ok: true, stdout: `${file} 1.0`, missing: false };
     if (args[0] === 'remote') return { ok: true, stdout: `https://user:${SECRET}@github.com/acme/app.git`, missing: false };
     if (args[0] === 'symbolic-ref') return { ok: true, stdout: 'refs/remotes/origin/main', missing: false };
+    if (args[0] === 'rev-parse') return { ok: args[args.length - 1] === 'refs/remotes/origin/main^{commit}', stdout: '', missing: false };
     return { ok: false, stdout: '', missing: false };
   },
   realPath: (p) => p,
