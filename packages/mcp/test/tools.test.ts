@@ -45,7 +45,7 @@ describe('list_tasks', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask();
     core.submitResult(t.key, { summary: 'done', links: [] });
-    core.updateStatus(t.key, 'delivering', 'human'); // in_review → delivering is a human edge
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id }); // in_review → delivering is a human edge
 
     const res = await client.callTool({ name: 'list_tasks', arguments: { status: 'delivering' } });
     expect(res.isError).toBeFalsy();
@@ -579,7 +579,7 @@ describe('update_status', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask();
     core.submitResult(t.key, { summary: 'done', links: [] });
-    core.updateStatus(t.key, 'delivering', 'human'); // watcher-owned state
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id }); // watcher-owned state
 
     const res = await client.callTool({
       name: 'update_status',

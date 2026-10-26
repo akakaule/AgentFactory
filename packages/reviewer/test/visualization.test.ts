@@ -320,3 +320,37 @@ describe('auto-visualization', () => {
     expect(calls[2]!.req.args).toContain(`/logs/${key}-viz-1.out`);
   });
 });
+
+describe('visualization revision (AF-148 round 9)', () => {
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+
+  it('a fallback live-diff visualization is stamped with the head it depicted, not the submitted one', async () => {
+    const core = makeCore();
+    const t = core.createTask({ title: 'Headed, no base', spec: 'S', acceptanceCriteria: 'AC', workspace: 'ws', stage: 'implementation' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ workspace: 'ws', claimedBy: 'worker' });
+    // the submit resolved a head but no base: the reviewer falls back to the live branch, now at B
+    const sub = core.submitResult(t.key, { summary: 'done', revision: { headSha: A, source: 'origin' },
+      links: [{ kind: 'branch', label: 'feature/af-x', url: 'https://example.test/branch' }] }).submission!;
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(vizConfig(), makeDeps(core, spawn, {
+      readOutput: byPath(sampleHtml()), console: makeFakeConsole(),
+      computeDiff: async () => ({ baseRef: 'main', diff: 'diff --git a/a.ts b/a.ts\n+code', commits: 1, headSha: B, baseSha: 'c'.repeat(40) }),
+    }));
+    await r.tick();
+    await calls[0]!.child.exit(0);
+    expect(core.getTask(t.key).visualizationRevision).toEqual({ submissionId: sub.id, headSha: B });
+  });
+
+  it('a submitted-snapshot visualization is stamped with the submitted head', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Snapshot', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(vizConfig(), makeDeps(core, spawn, { readOutput: byPath(sampleHtml()), console: makeFakeConsole() }));
+    await r.tick();
+    await calls[0]!.child.exit(0);
+    const d = core.getTask(key);
+    expect(d.visualizationRevision).toEqual({ submissionId: d.submission!.id, headSha: d.submission!.headSha });
+  });
+});

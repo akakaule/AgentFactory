@@ -462,7 +462,7 @@ describe('live agent session', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ workspace: 'ws', claimedBy: 'seed-worker' });
     core.submitResult(t.key, { summary: 'initial result' });
-    core.updateStatus(t.key, 'delivering', 'human');
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id });
     const approved = core.getTask(t.key);
     core.beginDelivery(t.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/1' });
     core.recordDeliveryCheck(t.key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });
@@ -577,7 +577,7 @@ describe('live agent session', () => {
     core.updateStatus(actual.key, 'queued', 'human');
     core.claimNextTask({ workspace: 'ws', claimedBy: label });
     core.submitResult(actual.key, { summary: 'initial result' });
-    core.updateStatus(actual.key, 'delivering', 'human');
+    core.updateStatus(actual.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(actual.key).submission!.id });
     const approved = core.getTask(actual.key);
     core.beginDelivery(actual.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/2' });
     core.recordDeliveryCheck(actual.key, { prState: 'merged', checksState: 'failing', failing: [{ name: 'build', url: null }] });
@@ -604,7 +604,7 @@ describe('live agent session', () => {
     const actualKey = seedQueued(core, 'ws', 'Actual work');
     core.claimNextTask({ workspace: 'ws', claimedBy: workerLabel(calls[0]!.req.env) });
     core.submitResult(key, { summary: 'done' });
-    core.updateStatus(key, 'delivering', 'human');
+    core.updateStatus(key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(key).submission!.id });
     core.beginDelivery(key, { provider: 'github', branch: core.getTask(key).branch!, prUrl: 'https://github.com/acme/widgets/pull/4' });
     core.recordDeliveryCheck(key, { prState: 'merged', checksState: 'passing' });
     await d.tick();
@@ -618,7 +618,7 @@ describe('live agent session', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ workspace: 'ws', claimedBy: 'seed-worker' });
     core.submitResult(t.key, { summary: 'initial result' });
-    core.updateStatus(t.key, 'delivering', 'human');
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id });
     const approved = core.getTask(t.key);
     core.beginDelivery(t.key, { provider: 'github', branch: approved.branch!, prUrl: 'https://github.com/acme/widgets/pull/3' });
     core.recordDeliveryCheck(t.key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });

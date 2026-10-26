@@ -45,7 +45,8 @@ interface ReviewSession {
   /** Set when a human cancels the task: core already settled the attempt and fenced the execution. */
   humanCancelled?: boolean;
   round?: ReviewRound | undefined;
-  /** review sessions: the submission reviewed and the head actually diffed (core binds the verdict to it). */
+  /** review sessions: the submission reviewed and the head actually diffed (core binds the verdict to it);
+   *  visualize sessions: the submission visualized and the head its diff showed (stamped on attach). */
   bound?: ReviewRevision | undefined;
   deadlineTimer?: ReturnType<typeof setTimeout>;
   /** visualize sessions only: the vizAttempts budget key, pinned at spawn so a result submitted
@@ -682,8 +683,11 @@ export class Reviewer {
     if (choice.engine !== role.engine) this.console.log(`[reviewer] ${key}: ${role.engine} disabled on the board; visualizing via ${choice.engine}`);
     const { engine, model, reasoningEffort } = choice;
     let prompt: string;
+    let bound: ReviewRevision | undefined;
     try {
       const { diffRef, diff } = await this.prepareDiff(detail);
+      // the head this diff depicts: the submitted one, or the live tip a fallback diff showed
+      if (detail.submission) bound = { submissionId: detail.submission.id, headSha: diff.headSha ?? null };
       prompt = buildVisualizationPrompt({ task: detail, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
     } catch (err) {
       const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
@@ -698,7 +702,7 @@ export class Reviewer {
 
     const label = `${workspace}#${key}-viz${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
-    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, vizKey });
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, vizKey, ...(bound ? { bound } : {}) });
     this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -1014,7 +1018,8 @@ export class Reviewer {
       return;
     }
     try {
-      await this.deps.core.attachVisualization(session.key, { html, ...(session.executionId ? { executionId: session.executionId } : {}) });
+      await this.deps.core.attachVisualization(session.key, { html, ...(session.executionId ? { executionId: session.executionId } : {}),
+        ...(session.bound ? { revision: { submissionId: session.bound.submissionId, headSha: session.bound.headSha } } : {}) });
     } catch (err) {
       // The page exists but the attach failed — don't burn; visualizationGeneratedAt is still
       // stale, so the next poll retries (same philosophy as a failed verdict post).

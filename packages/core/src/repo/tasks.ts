@@ -389,7 +389,14 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
-    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null }));
+    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null,
+    submission: r.status === 'in_review' ? submissionRef(db, r) : null }));
+}
+
+/** The current submission's identity for a list row (see Task.submission). */
+function submissionRef(db: DB, r: TaskRow): { id: number; headSha: string | null } | null {
+  const s = latestSubmissionFor(db, r.id, r.stage);
+  return s ? { id: s.id, headSha: s.head_sha } : null;
 }
 /** The in_progress task a worker label already holds (oldest first), if any — the claim
  *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of

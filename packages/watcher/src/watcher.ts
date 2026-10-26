@@ -212,13 +212,16 @@ export class Watcher {
     );
     const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;
+    // when this poll's provider read began: core drops the head it reports if a newer observation
+    // (a git refresh that saw a push) was recorded meanwhile, so a slow answer can't restore a stale review
+    const readStartedAt = new Date(this.deps.now()).toISOString();
     try {
       result = await provider.check(remote, delivery.branch, prUrl, {
         postMergeChecks: this.config.postMergeChecks,
       });
     } catch (err) {
       this.noteFailure(key, err, cred);
-      await this.recordCheckFailure(key, err, detail.status, delivery);
+      await this.recordCheckFailure(key, err, detail.status, delivery, readStartedAt);
       return;
     }
     this.backoffUntil.delete(key);
@@ -252,6 +255,7 @@ export class Watcher {
       // the PR head as the host reports it: persisted next to the approved head, so a push after
       // approval marks the approved submission stale (only full SHAs — the board validates them)
       ...(pr?.headSha && FULL_SHA.test(pr.headSha) ? { headSha: pr.headSha } : {}),
+      readStartedAt,
     });
     if (recorded.skipped) return;
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);
@@ -365,7 +369,7 @@ export class Watcher {
    *  freshness during the outage (core keeps the known head: a proven mismatch stays stale), unless
    *  the delivery episode the poll started for has since changed.
    *  Best-effort — the backoff above already handles the retry. */
-  private async recordCheckFailure(key: string, err: unknown, status: Status, delivery: DeliverySummary): Promise<void> {
+  private async recordCheckFailure(key: string, err: unknown, status: Status, delivery: DeliverySummary, readStartedAt: string): Promise<void> {
     try {
       await this.deps.core.recordDeliveryCheckFailure(key, {
         error: `provider check failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500),
@@ -373,6 +377,7 @@ export class Watcher {
         // approval's freshness unknown
         expected: { status, branch: delivery.branch, prUrl: delivery.prUrl, stateChangedAt: delivery.stateChangedAt },
         ...(delivery.submissionId !== undefined ? { submissionId: delivery.submissionId } : {}),
+        readStartedAt,
       });
     } catch (recordErr) {
       this.deps.console.warn(`[watcher] ${key}: could not record the failed provider check (${recordErr instanceof Error ? recordErr.message : String(recordErr)})`);

@@ -85,8 +85,10 @@ describe('a raw status close refreshes the revision like approve', () => {
 
   it('closes a current implementation and audits an unreachable origin as unknown freshness', async () => {
     const { core, app } = boardWith(() => ({ headSha: null, error: 'origin unreachable' }));
-    const { key } = submitted(core, A);
-    const res = await post(app, `/api/tasks/${key}/status`, { status: 'done' });
+    const { key, submissionId } = submitted(core, A);
+    // a close that names no submission is refused while one is tracked (it could approve a replacement unseen)
+    expect((await post(app, `/api/tasks/${key}/status`, { status: 'done' })).status).toBe(409);
+    const res = await post(app, `/api/tasks/${key}/status`, { status: 'done', submissionId });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; activity: Array<{ type: string; body: string }> };
     expect(body.status).toBe('done');
@@ -161,5 +163,20 @@ describe('diff of the submitted revision', () => {
     const claim = core.claimNextTask({ claimedBy: 'w' })!;
     core.submitResult(t.key, { summary: 'r1', links: [{ kind: 'branch', label: claim.branch!, url: 'http://x/b' }] });
     expect((await app.request(`/api/tasks/${t.key}/diff?at=submission`)).status).toBe(404);
+  });
+});
+
+describe('visualization upload names the revision it depicts', () => {
+  const upload = (app: ReturnType<typeof buildApp>, key: string, headers: Record<string, string>) =>
+    app.request(`/api/tasks/${key}/visualization`, { method: 'POST', body: '<html>viz</html>', headers: { 'content-type': 'text/html', ...headers } });
+
+  it('stamps the uploaded head and rejects malformed revision headers', async () => {
+    const { core, app } = boardWith(() => ({ headSha: A, error: null }));
+    const { key, submissionId } = submitted(core, A);
+    expect((await upload(app, key, { 'x-agentfactory-submission-id': String(submissionId), 'x-agentfactory-head-sha': 'HEAD' })).status).toBe(400);
+    expect((await upload(app, key, { 'x-agentfactory-submission-id': 'one' })).status).toBe(400);
+    expect((await upload(app, key, { 'x-agentfactory-head-sha': B })).status).toBe(400);
+    expect((await upload(app, key, { 'x-agentfactory-submission-id': String(submissionId), 'x-agentfactory-head-sha': B })).status).toBe(201);
+    expect(core.getTask(key).visualizationRevision).toEqual({ submissionId, headSha: B });
   });
 });

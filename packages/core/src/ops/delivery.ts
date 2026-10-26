@@ -74,13 +74,21 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     // means the branch moved after approval, and the approved submission reads stale.
     // A check that learned no head still proves the provider is reachable again: it clears an
     // earlier provider failure (the known head is kept, so a proven mismatch stays stale).
+    // A poll that started before a newer observation (a git refresh seeing a push) is dropped by
+    // observeRevision's ordering fence, so a late answer can't restore an older head.
     if (d.submission_id !== null && (obs.headSha || providerErrorPending(db, d.submission_id)))
-      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider' }, ts);
+      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider', readStartedAt: boardClamped(obs.readStartedAt, ts) }, ts);
     const stateChangedAt = changed ? ts : d.state_changed_at;
     if (reconcileMergedDelivery(db, row, ts)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);
     return { changed, accepted, stateChangedAt };
   });
+}
+
+/** The watcher's read start on the board's clock: a remote watcher whose clock runs ahead must not
+ *  record an observation in the future, which would fence out the next real one. */
+function boardClamped(readStartedAt: string | undefined, ts: string): string | undefined {
+  return readStartedAt === undefined || readStartedAt <= ts ? readStartedAt : ts;
 }
 
 function providerErrorPending(db: DB, submissionId: number): boolean {
@@ -94,6 +102,8 @@ export interface DeliveryCheckFailureInput {
   expected?: { status: Status; branch: string; prUrl: string | null; stateChangedAt: string } | undefined;
   /** The approved submission that episode was bound to. */
   submissionId?: number | null | undefined;
+  /** When the failed poll started; a newer observation recorded meanwhile wins. */
+  readStartedAt?: string | undefined;
 }
 
 /**
@@ -116,7 +126,11 @@ export function recordDeliveryCheckFailure(db: DB, key: string, input: DeliveryC
         expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { recorded: false };
     if (input.submissionId !== undefined && input.submissionId !== d.submission_id) return { recorded: false };
     const error = input.error.trim().slice(0, 500) || 'provider check failed';
-    return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error }, now()) !== null };
+    const ts = now();
+    const readStartedAt = boardClamped(input.readStartedAt, ts);
+    const before = submissionById(db, d.submission_id);
+    if (readStartedAt !== undefined && before?.last_observed_at != null && readStartedAt < before.last_observed_at) return { recorded: false };
+    return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error, readStartedAt }, ts) !== null };
   });
 }
 

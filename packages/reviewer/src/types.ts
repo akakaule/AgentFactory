@@ -32,7 +32,7 @@ export interface ReviewerCore {
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   // store (or replace) a task's auto-generated change-visualization HTML (no actor axis)
-  attachVisualization(key: string, input: { html: string; executionId?: string | undefined }): Awaitable<VisualizationMeta>;
+  attachVisualization(key: string, input: { html: string; executionId?: string | undefined; revision?: { submissionId: number; headSha: string | null } | undefined }): Awaitable<VisualizationMeta>;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
 }

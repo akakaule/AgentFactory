@@ -24,7 +24,8 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
  * `requestedFrom` is the status the caller saw before opening the transaction (defaults to the
  * current one), letting a stale human retry detect a repair the watcher completed meanwhile.
  * `expected` names the submission (and head) a human closing a review by status looked at; a
- * replacement submission or another head is refused, exactly as on the approve action.
+ * replacement submission or another head is refused, exactly as on the approve action. It is
+ * required whenever the review has a tracked submission (only historical tasks may omit it).
  */
 export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status, executionId?: string, expected: ExpectedRevision | null = null): TaskDetail {
     const row = findRowByKey(db, key);
@@ -59,7 +60,7 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // ...nor the revision gate: a branch observed at a new head since submit is not approvable by any
     // route, and a named submission that was replaced meanwhile is refused rather than approved.
     const approved = row.status === 'in_review' && (status === 'done' || status === 'delivering') && actor === 'human'
-      ? assertApprovableRevision(db, row, expected) : null;
+      ? assertApprovableRevision(db, row, expected, true) : null;
     // A retry already in flight must not reopen a repair that the watcher just completed.
     if (status === 'queued' && actor === 'human' && (requestedFrom ?? row.status) !== 'done' && row.status === 'done'
       && deliveryRowFor(db, row.id)?.pr_state === 'merged') return toDetail(db, row);

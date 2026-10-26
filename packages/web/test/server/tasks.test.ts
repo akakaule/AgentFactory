@@ -393,7 +393,7 @@ describe('tasks REST API', () => {
       core.updateStatus(task.key, 'queued', 'human');
       core.claimNextTask();
       core.submitResult(task.key, { summary: 'Done!' });
-      core.updateStatus(task.key, 'delivering', 'human');
+      core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
       return task.key;
     };
 
@@ -418,7 +418,7 @@ describe('tasks REST API', () => {
       core.updateStatus(task.key, 'queued', 'human');
       core.claimNextTask();
       core.submitResult(task.key, { summary: 'Done!' });
-      core.updateStatus(task.key, 'delivering', 'human');
+      core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
       core.beginDelivery(task.key, { provider: 'azdo', branch: 'feature/AF-1-x' });
 
       // before the first watcher poll the PR may well exist → no link yet

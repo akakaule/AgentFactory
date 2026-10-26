@@ -342,6 +342,9 @@ export interface Task {
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
   intakeHold?: { until: string } | null; // derived: queued implementation work waiting (≤ maxHoldMinutes) for its revision's intake assessment; unclaimable meanwhile
   failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
+  // list rows: the identity of an in-review task's current submission (what a review-closing drag
+  // approves); null for historical tasks and outside in_review. TaskDetail carries the full summary.
+  submission?: { id: number; headSha: string | null } | null;
   createdAt: string; updatedAt: string;
 }
 export interface Activity {

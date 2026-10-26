@@ -60,11 +60,12 @@ export const STAGE_COLORS: Record<Stage, string> = {
 
 /**
  * Dragging a card out of review (to done or delivering) approves it, so the request names the
- * submission whose review the card shows (AF-148): a submission that replaced it meanwhile is
- * refused instead of approved. An unbound or absent review names nothing (historical behavior).
+ * submission the card lists (AF-148), whatever its AI review is bound to: a submission that
+ * replaced it meanwhile is refused instead of approved. The board requires it whenever a
+ * submission is tracked; a historical task without one names nothing.
  */
 export function reviewCloseRevision(task: Task, to: Status): { submissionId: number; headSha: string | null } | undefined {
   if (task.status !== 'in_review' || (to !== 'done' && to !== 'delivering')) return undefined;
-  const rev = task.aiReview?.revision;
-  return rev ? { submissionId: rev.submissionId, headSha: rev.headSha } : undefined;
+  const sub = task.submission;
+  return sub ? { submissionId: sub.id, headSha: sub.headSha } : undefined;
 }

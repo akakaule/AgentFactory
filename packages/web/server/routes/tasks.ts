@@ -11,6 +11,19 @@ import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
 // is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
 const MAX_VISUALIZATION_BYTES = 4 * 1024 * 1024;
 
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+/** The revision a visualization depicts, from its upload headers (the body is the raw HTML). */
+function visualizationRevision(submissionId: string | undefined, headSha: string | undefined): { submissionId: number; headSha: string | null } | null {
+  if (submissionId === undefined) {
+    if (headSha !== undefined) throw new ValidationError('x-agentfactory-head-sha needs x-agentfactory-submission-id');
+    return null;
+  }
+  if (!/^[1-9]\d{0,15}$/.test(submissionId)) throw new ValidationError('x-agentfactory-submission-id must be a positive integer');
+  if (headSha !== undefined && !FULL_SHA.test(headSha)) throw new ValidationError('x-agentfactory-head-sha must be a full commit SHA');
+  return { submissionId: Number(submissionId), headSha: headSha ?? null };
+}
+
 export interface TaskRouteOptions {
   /** Injectable origin-URL resolver for the create-PR deep link (tests pass a fake). */
   resolveOrigin?: ((repoPath: string) => string | null) | undefined;
@@ -138,7 +151,8 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
       throw new ValidationError(`visualization HTML exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
     }
     const executionId = c.req.header('x-agentfactory-execution-id');
-    const meta = core.attachVisualization(c.req.param('key'), { html, ...(executionId ? { executionId } : {}) });
+    const revision = visualizationRevision(c.req.header('x-agentfactory-submission-id'), c.req.header('x-agentfactory-head-sha'));
+    const meta = core.attachVisualization(c.req.param('key'), { html, ...(executionId ? { executionId } : {}), ...(revision ? { revision } : {}) });
     return c.json({ ok: true, bytes: meta.bytes, generatedAt: meta.generatedAt }, 201);
   });
 

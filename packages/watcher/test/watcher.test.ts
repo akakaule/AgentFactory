@@ -367,7 +367,7 @@ describe('watcher tick', () => {
     core.claimNextTask({ claimedBy: 'w' });
     core.submitResult(t.key, { summary: 'ok' });
     // raw human move (not approve) — no delivery row seeded
-    core.updateStatus(t.key, 'delivering', 'human');
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id });
     expect(core.getDelivery(t.key)).toBeNull();
     const fetchJson = fakeFetch([
       ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
@@ -385,7 +385,7 @@ describe('watcher tick', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'w' });
     core.submitResult(t.key, { summary: 'ok' });
-    core.updateStatus(t.key, 'delivering', 'human');
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id });
     const warnings: string[] = [];
     const fetchJson = fakeFetch([]);
     const deps = makeDeps(core, fetchJson, { resolveOrigin: () => null });
@@ -452,7 +452,7 @@ describe('watcher tick', () => {
       ...core,
       recordDeliveryCheck: (k: string, o: Parameters<typeof core.recordDeliveryCheck>[1]) => {
         const r = core.recordDeliveryCheck(k, o);
-        core.updateStatus(k, 'done', 'human');
+        core.updateStatus(k, 'done', 'human', null, undefined, undefined, { submissionId: core.getTask(k).submission!.id });
         return r;
       },
     };

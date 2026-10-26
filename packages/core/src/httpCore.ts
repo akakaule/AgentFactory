@@ -197,7 +197,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     attachVisualization: async (key, input) => {
       const res = await fetchImpl(`${base}/api/tasks/${enc(key)}/visualization`, {
         method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...((fenced(key, input).executionId) ? { 'x-agentfactory-execution-id': fenced(key, input).executionId } : {}) },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...((fenced(key, input).executionId) ? { 'x-agentfactory-execution-id': fenced(key, input).executionId } : {}),
+        // the depicted revision rides headers, since the body is the raw HTML
+        ...(input.revision ? { 'x-agentfactory-submission-id': String(input.revision.submissionId), ...(input.revision.headSha ? { 'x-agentfactory-head-sha': input.revision.headSha } : {}) } : {}) },
         body: input.html,
         signal: AbortSignal.timeout(timeoutMs),
       });

@@ -39,8 +39,9 @@ const deliveryCheckBody = z.object({
   prState: z.string(), checksState: z.string(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
   headSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable().optional(), // the PR head the provider reports
+  readStartedAt: z.string().datetime().optional(), // when the provider request began (revision ordering fence)
 }).passthrough();
-const deliveryCheckFailedBody = z.object({ error: z.string().min(1).max(2000), expected: deliveryEpisode.optional(), submissionId: z.number().int().positive().nullable().optional() });
+const deliveryCheckFailedBody = z.object({ error: z.string().min(1).max(2000), expected: deliveryEpisode.optional(), submissionId: z.number().int().positive().nullable().optional(), readStartedAt: z.string().datetime().optional() });
 const deliveryCompleteBody = z.object({ note: z.string(), expectedStateChangedAt: z.string().optional() });
 const deliveryFailBody = z.object({ reason: z.string().min(1), detail: z.string(), body: z.string().optional() }).passthrough();
 const retryReserveBody = z.object({ operation: z.string().min(1), maxAttempts: z.number().int().positive() });

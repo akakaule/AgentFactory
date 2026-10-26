@@ -9,6 +9,7 @@ import { getTask } from '../src/ops/getTask.js';
 import { observeRevision } from '../src/ops/observeRevision.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
 import { recordDeliveryCheck, beginDelivery, failDelivery, recordDeliveryCheckFailure } from '../src/ops/delivery.js';
+import { listTasks } from '../src/ops/listTasks.js';
 import { attachVisualization } from '../src/ops/visualization.js';
 import { formatReviewRevision } from '../src/aiReview.js';
 import { InvalidTransitionError } from '../src/errors.js';
@@ -257,7 +258,7 @@ describe('revision gate holds across every human close and through observation f
     const db = makeTestDb();
     const key = implTask(db);
     submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now);
-    expect(updateStatus(db, key, 'done', 'human', now).status).toBe('done');
+    expect(updateStatus(db, key, 'done', 'human', now, null, undefined, undefined, { submissionId: getTask(db, key).submission!.id }).status).toBe('done');
   });
 
   it('a raw human status close names the submission the human reviewed: a replacement is refused, not approved', () => {
@@ -325,7 +326,7 @@ describe('raw delivery approvals and provider failures keep the revision binding
     const key = implTask(db);
     const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
     addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
-    updateStatus(db, key, 'delivering', 'human', now);
+    updateStatus(db, key, 'delivering', 'human', now, null, undefined, undefined, { submissionId: getTask(db, key).submission!.id });
     expect(getTask(db, key).activity.at(-1)?.body).toMatch(new RegExp(`approved submission #${sub.id} at ${A.slice(0, 7)}`));
     expect(beginDelivery(db, key, { provider: 'github', branch: 'feature/x' }, now)).toMatchObject({ approvedHeadSha: A });
     recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: B }, now);
@@ -343,7 +344,7 @@ describe('raw delivery approvals and provider failures keep the revision binding
     failDelivery(db, key, { reason: 'ci_failed', detail: 'red' }, now);
     db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
     const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
-    updateStatus(db, key, 'delivering', 'human', now);
+    updateStatus(db, key, 'delivering', 'human', now, null, undefined, undefined, { submissionId: getTask(db, key).submission!.id });
     expect(getTask(db, key).delivery).toMatchObject({ approvedHeadSha: B });
     recordDeliveryCheck(db, key, { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open', checksState: 'pending', headSha: A }, now);
     expect(getTask(db, key).submission).toMatchObject({ id: second.id, freshness: 'stale', lastObservation: { headSha: A, source: 'provider' } });
@@ -407,7 +408,7 @@ describe('round 4: unbound doc reviews, the rebind fence, the raw-close audit', 
     failDelivery(db, key, { reason: 'ci_failed', detail: 'red' }, now);
     db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
     const second = submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now).submission!;
-    updateStatus(db, key, 'delivering', 'human', now);
+    updateStatus(db, key, 'delivering', 'human', now, null, undefined, undefined, { submissionId: getTask(db, key).submission!.id });
     expect(getTask(db, key).delivery!.stateChangedAt).not.toBe(seen.stateChangedAt);
     const late = recordDeliveryCheck(db, key, { expected, expectedStateChangedAt: seen.stateChangedAt, prUrl: pr, prId: '1', prState: 'open', checksState: 'pending', headSha: A }, now);
     expect(late.accepted).toBe(false);
@@ -419,7 +420,7 @@ describe('round 4: unbound doc reviews, the rebind fence, the raw-close audit', 
     const key = implTask(db);
     const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
     observeRevision(db, key, { submissionId: sub.id, headSha: null, source: 'git', error: 'origin unreachable' }, now);
-    const d = updateStatus(db, key, 'done', 'human', now);
+    const d = updateStatus(db, key, 'done', 'human', now, null, undefined, undefined, { submissionId: getTask(db, key).submission!.id });
     expect(d.status).toBe('done');
     expect(d.activity.some((a) => a.type === 'comment' && a.actor === 'human' && /unknown revision freshness/.test(a.body) && a.body.includes('origin unreachable'))).toBe(true);
   });
@@ -546,5 +547,77 @@ describe('round 8: unresolved submitted heads, reviews of an earlier stage', () 
     const id = getTask(db, t.key).id;
     appendActivity(db, { taskId: id, type: 'comment', actor: 'human', body: cleanReview({ submissionId: d1.id }), createdAt: now(), actorUserId: null });
     expect(getTask(db, t.key).aiReview).toMatchObject({ verdict: 'pending', binding: 'superseded' });
+  });
+});
+
+describe('round 9: late provider reads, drag expectations, visualized heads', () => {
+  const PR = { prUrl: 'https://github.com/o/r/pull/1', prId: '1', prState: 'open' as const, checksState: 'pending' as const };
+  function delivering(db: DB) {
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    addComment(db, key, { actor: 'agent', body: cleanReview({ submissionId: sub.id, headSha: A }) }, now);
+    reviewApprove(db, key, now, null, () => 'https://github.com/o/r.git', null, { submissionId: sub.id, headSha: A });
+    recordDeliveryCheck(db, key, { ...PR, headSha: A }, now);
+    return { key, sub };
+  }
+
+  it('a provider poll that read head A before a newer git observation of B cannot restore the review to green', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    const episode = getTask(db, key).delivery!;
+    const expected = { status: 'delivering' as const, branch: episode.branch, prUrl: episode.prUrl, stateChangedAt: episode.stateChangedAt };
+    const pollStarted = now(); // the watcher's provider request is in flight (it will report A) ...
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: now() }, now); // ... a push is seen meanwhile
+    expect(getTask(db, key).aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+    recordDeliveryCheck(db, key, { ...PR, expected, headSha: A, readStartedAt: pollStarted }, now);
+    const d = getTask(db, key);
+    expect(d.submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git' } });
+    expect(d.aiReview).toMatchObject({ verdict: 'pending', binding: 'stale' });
+  });
+
+  it('a provider failure whose poll began before a newer observation does not overwrite it', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    const pollStarted = now();
+    observeRevision(db, key, { submissionId: sub.id, headSha: A, source: 'git', readStartedAt: now() }, now);
+    expect(recordDeliveryCheckFailure(db, key, { error: 'GitHub 503', readStartedAt: pollStarted }, now)).toEqual({ recorded: false });
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'current', lastObservation: { source: 'git', error: null } });
+  });
+
+  it('a provider read start in the future (clock skew) is clamped to the board clock', () => {
+    const db = makeTestDb();
+    const { key, sub } = delivering(db);
+    recordDeliveryCheck(db, key, { ...PR, headSha: A, readStartedAt: '2099-01-01T00:00:00.000Z' }, now);
+    observeRevision(db, key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: now() }, now);
+    expect(getTask(db, key).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B } });
+  });
+
+  it('list rows carry the current submission identity of a task in review', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    expect(listTasks(db).find((t) => t.key === key)?.submission).toMatchObject({ id: sub.id, headSha: A });
+  });
+
+  it('a raw status close of a tracked submission must name it; a historical task without one still closes', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const sub = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    expect(() => updateStatus(db, key, 'done', 'human', now)).toThrow(/name the submission/);
+    expect(updateStatus(db, key, 'done', 'human', now, null, undefined, undefined, { submissionId: sub.id, headSha: A }).status).toBe('done');
+    const legacy = createTask(db, { title: 'L', spec: 'S', acceptanceCriteria: 'A', stage: 'implementation' });
+    db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(legacy.key);
+    expect(updateStatus(db, legacy.key, 'done', 'human', now).status).toBe('done');
+  });
+
+  it('a visualization stamps the head it actually depicted and must name the current submission', () => {
+    const db = makeTestDb();
+    const key = implTask(db);
+    const first = submitResult(db, key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }, now).submission!;
+    attachVisualization(db, key, { html: '<p>live diff</p>', revision: { submissionId: first.id, headSha: B } }, now);
+    expect(getTask(db, key).visualizationRevision).toEqual({ submissionId: first.id, headSha: B });
+    db.prepare("UPDATE task SET status='in_progress' WHERE key=?").run(key);
+    submitResult(db, key, { summary: 'r2', revision: { headSha: B, source: 'origin' } }, now);
+    expect(() => attachVisualization(db, key, { html: '<p>old</p>', revision: { submissionId: first.id, headSha: A } }, now)).toThrow(InvalidTransitionError);
   });
 });

@@ -21,7 +21,7 @@ const short = (sha: string | null | undefined): string => (sha ? sha.slice(0, 7)
  * including a human closing the review by a raw status move (ops/updateStatus.ts). Historical
  * tasks (no submission) approve as before.
  */
-export function assertApprovableRevision(db: DB, row: TaskRow, expected: ExpectedRevision | null): SubmissionSummary | null {
+export function assertApprovableRevision(db: DB, row: TaskRow, expected: ExpectedRevision | null, requireExpected = false): SubmissionSummary | null {
   const sub = submissionFor(db, row);
   if (expected) {
     if (!sub) throw new InvalidTransitionError(`${row.key} has no recorded submission #${expected.submissionId} to approve`);
@@ -34,6 +34,11 @@ export function assertApprovableRevision(db: DB, row: TaskRow, expected: Expecte
     const seen = sub.lastObservation;
     throw new InvalidTransitionError(`${row.key} changed since submission #${sub.id} (${short(sub.headSha)}) was reviewed: the branch is now at ${short(seen?.headSha)} (observed via ${seen?.source ?? 'git'} at ${seen?.observedAt ?? 'an unknown time'}${seen?.error ? `; the latest refresh failed: ${seen.error}` : ''}); request changes so the new revision is submitted and reviewed`);
   }
+  // A raw status close (a board drag) is resolved against whatever is current when it lands, so
+  // with a tracked submission it must say which one it approves: a replacement that arrived after
+  // the human looked would otherwise be approved unseen. Historical tasks have none to name.
+  if (requireExpected && !expected && sub)
+    throw new InvalidTransitionError(`closing the review of ${row.key} must name the submission it approves (current: #${sub.id}); reload and retry, or use the approve action`);
   return sub;
 }
 

@@ -24,6 +24,9 @@ export interface DeliveryObservation {
   failing?: DeliveryFailingCheck[] | undefined;
   /** The PR's head commit as the provider reports it; undefined = not reported (keeps the stored one). */
   headSha?: string | null | undefined;
+  /** When the watcher started the provider request (before the remote call). The revision
+   *  observation is recorded as of that time and dropped when a newer one was already recorded. */
+  readStartedAt?: string | undefined;
 }
 
 const parseFailing = (detail: string | null): DeliveryFailingCheck[] => {
