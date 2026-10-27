@@ -3,6 +3,7 @@ import type { Core } from '@agentfactory/core';
 import { Watcher } from '../src/watcher.js';
 import type { FetchJson, FetchResponse } from '../src/types.js';
 import { ADO_ORIGIN, deliverTask, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 /**
  * Default flow (2026-10-21): the worker pushes before review but never opens the PR. Once the
@@ -259,7 +260,7 @@ describe('watcher opens the PR after approval', () => {
       core.updateStatus(t.key, 'queued', 'human');
       core.claimNextTask({ claimedBy: 'w' });
       core.submitResult(t.key, { summary: 'x'.repeat(6000) });
-      core.reviewApprove(t.key);
+      core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
       const fetchJson = ado([]);
       await new Watcher(makeConfig(), adoDeps(core, fetchJson)).tick();
       expect((posts(fetchJson)[0]!.body as { description: string }).description.length).toBeLessThanOrEqual(4000);

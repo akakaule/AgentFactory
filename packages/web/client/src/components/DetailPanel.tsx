@@ -108,6 +108,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [tab, setTab] = useState<DetailTab>('overview');
   const [showViz, setShowViz] = useState(false);
   const currentTaskKey = useRef(taskKey);
@@ -133,6 +134,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
     setTask(null);
     setEditing(false);
     setConfirmingDelete(false);
+    setConfirmingCancel(false);
     setTab('overview');
     setShowViz(false);
     refetch();
@@ -261,6 +263,38 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
             Archive
           </button>
         </>)}
+        {task.status === 'cancelled' && !task.archivedAt && (<>
+          <button
+            className="af-mini"
+            onClick={() => api.setStatus(task.key, task.kind === 'pr-review' ? 'in_review' : 'queued').then(afterMutation).catch(() => {})}
+            title={task.kind === 'pr-review'
+              ? 'Reopen the cancelled review — moves it back to in_review.'
+              : 'Reopen the cancelled task — moves it back to the queue with a fresh retry budget.'}
+          >
+            Reopen
+          </button>
+          <button
+            className="af-mini"
+            onClick={() => api.archive(task.key).then(afterMutation).catch(() => {})}
+            title="Hide this task from the active board. Everything is kept; find it in the Archive view."
+          >
+            Archive
+          </button>
+        </>)}
+        {/* A human can always drop a task — whatever is running on it is stopped on the
+            supervisors' next tick. Two clicks, like Delete, because it kills live work. */}
+        {task.status !== 'cancelled' && !task.archivedAt && (
+          <button
+            className={'af-mini danger' + (confirmingCancel ? ' armed' : '')}
+            onClick={() => {
+              if (!confirmingCancel) { setConfirmingCancel(true); return; }
+              api.setStatus(task.key, 'cancelled').then(afterMutation).catch(() => {}).finally(() => setConfirmingCancel(false));
+            }}
+            title="Stop all work on this task and set it aside. Running agents are killed; history is kept and you can reopen it."
+          >
+            {confirmingCancel ? 'Confirm cancel?' : 'Cancel task'}
+          </button>
+        )}
         {task.archivedAt && (
           <button
             className="af-mini"
@@ -340,7 +374,10 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
           key={task.key}
           task={task}
           willDeliver={task.stage === 'implementation' && task.branch != null}
-          onApprove={(reason) => api.approve(task.key, reason).then(afterMutation)}
+          onApprove={(reason) => (task.submission
+            // approve exactly the submission shown; the board refuses it if it was superseded or pushed over
+            ? api.approve(task.key, reason, { submissionId: task.submission.id, headSha: task.submission.headSha })
+            : api.approve(task.key, reason)).then(afterMutation)}
           onRequestChanges={(fb) => api.requestChanges(task.key, fb).then(afterMutation)}
           onOpenChanges={() => setTab('changes')}
         />
@@ -624,7 +661,8 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
               {task.hasVisualization && showViz
                 ? <div className="af-dt-viz"><VisualizationFrame taskKey={task.key} /></div>
                 : branchLink
-                  ? <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} inline />
+                  ? <Changes taskKey={task.key} branchLabel={branchLink.label} updatedAt={task.updatedAt} inline
+                      submitted={task.submission ? { id: task.submission.id, headSha: task.submission.headSha } : null} />
                   : <div className="af-dt-empty">No branch linked yet — changes appear once the agent pushes one.</div>}
             </>
           )}

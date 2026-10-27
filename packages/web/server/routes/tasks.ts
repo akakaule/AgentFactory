@@ -4,12 +4,25 @@ import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, approveBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
 import { branchDiff } from '../git.js';
-import { refFromLabel, fetchRemoteRef, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
+import { refFromLabel, fetchRemoteRef, revisionDiff, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
 import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
 
 // Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
 // is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
 const MAX_VISUALIZATION_BYTES = 4 * 1024 * 1024;
+
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+/** The revision a visualization depicts, from its upload headers (the body is the raw HTML). */
+function visualizationRevision(submissionId: string | undefined, headSha: string | undefined): { submissionId: number; headSha: string | null } | null {
+  if (submissionId === undefined) {
+    if (headSha !== undefined) throw new ValidationError('x-agentfactory-head-sha needs x-agentfactory-submission-id');
+    return null;
+  }
+  if (!/^[1-9]\d{0,15}$/.test(submissionId)) throw new ValidationError('x-agentfactory-submission-id must be a positive integer');
+  if (headSha !== undefined && !FULL_SHA.test(headSha)) throw new ValidationError('x-agentfactory-head-sha must be a full commit SHA');
+  return { submissionId: Number(submissionId), headSha: headSha ?? null };
+}
 
 export interface TaskRouteOptions {
   /** Injectable origin-URL resolver for the create-PR deep link (tests pass a fake). */
@@ -78,6 +91,25 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
 
   r.get('/:key/diff', async (c) => {
     const task = core.getTask(c.req.param('key'));
+    // ?at=submission: the exact revision handed over (base..head from task_submission), so the
+    // reviewed snapshot is reproducible after a later push or the worktree's removal.
+    if (c.req.query('at') === 'submission') {
+      const sub = task.submission;
+      if (!sub || sub.headSha === null || sub.baseSha === null)
+        throw new NotFoundError(`no submitted revision recorded for ${task.key}`);
+      const at = () => revisionDiff(task.repoPath, sub.baseSha!, sub.headSha!);
+      let snap: Awaited<ReturnType<typeof at>>;
+      try {
+        snap = await at();
+      } catch (err) {
+        // the submitted commits may exist only on origin (pushed from another clone): fetch once
+        if (!(err instanceof NotFoundError) || task.branch === null) throw err;
+        await fetchRemoteRef(task.repoPath, task.branch);
+        snap = await at();
+      }
+      const { baseRef, diff, commits } = snap;
+      return c.json({ branch: task.branch ?? '', baseRef, diff, commits, headSha: sub.headSha, baseSha: sub.baseSha, submissionId: sub.id });
+    }
     const branchLink = task.links.filter((l) => l.kind === 'branch').at(-1);
     if (!branchLink) throw new NotFoundError(`no branch link recorded for ${task.key}`);
     // Diff against the bare ref recovered from a possibly-decorated label; the raw label is
@@ -91,8 +123,8 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
       await fetchRemoteRef(task.repoPath, ref);
       diffRef = `origin/${ref}`;
     }
-    const { baseRef, diff, commits } = await branchDiff(task.repoPath, diffRef);
-    return c.json({ branch: branchLink.label, baseRef, diff, commits });
+    const { baseRef, diff, commits, headSha, baseSha } = await branchDiff(task.repoPath, diffRef);
+    return c.json({ branch: branchLink.label, baseRef, diff, commits, headSha, baseSha, submissionId: task.submission?.id ?? null });
   });
 
   // getTranscript never throws — an unknown task / no capture returns { state: 'none', … }.
@@ -119,7 +151,8 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
       throw new ValidationError(`visualization HTML exceeds ${MAX_VISUALIZATION_BYTES} bytes`);
     }
     const executionId = c.req.header('x-agentfactory-execution-id');
-    const meta = core.attachVisualization(c.req.param('key'), { html, ...(executionId ? { executionId } : {}) });
+    const revision = visualizationRevision(c.req.header('x-agentfactory-submission-id'), c.req.header('x-agentfactory-head-sha'));
+    const meta = core.attachVisualization(c.req.param('key'), { html, ...(executionId ? { executionId } : {}), ...(revision ? { revision } : {}) });
     return c.json({ ok: true, bytes: meta.bytes, generatedAt: meta.generatedAt }, 201);
   });
 
@@ -153,15 +186,20 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     // not masquerade as a human in the activity log (the agent surface is the preferred route).
     c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
 
-  r.post('/:key/status', rejectService, validated('json', statusBody), (c) => {
+  r.post('/:key/status', rejectService, validated('json', statusBody), async (c) => {
     const b = c.req.valid('json');
-    if (b.status === 'queued' && core.getTask(c.req.param('key')).status === 'backlog') {
+    const from = core.getTask(c.req.param('key')).status;
+    // Closing a review by status is an approval: refresh the branch head first, as /approve does,
+    // so a push nobody observed yet reads stale (409) and an unreachable origin is audited.
+    if (from === 'in_review' && (b.status === 'done' || b.status === 'delivering')) await core.refreshRevision(c.req.param('key'));
+    if (b.status === 'queued' && (from === 'backlog' || from === 'cancelled')) {
       return c.json(core.queueWithIntakeAcknowledgment(c.req.param('key'), {
         ...(b.expectedRevision !== undefined ? { expectedRevision: b.expectedRevision } : {}),
         ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),
       }));
     }
-    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note));
+    const expected = b.submissionId === undefined ? null : { submissionId: b.submissionId, headSha: b.headSha };
+    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note, undefined, expected));
   });
 
   r.post('/:key/metrics', validated('json', metricsBody), (c) => {
@@ -187,8 +225,14 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
   r.post('/:key/restart', rejectService, (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c))));
 
   // a reason is required (core enforces it) when approving over must-fix issues or open decisions
-  r.post('/:key/approve', rejectService, validated('json', approveBody), (c) =>
-    c.json(core.reviewApprove(c.req.param('key'), actorUserIdOf(c), c.req.valid('json').reason ?? null)));
+  // The git adapter refreshes the branch head first, so a push made after the review reads stale
+  // (409) instead of riding the old verdict; an unreachable origin reads unknown and is audited.
+  r.post('/:key/approve', rejectService, validated('json', approveBody), async (c) => {
+    const key = c.req.param('key');
+    const { reason, submissionId, headSha } = c.req.valid('json');
+    await core.refreshRevision(key);
+    return c.json(core.reviewApprove(key, actorUserIdOf(c), reason ?? null, submissionId === undefined ? null : { submissionId, headSha }));
+  });
 
   r.post('/:key/request-changes', rejectService, validated('json', feedbackBody), (c) =>
     c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));

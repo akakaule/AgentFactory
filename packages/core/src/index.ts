@@ -11,14 +11,16 @@ export { importTask, type ImportTaskInput } from './ops/importTask.js';
 export { updateTask } from './ops/updateTask.js';
 export { deleteTask } from './ops/deleteTask.js';
 export { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
+export { expectedRevisionOf } from './ops/approval.js';
 export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
 export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution, EXECUTION_LEASE_MS, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
-export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
-export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, type ParsedAiReview } from './aiReview.js';
+export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, remoteBranchHead, revisionDiff, GitError, type BranchDiff, type RemoteHead } from './git.js';
+export { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
+export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, formatReviewRevision, parseReviewRevision, type ParsedAiReview } from './aiReview.js';
 export { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
 export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
@@ -34,7 +36,7 @@ export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
-export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, awaitingPostMergeChecks, POST_MERGE_CHECK_PUBLICATION_MS, type DeliveryFailureReason } from './ops/delivery.js';
+export { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, awaitingPostMergeChecks, POST_MERGE_CHECK_PUBLICATION_MS, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
 export { type DeliveryObservation, type DeliveryChecksTarget } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
@@ -104,9 +106,11 @@ import { executionById } from './repo/execution.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
-import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+import { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
+import { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
+import { remoteBranchHead, type RemoteHead } from './git.js';
 import { resolveGitAuth } from './gitAuth.js';
 import { getWorkspacePat } from './repo/workspaces.js';
 import { getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt } from './agentPrompts.js';
@@ -138,6 +142,8 @@ import { getAgentModels, setAgentModels, getAgentModelDefaults, reportAgentModel
 import { getModelPrices, setModelPrices } from './modelPrices.js';
 import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
+import type { ExpectedRevision, SubmissionSummary } from './types.js';
+import type { GitAuth } from './gitAuth.js';
 import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput, FailureTriageFeedbackInput } from './types.js';
 
 export interface CoreOptions {
@@ -146,11 +152,14 @@ export interface CoreOptions {
   resolveOrigin?: ((repoPath: string) => string | null) | undefined;
   /** Keep HTTP adapters strict: only the request's executionId may fence a mutation. */
   autoFence?: boolean | undefined;
+  /** Injectable approve-time head observation (tests pass a fake; production runs `git ls-remote`). */
+  resolveRemoteHead?: ((repoPath: string, branch: string, auth: GitAuth | null) => Promise<RemoteHead>) | undefined;
 }
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB, opts: CoreOptions = {}) {
   const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
+  const resolveRemoteHead = opts.resolveRemoteHead ?? remoteBranchHead;
   // Keep the public in-process facade as ergonomic as the HTTP client: once a claim returns an
   // execution identity, subsequent mutations from that same facade are fenced automatically.
   // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
@@ -237,7 +246,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     setKv: (key: string, value: string) => setKv(db, key, value),
     addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
-    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string, expected?: ExpectedRevision | null) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId, expected ?? null),
     releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, fenced(key, { executionId }).executionId),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),
@@ -251,9 +260,27 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
      *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
     addPrFeedback: (key: string, input: AddPrFeedbackInput) => addPrFeedback(db, key, input),
     applyFeedbackFix: (key: string, actorUserId: number | null = null) => applyFeedbackFix(db, key, actorUserId),
-    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null),
+    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null, expected?: ExpectedRevision | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null, expected ?? null),
+    observeRevision: (key: string, input: RevisionObservationInput) => observeRevision(db, key, input),
+    /** The git adapter's approve-time refresh: observe the current implementation submission's
+     *  branch head on origin (outside any transaction) and record it — a later push then reads
+     *  stale, an unreachable origin reads unknown. No-op for doc stages / unresolved revisions.
+     *  It takes a read ticket before reading, like every reader: the one that started last wins. */
+    refreshRevision: async (key: string): Promise<SubmissionSummary | null> => {
+      const task = getTask(db, key);
+      const sub = task.submission ?? null;
+      if (!sub || sub.stage !== 'implementation' || sub.headSha === null || task.branch === null) return sub;
+      const ticket = issueRevisionReadTicket(db, key, sub.id);
+      if (!ticket) return getTask(db, key).submission ?? null;
+      const readStartedAt = nowIso();
+      const head = await resolveRemoteHead(task.repoPath, task.branch, resolveGitAuth(db, task.workspace, { env: process.env, resolveOrigin }));
+      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error, readTicket: ticket.ticket, readStartedAt });
+    },
+    /** A read ticket for the task's current submission: the watcher takes one before each provider poll. */
+    issueRevisionReadTicket: (key: string, submissionId?: number) => issueRevisionReadTicket(db, key, submissionId),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
+    recordDeliveryCheckFailure: (key: string, input: DeliveryCheckFailureInput) => recordDeliveryCheckFailure(db, key, input),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),
     completeDelivery: (key: string, note: string, expectedStateChangedAt?: string) => completeDelivery(db, key, note, expectedStateChangedAt),
     failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined }) => failDelivery(db, key, input),

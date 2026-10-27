@@ -768,6 +768,75 @@ describe('DetailPanel', () => {
     });
   });
 
+  it.each(['backlog', 'queued', 'in_progress', 'in_review', 'blocked', 'delivering', 'done'] as const)(
+    'offers Cancel task on a %s task',
+    async (status) => {
+      const mocked = await getApiMock();
+      mocked.getTask.mockResolvedValue({ ...inProgressTask, status });
+
+      render(<DetailPanel taskKey="AF-12" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+      expect(await screen.findByRole('button', { name: 'Cancel task' })).toBeInTheDocument();
+    },
+  );
+
+  it('cancels a running task through the two-step confirm', async () => {
+    const mocked = await getApiMock();
+    mocked.setStatus.mockClear();
+    mocked.getTask.mockResolvedValue(inProgressTask);
+    mocked.setStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-12" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Cancel task' }));
+    // first click only arms — nothing cancelled yet
+    expect(mocked.setStatus).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Confirm cancel?' }));
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-12', 'cancelled');
+  });
+
+  it('a cancelled task offers Reopen and Archive, not Cancel', async () => {
+    const mocked = await getApiMock();
+    mocked.setStatus.mockClear();
+    mocked.archive.mockClear();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, key: 'AF-14', status: 'cancelled' });
+    mocked.setStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-14" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Reopen' }));
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-14', 'queued');
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
+    expect(mocked.archive).toHaveBeenCalledWith('AF-14');
+    expect(screen.queryByRole('button', { name: 'Cancel task' })).not.toBeInTheDocument();
+  });
+
+  it('reopens a cancelled pr-review task to review', async () => {
+    const mocked = await getApiMock();
+    mocked.setStatus.mockClear();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, key: 'AF-15', status: 'cancelled', kind: 'pr-review' });
+    mocked.setStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    render(<DetailPanel taskKey="AF-15" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Reopen' }));
+    expect(mocked.setStatus).toHaveBeenCalledWith('AF-15', 'in_review');
+  });
+
+  it('an archived cancelled task offers only Unarchive', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, key: 'AF-14', status: 'cancelled', archivedAt: '2026-06-01T00:00:00Z' });
+
+    render(<DetailPanel taskKey="AF-14" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: 'Unarchive' })).toBeInTheDocument();
+    for (const name of ['Reopen', 'Archive', 'Cancel task'])
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+  });
+
   it('hides the delete button on an in_progress task', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(inProgressTask);

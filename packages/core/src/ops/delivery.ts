@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail, DeliverySummary, DeliveryProvider } from '../types.js';
+import type { TaskDetail, DeliverySummary, DeliveryProvider, RevisionReadTicket, Status } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
@@ -13,6 +13,8 @@ import { createTaskWithinTransaction } from './createTask.js';
 import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
+import { observeRevisionInTx } from './observeRevision.js';
+import { latestSubmissionFor, submissionById, ticketIsCurrent } from '../repo/submissions.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget, budgetByTask, deliveryExhaustionReported } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
@@ -68,7 +70,11 @@ export function beginDelivery(db: DB, key: string, seed: { provider: DeliveryPro
   return transaction(db, () => {
     const row = requireRow(db, key);
     if (row.status !== 'delivering') throw new ValidationError(`beginDelivery requires status 'delivering' (got ${row.status})`);
-    upsertDelivery(db, row.id, { provider: seed.provider, branch: seed.branch, prUrl: seed.prUrl ?? null }, now());
+    // The drag passed the revision gate on the current implementation submission (nothing can
+    // resubmit while delivering): bind it, so a later PR head is compared with what was approved.
+    const sub = row.stage === 'implementation' ? latestSubmissionFor(db, row.id, 'implementation') : undefined;
+    upsertDelivery(db, row.id, { provider: seed.provider, branch: seed.branch, prUrl: seed.prUrl ?? null,
+      submissionId: sub?.id ?? null, approvedHeadSha: sub?.head_sha ?? null }, now());
     return toDeliverySummary(deliveryRowFor(db, row.id)!);
   });
 }
@@ -95,8 +101,20 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     const expected = obs.expected;
     if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
         expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
-    const { changed, accepted } = updateDeliveryObservation(db, d, obs, ts);
+    // An answer whose read ticket lost to a read that started later reports an outdated head: keep
+    // the rest of it (PR/checks state) but not the head, here or on the submission below.
+    const lateHead = d.submission_id !== null && !ticketCounts(db, d.submission_id, obs.readTicket);
+    const { changed, accepted } = updateDeliveryObservation(db, d, lateHead ? { ...obs, headSha: undefined } : obs, ts);
     if (!accepted) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
+    // The provider's PR head is a revision observation too: a head that is not the approved one
+    // means the branch moved after approval, and the approved submission reads stale.
+    // A check that learned no head still proves the provider is reachable again: it clears an
+    // earlier provider failure (the known head is kept, so a proven mismatch stays stale).
+    // Observations are ordered by the board-issued read ticket the watcher took before its request:
+    // a late answer can't restore an older head over a read that started after it.
+    if (d.submission_id !== null && !lateHead && (obs.headSha || providerErrorPending(db, d.submission_id)))
+      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider',
+        readTicket: obs.readTicket?.ticket, readStartedAt: obs.readStartedAt }, ts);
     const stateChangedAt = changed ? ts : d.state_changed_at;
     if (awaitingPostMerge) {
       const followUp = ensurePostMergeFollowUp(db, row, ts);
@@ -108,6 +126,57 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     if (reconcileMergedDelivery(db, row, ts, undefined, postMergeEvidence)) return { changed: true, accepted, stateChangedAt };
     if (changed) touch(db, row.id, ts);
     return { changed, accepted, stateChangedAt };
+  });
+}
+
+/** May an answer read under `ticket` still be recorded for the bound submission? A ticket for
+ *  another submission never counts; no ticket (an older watcher) counts and takes the next one. */
+function ticketCounts(db: DB, submissionId: number, ticket: RevisionReadTicket | undefined): boolean {
+  if (ticket === undefined) return true;
+  const s = submissionById(db, submissionId);
+  return ticket.submissionId === submissionId && s !== undefined && ticketIsCurrent(s, ticket.ticket);
+}
+
+function providerErrorPending(db: DB, submissionId: number): boolean {
+  const s = submissionById(db, submissionId);
+  return s?.last_observation_source === 'provider' && s.last_observation_error !== null;
+}
+
+export interface DeliveryCheckFailureInput {
+  error: string;
+  /** The delivery episode the failed poll was started for (same fence as recordDeliveryCheck). */
+  expected?: { status: Status; branch: string; prUrl: string | null; stateChangedAt: string } | undefined;
+  /** The approved submission that episode was bound to. */
+  submissionId?: number | null | undefined;
+  /** When the failed poll started, on the watcher's clock: display only. */
+  readStartedAt?: string | undefined;
+  /** The read ticket taken before the poll (see DeliveryObservation): a read that started later wins. */
+  readTicket?: RevisionReadTicket | undefined;
+}
+
+/**
+ * The watcher could not reach the provider for this delivery: record a failed revision
+ * observation for the approved submission, so the board shows unknown freshness during the
+ * outage instead of the last good answer. The known head is kept (a proven mismatch stays
+ * stale). No-op for unbound (historical) deliveries, tasks the watcher no longer owns, and a poll
+ * fenced to a delivery episode or submission that is no longer current.
+ */
+export function recordDeliveryCheckFailure(db: DB, key: string, input: DeliveryCheckFailureInput, now: () => string = nowIso): { recorded: boolean } {
+  return transaction(db, () => {
+    const row = requireRow(db, key);
+    if (row.archived_at || !['delivering', 'queued', 'in_progress', 'blocked', 'in_review'].includes(row.status)) return { recorded: false };
+    const d = deliveryRowFor(db, row.id);
+    if (!d || d.submission_id === null) return { recorded: false };
+    // The poll that failed was started for one delivery episode: once that episode changed (a bounce,
+    // a re-approval of another submission), its failure says nothing about the current one.
+    const expected = input.expected;
+    if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
+        expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { recorded: false };
+    if (input.submissionId !== undefined && input.submissionId !== d.submission_id) return { recorded: false };
+    const error = input.error.trim().slice(0, 500) || 'provider check failed';
+    if (!ticketCounts(db, d.submission_id, input.readTicket)) return { recorded: false };
+    return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error,
+      readTicket: input.readTicket?.ticket, readStartedAt: input.readStartedAt }, now()) !== null };
   });
 }
 

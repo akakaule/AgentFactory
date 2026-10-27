@@ -1,4 +1,4 @@
-import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type Workspace } from '@agentfactory/core';
+import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type RevisionReadTicket, type Status, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -7,6 +7,8 @@ import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, 
 import { resolveCredential } from './credentials.js';
 import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
 import { syncInbound, syncOutbound } from './adoSync.js';
+
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** HTTP statuses that mean "the credential is wrong", not "back off and retry" (see provider guards). */
 const AUTH_STATUSES = new Set([203, 401, 403]);
@@ -221,12 +223,19 @@ export class Watcher {
     );
     const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;
+    // a board-issued read ticket taken before the provider request: core records what this poll saw
+    // only if no read that started later (a git refresh that saw a push) was recorded meanwhile —
+    // whatever this machine's clock says — so a slow answer can't restore a stale review. The read
+    // start is only the observation's display time.
+    const ticket = typeof delivery.submissionId === 'number' ? await core.issueRevisionReadTicket(key, delivery.submissionId) : null;
+    const fence = { readStartedAt: new Date(this.deps.now()).toISOString(), ...(ticket ? { readTicket: ticket } : {}) };
     try {
       result = await provider.check(remote, delivery.branch, prUrl, {
         postMergeChecks: this.config.postMergeChecks,
       });
     } catch (err) {
       this.noteFailure(key, err, cred);
+      await this.recordCheckFailure(key, err, detail.status, delivery, fence);
       return;
     }
     this.backoffUntil.delete(key);
@@ -258,6 +267,10 @@ export class Watcher {
       checksState: checks.state,
       checksTarget: result.checksTarget ?? 'head',
       failing: checks.failing,
+      // the PR head as the host reports it: persisted next to the approved head, so a push after
+      // approval marks the approved submission stale (only full SHAs — the board validates them)
+      ...(pr?.headSha && FULL_SHA.test(pr.headSha) ? { headSha: pr.headSha } : {}),
+      ...fence,
     });
     if (recorded.skipped) return;
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);
@@ -375,6 +388,25 @@ export class Watcher {
     const errorBlock = errors.length ? `\n\nBuild errors:\n\`\`\`text\n${errors.join('\n')}\n\`\`\`` : '';
     const instruction = 'The branch and PR still exist. Fix the failures and push to the SAME branch — do not open a new PR.';
     return `PR: ${prUrl} (open, head ${branch})\nFailing checks:\n${list}${errorBlock}\n\n${instruction}`;
+  }
+
+  /** Persist the failed poll as a provider revision observation, so the board shows unknown
+   *  freshness during the outage (core keeps the known head: a proven mismatch stays stale), unless
+   *  the delivery episode the poll started for has since changed.
+   *  Best-effort — the backoff above already handles the retry. */
+  private async recordCheckFailure(key: string, err: unknown, status: Status, delivery: DeliverySummary, fence: { readStartedAt: string; readTicket?: RevisionReadTicket }): Promise<void> {
+    try {
+      await this.deps.core.recordDeliveryCheckFailure(key, {
+        error: `provider check failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500),
+        // fenced to the episode this poll was started for: a slow failure must not mark a newer
+        // approval's freshness unknown
+        expected: { status, branch: delivery.branch, prUrl: delivery.prUrl, stateChangedAt: delivery.stateChangedAt },
+        ...(delivery.submissionId !== undefined ? { submissionId: delivery.submissionId } : {}),
+        ...fence,
+      });
+    } catch (recordErr) {
+      this.deps.console.warn(`[watcher] ${key}: could not record the failed provider check (${recordErr instanceof Error ? recordErr.message : String(recordErr)})`);
+    }
   }
 
   private noteFailure(key: string, err: unknown, cred?: { envVar: string; base: string }, what = 'provider check'): void {

@@ -5,6 +5,8 @@ import { createTask } from '../src/ops/createTask.js';
 import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { buildFailureComment, isFailureMarker, parseFailureComment } from '../src/failure.js';
 import { InvalidTransitionError, ValidationError } from '../src/errors.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
+import { getTask } from '../src/ops/getTask.js';
 
 const GH = 'https://github.com/acme/widgets.git';
 
@@ -18,7 +20,7 @@ function deliverTask(core: Core): string {
   core.updateStatus(t.key, 'queued', 'human');
   core.claimNextTask({ claimedBy: 'w1' });
   core.submitResult(t.key, { summary: 'done' });
-  expect(core.reviewApprove(t.key).status).toBe('delivering');
+  expect(core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key))).status).toBe('delivering');
   return t.key;
 }
 
@@ -41,7 +43,7 @@ describe('approve → delivering routing', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'w1' });
     core.submitResult(t.key, { summary: 'done', links: [{ kind: 'pr', label: '#7', url: 'https://github.com/acme/widgets/pull/7' }] });
-    core.reviewApprove(t.key);
+    core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
     expect(core.getDelivery(t.key)!.prUrl).toBe('https://github.com/acme/widgets/pull/7');
   });
 
@@ -51,7 +53,7 @@ describe('approve → delivering routing', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'w1' });
     core.submitResult(t.key, { summary: 'done' });
-    expect(core.reviewApprove(t.key).status).toBe('done');
+    expect(core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key))).status).toBe('done');
     expect(core.getDelivery(t.key)).toBeNull();
   });
 
@@ -61,14 +63,14 @@ describe('approve → delivering routing', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'w1' });
     core.submitResult(t.key, { summary: 'done' });
-    expect(core.reviewApprove(t.key).status).toBe('done');
+    expect(core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key))).status).toBe('done');
   });
 
   it('a legacy no-branch task (pre-#6 claim) approves straight to done', () => {
     const db = makeTestDb();
     const t = createTask(db, { title: 'L', spec: 's', acceptanceCriteria: 'a' });
     db.prepare("UPDATE task SET status='in_review', branch=NULL WHERE key=?").run(t.key);
-    const detail = reviewApprove(db, t.key, undefined, null, () => GH);
+    const detail = reviewApprove(db, t.key, undefined, null, () => GH, undefined, expectedRevisionOf(getTask(db, t.key)));
     expect(detail.status).toBe('done');
     expect(detail.delivery).toBeNull();
   });
@@ -79,7 +81,7 @@ describe('approve → delivering routing', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'w1' });
     core.submitResult(t.key, { summary: 'wrote it', spec: 'new spec', acceptanceCriteria: 'new ac' });
-    const after = core.reviewApprove(t.key);
+    const after = core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
     expect(after.status).toBe('queued');
     expect(after.stage).toBe('implementation');
     expect(core.getDelivery(t.key)).toBeNull();
@@ -93,7 +95,7 @@ describe('approve → delivering routing', () => {
     // fix round: reclaim, resubmit, re-approve
     core.claimNextTask({ claimedBy: 'w2' });
     core.submitResult(key, { summary: 'fixed' });
-    expect(core.reviewApprove(key).status).toBe('delivering');
+    expect(core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key))).status).toBe('delivering');
     expect(core.getDelivery(key)).toMatchObject({ prState: 'unknown', checksState: 'unknown', failing: [] });
   });
 });
@@ -124,7 +126,7 @@ describe('delivery ops', () => {
     expect(core.recordDeliveryCheck(key, { expected, prState: 'merged', checksState: 'passing' })).toMatchObject({ skipped: true });
     core.claimNextTask({ claimedBy: 'repair-worker' });
     core.submitResult(key, { summary: 'fix', links: [{ kind: 'pr', label: '#43', url: 'https://github.com/acme/widgets/pull/43' }] });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     expect(core.recordDeliveryCheck(key, { expected, prState: 'merged', checksState: 'passing' })).toMatchObject({ skipped: true });
     expect(core.getTask(key).delivery).toMatchObject({ prState: 'unknown', prUrl: 'https://github.com/acme/widgets/pull/43' });
   });
@@ -178,7 +180,7 @@ describe('delivery ops', () => {
     core.updateStatus(key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'new-worker' });
     core.submitResult(key, { summary: 'replacement' });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     expect(core.getDelivery(key)!.stateChangedAt).not.toBe(oldEpisode);
     const recorded = core.recordDeliveryCheck(key, {
       expectedStateChangedAt: oldEpisode,
@@ -196,7 +198,7 @@ describe('delivery ops', () => {
     core.updateStatus(t.key, 'queued', 'human');
     const oldClaim = core.claimNextTask({ claimedBy: 'old-worker' }, () => '2030-08-01T10:00:00.000Z')!;
     core.submitResult(t.key, { summary: 'original', claimAt: oldClaim.claimedAt! });
-    core.reviewApprove(t.key);
+    core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
     core.recordDeliveryCheck(t.key, { prUrl: 'https://github.com/acme/widgets/pull/42', prState: 'merged', checksState: 'passing' });
     expect(core.getTask(t.key).status).toBe('done');
 
@@ -298,12 +300,12 @@ describe('delivery ops', () => {
     core.updateStatus(followKey, 'queued', 'human');
     expect(core.claimNextTask({ claimedBy: 'w2' })?.key).toBe(followKey);
     core.submitResult(followKey, { summary: 'spec', spec: 'repair the deploy check', acceptanceCriteria: '1. deploy is green' });
-    core.reviewApprove(followKey);
+    core.reviewApprove(followKey, undefined, undefined, expectedRevisionOf(core.getTask(followKey)));
     expect(core.getTask(followKey).stage).toBe('implementation');
     if (core.getTask(followKey).status !== 'queued') core.updateStatus(followKey, 'queued', 'human');
     expect(core.claimNextTask({ claimedBy: 'w3' })?.key).toBe(followKey);
     core.submitResult(followKey, { summary: 'fixed' });
-    expect(core.reviewApprove(followKey).status).toBe('delivering');
+    expect(core.reviewApprove(followKey, undefined, undefined, expectedRevisionOf(core.getTask(followKey))).status).toBe('delivering');
     expect(core.getDelivery(followKey)).toMatchObject({ prUrl: null, prState: 'unknown' });
   });
 
@@ -446,7 +448,7 @@ describe('delivery ops', () => {
     core.failDelivery(key, { reason: 'ci_failed', detail: 'red 1' });
     core.claimNextTask({ claimedBy: 'w2' });
     core.submitResult(key, { summary: 'fixed 1' });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     core.failDelivery(key, { reason: 'ci_failed', detail: 'red 2' });
 
     const blocked = core.getTask(key);

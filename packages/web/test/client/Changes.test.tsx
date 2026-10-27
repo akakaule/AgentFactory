@@ -67,3 +67,31 @@ describe('Changes', () => {
     expect(screen.queryByRole('button', { name: 'View diff' })).not.toBeInTheDocument();
   });
 });
+
+describe('Changes — submitted revision (AF-148)', () => {
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+
+  it('when the branch moved since submission, switches to the submitted snapshot on request', async () => {
+    const mocked = await getApiMock();
+    mocked.getDiff.mockImplementation(async (_key: string, at?: string) => at === 'submission'
+      ? { branch: 'task/AF-7', baseRef: 'c'.repeat(40), diff: MODIFY_MULTI_HUNK, commits: 1, headSha: A }
+      : { branch: 'task/AF-7', baseRef: 'main', diff: MODIFY_MULTI_HUNK, commits: 2, headSha: B });
+    const user = userEvent.setup();
+    render(<Changes {...props} inline submitted={{ id: 3, headSha: A }} />);
+    expect(await screen.findByText(/branch moved since submission #3/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show submitted revision' }));
+    expect(mocked.getDiff).toHaveBeenLastCalledWith('AF-7', 'submission');
+    expect(await screen.findByText(/Submission #3 · commit aaaaaaa/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show current branch' }));
+    expect(mocked.getDiff).toHaveBeenLastCalledWith('AF-7');
+  });
+
+  it('says nothing when the branch is still at the submitted head', async () => {
+    const mocked = await getApiMock();
+    mocked.getDiff.mockResolvedValue({ branch: 'task/AF-7', baseRef: 'main', diff: MODIFY_MULTI_HUNK, commits: 1, headSha: A });
+    render(<Changes {...props} inline submitted={{ id: 3, headSha: A }} />);
+    expect(await screen.findByText('1 file')).toBeInTheDocument();
+    expect(screen.queryByText(/branch moved/i)).toBeNull();
+  });
+});

@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { Reviewer } from '../src/reviewer.js';
 import { parseConfig } from '../src/config.js';
-import { aiReviewBody, makeCore, makeDeps, makeFakeConsole, makeFakeSpawn, seedInReview } from './helpers.js';
+import { aiReviewBody, makeCore, makeDeps, makeFakeConsole, makeFakeSpawn, seedInReview, SEED_HEAD } from './helpers.js';
 
 function setup(stage: 'implementation' | 'description' = 'implementation') {
   const core = makeCore(); const key = seedInReview(core, 'ws', 'Consensus', stage);
-  const { spawn, calls } = makeFakeSpawn(); let output = ''; let now = 0; let head = 'a'.repeat(40);
+  const { spawn, calls } = makeFakeSpawn(); let output = ''; let now = 0; let head = SEED_HEAD;
   const config = parseConfig({ db: ':memory:', workspaces: ['ws'], visualization: { enabled: false },
     consensus: { enabled: true, totalMinutes: 30 }, reviewers: [{ engine: 'claude', model: 'fable' }, { engine: 'codex', model: 'astra' }] });
   const r = new Reviewer(config, makeDeps(core, spawn, { console: makeFakeConsole(), now: () => now, readOutput: () => output,
-    computeDiff: async () => ({ baseRef: 'main', baseSha: 'b'.repeat(40), headSha: head, diff: '+bug', commits: 1 }) }));
+    computeDiff: async () => ({ baseRef: 'main', baseSha: 'b'.repeat(40), headSha: head, diff: '+bug', commits: 1 }),
+    revisionDiff: async (_repo: string, baseSha: string) => ({ baseRef: baseSha, baseSha, headSha: head, diff: '+bug', commits: 1 }) }));
   const finish = async (body: string, code = 0) => {
     const call = calls.at(-1)!; output = body; call.child.emitStdout(body); await call.child.exit(code); output = '';
   };

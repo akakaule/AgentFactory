@@ -2,10 +2,11 @@ import type { DB } from '../db.js';
 import type { TaskDetail } from '../types.js';
 import { transaction } from '../transaction.js';
 import { findRowByKey, toDetail } from '../repo/tasks.js';
-import { applyApproval, type DeliverySeed } from './approval.js';
+import { applyApproval, assertApprovableRevision, auditUnknownFreshness, type DeliverySeed } from './approval.js';
 import { parseRemoteUrl, resolveOriginUrl } from '../remote.js';
 import { NotFoundError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
+import type { ExpectedRevision } from '../types.js';
 
 /**
  * Human approval of an in_review task. Stage-aware: doc stages advance and re-queue;
@@ -15,7 +16,8 @@ import { nowIso } from '../time.js';
  * (doc-stage history, legacy no-branch tasks, pr-review tasks, unrecognizable/missing
  * remotes). `resolveOrigin` is injectable for tests; it shells out to git, so it runs
  * BEFORE the transaction — never inside the write lock. `overrideReason` is required when the
- * review has must-fix issues or open decisions (see applyApproval).
+ * review has must-fix issues or open decisions (see applyApproval). `expected` names the submission
+ * (and head) the human reviewed and is required once a submission is tracked; see assertApprovableRevision.
  */
 export function reviewApprove(
   db: DB,
@@ -24,6 +26,7 @@ export function reviewApprove(
   actorUserId: number | null = null,
   resolveOrigin: (repoPath: string) => string | null = resolveOriginUrl,
   overrideReason: string | null = null,
+  expected: ExpectedRevision | null = null,
 ): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
@@ -37,7 +40,11 @@ export function reviewApprove(
     const current = findRowByKey(db, key);
     if (!current || current.status !== 'in_review' || current.updated_at !== row.updated_at)
       throw new InvalidTransitionError(`task changed while resolving its delivery: ${key}`);
-    applyApproval(db, current, 'human', now(), undefined, actorUserId, delivery, overrideReason);
+    const ts = now();
+    const approved = assertApprovableRevision(db, current, expected, true);
+    auditUnknownFreshness(db, current, approved, ts, actorUserId);
+    applyApproval(db, current, 'human', ts, undefined, actorUserId, delivery, overrideReason,
+      approved ? { submissionId: approved.id, headSha: approved.headSha } : null);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

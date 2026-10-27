@@ -48,7 +48,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
         const guard =
           detail.stage === 'implementation'
             ? await checkSubmission({ repoPath: detail.repoPath, branch: detail.branch, key, auth: await core.resolveGitAuth(detail.workspace) })
-            : { ok: true as const };
+            : { ok: true as const, revision: undefined };
         if (!guard.ok) {
           return { isError: true as const, content: [{ type: 'text' as const, text: guard.message ?? 'Submission blocked.' }] };
         }
@@ -61,6 +61,8 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
         if (plan !== undefined) input.plan = plan;
         if (verification !== undefined) input.verification = verification;
         if (criteria !== undefined) input.criteria = criteria;
+        // the revision the guard verified on origin — core records it so a later push can't inherit this review
+        if (guard.revision) input.revision = guard.revision;
         let task = await core.submitResult(key, input);
         let metricsNote = '';
         if (metrics && Object.keys(metrics).length > 0) {

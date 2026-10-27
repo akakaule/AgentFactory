@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { reviewSubmissionFingerprint, parseAiReviewComment, type AiReviewFinding, type TaskDetail } from '@agentfactory/core';
+import { reviewSubmissionFingerprint, parseAiReviewComment, type AiReviewFinding, type ReviewRevision, type TaskDetail } from '@agentfactory/core';
 import type { ReviewerProfile } from './config.js';
 import { ensureMarker } from './review.js';
 import type { ConsensusState } from './consensus.js';
@@ -12,6 +12,8 @@ export interface ReviewRound {
   consensus?: ConsensusState;
   deadlineMs?: number;
   revision?: { headSha: string; baseSha: string };
+  /** The submission the round reviews (and the head it diffed) — stamped on the posted verdict. */
+  bound?: ReviewRevision;
 }
 
 /** Comments/telemetry do not supersede a submission; deliverable edits and result IDs do. */

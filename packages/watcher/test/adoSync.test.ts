@@ -177,7 +177,7 @@ describe('watcher — Azure DevOps write-back (outbound)', () => {
     toReview(core, reviewKey);
     const doneKey = imported(core, 11);
     toReview(core, doneKey);
-    core.updateStatus(doneKey, 'done', 'human');
+    core.updateStatus(doneKey, 'done', 'human', null, undefined, undefined, { submissionId: core.getTask(doneKey).submission!.id });
     const ado = fakeAdo(
       [story(10, { 'System.State': 'Active', 'System.Tags': 'agentfactory' }), story(11, { 'System.State': 'Resolved', 'System.Tags': 'agentfactory' })],
       { wiqlIds: [] },
@@ -194,10 +194,10 @@ describe('watcher — Azure DevOps write-back (outbound)', () => {
     const core = enabledCore();
     const a = imported(core, 10);
     toReview(core, a);
-    core.updateStatus(a, 'done', 'human');
+    core.updateStatus(a, 'done', 'human', null, undefined, undefined, { submissionId: core.getTask(a).submission!.id });
     const b = imported(core, 11);
     toReview(core, b);
-    core.updateStatus(b, 'done', 'human');
+    core.updateStatus(b, 'done', 'human', null, undefined, undefined, { submissionId: core.getTask(b).submission!.id });
     const ado = fakeAdo([story(10, { 'System.State': 'Removed' }), story(11, { 'System.State': 'Closed' })], { wiqlIds: [] });
     await tick(core, ado.fetchJson);
     expect(ado.patches()).toHaveLength(0);

@@ -213,3 +213,29 @@ describe('submit_result tool — guardrail wiring (integration)', () => {
     expect(core.getTask(t.key).status).toBe('in_review');
   });
 });
+
+describe('checkSubmission — resolves the handed-over revision (AF-148)', () => {
+  it('returns the pushed head on origin and its merge-base with the default branch', async () => {
+    const repo = initRepo();
+    addOrigin(repo);
+    git(repo, 'push', 'origin', 'main');
+    git(repo, 'push', '-u', 'origin', BRANCH);
+    git(repo, 'fetch', 'origin');
+    const head = git(repo, 'rev-parse', BRANCH).trim();
+    const base = git(repo, 'rev-parse', 'main').trim();
+    const res = await checkSubmission({ repoPath: repo, branch: BRANCH, key: KEY });
+    expect(res).toMatchObject({ ok: true, revision: { headSha: head, baseSha: base, source: 'origin' } });
+  });
+
+  it('without an origin the revision is the local branch head', async () => {
+    const repo = initRepo();
+    const head = git(repo, 'rev-parse', BRANCH).trim();
+    const res = await checkSubmission({ repoPath: repo, branch: BRANCH, key: KEY });
+    expect(res).toMatchObject({ ok: true, revision: { headSha: head, source: 'local' } });
+  });
+
+  it('a skipped guard (no branch) resolves no revision', async () => {
+    const res = await checkSubmission({ repoPath: '', branch: null, key: KEY });
+    expect(res).toEqual({ ok: true });
+  });
+});

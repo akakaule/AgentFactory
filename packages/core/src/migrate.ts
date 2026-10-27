@@ -1,13 +1,13 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL, MIGRATION_30_SQL } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
  * data-driven — the new table's DDL is the table's OWN sqlite_master sql with only the CHECK list
  * replaced, and the copy uses the live column list from table_info — so columns this repo's history
  * doesn't know about (a diverged DB, e.g. the task-priority branch's `priority`) survive intact.
- * Idempotent: a no-op when the stored DDL already contains `newList`; fails loudly when it contains
+ * Idempotent: a no-op when the stored DDL already contains `newList` (or a list extending it); fails loudly when it contains
  * neither list (an unexpected shape must never be "fixed" by guesswork). Secondary indexes are
  * captured and replayed (DROP TABLE takes them with it); UNIQUE/PK auto-indexes recreate themselves.
  * MUST run with foreign_keys=OFF (see the fkOff migration mode below): with FK enforcement on,
@@ -17,7 +17,9 @@ import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATIO
 export function widenCheck(db: DB, table: string, oldList: string, newList: string): void {
   const master = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name = ?").get(table) as { sql: string } | undefined;
   if (!master) throw new Error(`widenCheck: table not found: ${table}`);
-  if (master.sql.includes(newList)) return; // already widened (re-slotted/diverged DB) — no-op
+  // already widened (re-slotted/diverged DB), or widened further by a later migration that appended
+  // to this list (#29 extends #18's) — no-op
+  if (master.sql.includes(newList) || master.sql.includes(`${newList.slice(0, -1)},`)) return;
   if (!master.sql.includes(oldList)) throw new Error(`widenCheck: ${table} DDL contains neither the expected old nor new CHECK list`);
   const tmp = `${table}_new`;
   const createTmp = master.sql
@@ -36,6 +38,7 @@ export function widenCheck(db: DB, table: string, oldList: string, newList: stri
 
 const STATUS_LIST_17 = `('backlog','queued','in_progress','in_review','done','blocked')`;
 const STATUS_LIST_18 = `('backlog','queued','in_progress','in_review','delivering','done','blocked')`;
+const STATUS_LIST_29 = `('backlog','queued','in_progress','in_review','delivering','done','blocked','cancelled')`;
 const SUPERVISOR_KIND_LIST_17 = `('dispatcher','reviewer')`;
 const SUPERVISOR_KIND_LIST_18 = `('dispatcher','reviewer','watcher')`;
 const SUPERVISOR_KIND_LIST_26 = `('dispatcher','reviewer','watcher','intake')`;
@@ -162,6 +165,28 @@ const MIGRATIONS: Migration[] = [
       const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
       if (!cols.includes('ado_sync')) db.exec(MIGRATION_27_SQL);
       db.exec(MIGRATION_28_SQL);
+    },
+  },
+  // #29 — the human-only terminal 'cancelled' status: widen task.status like #18 did (fkOff rebuild).
+  { fkOff: true, run: (db) => widenCheck(db, 'task', STATUS_LIST_18, STATUS_LIST_29) },
+  // #30 — revision-bound submissions: task_submission (IF NOT EXISTS) plus revision columns on
+  // task_visualization/task_delivery via ADD COLUMN, each guarded with table_info like #19/#20.
+  // Pre-merge AF-148 builds shipped this as #29, so a DB migrated by them sits at user_version 29
+  // without main's #29 cancelled widening: replay it here (a no-op once applied). A DB at main's
+  // #29 gets the revision schema; one at the pre-merge #29 already has it, and every step is guarded.
+  {
+    fkOff: true,
+    run: (db) => {
+      widenCheck(db, 'task', STATUS_LIST_18, STATUS_LIST_29);
+      db.exec(MIGRATION_30_SQL);
+      const addMissing = (table: string, columns: Array<[string, string]>) => {
+        const have = (db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name);
+        for (const [name, type] of columns) if (!have.includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      };
+      // A pre-merge table may lack the read-ticket columns (and keep an unused observation_generation).
+      addMissing('task_submission', [['read_ticket_seq', 'INTEGER NOT NULL DEFAULT 0'], ['last_recorded_ticket', 'INTEGER NOT NULL DEFAULT 0']]);
+      addMissing('task_visualization', [['submission_id', 'INTEGER'], ['head_sha', 'TEXT']]);
+      addMissing('task_delivery', [['submission_id', 'INTEGER'], ['approved_head_sha', 'TEXT'], ['head_sha', 'TEXT']]);
     },
   },
 ];

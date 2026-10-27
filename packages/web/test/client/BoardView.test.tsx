@@ -86,6 +86,12 @@ describe('BoardView', () => {
     expect(screen.getAllByText('Done').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('has no Cancelled column and keeps cancelled tasks off the board', () => {
+    render(<BoardView tasks={[...tasks, makeTask('AF-99', 'Dropped task', 'cancelled')]} onSelect={vi.fn()} />);
+    expect(screen.queryByText('Cancelled')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dropped task')).not.toBeInTheDocument();
+  });
+
   it('shows the delivery chip on a delivering card', () => {
     const delivering = {
       ...makeTask('AF-20', 'Shipping task', 'delivering'),

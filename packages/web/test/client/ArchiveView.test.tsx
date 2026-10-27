@@ -53,6 +53,20 @@ async function getApiMock() {
 }
 
 describe('ArchiveView', () => {
+  it('shows the status of each archived task, telling done from cancelled', async () => {
+    const mocked = await getApiMock();
+    mocked.listTasks.mockResolvedValue([
+      makeArchived('AF-1', 'Shipped feature'),
+      makeArchived('AF-2', 'Dropped idea', { status: 'cancelled' }),
+    ]);
+
+    render(<ArchiveView wsFilter="all" query="" onOpen={vi.fn()} />);
+
+    expect(await screen.findByText('Dropped idea')).toBeInTheDocument();
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+  });
+
   it('fetches archived tasks and lists them', async () => {
     const mocked = await getApiMock();
     mocked.listTasks.mockResolvedValue([

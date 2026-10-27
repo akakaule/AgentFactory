@@ -2,7 +2,7 @@ import type { AgentPrompts } from './agentPrompts.js';
 import type { ReviewConsensus } from './reviewConsensus.js';
 import type { AdoSyncSettings, AdoSyncSettingsInput } from './adoSync.js';
 
-export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked';
+export type Status = 'backlog' | 'queued' | 'in_progress' | 'in_review' | 'delivering' | 'done' | 'blocked' | 'cancelled';
 export type Actor = 'human' | 'agent';
 /** Wire capabilities that must be present before supervisors and workers are restarted together. */
 export const AGENT_CAPABILITIES = ['execution-fence/v1'] as const;
@@ -106,7 +106,54 @@ export interface AiReviewSummary {
   reviewer: string | null;
   items: AiReviewFinding[];
   consensus?: ReviewConsensus;
+  // which submission/revision the review concerns (migration #30). 'legacy' = an unbound review
+  // (posted before revisions were recorded; a clean one reads 'pending' while its stage has a
+  // tracked submission it cannot prove, unless the task is done); 'superseded' = a newer submission replaced the one it
+  // reviewed, or it names an earlier stage's submission (a re-review is due); 'stale' = it names the current submission but that revision moved
+  // (a later head, a head other than the submitted one, edited doc content) — only a resubmission
+  // helps; 'unverified' = it names the current implementation submission, but that submission
+  // recorded no head, so no review can prove it (a human approves it at an unknown revision).
+  // Every non-current, non-legacy binding reads verdict 'pending'.
+  binding?: ReviewBinding;
+  revision?: ReviewRevision | null;
 }
+
+/** The revision a review/visualization/approval names: a submission id, plus the head SHA it saw. */
+export interface ReviewRevision { submissionId: number; headSha: string | null; baseSha?: string | null; }
+export type ReviewBinding = 'current' | 'stale' | 'superseded' | 'unverified' | 'legacy';
+
+/** Where a submission's revision came from: the pushed branch on origin, the local worktree,
+ *  a doc stage's content hash, or nothing resolvable (an older worker / an unreachable origin). */
+export type RevisionSource = 'origin' | 'local' | 'content' | 'unknown';
+export type RevisionObservationSource = 'submit' | 'git' | 'provider';
+/** 'stale' = the branch head (or doc content) was seen to move since the submission — a later
+ *  failed observation does not clear that; 'unknown' = the revision was never resolved or the
+ *  latest observation failed with no known mismatch. */
+export type RevisionFreshness = 'current' | 'stale' | 'unknown';
+export interface SubmissionRevisionInput { headSha: string; baseSha?: string | null | undefined; source: 'origin' | 'local'; }
+/** `headSha` is the last head actually seen; source/observedAt/error describe the latest attempt,
+ *  so a failed refresh (error set) keeps the previously known head. */
+export interface RevisionObservation { headSha: string | null; source: RevisionObservationSource; observedAt: string; error: string | null; }
+/** A board-issued read ticket: taken before reading a submission's branch head, passed back with
+ *  the answer. Tickets rise per submission; the answer of the reader that started last wins. */
+export interface RevisionReadTicket { submissionId: number; ticket: number; }
+/** One submit_result's handed-over revision (migration #30) — outlives the worktree and branch. */
+export interface SubmissionSummary {
+  id: number;
+  stage: Stage;
+  executionId: string | null;
+  branch: string | null;
+  headSha: string | null;
+  baseSha: string | null;
+  contentHash: string | null;
+  source: RevisionSource;
+  observedAt: string;
+  createdAt: string;
+  lastObservation: RevisionObservation | null;
+  freshness: RevisionFreshness;
+}
+/** What a human approves: the submission (and head) they looked at. A mismatch is refused. */
+export interface ExpectedRevision { submissionId: number; headSha?: string | null | undefined; }
 
 /**
  * The AI review as the human decides on it (docs/spec/2026-10-21-review-decision-panel-design.md
@@ -279,6 +326,9 @@ export interface DeliverySummary {
   failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing')
   checkedAt: string | null;            // last watcher poll; null until the first one
   stateChangedAt: string;              // last time the observed state actually changed
+  approvedHeadSha?: string | null;     // the submitted head the human approved (migration #30)
+  headSha?: string | null;             // the PR head the provider last reported; differs ⇒ pushed after approval
+  submissionId?: number | null;        // the approved submission this delivery episode is bound to (migration #30)
   repairExhausted?: boolean;           // derived on task reads: the repair budget is spent and its repair_exhausted note posted (until Restart task)
 }
 
@@ -288,7 +338,7 @@ export interface Task {
   workspace: string; // workspace slug
   unmetDependencyCount: number; // queued tasks with a non-zero count are waiting and cannot be claimed
   claimedBy: string | null; claimedAt: string | null; // current claim; cleared on re-queue
-  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done')
+  archivedAt: string | null; // null = active; set = hidden from default listings (status stays 'done' or 'cancelled')
   aiReview: AiReviewSummary | null; // derived: latest ai-review comment verdict
   reviewBrief?: ReviewBrief | null; // derived from aiReview + acceptance criteria; null with no review, on list reads outside in_review, and in agent payloads
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
@@ -296,6 +346,9 @@ export interface Task {
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
   intakeHold?: { until: string } | null; // derived: queued implementation work waiting (≤ maxHoldMinutes) for its revision's intake assessment; unclaimable meanwhile
   failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
+  // list rows: the identity of an in-review task's current submission (what a review-closing drag
+  // approves); null for historical tasks and outside in_review. TaskDetail carries the full summary.
+  submission?: { id: number; headSha: string | null } | null;
   createdAt: string; updatedAt: string;
 }
 export interface Activity {
@@ -426,6 +479,10 @@ export interface TaskDetail extends Task {
   // GET /api/tasks/:key/visualization (kept off TaskDetail — it's tens of KB).
   hasVisualization: boolean;
   visualizationGeneratedAt: string | null;
+  visualizationRevision?: ReviewRevision | null; // the submission the visualization was attached under
+  // the current stage's latest submission (migration #30); null for historical tasks / before
+  // the stage's first submit. Optional so older servers' payloads still type.
+  submission?: SubmissionSummary | null;
   metrics: TaskMetricsView;
   // the implementing agent's claim per acceptance criterion from the latest result
   // (criteria-claims/v1, src/criteriaClaims.ts); null when that result reported none.
@@ -470,6 +527,7 @@ export interface SubmitResultInput {
   plan?: string | undefined;               // plan stage: the implementation plan
   verification?: string | undefined;       // implementation/harden: reported outcome of the workspace verify command
   criteria?: CriterionClaim[] | undefined;   // implementation: the agent's claim per acceptance criterion
+  revision?: SubmissionRevisionInput | undefined; // implementation: the pushed head/base SHA, resolved at the git boundary
 }
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;

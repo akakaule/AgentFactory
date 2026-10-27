@@ -15,6 +15,7 @@ import { beginDelivery, recordDeliveryCheck, failDelivery } from '../src/ops/del
 import { reserveExecution, reconcileExecutions, EXECUTION_LEASE_MS } from '../src/ops/execution.js';
 import { settleRetry, getRetryBudget } from '../src/ops/retry.js';
 import { InvalidTransitionError } from '../src/errors.js';
+import { getTask } from '../src/ops/getTask.js';
 
 function queued(db: ReturnType<typeof makeTestDb>) {
   const task = createTask(db, { title: 'Execution ownership', spec: 'S', acceptanceCriteria: 'A' });
@@ -86,7 +87,7 @@ describe('execution ownership', () => {
     const task = queued(db);
     const first = claimNextTask(db, { claimedBy: 'worker-1' })!;
     submitResult(db, task.key, { summary: 'done', executionId: first.executionId });
-    updateStatus(db, task.key, 'delivering', 'human');
+    updateStatus(db, task.key, 'delivering', 'human', undefined, null, undefined, undefined, { submissionId: getTask(db, task.key).submission!.id });
     beginDelivery(db, task.key, { provider: 'github', branch: first.branch!, prUrl: 'https://github.com/acme/widgets/pull/1' });
     recordDeliveryCheck(db, task.key, { prState: 'open', checksState: 'failing', failing: [{ name: 'build', url: null }] });
     failDelivery(db, task.key, { reason: 'ci_failed', detail: 'build failed' });

@@ -12,6 +12,7 @@ import { nowIso } from '../time.js';
 import { assertExecutionOwnership } from '../repo/execution.js';
 import { isIntakeMarker } from '../intake.js';
 import { isFailureTriageMarker } from '../failureTriage.js';
+import { isCurrentSubmission, latestSubmissionFor, reviewBinding, submissionById } from '../repo/submissions.js';
 
 export function addComment(
   db: DB,
@@ -34,6 +35,15 @@ export function addComment(
     if (submission && (submission.key !== key || submission.fingerprint !== reviewSubmissionFingerprint(toDetail(db, current)))) {
       throw new InvalidTransitionError('review submission changed before publication');
     }
+    // A review bound to a submission that is not the current stage's latest reviewed something that
+    // was replaced (or an earlier stage's deliverable): refuse it before publication, like a
+    // changed consensus fingerprint.
+    const revision = parsed?.revision;
+    if (revision) {
+      const named = submissionById(db, revision.submissionId);
+      if (!named || !isCurrentSubmission(db, row, named))
+        throw new InvalidTransitionError(`review names submission #${revision.submissionId}, which is not the current submission of ${key}`);
+    }
     const ts = now();
     appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
     touch(db, row.id, ts);
@@ -43,7 +53,14 @@ export function addComment(
     // construction), regardless of actor — the reviewer loop posts via HTTP (human) or MCP
     // (agent). Findings, malformed markers, and the implementation stage all escalate to
     // the human gate instead. Reviewers stay advisory; this policy lives here, in core.
-    if (parsed && parsed.consensus?.status !== 'disputed' && parsed.findings.length === 0 && current.status === 'in_review' && current.stage !== 'implementation') {
+    // A review bound to content that changed since its submission is not proof: no auto-approve.
+    // Nor is an unbound review of a stage whose submission is tracked — it names no revision, so
+    // it cannot vouch for the current content. Only historical stages (nothing tracked) keep the
+    // legacy unbound auto-approve.
+    const stale = revision
+      ? reviewBinding(db, current, revision) !== 'current'
+      : latestSubmissionFor(db, row.id, current.stage) !== undefined;
+    if (parsed && !stale && parsed.consensus?.status !== 'disputed' && parsed.findings.length === 0 && current.status === 'in_review' && current.stage !== 'implementation') {
       applyApproval(db, current, 'agent', ts, 'auto-approved: clean AI review');
     }
     return comment;

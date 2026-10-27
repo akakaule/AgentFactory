@@ -1,11 +1,12 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, criteriaClaimsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
 import { RESERVED_BY_OTHER_SQL, reservedByOtherParams } from './execution.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
+import { latestSubmissionFor, reviewBinding, toSubmissionSummary, type DocContent } from './submissions.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
 import { buildReviewBrief } from '../reviewBrief.js';
@@ -203,12 +204,12 @@ export function feedbackFromActivity(a: Activity): FailureTriageFeedback | null 
 
 /**
  * Failure triage per task (spec §7): only for tasks with a current failure that are neither
- * archived nor done. Two batched reads beyond the failure selection — the feedback markers — and
+ * archived nor finished (done or cancelled). Two batched reads beyond the failure selection — the feedback markers — and
  * the rules run in-process.
  */
 function failureTriageFromEvents(db: DB, rows: TaskRow[], events: Map<number, CurrentFailureEvent>): Map<number, FailureTriageSummary> {
   const out = new Map<number, FailureTriageSummary>();
-  const eligible = rows.filter((r) => r.archived_at === null && r.status !== 'done' && events.has(r.id));
+  const eligible = rows.filter((r) => r.archived_at === null && r.status !== 'done' && r.status !== 'cancelled' && events.has(r.id));
   if (eligible.length === 0) return out;
   const feedback = failureTriageFeedbackActivities(db, eligible.map((r) => r.id));
   for (const r of eligible) {
@@ -244,10 +245,28 @@ function aiReviewByTaskIds(db: DB, ids: number[]): Map<number, AiReviewSummary> 
     if (!parsed) continue;
     const resultId = results.get(taskId);
     const superseded = resultId !== undefined && resultId > reviewId;
-    const summary = summarizeAiReview(parsed, superseded);
+    const task = reviewedTaskFor(db, taskId);
+    const binding = parsed.revision ? reviewBinding(db, { ...task, id: taskId }, parsed.revision) : 'legacy';
+    let summary = summarizeAiReview(parsed, superseded, binding);
+    // An unbound green review cannot prove a tracked submission (it may predate a push the board
+    // observes only later), so it reads pending until the reviewer posts a bound one. Unbound
+    // findings keep their verdict — they still gate approval. A done task keeps its recorded
+    // verdict, and tasks with no tracked submission keep the historical legacy reading.
+    if (summary?.verdict === 'clean' && binding === 'legacy' && task.status !== 'done' && latestSubmissionFor(db, taskId, task.stage) !== undefined)
+      summary = summarizeAiReview(parsed, true, binding);
     if (summary) out.set(taskId, summary);
   }
   return out;
+}
+
+function reviewedTaskFor(db: DB, taskId: number): DocContent & { stage: Stage; status: Status } {
+  return db.prepare('SELECT spec, acceptance_criteria, plan, stage, status FROM task WHERE id = ?').get(taskId) as unknown as DocContent & { stage: Stage; status: Status };
+}
+
+/** The current stage's latest submission, with its freshness (migration #30); null when none. */
+export function submissionFor(db: DB, r: TaskRow): SubmissionSummary | null {
+  const s = latestSubmissionFor(db, r.id, r.stage);
+  return s ? toSubmissionSummary(s, r) : null;
 }
 
 /** Latest ai-review verdict for one task (or null). Used by the approve path. */
@@ -270,6 +289,8 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     intakeHold: intakeHoldsByRows(db, [r], new Map([[r.id, intakeForTask(db, r)]]), nowIso()).get(r.id) ?? null,
     hasVisualization: viz !== null,
     visualizationGeneratedAt: viz?.generatedAt ?? null,
+    visualizationRevision: viz?.revision ?? null,
+    submission: submissionFor(db, r),
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     plan: r.plan,
@@ -300,8 +321,8 @@ export function findByKey(db: DB, key: string): Task | null {
 }
 export function setStatus(db: DB, id: number, status: Status, ts: string): void {
   // a re-queued task must not advertise a stale claimant — every path into 'queued'
-  // (release, request-changes, blocked → queued) flows through here
-  if (status === 'queued') {
+  // (release, request-changes, blocked → queued) flows through here — nor may a cancelled one
+  if (status === 'queued' || status === 'cancelled') {
     db.prepare('UPDATE task SET status = ?, claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?').run(status, ts, id);
   } else {
     db.prepare('UPDATE task SET status = ?, updated_at = ? WHERE id = ?').run(status, ts, id);
@@ -368,7 +389,14 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
-    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null }));
+    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null,
+    submission: r.status === 'in_review' ? submissionRef(db, r) : null }));
+}
+
+/** The current submission's identity for a list row (see Task.submission). */
+function submissionRef(db: DB, r: TaskRow): { id: number; headSha: string | null } | null {
+  const s = latestSubmissionFor(db, r.id, r.stage);
+  return s ? { id: s.id, headSha: s.head_sha } : null;
 }
 /** The in_progress task a worker label already holds (oldest first), if any — the claim
  *  reconciliation read: a retried claim (lost HTTP response) returns the held task instead of
@@ -382,7 +410,7 @@ export function heldClaimRow(db: DB, claimedBy: string, workspaceId?: number): T
 }
 
 // Claim eligibility, shared by queue selection, a claim through a reservation, and the reservation
-// itself. Archived rows are always done, but the guard makes "never claim an archived task" hold
+// itself. Archived rows are always done or cancelled, but the guard makes "never claim an archived task" hold
 // unconditionally rather than by inference. The kind guard is defense in depth: a pr-review task
 // is reviewed, never implemented (updateStatus blocks it from ever reaching 'queued'), so a worker
 // must never claim one even if one is stranded there.

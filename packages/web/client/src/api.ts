@@ -1,7 +1,13 @@
 import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
-export interface TaskDiff { branch: string; baseRef: string; diff: string; commits: number; }
+export interface TaskDiff {
+  branch: string; baseRef: string; diff: string; commits: number;
+  // AF-148: the commits diffed, and the submission it compares against (absent from older servers)
+  headSha?: string | null; baseSha?: string | null; submissionId?: number | null;
+}
+/** What an approve names: the submission (and head) the human reviewed. */
+export interface ApproveRevision { submissionId: number; headSha: string | null; }
 export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
 export interface WhoAmI { kind: 'user' | 'service' | 'anon'; userId?: number; email?: string; displayName?: string; label?: string; }
 
@@ -78,7 +84,8 @@ export const api = {
   getIntakeHistory: (key: string) => req<Activity[]>(`/api/tasks/${key}/intake/history`),
   getIntakeSettings: () => req<IntakeSettings>('/api/intake/settings'),
   setIntakeSettings: (settings: IntakeSettings) => req<IntakeSettings>('/api/intake/settings', { method: 'PUT', body: JSON.stringify(settings) }),
-  getDiff: (key: string) => req<TaskDiff>(`/api/tasks/${key}/diff`),
+  /** `at: 'submission'` diffs the exact submitted revision (reproducible after a later push). */
+  getDiff: (key: string, at?: 'submission') => req<TaskDiff>(`/api/tasks/${key}/diff${at ? `?at=${at}` : ''}`),
   getTranscript: (key: string) => req<TranscriptResponse>(`/api/tasks/${key}/transcript`),
   // raw HTML, not JSON — rendered into a sandboxed iframe (srcDoc) by VisualizationModal
   getVisualizationHtml: (key: string) => rawFetch(`/api/tasks/${key}/visualization`).then((r) => r.text()),
@@ -126,7 +133,9 @@ export const api = {
     req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'DELETE' }),
   deleteTask: (key: string) => req<void>(`/api/tasks/${key}`, { method: 'DELETE' }),
   addComment: (key: string, commentBody: string) => req<Activity>(`/api/tasks/${key}/comment`, body({ body: commentBody })),
-  setStatus: (key: string, status: Status, note?: string, intake?: { expectedRevision?: string; reason?: string }) => req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note, ...(intake ?? {}) })),
+  // `revision` names the reviewed submission when the move closes a review (core refuses a replaced one)
+  setStatus: (key: string, status: Status, note?: string, intake?: { expectedRevision?: string; reason?: string }, revision?: ApproveRevision) =>
+    req<TaskDetail>(`/api/tasks/${key}/status`, body({ status, note, ...(intake ?? {}), ...(revision ?? {}) })),
   overrideIntake: (key: string, expectedRevision: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/intake/override`, body({ expectedRevision, ...(reason ? { reason } : {}) })),
   // Advisory failure triage: exact source note by activity id, cursor-paginated history, human feedback.
   getFailureTriageSource: (key: string, activityId: number) => req<Activity>(`/api/tasks/${key}/failure-triage/source/${activityId}`),
@@ -137,7 +146,8 @@ export const api = {
   archiveDone: (b: { workspace?: string } = {}) => req<{ archived: number }>('/api/tasks/archive-done', body(b)),
   restart: (key: string) => req<TaskDetail>(`/api/tasks/${key}/restart`, body({})),
   // reason: required by the server when approving over must-fix issues or open decisions
-  approve: (key: string, reason?: string) => req<TaskDetail>(`/api/tasks/${key}/approve`, body(reason ? { reason } : {})),
+  approve: (key: string, reason?: string, revision?: ApproveRevision) =>
+    req<TaskDetail>(`/api/tasks/${key}/approve`, body({ ...(reason ? { reason } : {}), ...(revision ?? {}) })),
   markPrReviewed: (key: string, review: string) => req<TaskDetail>(`/api/tasks/${key}/pr-reviewed`, body({ review })),
   requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
 };

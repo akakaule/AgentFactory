@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createCore, openDb, runMigrations } from '@agentfactory/core';
+import { createCore, formatReviewRevision, openDb, runMigrations } from '@agentfactory/core';
 import { parseConfig } from '../src/config.js';
 import { FixtureTaskIntakeDecisionProvider, IntakeProviderError } from '../src/provider.js';
 import { JevTaskIntakeDecisionProvider } from '../src/providers/jev.js';
@@ -122,8 +122,9 @@ describe('intake supervisor', () => {
     const t = core.createTask({ title: 'feature', spec: 'intent', stage: 'description' });
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'writer' });
-    core.submitResult(t.key, { summary: 'spec', spec: 'the written spec', acceptanceCriteria: 'AC1' });
-    core.addComment(t.key, { actor: 'agent', body: 'ai-review/v1 - clean (codex)\nok\n```json\n{"reviewer":"codex","verdict":"clean","findings":[]}\n```' });
+    const sub = core.submitResult(t.key, { summary: 'spec', spec: 'the written spec', acceptanceCriteria: 'AC1' }).submission!;
+    // a clean review bound to the submission it read (only a bound one auto-advances a tracked doc stage)
+    core.addComment(t.key, { actor: 'agent', body: `ai-review/v1 - clean (codex)\nok\n\`\`\`json\n{"reviewer":"codex","verdict":"clean","findings":[]}\n\`\`\`\n${formatReviewRevision({ submissionId: sub.id })}` });
     expect(core.getTask(t.key).intakeHold).not.toBeNull();
     const provider = new FixtureTaskIntakeDecisionProvider();
     const assess = vi.spyOn(provider, 'assess');

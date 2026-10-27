@@ -11,6 +11,8 @@ import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { deleteTask } from '../src/ops/deleteTask.js';
 import { createCore } from '../src/index.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
+import { getTask } from '../src/ops/getTask.js';
 
 // Helper to count activity rows in the DB
 function countActivity(db: ReturnType<typeof makeTestDb>): number {
@@ -88,7 +90,7 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const { executionId } = claimNextTask(db, undefined, () => ts3)!;
     submitResult(db, task.key, { summary: 'done!', executionId }, () => ts4);
     const before = countActivity(db);
-    reviewApprove(db, task.key, () => ts5);
+    reviewApprove(db, task.key, () => ts5, undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(getVersion(db)).toBe(`${ts5}#1`);
     expect(countActivity(db)).toBe(before + 1);
   });

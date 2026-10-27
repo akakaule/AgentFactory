@@ -204,6 +204,7 @@ describe('watcher tick', () => {
     const key = deliverTask(core);
     const fetchJson = fakeFetch([
       ['/pulls?head=', { body: [ghPr()] }],
+      ['/pulls/42', { body: ghPr() }], // the second tick reads the attributed PR directly
       ['/check-runs', { body: running }],
       ['/status', { body: { statuses: [] } }],
     ]);
@@ -366,7 +367,7 @@ describe('watcher tick', () => {
     core.claimNextTask({ claimedBy: 'w' });
     core.submitResult(t.key, { summary: 'ok' });
     // raw human move (not approve) — no delivery row seeded
-    core.updateStatus(t.key, 'delivering', 'human');
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id });
     expect(core.getDelivery(t.key)).toBeNull();
     const fetchJson = fakeFetch([
       ['/pulls?head=', { body: [ghPr({ merged_at: '2026-01-01T00:00:00Z', state: 'closed' })] }],
@@ -384,7 +385,7 @@ describe('watcher tick', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'w' });
     core.submitResult(t.key, { summary: 'ok' });
-    core.updateStatus(t.key, 'delivering', 'human');
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id });
     const warnings: string[] = [];
     const fetchJson = fakeFetch([]);
     const deps = makeDeps(core, fetchJson, { resolveOrigin: () => null });
@@ -419,6 +420,23 @@ describe('watcher tick', () => {
     expect(core.getTask(key).status).toBe('delivering'); // still watching — that's fine
     expect(originArgs.length).toBeGreaterThan(0);
     expect(new Set(originArgs)).toEqual(new Set([local])); // never the board path
+  });
+
+  it('stops tracking a delivering task a human cancelled: no poll, no PR opened, never completed', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    core.updateStatus(key, 'cancelled', 'human');
+    const urls: string[] = [];
+    const fetchJson = async (url: string, init?: { method?: string }) => {
+      urls.push(`${init?.method ?? 'GET'} ${url}`);
+      const body = url.includes('/pulls?') ? [ghPr({ merged: true, state: 'closed' })] : url.includes('/check-runs') ? green : { statuses: [] };
+      return { status: 200, headers: {}, body };
+    };
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson));
+    await w.tick();
+    await w.tick();
+    expect(urls).toEqual([]);
+    expect(core.getTask(key).status).toBe('cancelled');
   });
 
   describe('delivery repair budget', () => {
@@ -629,7 +647,7 @@ describe('watcher tick', () => {
       ...core,
       recordDeliveryCheck: (k: string, o: Parameters<typeof core.recordDeliveryCheck>[1]) => {
         const r = core.recordDeliveryCheck(k, o);
-        core.updateStatus(k, 'done', 'human');
+        core.updateStatus(k, 'done', 'human', null, undefined, undefined, { submissionId: core.getTask(k).submission!.id });
         return r;
       },
     };

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createCore, openCore, openDb, runMigrations } from '@agentfactory/core';
 import { Dispatcher } from '../src/dispatcher.js';
 import { makeConfig, makeDeps, makeFakeConsole, makeFakeSpawn, seedQueued } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 describe('merged delivery workers', () => {
   it('reconciles a legacy queued merge before spawning and allows an explicit reopen', async () => {
@@ -12,7 +13,7 @@ describe('merged delivery workers', () => {
     const key = seedQueued(core, 'ws', 'Already merged');
     core.claimNextTask({ taskKey: key });
     core.submitResult(key, { summary: 'original fix' });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     core.failDelivery(key, { reason: 'ci_failed', detail: 'verify failed' });
     db.prepare("UPDATE task_delivery SET pr_state='merged', checks_state='failing', pr_url='https://github.com/acme/widgets/pull/42', checked_at='2026-09-14T12:00:00Z'").run();
     const { spawn, calls } = makeFakeSpawn();
@@ -43,7 +44,7 @@ describe('merged delivery workers', () => {
     core.restartTask(key);
     core.claimNextTask({ taskKey: key, claimedBy: 'interactive' });
     core.submitResult(key, { summary: 'done by hand' });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     core.failDelivery(key, { reason: 'merge_conflict', detail: 'PR #58 has merge conflicts' });
 
     await d.tick();
@@ -60,7 +61,7 @@ describe('merged delivery workers', () => {
     core.restartTask(key);
     core.claimNextTask({ taskKey: key, claimedBy: 'interactive' });
     core.submitResult(key, { summary: 'fixed by hand' });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     core.failDelivery(key, { reason: 'merge_conflict', detail: 'conflicts again' });
     expect(core.getTask(key).failure).toMatchObject({ source: 'watcher', skipListed: true });
     await d.tick();
@@ -73,7 +74,7 @@ describe('merged delivery workers', () => {
     const key = seedQueued(core, 'ws', 'Already delivered');
     core.claimNextTask({ taskKey: key, claimedBy: 'original' });
     core.submitResult(key, { summary: 'original fix' });
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     core.failDelivery(key, { reason: 'ci_failed', detail: 'verify failed' });
     const { spawn, calls } = makeFakeSpawn();
     let failuresLeft = retryTermination ? 1 : 0;

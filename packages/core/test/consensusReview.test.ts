@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseAiReviewComment, summarizeAiReview, isAiReviewMarker } from '../src/aiReview.js';
+import { parseAiReviewComment, summarizeAiReview, isAiReviewMarker, formatReviewRevision } from '../src/aiReview.js';
 import { openCore, reviewSubmissionFingerprint } from '../src/index.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
 
 const finding = { title: 'Stale worker overwrites a claim', severity: 'error', file: 'a.ts', line: 2, detail: 'The old identity is accepted.' };
 export function consensusBody(decisions: string[] = ['confirm', 'reject']) {
@@ -57,11 +58,11 @@ describe('consensus review safety', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'worker' });
     core.submitResult(t.key, { summary: 'Description', spec: 'Intent', acceptanceCriteria: 'Proof' });
-    core.addComment(t.key, { actor: 'agent', body: consensusBody() });
+    core.addComment(t.key, { actor: 'agent', body: `${consensusBody()}\n\n${formatReviewRevision({ submissionId: core.getTask(t.key).submission!.id, headSha: null })}` });
     expect(core.getTask(t.key)).toMatchObject({ status: 'in_review', stage: 'description', aiReview: { verdict: 'disputed' } });
     expect(core.listTasks({ status: 'in_review' })[0]?.aiReview?.verdict).toBe('disputed');
-    expect(() => core.reviewApprove(t.key)).toThrow(/needs a reason/); // the dispute is an open decision
-    core.reviewApprove(t.key, null, 'The guard covers it.');
+    expect(() => core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)))).toThrow(/needs a reason/); // the dispute is an open decision
+    core.reviewApprove(t.key, null, 'The guard covers it.', expectedRevisionOf(core.getTask(t.key)));
     expect(core.getTask(t.key).activity.some(a => a.body === 'override: approved over 1 open decision\n\nReason: The guard covers it.')).toBe(true);
   });
 });

@@ -34,7 +34,7 @@ export function reserveRetry(db: DB, key: string, input: ReserveRetryInput, now:
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     const ts = now();
-    if (input.operation.startsWith('dispatcher:') && (row.status === 'done' || reconcileMergedDelivery(db, row, ts))) return null;
+    if (input.operation.startsWith('dispatcher:') && (row.status === 'done' || row.status === 'cancelled' || reconcileMergedDelivery(db, row, ts))) return null;
     return reserveRetryRow(db, row.id, key, input, ts);
   });
 }

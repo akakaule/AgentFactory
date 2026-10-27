@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCore, intakeRevision, InvalidTransitionError, type IntakeAssessmentV1 } from '../src/index.js';
+import { createCore, formatReviewRevision, intakeRevision, InvalidTransitionError, type IntakeAssessmentV1 } from '../src/index.js';
 import { intakeHeldTaskIds } from '../src/repo/tasks.js';
 import { claimNextTask } from '../src/ops/claimNextTask.js';
 import { makeTestDb } from './helpers.js';
@@ -39,8 +39,9 @@ function specWritten(core: ReturnType<typeof createCore>, title = 'Feature'): st
   const t = core.createTask({ title, spec: 'rough intent', stage: 'description' });
   core.updateStatus(t.key, 'queued', 'human');
   core.claimNextTask({ claimedBy: 'writer' });
-  core.submitResult(t.key, { summary: 'spec written', spec: 'the written spec', acceptanceCriteria: 'AC1; AC2' });
-  core.addComment(t.key, { actor: 'agent', body: CLEAN_REVIEW });
+  const sub = core.submitResult(t.key, { summary: 'spec written', spec: 'the written spec', acceptanceCriteria: 'AC1; AC2' }).submission!;
+  // the reviewer binds its verdict to the submission it read; only a bound clean review auto-advances
+  core.addComment(t.key, { actor: 'agent', body: `${CLEAN_REVIEW}\n${formatReviewRevision({ submissionId: sub.id })}` });
   return t.key;
 }
 
