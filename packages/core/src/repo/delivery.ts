@@ -1,6 +1,6 @@
 import type { DB } from '../db.js';
 import { deliveryExhaustionReported } from './retry.js';
-import type { DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, Status } from '../types.js';
+import type { DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, RevisionReadTicket, Status } from '../types.js';
 
 export interface DeliveryRow {
   task_id: number; provider: DeliveryProvider; branch: string;
@@ -10,8 +10,6 @@ export interface DeliveryRow {
   created_at: string; updated_at: string;
   // migration #30: the approved submission/head, and the PR head the provider last reported
   submission_id: number | null; approved_head_sha: string | null; head_sha: string | null;
-  // joined from the bound submission: its observation generation (null when unbound)
-  observation_generation: number | null;
 }
 
 /** What a watcher poll observed — the delta applied by updateDeliveryObservation. */
@@ -32,13 +30,12 @@ export interface DeliveryObservation {
   failing?: DeliveryFailingCheck[] | undefined;
   /** The PR's head commit as the provider reports it; undefined = not reported (keeps the stored one). */
   headSha?: string | null | undefined;
-  /** When the watcher started the provider request (before the remote call). The revision
-   *  observation is recorded as of that time and dropped when a newer one was already recorded. */
+  /** When the watcher started the provider request, on its own clock: display only ("as of"). */
   readStartedAt?: string | undefined;
-  /** The bound submission's observationGeneration the watcher read before its provider request:
-   *  when another observation was recorded since, the reported head is dropped (board-issued, so
-   *  immune to the watcher's clock). */
-  observationGeneration?: number | undefined;
+  /** The read ticket the watcher took from the board before its provider request: when a read that
+   *  started later was already recorded (or the ticket is for another submission), the reported
+   *  head is dropped and the rest of the answer kept. */
+  readTicket?: RevisionReadTicket | undefined;
 }
 
 export type DeliveryChecksTarget = 'head' | 'merge_commit';
@@ -64,7 +61,6 @@ export function toDeliverySummary(r: DeliveryRow): DeliverySummary {
     failing: parseFailing(r.detail),
     checkedAt: r.checked_at, stateChangedAt: r.state_changed_at,
     approvedHeadSha: r.approved_head_sha, headSha: r.head_sha, submissionId: r.submission_id,
-    observationGeneration: r.observation_generation,
   };
 }
 
@@ -85,7 +81,7 @@ export function upsertDelivery(db: DB, taskId: number, seed: { provider: Deliver
   ).run(taskId, seed.provider, seed.branch, seed.prUrl, episodeTs, episodeTs, episodeTs, seed.submissionId ?? null, seed.approvedHeadSha ?? null);
 }
 
-const DELIVERY_SELECT = 'SELECT d.*, s.observation_generation AS observation_generation FROM task_delivery d LEFT JOIN task_submission s ON s.id = d.submission_id';
+const DELIVERY_SELECT = 'SELECT d.* FROM task_delivery d';
 
 export function deliveryRowFor(db: DB, taskId: number): DeliveryRow | undefined {
   return db.prepare(`${DELIVERY_SELECT} WHERE d.task_id = ?`).get(taskId) as DeliveryRow | undefined;

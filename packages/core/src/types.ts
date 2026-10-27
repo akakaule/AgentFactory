@@ -134,6 +134,9 @@ export interface SubmissionRevisionInput { headSha: string; baseSha?: string | n
 /** `headSha` is the last head actually seen; source/observedAt/error describe the latest attempt,
  *  so a failed refresh (error set) keeps the previously known head. */
 export interface RevisionObservation { headSha: string | null; source: RevisionObservationSource; observedAt: string; error: string | null; }
+/** A board-issued read ticket: taken before reading a submission's branch head, passed back with
+ *  the answer. Tickets rise per submission; the answer of the reader that started last wins. */
+export interface RevisionReadTicket { submissionId: number; ticket: number; }
 /** One submit_result's handed-over revision (migration #30) — outlives the worktree and branch. */
 export interface SubmissionSummary {
   id: number;
@@ -326,7 +329,6 @@ export interface DeliverySummary {
   approvedHeadSha?: string | null;     // the submitted head the human approved (migration #30)
   headSha?: string | null;             // the PR head the provider last reported; differs ⇒ pushed after approval
   submissionId?: number | null;        // the approved submission this delivery episode is bound to (migration #30)
-  observationGeneration?: number | null; // that submission's observation generation: the watcher echoes it to fence a late provider answer
   repairExhausted?: boolean;           // derived on task reads: the repair budget is spent and its repair_exhausted note posted (until Restart task)
 }
 

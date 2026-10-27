@@ -96,38 +96,37 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'unknown', lastObservation: { source: 'provider', error: 'GitHub 503' } });
   });
 
-  it('carries the provider poll start over HTTP: a late check or failure cannot overwrite a newer git observation', async () => {
+  it('issues revision read tickets over HTTP: a late answer under an older ticket cannot overwrite a newer git observation', async () => {
     const A = 'a'.repeat(40), B = 'b'.repeat(40);
-    const task = core.createTask({ title: 'Late poll', spec: 's', acceptanceCriteria: 'a' });
+    const task = core.createTask({ title: 'Read tickets', spec: 's', acceptanceCriteria: 'a' });
     core.updateStatus(task.key, 'queued', 'human');
     const claim = core.claimNextTask({ claimedBy: 'worker' })!;
     const sub = core.submitResult(task.key, { summary: 'done', revision: { headSha: A, source: 'origin' } }).submission!;
     core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: sub.id });
     const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
     const episode = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
-    const pollStarted = new Date(Date.now() - 60_000).toISOString(); // the provider read began a minute ago ...
-    core.observeRevision(task.key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: new Date().toISOString() }); // ... a push was seen since
-    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: sub.id, readStartedAt: pollStarted })).toEqual({ recorded: false });
-    await http.recordDeliveryCheck(task.key, { expected: episode, prUrl: null, prId: null, prState: 'not_found', checksState: 'unknown', failing: [], headSha: A, readStartedAt: pollStarted });
+    const ticket = await http.issueRevisionReadTicket(task.key, sub.id); // taken before the provider request ...
+    expect(ticket).toEqual({ submissionId: sub.id, ticket: expect.any(Number) });
+    const git = core.issueRevisionReadTicket(task.key, sub.id)!; // ... a git read starts later and sees the push
+    core.observeRevision(task.key, { submissionId: sub.id, headSha: B, source: 'git', readTicket: git.ticket });
+    const aheadStart = new Date(Date.now() + 60_000).toISOString(); // the watcher's clock runs ahead: irrelevant
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: sub.id, readStartedAt: aheadStart, readTicket: ticket! })).toEqual({ recorded: false });
+    await http.recordDeliveryCheck(task.key, { expected: episode, prUrl: null, prId: null, prState: 'not_found', checksState: 'unknown', failing: [], headSha: A, readStartedAt: aheadStart, readTicket: ticket! });
     expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', error: null } });
+    // a fresh ticket records
+    const next = await http.issueRevisionReadTicket(task.key, sub.id);
+    const d = (await http.getTask(task.key)).delivery!;
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: { ...episode, stateChangedAt: d.stateChangedAt }, submissionId: sub.id, readTicket: next! })).toEqual({ recorded: true });
   });
 
-  it('carries the observation generation over HTTP: a late answer from a clock-ahead watcher cannot overwrite a newer git observation', async () => {
-    const A = 'a'.repeat(40), B = 'b'.repeat(40);
-    const task = core.createTask({ title: 'Clock ahead', spec: 's', acceptanceCriteria: 'a' });
-    core.updateStatus(task.key, 'queued', 'human');
-    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
-    const sub = core.submitResult(task.key, { summary: 'done', revision: { headSha: A, source: 'origin' } }).submission!;
-    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: sub.id });
-    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
-    expect(typeof seeded.observationGeneration).toBe('number');
-    const episode = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
-    const generation = seeded.observationGeneration!;
-    const aheadStart = new Date(Date.now() + 60_000).toISOString(); // the watcher's clock runs a minute ahead
-    core.observeRevision(task.key, { submissionId: sub.id, headSha: B, source: 'git', readStartedAt: new Date().toISOString() });
-    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: sub.id, readStartedAt: aheadStart, observationGeneration: generation })).toEqual({ recorded: false });
-    await http.recordDeliveryCheck(task.key, { expected: episode, prUrl: null, prId: null, prState: 'not_found', checksState: 'unknown', failing: [], headSha: A, readStartedAt: aheadStart, observationGeneration: generation });
-    expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', error: null } });
+  it('read tickets are supervisor-gated', async () => {
+    const task = core.createTask({ title: 'Gate', spec: 's', acceptanceCriteria: 'a' });
+    const plain = core.createApiToken({ label: 'plain', isService: true }).token;
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const res = await app.request(`http://board/api/agent/tasks/${task.key}/revision/read-ticket`, {
+      method: 'POST', headers: { authorization: `Bearer ${plain}`, 'content-type': 'application/json' }, body: '{}',
+    });
+    expect(res.status).toBe(403);
   });
 
   it('reads round-trip: listTasks filters, getTask, listWorkspaces', async () => {

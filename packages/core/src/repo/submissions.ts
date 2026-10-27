@@ -13,7 +13,8 @@ export interface SubmissionRow {
   revision_source: RevisionSource; observed_at: string; created_at: string;
   last_head_sha: string | null; last_observed_at: string | null;
   last_observation_source: RevisionObservationSource | null; last_observation_error: string | null;
-  observation_generation: number; // bumped by every recorded observation (the provider fence)
+  read_ticket_seq: number; // the last read ticket the board issued for this submission
+  last_recorded_ticket: number; // the ticket of the latest recorded observation
 }
 
 /** The task content a doc-stage submission's identity is computed from. */
@@ -49,20 +50,32 @@ export function submissionById(db: DB, id: number): SubmissionRow | undefined {
   return db.prepare('SELECT * FROM task_submission WHERE id = ?').get(id) as SubmissionRow | undefined;
 }
 
+/** Issue the next read ticket for a submission: a reader takes one before it reads the branch head. */
+export function issueReadTicket(db: DB, id: number): number {
+  db.prepare('UPDATE task_submission SET read_ticket_seq = read_ticket_seq + 1 WHERE id = ?').run(id);
+  return submissionById(db, id)!.read_ticket_seq;
+}
+
 /**
- * Record an observation of the branch head. `last_head_sha` is the last head actually SEEN: an
- * attempt that learned no head (a failed refresh, a provider check without one) records its
- * source/time/error but keeps the known head, so an outage can never erase a proven mismatch.
- * Returns whether anything changed.
+ * Record an observation of the branch head made under read ticket `ticket`. `last_head_sha` is the
+ * last head actually SEEN: an attempt that learned no head (a failed refresh, a provider check
+ * without one) records its source/time/error but keeps the known head, so an outage can never
+ * erase a proven mismatch. Returns whether anything changed.
  */
-export function recordObservation(db: DB, id: number, o: { headSha: string | null; source: RevisionObservationSource; error: string | null; ts: string }): boolean {
+export function recordObservation(db: DB, id: number, o: { headSha: string | null; source: RevisionObservationSource; error: string | null; ts: string; ticket: number }): boolean {
   const before = submissionById(db, id);
   if (!before) return false;
   const head = o.headSha ?? before.last_head_sha;
   const changed = before.last_head_sha !== head || before.last_observation_error !== o.error || before.last_observation_source !== o.source;
-  db.prepare('UPDATE task_submission SET last_head_sha = ?, last_observed_at = ?, last_observation_source = ?, last_observation_error = ?, observation_generation = observation_generation + 1 WHERE id = ?')
-    .run(head, o.ts, o.source, o.error, id);
+  db.prepare('UPDATE task_submission SET last_head_sha = ?, last_observed_at = ?, last_observation_source = ?, last_observation_error = ?, last_recorded_ticket = ? WHERE id = ?')
+    .run(head, o.ts, o.source, o.error, o.ticket, id);
   return changed;
+}
+
+/** Does a read under `ticket` still count? Only an issued ticket above the last recorded one: the
+ *  reader that started last wins, and nobody can fence the board with a ticket it never issued. */
+export function ticketIsCurrent(s: SubmissionRow, ticket: number): boolean {
+  return ticket > s.last_recorded_ticket && ticket <= s.read_ticket_seq;
 }
 
 /**

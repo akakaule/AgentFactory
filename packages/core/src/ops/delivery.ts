@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail, DeliverySummary, DeliveryProvider, Status } from '../types.js';
+import type { TaskDetail, DeliverySummary, DeliveryProvider, RevisionReadTicket, Status } from '../types.js';
 import { transaction } from '../transaction.js';
 import { assertTransition } from '../transitions.js';
 import { findRowByKey, toDetail, setStatus, touch, type TaskRow } from '../repo/tasks.js';
@@ -14,7 +14,7 @@ import { buildFailureComment } from '../failure.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../errors.js';
 import { nowIso } from '../time.js';
 import { observeRevisionInTx } from './observeRevision.js';
-import { latestSubmissionFor, submissionById } from '../repo/submissions.js';
+import { latestSubmissionFor, submissionById, ticketIsCurrent } from '../repo/submissions.js';
 import { reserveRetry as reserveRetryRow, settleRetry as settleRetryRow, advanceRetryBudget, budgetByTask, deliveryExhaustionReported } from '../repo/retry.js';
 
 const DEFAULT_DELIVERY_REPAIR_ATTEMPTS = 2;
@@ -101,20 +101,20 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
     const expected = obs.expected;
     if (expected && (expected.status !== row.status || expected.branch !== d.branch ||
         expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
-    // An answer whose read began before another observation was recorded reports an outdated head:
-    // keep the rest of it (PR/checks state) but not the head, here or on the submission below.
-    const lateHead = d.submission_id !== null && generationMoved(db, d.submission_id, obs.observationGeneration);
+    // An answer whose read ticket lost to a read that started later reports an outdated head: keep
+    // the rest of it (PR/checks state) but not the head, here or on the submission below.
+    const lateHead = d.submission_id !== null && !ticketCounts(db, d.submission_id, obs.readTicket);
     const { changed, accepted } = updateDeliveryObservation(db, d, lateHead ? { ...obs, headSha: undefined } : obs, ts);
     if (!accepted) return { changed: false, skipped: true, accepted: false, stateChangedAt: null };
     // The provider's PR head is a revision observation too: a head that is not the approved one
     // means the branch moved after approval, and the approved submission reads stale.
     // A check that learned no head still proves the provider is reachable again: it clears an
     // earlier provider failure (the known head is kept, so a proven mismatch stays stale).
-    // A poll that started before a newer observation (a git refresh seeing a push) is dropped, so a
-    // late answer can't restore an older head: by the board-issued generation the watcher captured
-    // before its request (clock-independent), else by observeRevision's readStartedAt ordering.
+    // Observations are ordered by the board-issued read ticket the watcher took before its request:
+    // a late answer can't restore an older head over a read that started after it.
     if (d.submission_id !== null && !lateHead && (obs.headSha || providerErrorPending(db, d.submission_id)))
-      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider', readStartedAt: providerReadStart(db, d.submission_id, obs.readStartedAt, obs.observationGeneration, ts) }, ts);
+      observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: obs.headSha ?? null, source: 'provider',
+        readTicket: obs.readTicket?.ticket, readStartedAt: obs.readStartedAt }, ts);
     const stateChangedAt = changed ? ts : d.state_changed_at;
     if (awaitingPostMerge) {
       const followUp = ensurePostMergeFollowUp(db, row, ts);
@@ -129,29 +129,12 @@ export function recordDeliveryCheck(db: DB, key: string, obs: DeliveryObservatio
   });
 }
 
-/** The watcher's read start on the board's clock: a remote watcher whose clock runs ahead must not
- *  record an observation in the future, which would fence out the next real one. */
-function boardClamped(readStartedAt: string | undefined, ts: string): string | undefined {
-  return readStartedAt === undefined || readStartedAt <= ts ? readStartedAt : ts;
-}
-
-/**
- * A provider poll's read start on the board's clock. With a current generation no observation was
- * recorded since the watcher read it, so the poll began no earlier than the latest recorded one:
- * the watcher's clock (which may run behind) is raised to that bound and never fences the answer out,
- * while a git read that began after it still records over the answer. Without a generation (an older
- * watcher) the watcher's read start is only clamped.
- */
-function providerReadStart(db: DB, submissionId: number, readStartedAt: string | undefined, generation: number | undefined, ts: string): string | undefined {
-  const clamped = boardClamped(readStartedAt, ts);
-  if (clamped === undefined || generation === undefined) return clamped;
-  const last = submissionById(db, submissionId)?.last_observed_at ?? null;
-  return last !== null && clamped < last ? last : clamped;
-}
-
-/** Another observation of the submission was recorded since the caller captured `generation`. */
-function generationMoved(db: DB, submissionId: number, generation: number | undefined): boolean {
-  return generation !== undefined && submissionById(db, submissionId)?.observation_generation !== generation;
+/** May an answer read under `ticket` still be recorded for the bound submission? A ticket for
+ *  another submission never counts; no ticket (an older watcher) counts and takes the next one. */
+function ticketCounts(db: DB, submissionId: number, ticket: RevisionReadTicket | undefined): boolean {
+  if (ticket === undefined) return true;
+  const s = submissionById(db, submissionId);
+  return ticket.submissionId === submissionId && s !== undefined && ticketIsCurrent(s, ticket.ticket);
 }
 
 function providerErrorPending(db: DB, submissionId: number): boolean {
@@ -165,10 +148,10 @@ export interface DeliveryCheckFailureInput {
   expected?: { status: Status; branch: string; prUrl: string | null; stateChangedAt: string } | undefined;
   /** The approved submission that episode was bound to. */
   submissionId?: number | null | undefined;
-  /** When the failed poll started; a newer observation recorded meanwhile wins. */
+  /** When the failed poll started, on the watcher's clock: display only. */
   readStartedAt?: string | undefined;
-  /** The submission's observation generation captured before the poll (see DeliveryObservation). */
-  observationGeneration?: number | undefined;
+  /** The read ticket taken before the poll (see DeliveryObservation): a read that started later wins. */
+  readTicket?: RevisionReadTicket | undefined;
 }
 
 /**
@@ -191,12 +174,9 @@ export function recordDeliveryCheckFailure(db: DB, key: string, input: DeliveryC
         expected.prUrl !== d.pr_url || expected.stateChangedAt !== d.state_changed_at)) return { recorded: false };
     if (input.submissionId !== undefined && input.submissionId !== d.submission_id) return { recorded: false };
     const error = input.error.trim().slice(0, 500) || 'provider check failed';
-    const ts = now();
-    if (generationMoved(db, d.submission_id, input.observationGeneration)) return { recorded: false };
-    const readStartedAt = providerReadStart(db, d.submission_id, input.readStartedAt, input.observationGeneration, ts);
-    const before = submissionById(db, d.submission_id);
-    if (readStartedAt !== undefined && before?.last_observed_at != null && readStartedAt < before.last_observed_at) return { recorded: false };
-    return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error, readStartedAt }, ts) !== null };
+    if (!ticketCounts(db, d.submission_id, input.readTicket)) return { recorded: false };
+    return { recorded: observeRevisionInTx(db, row.id, { submissionId: d.submission_id, headSha: null, source: 'provider', error,
+      readTicket: input.readTicket?.ticket, readStartedAt: input.readStartedAt }, now()) !== null };
   });
 }
 

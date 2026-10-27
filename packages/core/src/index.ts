@@ -19,7 +19,7 @@ export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimN
 export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution, EXECUTION_LEASE_MS, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
 export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, remoteBranchHead, revisionDiff, GitError, type BranchDiff, type RemoteHead } from './git.js';
-export { observeRevision, type RevisionObservationInput } from './ops/observeRevision.js';
+export { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
 export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, formatReviewRevision, parseReviewRevision, type ParsedAiReview } from './aiReview.js';
 export { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
 export { buildReviewBrief } from './reviewBrief.js';
@@ -109,7 +109,7 @@ import { reviewApprove } from './ops/reviewApprove.js';
 import { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
-import { observeRevision, type RevisionObservationInput } from './ops/observeRevision.js';
+import { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
 import { remoteBranchHead, type RemoteHead } from './git.js';
 import { resolveGitAuth } from './gitAuth.js';
 import { getWorkspacePat } from './repo/workspaces.js';
@@ -165,9 +165,6 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
   // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
   const autoFence = opts.autoFence ?? true;
   const executionIds = new Map<string, string>();
-  // refreshRevision generations per submission: started vs last persisted (see refreshRevision).
-  const refreshStarted = new Map<number, number>();
-  const refreshApplied = new Map<number, number>();
   const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
     if (!autoFence || input.executionId !== undefined) return input;
     const executionId = executionIds.get(key);
@@ -268,20 +265,19 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     /** The git adapter's approve-time refresh: observe the current implementation submission's
      *  branch head on origin (outside any transaction) and record it — a later push then reads
      *  stale, an unreachable origin reads unknown. No-op for doc stages / unresolved revisions.
-     *  Overlapping refreshes persist in the order they STARTED: one that returns after a later-started
-     *  refresh was recorded is dropped (an in-process generation; readStartedAt fences other writers). */
+     *  It takes a read ticket before reading, like every reader: the one that started last wins. */
     refreshRevision: async (key: string): Promise<SubmissionSummary | null> => {
       const task = getTask(db, key);
       const sub = task.submission ?? null;
       if (!sub || sub.stage !== 'implementation' || sub.headSha === null || task.branch === null) return sub;
+      const ticket = issueRevisionReadTicket(db, key, sub.id);
+      if (!ticket) return getTask(db, key).submission ?? null;
       const readStartedAt = nowIso();
-      const generation = (refreshStarted.get(sub.id) ?? 0) + 1;
-      refreshStarted.set(sub.id, generation);
       const head = await resolveRemoteHead(task.repoPath, task.branch, resolveGitAuth(db, task.workspace, { env: process.env, resolveOrigin }));
-      if (generation < (refreshApplied.get(sub.id) ?? 0)) return getTask(db, key).submission ?? null;
-      refreshApplied.set(sub.id, generation);
-      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error, readStartedAt });
+      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error, readTicket: ticket.ticket, readStartedAt });
     },
+    /** A read ticket for the task's current submission: the watcher takes one before each provider poll. */
+    issueRevisionReadTicket: (key: string, submissionId?: number) => issueRevisionReadTicket(db, key, submissionId),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
     recordDeliveryCheckFailure: (key: string, input: DeliveryCheckFailureInput) => recordDeliveryCheckFailure(db, key, input),

@@ -1,4 +1,4 @@
-import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type Status, type Workspace } from '@agentfactory/core';
+import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type RevisionReadTicket, type Status, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -223,12 +223,12 @@ export class Watcher {
     );
     const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;
-    // when this poll's provider read began, and the bound submission's board-issued observation
-    // generation as read before it: core drops the head it reports if a newer observation (a git
-    // refresh that saw a push) was recorded meanwhile — by generation regardless of this machine's
-    // clock — so a slow answer can't restore a stale review
-    const readStartedAt = new Date(this.deps.now()).toISOString();
-    const fence = { readStartedAt, ...(typeof delivery.observationGeneration === 'number' ? { observationGeneration: delivery.observationGeneration } : {}) };
+    // a board-issued read ticket taken before the provider request: core records what this poll saw
+    // only if no read that started later (a git refresh that saw a push) was recorded meanwhile —
+    // whatever this machine's clock says — so a slow answer can't restore a stale review. The read
+    // start is only the observation's display time.
+    const ticket = typeof delivery.submissionId === 'number' ? await core.issueRevisionReadTicket(key, delivery.submissionId) : null;
+    const fence = { readStartedAt: new Date(this.deps.now()).toISOString(), ...(ticket ? { readTicket: ticket } : {}) };
     try {
       result = await provider.check(remote, delivery.branch, prUrl, {
         postMergeChecks: this.config.postMergeChecks,
@@ -394,7 +394,7 @@ export class Watcher {
    *  freshness during the outage (core keeps the known head: a proven mismatch stays stale), unless
    *  the delivery episode the poll started for has since changed.
    *  Best-effort — the backoff above already handles the retry. */
-  private async recordCheckFailure(key: string, err: unknown, status: Status, delivery: DeliverySummary, fence: { readStartedAt: string; observationGeneration?: number }): Promise<void> {
+  private async recordCheckFailure(key: string, err: unknown, status: Status, delivery: DeliverySummary, fence: { readStartedAt: string; readTicket?: RevisionReadTicket }): Promise<void> {
     try {
       await this.deps.core.recordDeliveryCheckFailure(key, {
         error: `provider check failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500),

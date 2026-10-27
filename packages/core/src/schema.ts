@@ -426,8 +426,10 @@ CREATE INDEX IF NOT EXISTS idx_task_execution_reserved ON task_execution(state, 
 // stage's content hash. Reviews/visualizations/approvals then name the submission they concern;
 // last_* hold the latest observation of the branch head (git at approve time, the provider's PR
 // head while delivering) so a later push reads as stale instead of inheriting a green review.
-// observation_generation counts recorded observations: a remote reader captures it before its
-// request and core drops the answer if another observation was recorded meanwhile.
+// Observations are ordered by board-issued read tickets: every reader (the board's git refresh,
+// the watcher's provider poll) takes the next read_ticket_seq before it reads, and an answer is
+// recorded only when its ticket is above last_recorded_ticket, so the reader that started last
+// wins whatever the readers' clocks say.
 // The rows outlive the worktree and the branch, so the reviewed snapshot stays reproducible.
 // (ALTERs for task_visualization/task_delivery run guarded in migrate.ts.)
 export const MIGRATION_30_SQL = `
@@ -447,7 +449,8 @@ CREATE TABLE IF NOT EXISTS task_submission (
   last_observed_at        TEXT,
   last_observation_source TEXT CHECK (last_observation_source IS NULL OR last_observation_source IN ('submit','git','provider')),
   last_observation_error  TEXT,
-  observation_generation  INTEGER NOT NULL DEFAULT 0
+  read_ticket_seq         INTEGER NOT NULL DEFAULT 0,
+  last_recorded_ticket    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_task_submission_task ON task_submission(task_id, id);
 `;
