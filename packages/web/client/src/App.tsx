@@ -114,6 +114,8 @@ export function App() {
   const closeTask = () => { setSelectedKey(null); writeTaskHash(null); };
 
   // `#task=KEY` opens that task's drawer on load and on hashchange; an unknown key opens nothing.
+  // Only a confirmed 404 drops the hash: a 401 keeps it so the sign-in reload retries the link,
+  // and a transient failure keeps it so a reload can.
   useEffect(() => {
     let generation = 0;
     const follow = () => {
@@ -122,7 +124,11 @@ export function App() {
       if (!key) return;
       api.getTask(key)
         .then(() => { if (mine === generation) setSelectedKey(key); })
-        .catch(() => { if (mine === generation) writeTaskHash(null); });
+        .catch((e: unknown) => {
+          if (mine !== generation) return;
+          setSelectedKey(null); // the hash no longer names the open drawer
+          if ((e as { status?: unknown }).status === 404) writeTaskHash(null);
+        });
     };
     follow();
     window.addEventListener('hashchange', follow);

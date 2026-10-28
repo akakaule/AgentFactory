@@ -269,7 +269,7 @@ describe('App', () => {
 
     beforeEach(() => {
       vi.mocked(api.getTask).mockImplementation(async (key: string) => {
-        if (key === 'AF-999') throw new Error('task AF-999 not found');
+        if (key === 'AF-999') throw Object.assign(new Error('task AF-999 not found'), { status: 404 });
         return detail(key) as Awaited<ReturnType<typeof api.getTask>>;
       });
     });
@@ -301,6 +301,38 @@ describe('App', () => {
       await new Promise((r) => setTimeout(r, 20));
       expect(drawerKey()).toBeNull();
       expect(screen.queryByText(/not found/)).toBeNull();
+    });
+
+    it('closes an open drawer when the hash changes to an unknown key', async () => {
+      window.history.replaceState(null, '', '/#task=AF-12');
+      render(<App />);
+      await screen.findByText('Task AF-12');
+      act(() => {
+        window.history.replaceState(null, '', '/#task=AF-999');
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+      await waitFor(() => expect(drawerKey()).toBeNull());
+      expect(window.location.hash).toBe('');
+      expect(screen.queryByText(/not found/)).toBeNull();
+    });
+
+    it('keeps the hash when the lookup needs sign-in, so the post-sign-in reload opens the task', async () => {
+      vi.mocked(api.getTask).mockRejectedValue(Object.assign(new Error('401'), { status: 401 }));
+      window.history.replaceState(null, '', '/#task=AF-12');
+      render(<App />);
+      await waitFor(() => expect(api.getTask).toHaveBeenCalledWith('AF-12'));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(window.location.hash).toBe('#task=AF-12');
+      expect(drawerKey()).toBeNull();
+    });
+
+    it('keeps the hash on a transient failure', async () => {
+      vi.mocked(api.getTask).mockRejectedValue(new Error('Request timed out'));
+      window.history.replaceState(null, '', '/#task=AF-12');
+      render(<App />);
+      await waitFor(() => expect(api.getTask).toHaveBeenCalledWith('AF-12'));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(window.location.hash).toBe('#task=AF-12');
     });
 
     it('writes the hash when a task is opened from the board and clears it on close', async () => {
