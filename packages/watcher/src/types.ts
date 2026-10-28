@@ -23,11 +23,12 @@ export interface FetchResponse {
   headers: Record<string, string>;
   body: unknown;
 }
-/** GET by default. Writes: POST (open a PR; WIQL/batch reads) and PATCH (a JSON-patch work-item
- *  update). A `body` is JSON unless the caller sets its own content-type header. */
+/** GET by default. Writes: POST (open a PR; WIQL/batch reads), PATCH (a PR body, a JSON-patch
+ *  work-item update) and PUT (merge a PR). A `body` is JSON unless the caller sets its own
+ *  content-type header. */
 export type FetchJson = (
   url: string,
-  init: { headers: Record<string, string>; method?: 'GET' | 'POST' | 'PATCH'; body?: string },
+  init: { headers: Record<string, string>; method?: 'GET' | 'POST' | 'PATCH' | 'PUT'; body?: string },
 ) => Promise<FetchResponse>;
 
 /**

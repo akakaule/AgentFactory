@@ -50,9 +50,19 @@ export interface DeliveryProviderApi {
    * characters. Throws ProviderHttpError on HTTP failure.
    */
   updatePullRequestBody(remote: RemoteRef, prId: string, body: string): Promise<void>;
+  /**
+   * Merge the open PR `prId`, but only while its head is still `headSha` (the approved commit).
+   * Resolves `{ merged: false, reason }` when the host refuses the merge (branch protection, not
+   * mergeable, head moved) — the watcher keeps waiting. Throws ProviderHttpError for auth, rate
+   * limits and anything else. Optional: only GitHub merges; Azure DevOps leaves it to a human.
+   */
+  mergePullRequest?(remote: RemoteRef, prId: string, req: { headSha: string; method: MergeMethod }): Promise<MergeOutcome>;
   /** The longest PR description the host accepts. */
   readonly maxBodyLength: number;
 }
+
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+export type MergeOutcome = { merged: true } | { merged: false; reason: string };
 
 export interface OpenPullRequest {
   branch: string;

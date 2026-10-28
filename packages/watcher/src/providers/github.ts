@@ -1,6 +1,6 @@
 import type { RemoteRef, DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
-import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
+import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type MergeOutcome, type PrObservation } from './types.js';
 
 /**
  * GitHub via REST with a token — deliberately not the `gh` CLI: a long-lived poller wants the
@@ -83,8 +83,9 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const guard = (res: FetchResponse, url: string, write = false): FetchResponse => {
-    if (res.status === 200 || (write && res.status === 201)) return res;
+  /** `writeScope` names the permission a write needs, for the auth-failure message. */
+  const guard = (res: FetchResponse, url: string, writeScope?: string): FetchResponse => {
+    if (res.status === 200 || (writeScope && res.status === 201)) return res;
     // Primary rate limit: remaining 0 + a reset epoch. Secondary/abuse: 429 or retry-after.
     const remaining = Number(res.headers['x-ratelimit-remaining'] ?? NaN);
     const reset = Number(res.headers['x-ratelimit-reset'] ?? NaN);
@@ -96,7 +97,7 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
     // Auth (not rate limit): a bad/missing token is 401; a token without repo read scope is 403
     // with rate-limit budget remaining. Both mean "fix the token", not "back off and retry".
     if (res.status === 401 || res.status === 403) {
-      const scope = write ? 'Pull requests: write (needed to open the PR)' : 'repo read scope';
+      const scope = writeScope ?? 'repo read scope';
       throw new ProviderHttpError(
         `github auth failed (${res.status}) — the token is missing, invalid, or lacks ${scope}: ${url}`,
         res.status,
@@ -196,7 +197,7 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
         if (messages.some((m) => /already exists/i.test(m))) return null;
         throw new ProviderHttpError(`github 422 opening a PR for ${branch}: ${messages.filter(Boolean).join('; ') || 'validation failed'}`, 422);
       }
-      return toPr(guard(res, url, true).body as GitHubPr);
+      return toPr(guard(res, url, 'Pull requests: write (needed to open the PR)').body as GitHubPr);
     },
 
     async updatePullRequestBody(remote, prId, body): Promise<void> {
@@ -204,7 +205,23 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       const num = /^#(\d+)$/.exec(prId)?.[1];
       if (!num) throw new Error(`not a GitHub PR id: ${prId}`);
       const url = `${repoUrl(remote)}/pulls/${num}`;
-      guard(await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ body }) }), url, true);
+      guard(await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ body }) }), url, 'Pull requests: write (needed to update the PR)');
+    },
+
+    async mergePullRequest(remote, prId, { headSha, method }): Promise<MergeOutcome> {
+      if (remote.provider !== 'github') throw new Error('github provider got a non-github remote');
+      const num = /^#(\d+)$/.exec(prId)?.[1];
+      if (!num) throw new Error(`not a GitHub PR id: ${prId}`);
+      const url = `${repoUrl(remote)}/pulls/${num}/merge`;
+      // `sha` makes GitHub refuse (409) when the head moved past the approved commit
+      const res = await fetchJson(url, { headers, method: 'PUT', body: JSON.stringify({ sha: headSha, merge_method: method }) });
+      // 405 not mergeable (branch protection, required reviews, draft), 409 head moved, 422 invalid
+      if (res.status === 405 || res.status === 409 || res.status === 422) {
+        const message = (res.body as { message?: string } | null)?.message;
+        return { merged: false, reason: `github ${res.status}: ${message || 'merge refused'}` };
+      }
+      guard(res, url, 'Contents: write (needed to merge the PR)');
+      return { merged: true };
     },
 
     maxBodyLength: MAX_BODY,

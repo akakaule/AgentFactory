@@ -51,6 +51,15 @@ export const baseConfigSchema = z.object({
    */
   createPullRequests: z.boolean().default(true),
   /**
+   * Merge a delivering task's GitHub PR once its checks pass on exactly the head the human approved
+   * on the board — the review already happened there. The merge names that head, so GitHub refuses
+   * it if the branch moved. A refusal (branch protection, required reviews) is logged once and the
+   * PR is left for a human. Needs Contents: Read and write. Azure DevOps PRs are never merged.
+   */
+  mergePullRequests: z.boolean().default(true),
+  /** How the watcher merges (GitHub's merge_method); the repository must allow it. */
+  mergeMethod: z.enum(['merge', 'squash', 'rebase']).default('merge'),
+  /**
    * Run each workspace's Azure DevOps work-item import (the workspace `adoSync` settings, edited on
    * the board): claim matching items, import them as `AB#<id>:` tasks, write the board state back.
    * Only workspaces with the import enabled and an Azure DevOps origin are touched; the PAT needs
@@ -59,7 +68,8 @@ export const baseConfigSchema = z.object({
   syncWorkItems: z.boolean().default(true),
   /**
    * GitHub REST access. `tokenEnv` names the SHARED token env var (needs Pull requests: Read and
-   * write, to open the PR, plus Checks/Commit statuses read; read-only when createPullRequests is off). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
+   * write, to open the PR, Contents: Read and write to merge it, plus Checks/Commit statuses read;
+   * read-only when createPullRequests and mergePullRequests are off). Per-workspace override: set `<tokenEnv>_<WORKSPACE>` (uppercased, non-alphanumerics →
    * `_`) to give one workspace its own token — e.g. `GITHUB_TOKEN_ACME`. Falls back to the shared var.
    */
   github: z

@@ -282,6 +282,10 @@ export class Watcher {
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);
 
     if (pr?.state === 'open') await this.syncPrBody(key, detail, provider, remote, pr);
+    // Approved on the board and green on the approved head: merge it; the next poll sees the merge.
+    if (pr?.state === 'open' && !pr.mergeConflict && checks.state === 'passing' && detail.status === 'delivering') {
+      await this.mergePr(key, provider, remote, pr, delivery.approvedHeadSha ?? null, cred);
+    }
 
     // Recording a merge already reconciles completion atomically in core. Never bounce a merged
     // PR for historical failed checks or ask a worker to implement the same delivery again.
@@ -411,6 +415,38 @@ export class Watcher {
       this.deps.console.log(`[watcher] ${key}: updated the AgentFactory section of PR ${pr.id}`);
     } catch (err) {
       this.deps.console.warn(`[watcher] ${key}: could not update the PR body of ${pr.id} (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
+  /**
+   * Merge the PR at the approved head (config.mergePullRequests, providers that can). Only the
+   * exact commit the human approved is merged: an unknown approved head (an approval from before
+   * revisions were recorded) or a PR head that moved past it is left for a human. A refusal is
+   * warned once per reason and retried next poll; an HTTP failure backs the task off.
+   */
+  private async mergePr(
+    key: string,
+    provider: DeliveryProviderApi,
+    remote: RemoteRef,
+    pr: PrObservation,
+    approvedHeadSha: string | null,
+    cred: { envVar: string; base: string },
+  ): Promise<void> {
+    if (!this.config.mergePullRequests || !provider.mergePullRequest) return;
+    if (!approvedHeadSha) {
+      this.warnOnce(`merge:${key}:unknown`, `[watcher] ${key}: checks passed on PR ${pr.id}, but the approved head is unknown — not merging it; merge it on the host`);
+      return;
+    }
+    if (!pr.headSha || pr.headSha.toLowerCase() !== approvedHeadSha.toLowerCase()) {
+      this.warnOnce(`merge:${key}:${pr.headSha}`, `[watcher] ${key}: PR ${pr.id} head ${pr.headSha?.slice(0, 7) ?? 'unknown'} is not the approved head ${approvedHeadSha.slice(0, 7)} — not merging it`);
+      return;
+    }
+    try {
+      const outcome = await provider.mergePullRequest(remote, pr.id, { headSha: approvedHeadSha, method: this.config.mergeMethod });
+      if (outcome.merged) this.deps.console.log(`[watcher] ${key}: merged PR ${pr.id} at the approved head ${approvedHeadSha.slice(0, 7)}`);
+      else this.warnOnce(`merge:${key}:${outcome.reason}`, `[watcher] ${key}: could not merge PR ${pr.id} (${outcome.reason}) — left for a human`);
+    } catch (err) {
+      this.noteFailure(key, err, cred, 'merging the PR');
     }
   }
 
