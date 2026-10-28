@@ -12,23 +12,59 @@ export const SECTION_END = '<!-- agentfactory:end -->';
 const MAX_SECTION = 3000;
 const MAX_CLAIM = 600;
 
-/** The section content for a task: key and title, the summary's first paragraph, the AC claims. */
-export function renderSection(task: {
+interface SectionTask {
   key: string;
   title: string;
   resultSummary: string | null;
   criteriaClaims?: CriterionClaim[] | null;
-}): string {
-  const lines = [`### ${task.key}: ${oneLine(task.title)}`];
-  const summary = firstParagraph(task.resultSummary);
-  if (summary) lines.push('', summary);
-  const claims = task.criteriaClaims ?? [];
-  if (claims.length > 0) {
-    lines.push('', '**Acceptance criteria**', '');
-    for (const c of claims) lines.push(`- **${c.id}** — ${oneLine(c.claim).slice(0, MAX_CLAIM)}`);
+}
+
+/**
+ * The section content for a task: key and title, the summary's first paragraph, the AC claims —
+ * at most `max` characters. The key, title and every claim entry are kept; summary prose is
+ * shortened first, then claim text (evenly), then claims fall back to their ids. Null when not
+ * even the key, title and claim ids fit.
+ */
+export function renderSection(task: SectionTask, max = MAX_SECTION): string | null {
+  const header = `### ${task.key}: ${oneLine(task.title)}`;
+  const claims = (task.criteriaClaims ?? []).map((c) => ({ id: c.id, text: clip(oneLine(c.claim), MAX_CLAIM) }));
+  const build = (summary: string, claimText: (text: string) => string): string => {
+    const lines = [header];
+    if (summary) lines.push('', summary);
+    if (claims.length > 0) {
+      lines.push('', '**Acceptance criteria**', '');
+      for (const c of claims) {
+        const text = claimText(c.text);
+        lines.push(text ? `- **${c.id}** — ${text}` : `- **${c.id}**`);
+      }
+    }
+    return `\n${lines.join('\n')}\n`;
+  };
+
+  const withoutSummary = build('', (t) => t);
+  if (withoutSummary.length <= max) {
+    const summary = firstParagraph(task.resultSummary);
+    const room = max - withoutSummary.length - 2; // the blank line before the summary
+    return room >= 2 && summary ? build(clip(summary, room), (t) => t) : withoutSummary;
   }
-  const text = lines.join('\n');
-  return `\n${text.length > MAX_SECTION ? `${text.slice(0, MAX_SECTION - 1)}…` : text}\n`;
+  const idsOnly = build('', () => '');
+  if (idsOnly.length > max) return null;
+  // Each claim with text costs " — " (3) more than its id-only entry.
+  const perClaim = Math.floor((max - idsOnly.length) / claims.length) - 3;
+  return perClaim >= 2 ? build('', (t) => clip(t, perClaim)) : idsOnly;
+}
+
+/**
+ * The body to send so `body`'s section is current for `task`, keeping every character outside the
+ * markers: 'current' when nothing changed, 'no-room' when the section cannot fit into `maxBody`
+ * without cutting human text.
+ */
+export function syncedBody(body: string, task: SectionTask, maxBody = Infinity): string | 'current' | 'no-room' {
+  const outside = withSection(body, '').length;
+  const content = renderSection(task, Math.min(MAX_SECTION, maxBody - outside));
+  if (content === null) return 'no-room';
+  if (sectionIsCurrent(body, content)) return 'current';
+  return withSection(body, content);
 }
 
 /** The text between the markers, or null when the body has no complete section. */
@@ -67,6 +103,10 @@ export function fitBody(body: string, max: number): string {
     if (excess < begin) return `${body.slice(0, begin - excess)}…${body.slice(begin)}`;
   }
   return `${body.slice(0, max - 1)}…`;
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
 }
 
 function firstParagraph(text: string | null): string {

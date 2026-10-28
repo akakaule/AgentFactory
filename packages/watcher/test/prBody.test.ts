@@ -67,6 +67,30 @@ describe('withSection', () => {
   });
 });
 
+describe('renderSection within a length budget', () => {
+  const task = (summary: string, claims: Array<{ id: string; claim: string }>) =>
+    ({ key: 'AF-1', title: 'Ship the widget', resultSummary: summary, criteriaClaims: claims });
+
+  it('a long summary is shortened before any acceptance claim is dropped', () => {
+    const content = renderSection(task('s'.repeat(3100), [{ id: 'AC1', claim: 'widget.test.ts proves it' }]))!;
+    expect(content.length).toBeLessThanOrEqual(3000);
+    expect(content).toContain('AF-1');
+    expect(content).toContain('Ship the widget');
+    expect(content).toContain('**AC1** — widget.test.ts proves it');
+  });
+
+  it('long claims are shortened, but every claim entry stays', () => {
+    const claims = Array.from({ length: 8 }, (_, i) => ({ id: `AC${i + 1}`, claim: 'c'.repeat(600) }));
+    const content = renderSection(task('summary', claims), 1200)!;
+    expect(content.length).toBeLessThanOrEqual(1200);
+    for (const c of claims) expect(content).toContain(`**${c.id}**`);
+  });
+
+  it('returns null when not even the key, title and claim ids fit', () => {
+    expect(renderSection(task('summary', [{ id: 'AC1', claim: 'x' }]), 20)).toBeNull();
+  });
+});
+
 describe('watcher-created PR body', () => {
   it('carries the section once, with the key, title and AC claims', async () => {
     const core = makeCore();
@@ -145,7 +169,7 @@ describe.each([github, azdo])('$name: keeping the section current', (host) => {
   const setup = (body: (content: string) => string) => {
     const core = makeCore(host.origin);
     const key = deliverWithClaims(core);
-    const content = renderSection(core.getTask(key));
+    const content = renderSection(core.getTask(key))!;
     const { fetchJson, deps } = host.make(core, body(content));
     return { core, key, content, fetchJson, watcher: new Watcher(makeConfig(), deps) };
   };
@@ -197,3 +221,47 @@ describe.each([github, azdo])('$name: keeping the section current', (host) => {
   });
 });
 
+describe('Azure DevOps 4000-character description limit', () => {
+  const setup = (initialBody: string) => {
+    const core = makeCore(ADO_ORIGIN);
+    const key = deliverWithClaims(core);
+    const { fetchJson } = azdo.make(core, initialBody);
+    const warns: string[] = [];
+    const deps = makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN, console: { log: () => {}, warn: (m: string) => warns.push(m), error: () => {} } });
+    return { key, fetchJson, warns, watcher: new Watcher(makeConfig(), deps) };
+  };
+
+  it('fits the section into the room left, keeping the human intro and outro exactly', async () => {
+    const intro = `${'i'.repeat(3650)}\n`;
+    const outro = `\n${'o'.repeat(200)}`;
+    const { fetchJson, watcher } = setup(`${intro}${SECTION_BEGIN}old${SECTION_END}${outro}`);
+    await watcher.tick();
+    const sent = patches(fetchJson);
+    expect(sent).toHaveLength(1);
+    const body = azdo.patchedBody(sent[0]!.body);
+    expect(body.length).toBeLessThanOrEqual(4000);
+    expect(body.startsWith(`${intro}${SECTION_BEGIN}`)).toBe(true);
+    expect(body.endsWith(`${SECTION_END}${outro}`)).toBe(true);
+    expect(body).toContain('**AC1**');
+    await watcher.tick();
+    expect(patches(fetchJson)).toHaveLength(1); // the fitted section is current on the next poll
+  });
+
+  it('leaves a near-limit human description unchanged and logs it', async () => {
+    const human = 'h'.repeat(3980);
+    const { fetchJson, warns, watcher } = setup(human);
+    await watcher.tick();
+    expect(patches(fetchJson)).toHaveLength(0);
+    expect(warns.some((w) => w.includes('PR body'))).toBe(true);
+  });
+
+  it('GitHub has room for the same near-limit description and appends without cutting it', async () => {
+    const core = makeCore(github.origin);
+    deliverWithClaims(core);
+    const human = 'h'.repeat(3980);
+    const { fetchJson, deps } = github.make(core, human);
+    await new Watcher(makeConfig(), deps).tick();
+    const body = github.patchedBody(patches(fetchJson)[0]!.body);
+    expect(body.startsWith(`${human}\n\n${SECTION_BEGIN}`)).toBe(true);
+  });
+});

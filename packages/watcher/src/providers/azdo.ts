@@ -230,9 +230,13 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       const num = /^!(\d+)$/.exec(prId)?.[1];
       if (!num) throw new Error(`not an Azure DevOps PR id: ${prId}`);
       const url = `${repoBase(remote)}/pullrequests/${num}?api-version=${apiVersion}`;
-      const res = await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ description: fitBody(body, MAX_DESCRIPTION) }) });
+      // Never truncate here: the text outside the markers belongs to humans.
+      if (body.length > MAX_DESCRIPTION) throw new Error(`PR description of ${body.length} characters exceeds Azure DevOps' ${MAX_DESCRIPTION}`);
+      const res = await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ description: body }) });
       guard(res, url, true);
     },
+
+    maxBodyLength: MAX_DESCRIPTION,
   };
 }
 

@@ -194,5 +194,10 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       const url = `${repoUrl(remote)}/pulls/${num}`;
       guard(await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ body }) }), url, true);
     },
+
+    maxBodyLength: MAX_BODY,
   };
 }
+
+/** GitHub rejects a PR body longer than this. */
+const MAX_BODY = 65536;

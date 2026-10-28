@@ -7,7 +7,7 @@ import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, 
 import { resolveCredential } from './credentials.js';
 import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
 import { syncInbound, syncOutbound } from './adoSync.js';
-import { renderSection, sectionIsCurrent, withSection } from './prBody.js';
+import { renderSection, syncedBody, withSection } from './prBody.js';
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
@@ -367,7 +367,7 @@ export class Watcher {
       const opened = await provider.openPullRequest(remote, {
         branch,
         title: `${key}: ${detail.title}`,
-        body: withSection(`${summary}\n\n---\nOpened by AgentFactory for ${key} after its implementation review was approved.`, renderSection(detail)),
+        body: withSection(`${summary}\n\n---\nOpened by AgentFactory for ${key} after its implementation review was approved.`, renderSection(detail) ?? ''),
       });
       this.deps.console.log(opened
         ? `[watcher] ${key}: opened PR ${opened.id} (${opened.url})`
@@ -392,10 +392,14 @@ export class Watcher {
     pr: PrObservation,
   ): Promise<void> {
     if (pr.body === undefined) return; // the host did not report a body: nothing safe to rewrite
-    const content = renderSection(detail);
-    if (sectionIsCurrent(pr.body, content)) return;
+    const next = syncedBody(pr.body, detail, provider.maxBodyLength);
+    if (next === 'current') return;
+    if (next === 'no-room') {
+      this.deps.console.warn(`[watcher] ${key}: the PR body of ${pr.id} has no room for the AgentFactory section within ${provider.maxBodyLength} characters — left unchanged`);
+      return;
+    }
     try {
-      await provider.updatePullRequestBody(remote, pr.id, withSection(pr.body, content));
+      await provider.updatePullRequestBody(remote, pr.id, next);
       this.deps.console.log(`[watcher] ${key}: updated the AgentFactory section of PR ${pr.id}`);
     } catch (err) {
       this.deps.console.warn(`[watcher] ${key}: could not update the PR body of ${pr.id} (${err instanceof Error ? err.message : String(err)})`);
