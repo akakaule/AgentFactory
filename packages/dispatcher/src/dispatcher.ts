@@ -41,6 +41,8 @@ interface Session {
   claimedKey: string | null;
   /** Set when a completed merged delivery cancels this worker before it can publish. */
   cancelled: boolean;
+  /** Set when a human cancels this worker's task: core already settled the attempt and the fence. */
+  humanCancelled: boolean;
 }
 
 const LOG_TAIL_CHARS = 4000;
@@ -298,7 +300,7 @@ export class Dispatcher {
     const capMs = this.config.maxSessionMinutes * 60_000;
     const idleMs = this.config.sessionIdleMinutes * 60_000;
     const now = this.deps.now();
-    const overdue = [...this.running.values()].filter((s) => !s.timedOut && !s.settled && !s.cancelled && now - s.startedAtMs > capMs);
+    const overdue = [...this.running.values()].filter((s) => !s.timedOut && !s.settled && !s.cancelled && !s.humanCancelled && now - s.startedAtMs > capMs);
     if (overdue.length === 0) return;
     const progressAt = idleMs > 0 ? await this.workerProgress() : new Map<string, string>();
     for (const session of overdue) {
@@ -436,13 +438,27 @@ export class Dispatcher {
     }
   }
 
-  /** Stop a worker whose approved delivery was completed by another supervisor while it ran. */
+  /** Stop a worker whose approved delivery was completed by another supervisor while it ran, or
+   *  whose task a human cancelled. */
   private async cancelCompletedSessions(): Promise<void> {
     for (const session of this.running.values()) {
-      if (session.settled || session.cancelled) continue;
+      if (session.settled || session.cancelled || session.humanCancelled) continue;
       const claimed = await this.findClaimed(session);
       const key = claimed?.key ?? session.claimedKey ?? session.predictedKey;
       const task = await this.tryGetTask(key);
+      if (task?.status === 'cancelled' || claimed?.cancelled) {
+        session.humanCancelled = true;
+        this.appendLog(session, `
+[dispatcher] ${key} was cancelled by a human; terminating worker
+`);
+        try {
+          this.deps.terminateProcessTree(session.child, 'SIGKILL');
+        } catch (err) {
+          session.humanCancelled = false;
+          this.console.warn(`[dispatcher] could not stop cancelled ${key}: ${(err as Error).message}`);
+        }
+        continue;
+      }
       const merged = task?.status === 'done' && task.delivery?.prState === 'merged';
       if (!merged && !claimed?.mergedCompletion) continue;
 
@@ -779,6 +795,7 @@ export class Dispatcher {
       transcriptKey: null,
       claimedKey: null,
       cancelled: false,
+      humanCancelled: false,
     };
     this.running.set(label, session);
     try {
@@ -833,6 +850,24 @@ export class Dispatcher {
     // Persist the whole transcript before anything else — covers success, crash, timeout, and the
     // unclaimed-denial path equally, so a stranded/failed task stays reviewable post-mortem.
     await this.persistTranscript(session, claimed?.key ?? session.predictedKey);
+
+    // A human cancelled the task — whether this dispatcher killed the worker or it exited on its
+    // own first: core already refunded the attempt, fenced the execution and ended the live
+    // session. Not a crash — no failure note, no release, no retry, no skip-list. (A worker that
+    // instead holds a claim on another live task falls through to the normal handling below.)
+    const cancelledKey = claimed?.cancelled ? claimed.key
+      : !claimed && (session.humanCancelled || (await this.tryGetTask(session.predictedKey))?.status === 'cancelled') ? session.claimedKey ?? session.predictedKey
+      : null;
+    if (cancelledKey) {
+      if (!this.config.otel && hasMetrics(metrics)) await this.recordMetrics(cancelledKey, session.label, metrics, session.executionId);
+      if (session.reservationId) {
+        try {
+          await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'task cancelled by a human' });
+        } catch { /* best-effort: the cancel itself already settled it */ }
+      }
+      this.console.log(`[dispatcher] ${session.label} stopped: ${cancelledKey} was cancelled`);
+      return;
+    }
 
     if (!claimed) {
       if (session.cancelled) {
@@ -928,7 +963,7 @@ export class Dispatcher {
   }
 
   /** The task this session claimed — matched on the worker label persisted as claimed_by. */
-  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage; mergedCompletion?: boolean } | undefined> {
+  private async findClaimed(session: Session): Promise<{ key: string; status: string; stage: Stage; mergedCompletion?: boolean; cancelled?: boolean } | undefined> {
     const all = await this.deps.core.listTasks({ workspace: session.workspace });
     const row = all.find((t) => t.claimedBy === session.label);
     if (row) session.claimedKey = row.key;
@@ -943,15 +978,24 @@ export class Dispatcher {
       if (!detail) continue;
       let claimed = false;
       let mergedCompletion = false;
+      let cancelled = false;
       for (const activity of detail.activity) {
         if (activity.type === 'status_change' && activity.toStatus === 'in_progress' && activity.body === session.label)
           claimed = true;
         if (claimed && activity.type === 'status_change' && activity.actor === 'agent' && activity.fromStatus === 'in_progress' && activity.toStatus === 'done')
           mergedCompletion = true;
+        // A cancel clears claimed_by, and a reopen may follow before this poll: the claim then a
+        // cancel in the log is what proves this worker's task was dropped under it.
+        if (claimed && activity.type === 'status_change' && activity.toStatus === 'cancelled')
+          cancelled = true;
       }
       if (mergedCompletion) {
         session.claimedKey = task.key;
         return { key: task.key, status: task.status, stage: task.stage, mergedCompletion: true };
+      }
+      if (cancelled) {
+        session.claimedKey = task.key;
+        return { key: task.key, status: task.status, stage: task.stage, cancelled: true };
       }
     }
     return undefined;

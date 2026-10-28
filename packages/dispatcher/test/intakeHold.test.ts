@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { intakeRevision, type IntakeAssessmentV1 } from '@agentfactory/core';
+import { formatReviewRevision, intakeRevision, type IntakeAssessmentV1 } from '@agentfactory/core';
 import { Dispatcher } from '../src/dispatcher.js';
 import { makeCore, makeConfig, makeDeps, makeFakeSpawn, makeFakeConsole } from './helpers.js';
 
@@ -18,8 +18,9 @@ describe('intake pending hold → dispatcher', () => {
     const t = core.createTask({ title: 'Feature', spec: 'intent', stage: 'description', workspace: 'ws' });
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'writer' });
-    core.submitResult(t.key, { summary: 'spec', spec: 'the written spec', acceptanceCriteria: 'AC1' });
-    core.addComment(t.key, { actor: 'agent', body: CLEAN_REVIEW });
+    const sub = core.submitResult(t.key, { summary: 'spec', spec: 'the written spec', acceptanceCriteria: 'AC1' }).submission!;
+    // a clean review bound to the submission it read (only a bound one auto-advances a tracked doc stage)
+    core.addComment(t.key, { actor: 'agent', body: `${CLEAN_REVIEW}\n${formatReviewRevision({ submissionId: sub.id })}` });
     expect(core.getTask(t.key).intakeHold).not.toBeNull();
 
     const fake = makeFakeSpawn();

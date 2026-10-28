@@ -47,7 +47,7 @@ export type HttpCore = Pick<
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
   | 'getAgentModels' | 'reportAgentModelDefaults'
-  | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
+  | 'beginDelivery' | 'recordDeliveryCheck' | 'recordDeliveryCheckFailure' | 'completeDelivery' | 'failDelivery' | 'issueRevisionReadTicket'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
   | 'recordIntakeAssessment' | 'beginIntakeAssessment' | 'intakeRuntimeSettings'
 > & {
@@ -169,7 +169,10 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
 
     // ── delivery (watcher) ───────────────────────────────────────────────────
     beginDelivery: async (key, seed) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/begin`, seed)) as never,
+    issueRevisionReadTicket: async (key, submissionId) =>
+      (await req('POST', `/api/agent/tasks/${enc(key)}/revision/read-ticket`, submissionId !== undefined ? { submissionId } : {})) as never,
     recordDeliveryCheck: async (key, obs) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check`, obs)) as never,
+    recordDeliveryCheckFailure: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check-failed`, input)) as never,
     completeDelivery: async (key, note, expectedStateChangedAt) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note, ...(expectedStateChangedAt !== undefined ? { expectedStateChangedAt } : {}) })) as never,
     failDelivery: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/fail`, input)) as never,
 
@@ -196,7 +199,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     attachVisualization: async (key, input) => {
       const res = await fetchImpl(`${base}/api/tasks/${enc(key)}/visualization`, {
         method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...((fenced(key, input).executionId) ? { 'x-agentfactory-execution-id': fenced(key, input).executionId } : {}) },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...((fenced(key, input).executionId) ? { 'x-agentfactory-execution-id': fenced(key, input).executionId } : {}),
+        // the depicted revision rides headers, since the body is the raw HTML
+        ...(input.revision ? { 'x-agentfactory-submission-id': String(input.revision.submissionId), ...(input.revision.headSha ? { 'x-agentfactory-head-sha': input.revision.headSha } : {}) } : {}) },
         body: input.html,
         signal: AbortSignal.timeout(timeoutMs),
       });

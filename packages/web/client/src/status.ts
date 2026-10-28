@@ -9,6 +9,8 @@ export function tasksForColumn(status: Status, tasks: Task[]): Task[] {
   return [...inColumn].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+// 'cancelled' has no column: a cancelled task leaves the board (List view and, once archived,
+// the Archive view still show it; the drawer reopens it).
 export const LIFECYCLE_ORDER: Status[] = [
   'backlog',
   'queued',
@@ -27,6 +29,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   delivering: 'Delivering',
   blocked: 'Blocked',
   done: 'Done',
+  cancelled: 'Cancelled',
 };
 
 export const STATUS_COLORS: Record<Status, string> = {
@@ -37,6 +40,7 @@ export const STATUS_COLORS: Record<Status, string> = {
   delivering: '#2DD4BF',
   blocked: '#F87171',
   done: '#4ADE80',
+  cancelled: '#94A3B8',
 };
 
 // pipeline stage chip — the stage rides the card/drawer as a chip since the board
@@ -53,3 +57,15 @@ export const STAGE_COLORS: Record<Stage, string> = {
   plan: '#C084FC',
   implementation: '#94A3B8',
 };
+
+/**
+ * Dragging a card out of review (to done or delivering) approves it, so the request names the
+ * submission the card lists (AF-148), whatever its AI review is bound to: a submission that
+ * replaced it meanwhile is refused instead of approved. The board requires it whenever a
+ * submission is tracked; a historical task without one names nothing.
+ */
+export function reviewCloseRevision(task: Task, to: Status): { submissionId: number; headSha: string | null } | undefined {
+  if (task.status !== 'in_review' || (to !== 'done' && to !== 'delivering')) return undefined;
+  const sub = task.submission;
+  return sub ? { submissionId: sub.id, headSha: sub.headSha } : undefined;
+}

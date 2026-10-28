@@ -7,6 +7,8 @@ import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { updateStatus } from '../src/ops/updateStatus.js';
 import { recentActivity } from '../src/repo/activity.js';
 import type { DB } from '../src/db.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
+import { getTask } from '../src/ops/getTask.js';
 
 const FIXED_TS = '2030-09-01T10:00:00.000Z';
 const fixedNow = () => FIXED_TS;
@@ -23,7 +25,7 @@ describe('attribution (actor_user_id)', () => {
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     db.prepare("UPDATE task SET status='in_review' WHERE key=?").run(task.key);
 
-    const detail = reviewApprove(db, task.key, fixedNow, userId);
+    const detail = reviewApprove(db, task.key, fixedNow, userId, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
 
     const act = detail.activity.find(a => a.type === 'status_change' && a.toStatus === 'done')!;
     expect(act.actor).toBe('human'); // machine axis unchanged

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
 import { makeCore, seedInReview, aiReviewBody, makeConfig, makeDeps, makeFakeSpawn, makeFakeConsole } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 // ---------------------------------------------------------------------------
 // delivering-feedback evaluation
@@ -13,7 +14,7 @@ describe('delivering-feedback evaluation', () => {
     const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });
     core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
     const key = seedInReview(core, 'ws', 'Delivered feature', 'implementation');
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     expect(core.getTask(key).status).toBe('delivering');
     core.addPrFeedback(key, { feedback: 'the null check is missing' });
 
@@ -58,7 +59,7 @@ describe('repoPathOverrides', () => {
 
   it('computeDiff runs against the machine-local clone when an override is set', async () => {
     const core = makeCore('ws', '/board-machine/ws');
-    seedInReview(core, 'ws', 'Remote diff', 'implementation');
+    seedInReview(core, 'ws', 'Remote diff', 'implementation', undefined, false);
     const { spawn } = makeFakeSpawn();
     const diffRepos: string[] = [];
     const computeDiff = async (repoPath: string, _branch: string) => {
@@ -76,7 +77,7 @@ describe('repoPathOverrides', () => {
 
   it('without an override the board path is used, as before', async () => {
     const core = makeCore('ws', '/board-machine/ws');
-    seedInReview(core, 'ws', 'Local diff', 'implementation');
+    seedInReview(core, 'ws', 'Local diff', 'implementation', undefined, false);
     const { spawn } = makeFakeSpawn();
     const diffRepos: string[] = [];
     const computeDiff = async (repoPath: string, _branch: string) => {
@@ -191,7 +192,7 @@ describe('poll + spawn', () => {
     const core = makeCore();
     // The agent decorated the branch link's label with a trailing annotation — the whole
     // string must NOT reach git as a ref (it would fail SAFE_REF and skip-list the review).
-    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)');
+    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)', false);
     let seen: string | undefined;
     const computeDiff = async (_repo: string, branch: string) => {
       seen = branch;

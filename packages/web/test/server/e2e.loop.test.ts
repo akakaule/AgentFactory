@@ -173,7 +173,7 @@ describe('e2e: full feed-and-follow-up loop (human ↔ agent, shared file DB)', 
     expect(submitted2.status).toBe('in_review');
 
     // ── Step 10: Human approves ───────────────────────────────────────────────
-    const approveRes = await post(app, '/api/tasks/AF-1/approve');
+    const approveRes = await post(app, '/api/tasks/AF-1/approve', { submissionId: submitted2.submission!.id });
     expect(approveRes.status).toBe(200);
     const approved = await approveRes.json() as { status: string };
     expect(approved.status).toBe('done');

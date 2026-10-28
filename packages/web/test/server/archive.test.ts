@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openCore } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 const post = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
   app.request(path, {
@@ -23,9 +24,21 @@ describe('archive REST API', () => {
     core.updateStatus(task.key, 'queued', 'human');
     core.claimNextTask(workspace ? { workspace } : {});
     core.submitResult(task.key, { summary: 'done' });
-    core.reviewApprove(task.key);
+    core.reviewApprove(task.key, undefined, undefined, expectedRevisionOf(core.getTask(task.key)));
     return task.key;
   }
+
+  it('a cancelled task is listed by status and archives like a done one', async () => {
+    const task = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    expect((await post(app, `/api/tasks/${task.key}/status`, { status: 'cancelled' })).status).toBe(200);
+
+    const listed = await (await app.request('/api/tasks?status=cancelled')).json() as Array<{ key: string }>;
+    expect(listed.map((t) => t.key)).toEqual([task.key]);
+
+    const res = await post(app, `/api/tasks/${task.key}/archive`, {});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'cancelled' });
+  });
 
   it('POST /:key/archive on a done task → 200; task leaves the default listing', async () => {
     const key = makeDone();

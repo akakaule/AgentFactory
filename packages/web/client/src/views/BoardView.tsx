@@ -16,6 +16,7 @@ const HUMAN_MOVES: Record<Status, Status[]> = {
   delivering: ['queued', 'done'], // human override: re-queue for rework, or force-complete
   blocked: ['queued'],
   done: ['in_review'], // pr-review reopen-to-re-review (kind-gated below)
+  cancelled: [], // no Cancelled column — cancel and reopen live in the drawer
 };
 
 // doc stages close via Approve (which advances the stage) — dragging to Done would

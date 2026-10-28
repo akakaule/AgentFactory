@@ -14,6 +14,7 @@ import { advanceRetryBudget } from '../repo/retry.js';
 import { assertExecutionOwnership, executionById, isLatestOfPhase, settleExecution } from '../repo/execution.js';
 import { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA } from '../acceptanceCriteria.js';
 import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
+import { insertSubmission, contentHash } from '../repo/submissions.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -61,12 +62,14 @@ export function submitResult(
   input: SubmitResultInput,
   now: () => string = nowIso,
 ): TaskDetail {
-  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria, executionId } = parse(submitResultSchema, input);
+  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria, executionId, revision } = parse(submitResultSchema, input);
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria, row.acceptance_criteria);
     if (criteria) assertCriterionIds(acceptanceCriteria ?? row.acceptance_criteria, criteria);
+    if (revision !== undefined && row.stage !== 'implementation')
+      throw new ValidationError(`${row.stage} stage submit carries no git revision; its identity is the submitted content`);
 
     // A response can be lost after the transaction commits. A retry of that same successful
     // execution is an acknowledgement, not a second result — also once the reviewer has reserved
@@ -112,6 +115,15 @@ export function submitResult(
     setResultSummary(db, row.id, summary, ts);
     endSession(db, row.id, ts); // the agent finished — drop it from the live view
     if (executionId !== undefined) settleExecution(db, executionId, 'succeeded', ts, 'result submitted');
+    // The handed-over revision, kept apart from the worktree/branch so cleanup can't erase it:
+    // the pushed head/base for code (unknown when the submit guard could not resolve it), the
+    // content hash for a doc stage.
+    insertSubmission(db, {
+      taskId: row.id, stage: row.stage, executionId: executionId ?? null, branch: row.branch,
+      headSha: revision?.headSha ?? null, baseSha: revision?.baseSha ?? null,
+      contentHash: contentHash(row.stage, findRowByKey(db, key)!), // hash what was stored, after the edit
+      source: row.stage !== 'implementation' ? 'content' : revision?.source ?? 'unknown', ts,
+    });
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     // the claim per criterion rides right after the result it belongs to (criteriaClaimsFor reads it)

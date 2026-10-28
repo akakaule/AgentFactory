@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openCore } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 describe('task dependency REST API', () => {
   let core: ReturnType<typeof openCore>;
@@ -109,7 +110,7 @@ describe('task dependency REST API', () => {
     core.updateStatus(prerequisite.key, 'queued', 'human');
     core.claimNextTask();
     core.submitResult(prerequisite.key, { summary: 'Done' });
-    core.reviewApprove(prerequisite.key);
+    core.reviewApprove(prerequisite.key, undefined, undefined, expectedRevisionOf(core.getTask(prerequisite.key)));
     core.updateStatus(dependent.key, 'queued', 'human');
     core.claimNextTask();
 

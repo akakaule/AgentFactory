@@ -1,6 +1,7 @@
 import { openCore, type Core } from '@agentfactory/core';
 import { parseConfig, type WatcherConfig } from '../src/config.js';
 import type { FetchJson, FetchResponse, WatcherDeps } from '../src/types.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 export const GH_ORIGIN = 'https://github.com/acme/widgets.git';
 export const ADO_ORIGIN = 'https://dev.azure.com/acme/Widgets/_git/widgets';
@@ -16,7 +17,7 @@ export function deliverTask(core: Core, title = 'Ship the widget'): string {
   core.updateStatus(t.key, 'queued', 'human');
   core.claimNextTask({ claimedBy: 'worker-1' });
   core.submitResult(t.key, { summary: 'done' });
-  const approved = core.reviewApprove(t.key);
+  const approved = core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
   if (approved.status !== 'delivering') throw new Error(`expected delivering, got ${approved.status}`);
   return t.key;
 }

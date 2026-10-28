@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
-import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError } from '@agentfactory/core';
-import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, AgentModels, ModelProfile } from '@agentfactory/core';
+import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError, NotFoundError } from '@agentfactory/core';
+import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, ReviewRevision, AgentModels, ModelProfile } from '@agentfactory/core';
+import { formatReviewRevision } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, resolveReviewers } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
@@ -41,7 +42,12 @@ interface ReviewSession {
   logTail: string;
   settled: boolean;
   timedOut: boolean;
+  /** Set when a human cancels the task: core already settled the attempt and fenced the execution. */
+  humanCancelled?: boolean;
   round?: ReviewRound | undefined;
+  /** review sessions: the submission reviewed and the head actually diffed (core binds the verdict to it);
+   *  visualize sessions: the submission visualized and the head its diff showed (stamped on attach). */
+  bound?: ReviewRevision | undefined;
   deadlineTimer?: ReturnType<typeof setTimeout>;
   /** visualize sessions only: the vizAttempts budget key, pinned at spawn so a result submitted
    *  mid-session cannot shift it. */
@@ -132,6 +138,7 @@ export class Reviewer {
     // after its lease (reserveExecution), so a reconcile from this cadence could only cancel the
     // dispatcher's healthy pre-claim executions between its touches.
     await this.touchLiveSessions();
+    await this.stopCancelledSessions();
     await this.refreshEngineSettings();
     await this.refreshAgentModels();
     await this.reportModelDefaults();
@@ -239,6 +246,34 @@ export class Reviewer {
     }
   }
 
+  /** Kill every live session (review, round member, visualization, feedback-eval) whose task a
+   *  human cancelled since it started — even if it was reopened before this tick — or deleted;
+   *  its reap settles without a failure note (see reapSettled). */
+  private async stopCancelledSessions(): Promise<void> {
+    for (const session of this.running.values()) {
+      if (session.settled || session.humanCancelled) continue;
+      let dropped: string | null = null;
+      try {
+        const detail = await this.deps.core.getTask(session.key);
+        if (detail.status === 'cancelled' || detail.activity.some((a) => a.type === 'status_change' && a.toStatus === 'cancelled'
+          && Date.parse(a.createdAt) >= session.startedAtMs)) dropped = 'cancelled';
+      } catch (err) {
+        if (err instanceof NotFoundError) dropped = 'deleted';
+      }
+      if (!dropped) continue;
+      session.humanCancelled = true;
+      this.appendLog(session, `
+[reviewer] ${session.key} was ${dropped} by a human; terminating
+`);
+      try {
+        this.deps.terminateProcessTree(session.child, 'SIGKILL');
+      } catch (err) {
+        session.humanCancelled = false;
+        this.console.warn(`[reviewer] could not stop cancelled ${session.key}: ${(err as Error).message}`);
+      }
+    }
+  }
+
   private async touchLiveSessions(): Promise<void> {
     if (!this.deps.core.touchExecution) return;
     for (const session of this.running.values()) {
@@ -327,8 +362,12 @@ export class Reviewer {
   // -- polling + spawning ----------------------------------------------------
 
   /** A task needs review iff no current AI review exists, or the latest is `pending` (superseded). */
+  /** A 'stale' review names the current submission whose revision moved since (a later push,
+   *  edited doc content): reviewing it again cannot bind, only a resubmission can — so skip it
+   *  rather than burn an attempt every tick. Likewise an 'unverified' one: its submission recorded
+   *  no head, so no review can bind to it. A superseded review (newer submission) is due. */
   private needsReview(task: Task): boolean {
-    return !task.aiReview || task.aiReview.verdict === 'pending';
+    return !task.aiReview || (task.aiReview.verdict === 'pending' && task.aiReview.binding !== 'stale' && task.aiReview.binding !== 'unverified');
   }
 
   private hasRunningFor(key: string): boolean {
@@ -469,10 +508,24 @@ export class Reviewer {
   /** Resolve + compute the task's deliverable diff (shared by review and visualize sessions).
    *  A pr-review task's branch link is a teammate's PR head, not in the local store: fetch it
    *  into origin/<head> and diff that. resolveBaseRef already yields origin/<default>, so the
-   *  diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others). */
+   *  diff is origin/<base>...origin/<head> (default-base PRs; the producer skips others).
+   *  An implementation submission that recorded its revision is reviewed exactly as submitted —
+   *  base..head, fetching the branch once if this clone lacks the commits — so a moved or lagging
+   *  branch tip never stands in for it; only an unresolved submission falls back to the tip. */
   private async prepareDiff(detail: TaskDetail): Promise<{ diffRef: string; diff: BranchDiff }> {
     const branch = this.resolveBranch(detail);
     if (!branch) throw new Error(`no branch recorded to diff`);
+    const sub = detail.submission;
+    if (detail.kind !== 'pr-review' && detail.stage === 'implementation' && sub?.stage === 'implementation' && sub.headSha && sub.baseSha) {
+      const repo = this.repoFor(detail);
+      const { headSha, baseSha } = sub;
+      const diff = await this.deps.revisionDiff(repo, baseSha, headSha).catch(async (err: unknown) => {
+        if (!(err instanceof NotFoundError)) throw err;
+        await this.deps.fetchRef(repo, branch);
+        return this.deps.revisionDiff(repo, baseSha, headSha);
+      });
+      return { diffRef: `${branch} (submission #${sub.id}, ${baseSha.slice(0, 7)}..${headSha.slice(0, 7)})`, diff };
+    }
     let diffRef = branch;
     if (detail.kind === 'pr-review') {
       await this.deps.fetchRef(this.repoFor(detail), branch);
@@ -515,6 +568,7 @@ export class Reviewer {
     let prompt: string;
     let stage: Stage;
     let round: ReviewRound | undefined;
+    let bound: ReviewRevision | undefined;
     let detail: TaskDetail;
     try {
       detail = await this.deps.core.getTask(key);
@@ -548,8 +602,14 @@ export class Reviewer {
         const systemPrompt = await this.deps.core.resolveAgentPrompt('reviewer', detail.workspace);
         let makePrompt: (reviewEngine: ReviewEngine) => string;
         let revision: ReviewRound['revision'];
+        // Bind the verdict to the stage's current submission. For code, the head is the one this
+        // review actually diffed — the submitted head when it was recorded (prepareDiff), else the
+        // branch tip, which core reads stale if it is not the submitted one.
+        const sub = detail.submission?.stage === detail.stage ? detail.submission : null;
+        if (sub) bound = { submissionId: sub.id, headSha: null };
         if (detail.stage === 'implementation') {
           const { diffRef, diff } = await this.prepareDiff(detail);
+          if (sub) bound = { submissionId: sub.id, headSha: diff.headSha ?? null, baseSha: diff.baseSha ?? null };
           if (deadlineMs !== undefined) {
             if (!diff.headSha || !diff.baseSha) throw new Error('consensus requires immutable review revisions');
             revision = { headSha: diff.headSha, baseSha: diff.baseSha };
@@ -568,6 +628,7 @@ export class Reviewer {
           results: [],
           ...(deadlineMs !== undefined ? { deadlineMs } : {}),
           ...(revision ? { revision } : {}),
+          ...(bound ? { bound } : {}),
         };
       }
     } catch (err) {
@@ -583,7 +644,7 @@ export class Reviewer {
     }
     const label = `${workspace}#${key}-r${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-review-${attempt}`;
-    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase });
+    this.launchSession({ workspace, key, stage, mode, attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, bound });
     this.console.log(`[reviewer] ${mode === 'feedback-eval' ? 'evaluating feedback on' : 'reviewing'} ${key} (${stage}) via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -622,8 +683,11 @@ export class Reviewer {
     if (choice.engine !== role.engine) this.console.log(`[reviewer] ${key}: ${role.engine} disabled on the board; visualizing via ${choice.engine}`);
     const { engine, model, reasoningEffort } = choice;
     let prompt: string;
+    let bound: ReviewRevision | undefined;
     try {
       const { diffRef, diff } = await this.prepareDiff(detail);
+      // the head this diff depicts: the submitted one, or the live tip a fallback diff showed
+      if (detail.submission) bound = { submissionId: detail.submission.id, headSha: diff.headSha ?? null };
       prompt = buildVisualizationPrompt({ task: detail, branch: diffRef, diff, maxDiffChars: this.config.maxDiffChars });
     } catch (err) {
       const attempt = (this.vizAttempts.get(vizKey) ?? 0) + 1;
@@ -638,7 +702,7 @@ export class Reviewer {
 
     const label = `${workspace}#${key}-viz${attempt}`;
     const fileBase = `${this.deps.logDir}/${key}-viz-${attempt}`;
-    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, vizKey });
+    this.launchSession({ workspace, key, stage: detail.stage, mode: 'visualize', attempt, maxAttempts: reservation.maxAttempts, reservationId: reservation.id, executionId, engine, model, reasoningEffort, prompt, label, fileBase, vizKey, ...(bound ? { bound } : {}) });
     this.console.log(`[reviewer] visualizing ${key} via ${engine} — ${label}, log ${fileBase}.log`);
     return true;
   }
@@ -689,6 +753,7 @@ export class Reviewer {
     model: string | undefined;
     reasoningEffort?: ReasoningEffort | undefined;
     round?: ReviewRound | undefined;
+    bound?: ReviewRevision | undefined;
     prompt: string;
     label: string;
     /** Log/output path base: `${fileBase}.log` + (codex) `${fileBase}.out`. */
@@ -711,6 +776,7 @@ export class Reviewer {
 
     const child = this.deps.spawn({ command: this.resolveCommand(engine), args, cwd: this.deps.logDir, env, stdin: prompt });
     const session: ReviewSession = {
+      bound: opts.round?.bound ?? opts.bound,
       label,
       workspace,
       key,
@@ -793,6 +859,17 @@ export class Reviewer {
   private async reapSettled(session: ReviewSession, code: number | null): Promise<void> {
     if (session.deadlineTimer) clearTimeout(session.deadlineTimer);
     session.logWriter.end();
+    // A cancelled task is not a failed review: no failure note, no burnt attempt, no next round
+    // member. Core already refunded the attempt; this settle is an idempotent no-op backstop.
+    if (session.humanCancelled) {
+      if (session.reservationId) {
+        try {
+          await this.deps.core.settleRetry(session.reservationId, { state: 'cancelled', reason: 'task cancelled by a human' });
+        } catch { /* best-effort: the cancel itself already settled it */ }
+      }
+      this.console.log(`[reviewer] stopped ${session.label}: ${session.key} was cancelled`);
+      return;
+    }
     if (session.mode === 'visualize') return this.reapVisualization(session, code);
 
     if (session.round) {
@@ -875,6 +952,8 @@ export class Reviewer {
         const detail = await this.deps.core.getTask(session.key);
         if (detail.hasVisualization) body += `\n\nVisualization: /api/tasks/${session.key}/visualization`;
       } catch { /* link line is best-effort */ }
+      // last line: which submission/head this verdict concerns (outside the JSON; core binds on it)
+      if (session.bound) body += `\n\n${formatReviewRevision(session.bound)}`;
     }
     try {
       // A clean doc-stage verdict auto-advances via core's add_comment hook; implementation
@@ -939,7 +1018,8 @@ export class Reviewer {
       return;
     }
     try {
-      await this.deps.core.attachVisualization(session.key, { html, ...(session.executionId ? { executionId: session.executionId } : {}) });
+      await this.deps.core.attachVisualization(session.key, { html, ...(session.executionId ? { executionId: session.executionId } : {}),
+        ...(session.bound ? { revision: { submissionId: session.bound.submissionId, headSha: session.bound.headSha } } : {}) });
     } catch (err) {
       // The page exists but the attach failed — don't burn; visualizationGeneratedAt is still
       // stale, so the next poll retries (same philosophy as a failed verdict post).

@@ -82,6 +82,8 @@ export const updateWorkspaceSchema = z
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional(), workspace: workspaceSlug.optional() })
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');
+/** A full git object id (SHA-1 or SHA-256), lowercase. */
+export const gitSha = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'expected a full lowercase git commit SHA');
 export const submitResultSchema = z.object({
   summary: nonEmpty,
   executionId: z.string().min(1).optional(),
@@ -102,6 +104,8 @@ export const submitResultSchema = z.object({
   links: z
     .array(z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty }))
     .default([]),
+  // implementation stage: the revision handed over, resolved by the submit guard's git boundary
+  revision: z.object({ headSha: gitSha, baseSha: gitSha.nullable().optional(), source: z.enum(['origin', 'local']) }).strict().optional(),
 });
 export const commentSchema = z.object({ body: nonEmpty, executionId: z.string().min(1).optional() });
 export const feedbackSchema = z.object({ feedback: nonEmpty });

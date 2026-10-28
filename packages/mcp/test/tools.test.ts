@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { featureBranch, intakeRevision } from '@agentfactory/core';
+import { readFileSync } from 'node:fs';
 import { makeClient, textOf } from './harness.js';
 
 // Helper to create a task with non-empty required fields
@@ -44,7 +45,7 @@ describe('list_tasks', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask();
     core.submitResult(t.key, { summary: 'done', links: [] });
-    core.updateStatus(t.key, 'delivering', 'human'); // in_review → delivering is a human edge
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id }); // in_review → delivering is a human edge
 
     const res = await client.callTool({ name: 'list_tasks', arguments: { status: 'delivering' } });
     expect(res.isError).toBeFalsy();
@@ -292,7 +293,7 @@ describe('ai-review activity strip', () => {
     // list_tasks keeps the verdict and count, never a finding: an MCP reviewer (/review-task) uses it
     // to tell which in-review tasks still need a review
     const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: {} })));
-    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[{ verdict: 'findings', findings: 1, reviewer: 'codex', items: [] }, null]]);
+    expect(listed.map((x: any) => [x.aiReview, x.reviewBrief])).toEqual([[{ verdict: 'findings', findings: 1, reviewer: 'codex', items: [], binding: 'legacy' }, null]]);
     expect(JSON.stringify(listed)).not.toContain('Unbounded loop');
 
     // a second round: the agent's own submit and status responses carry the full detail
@@ -578,7 +579,7 @@ describe('update_status', () => {
     core.updateStatus(t.key, 'queued', 'human');
     core.claimNextTask();
     core.submitResult(t.key, { summary: 'done', links: [] });
-    core.updateStatus(t.key, 'delivering', 'human'); // watcher-owned state
+    core.updateStatus(t.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(t.key).submission!.id }); // watcher-owned state
 
     const res = await client.callTool({
       name: 'update_status',
@@ -609,6 +610,46 @@ describe('update_status', () => {
     else expect(res.isError).toBe(true);
     // the task never entered delivery
     expect(core.getTask(t.key).status).toBe('in_review');
+  });
+
+  it('tells a worker its task was cancelled instead of moving it', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+    core.updateStatus(t.key, 'cancelled', 'human');
+
+    const res = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'blocked', note: 'stuck' } });
+    expect(res.isError).toBe(true);
+    expect(textOf(res).toLowerCase()).toContain('cancelled by a human');
+    expect(core.getTask(t.key).status).toBe('cancelled');
+  });
+
+  it('rejects cancelled as a target status (excluded from the agent input schema)', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    let caught: unknown;
+    let res: any;
+    try {
+      res = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'cancelled' } });
+    } catch (err) {
+      caught = err;
+    }
+    if (caught !== undefined) expect(caught).toBeTruthy();
+    else expect(res.isError).toBe(true);
+    expect(core.getTask(t.key).status).toBe('in_progress');
+  });
+
+  it('lists cancelled tasks by status', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'cancelled', 'human');
+    const res = await client.callTool({ name: 'list_tasks', arguments: { status: 'cancelled' } });
+    expect(res.isError).toBeFalsy();
+    expect(textOf(res)).toContain(t.key);
   });
 });
 
@@ -788,5 +829,63 @@ describe('create_task', () => {
     const res = await client.callTool({ name: 'create_task', arguments: { title: 'Idea', spec: 'raw intent' } });
     expect(res.isError).toBeFalsy();
     expect(JSON.parse(textOf(res)).stage).toBe('description');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /review-task: an MCP reviewer binds its verdict to the submission it reviewed
+// ---------------------------------------------------------------------------
+describe('MCP review binding', () => {
+  it('get_task carries the submission; a clean review ending with its revision line reads current/clean', async () => {
+    const { client, core } = await makeClient();
+    const head = 'a'.repeat(40);
+    const t = core.createTask({ ...makeTaskInput('Reviewed'), stage: 'implementation' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'worker' });
+    core.submitResult(t.key, { summary: 'done', revision: { headSha: head, source: 'origin' } });
+
+    const detail = JSON.parse(textOf(await client.callTool({ name: 'get_task', arguments: { key: t.key } })));
+    expect(detail.submission).toMatchObject({ id: expect.any(Number), headSha: head });
+    // exactly the comment shape .claude/commands/review-task.md prescribes
+    const body = [
+      'ai-review/v1 — clean (claude)', 'Looks right.',
+      '```json', '{ "reviewer": "claude", "verdict": "clean", "findings": [] }', '```',
+      `review-revision/v1 submission=#${detail.submission.id} head=${detail.submission.headSha}`,
+    ].join('\n');
+    await client.callTool({ name: 'add_comment', arguments: { key: t.key, body } });
+    expect(core.getTask(t.key).aiReview).toMatchObject({ verdict: 'clean', binding: 'current' });
+    const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: { status: 'in_review' } })));
+    expect(listed[0].aiReview).toMatchObject({ verdict: 'clean' });
+  });
+
+  it('list_tasks carries the binding, so /review-task can skip a pending review only a resubmission can fix', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask({ ...makeTaskInput('Unresolved'), stage: 'implementation' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'worker' });
+    const sub = core.submitResult(t.key, { summary: 'done' }).submission!;
+    const body = ['ai-review/v1 — clean (claude)', '```json', '{ "reviewer": "claude", "verdict": "clean", "findings": [] }', '```',
+      `review-revision/v1 submission=#${sub.id} head=${'a'.repeat(40)}`].join('\n');
+    await client.callTool({ name: 'add_comment', arguments: { key: t.key, body } });
+    const listed = JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: { status: 'in_review' } })));
+    expect(listed[0].aiReview).toMatchObject({ verdict: 'pending', binding: 'unverified' });
+    const doc = readFileSync(new URL('../../../.claude/commands/review-task.md', import.meta.url), 'utf8');
+    expect(doc).toMatch(/`aiReview\.binding` is `stale` or `unverified`/);
+  });
+
+  it('/review-task instructs the reviewer to append the revision line from the task submission', () => {
+    const doc = readFileSync(new URL('../../../.claude/commands/review-task.md', import.meta.url), 'utf8');
+    expect(doc).toContain('review-revision/v1 submission=#<submission.id>');
+    expect(doc).toContain('head=<submission.headSha>');
+  });
+
+  it('/review-task reviews the submitted snapshot and binds the head it actually diffed', () => {
+    const doc = readFileSync(new URL('../../../.claude/commands/review-task.md', import.meta.url), 'utf8');
+    // the submitted revision, not the live branch, when the submission recorded its head/base
+    expect(doc).toContain('/api/tasks/<key>/diff?at=submission');
+    // the returned identity must match the submission noted in step 3 before reviewing
+    expect(doc).toMatch(/`submissionId`.*`headSha`.*match/s);
+    // a fallback live diff binds the head the diff returned, never the submitted SHA copied over
+    expect(doc).toContain('head=<diff headSha>');
   });
 });

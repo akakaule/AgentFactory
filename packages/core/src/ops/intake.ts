@@ -163,7 +163,8 @@ export function overrideIntake(db: DB, key: string, input: { expectedRevision: s
 export function queueWithIntakeAcknowledgment(db: DB, key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const row = requireTask(db, key);
-    if (row.status !== 'backlog') throw new InvalidTransitionError('only backlog tasks can be queued');
+    // Reopening a cancelled task queues it just like a backlog one, so it passes the same gate.
+    if (row.status !== 'backlog' && row.status !== 'cancelled') throw new InvalidTransitionError('only backlog or cancelled tasks can be queued this way');
     const summary = intakeForTask(db, row);
     const settings = getIntakeSettings(db);
     const needsOverride = summary?.state === 'current' && summary.policy?.eligibility === 'attention_required' && !summary.overridden;

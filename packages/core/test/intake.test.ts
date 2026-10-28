@@ -37,6 +37,19 @@ describe('task intake core contract', () => {
     expect(core.queueWithIntakeAcknowledgment(task.key, {}).status).toBe('queued');
   });
 
+  it('reopening a cancelled task needs the same acknowledgment as queueing it from backlog', () => {
+    const core = createCore(makeTestDb());
+    const task = core.createTask({ title: 'flagged', spec: 's', acceptanceCriteria: 'a' });
+    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'] });
+    const revision = intakeRevision(core.getTask(task.key));
+    core.recordIntakeAssessment(task.key, assessed(task.key, revision));
+    core.updateStatus(task.key, 'cancelled', 'human');
+
+    expect(() => core.queueWithIntakeAcknowledgment(task.key, {})).toThrow(/acknowledgment is required/);
+    expect(core.getTask(task.key).status).toBe('cancelled');
+    expect(core.queueWithIntakeAcknowledgment(task.key, { expectedRevision: revision }).status).toBe('queued');
+  });
+
   it('excludes stale assessments from claim coverage', () => {
     const db = makeTestDb();
     const core = createCore(db);

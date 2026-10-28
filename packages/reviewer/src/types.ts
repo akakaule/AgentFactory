@@ -32,7 +32,7 @@ export interface ReviewerCore {
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   // store (or replace) a task's auto-generated change-visualization HTML (no actor axis)
-  attachVisualization(key: string, input: { html: string; executionId?: string | undefined }): Awaitable<VisualizationMeta>;
+  attachVisualization(key: string, input: { html: string; executionId?: string | undefined; revision?: { submissionId: number; headSha: string | null } | undefined }): Awaitable<VisualizationMeta>;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
 }
@@ -80,6 +80,9 @@ export interface ReviewerDeps {
   /** Fetches a ref from origin into refs/remotes/origin/<ref> (production: core's `fetchRemoteRef`);
    *  used for pr-review tasks whose PR head isn't in the local store before diffing. */
   fetchRef: (repoPath: string, ref: string) => Promise<void>;
+  /** Diffs one recorded revision, base..head exactly as submitted (production: core's
+   *  `revisionDiff`); throws NotFoundError when the commits are not in the local clone. */
+  revisionDiff: (repoPath: string, baseSha: string, headSha: string) => Promise<BranchDiff>;
   /** Opens a per-review transcript log file. */
   openLog: (path: string) => LogWriter;
   /** Reads an engine's captured final message (codex `--output-last-message` file); '' if absent. */

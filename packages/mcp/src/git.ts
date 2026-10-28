@@ -93,7 +93,23 @@ export async function resolveWorktreeBase(repoPath: string): Promise<{ ref: stri
   return null;
 }
 
-export interface SubmitGuardResult { ok: boolean; message?: string; }
+/** The revision a passing guard resolved: the pushed head (origin) or the local head (no origin). */
+export interface SubmitRevision { headSha: string; baseSha: string | null; source: 'origin' | 'local'; }
+export interface SubmitGuardResult { ok: boolean; message?: string; revision?: SubmitRevision; }
+
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+/** The merge-base of `head` with the default branch (origin's HEAD, else main/master), or null. */
+async function mergeBaseWithDefault(repoPath: string, head: string): Promise<string | null> {
+  const originHead = await runGit(repoPath, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  const candidates = [...(originHead.ok ? [originHead.stdout.trim()] : []), 'refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master'];
+  for (const ref of candidates) {
+    const mb = await runGit(repoPath, ['merge-base', '--end-of-options', ref, head]);
+    const sha = mb.stdout.trim();
+    if (mb.ok && FULL_SHA.test(sha)) return sha;
+  }
+  return null;
+}
 
 /** A linked worktree under <repo>/.worktrees/<key> still exists (case/sep-insensitive). */
 function worktreeSurvives(porcelain: string, key: string): boolean {
@@ -140,6 +156,7 @@ export async function checkSubmission(opts: { repoPath: string; branch: string |
 
   const worktree = `${repoPath}/.worktrees/${key}`;
   const failures: string[] = [];
+  let revision: SubmitRevision | undefined;
 
   // (3) worktree removed
   const wt = await runGit(repoPath, ['worktree', 'list', '--porcelain']);
@@ -172,10 +189,16 @@ export async function checkSubmission(opts: { repoPath: string; branch: string |
       const localSha = local.stdout.trim();
       if (local.ok && localSha && localSha !== remoteSha) {
         failures.push(`origin/${branch} is behind your local branch — push the latest commits:\n      git push origin ${branch}`);
+      } else if (FULL_SHA.test(remoteSha)) {
+        // the handed-over revision is what origin holds; its base is computable when the commit is local
+        revision = { headSha: remoteSha, baseSha: local.ok ? await mergeBaseWithDefault(repoPath, remoteSha) : null, source: 'origin' };
       }
     }
   } else {
     console.error(`[agentfactory-mcp] submit guardrail: no origin remote in ${repoPath} — push checks skipped`);
+    const local = await runGit(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${branch}^{commit}`]);
+    const localSha = local.stdout.trim();
+    if (local.ok && FULL_SHA.test(localSha)) revision = { headSha: localSha, baseSha: await mergeBaseWithDefault(repoPath, localSha), source: 'local' };
   }
 
   if (failures.length > 0) {
@@ -187,5 +210,5 @@ export async function checkSubmission(opts: { repoPath: string; branch: string |
         `\n\nFix the above, then call submit_result again.`,
     };
   }
-  return { ok: true };
+  return revision ? { ok: true, revision } : { ok: true };
 }
