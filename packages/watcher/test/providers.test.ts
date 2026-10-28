@@ -163,6 +163,7 @@ describe('azdo provider', () => {
     status: 'active',
     lastMergeSourceCommit: { commitId: 'srcsha' },
     lastMergeCommit: { commitId: 'mrgsha' },
+    repository: { id: 'repo-guid', project: { id: 'proj-guid' } },
     ...over,
   });
 
@@ -170,6 +171,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests?searchCriteria.sourceRefName=', { body: { value: [adoPr({ pullRequestId: 9, status: 'abandoned' }), adoPr({ status: 'completed' })] } }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'succeeded', context: { name: 'Build' } }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', null, { postMergeChecks: false });
@@ -182,6 +184,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'completed' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'succeeded', context: { name: 'Build' } }, { state: 'notSet', context: { name: 'optional' } }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });
@@ -193,6 +196,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'completed' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'failed', context: { name: 'Build' }, targetUrl: 'https://x' }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });
@@ -202,7 +206,7 @@ describe('azdo provider', () => {
 
   describe('postMergeChecks on a completed PR reads the merge commit', () => {
     const PR7 = 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7';
-    const completed = adoPr({ status: 'completed', targetRefName: 'refs/heads/main', repository: { id: 'repo-guid' } });
+    const completed = adoPr({ status: 'completed', targetRefName: 'refs/heads/main', repository: { id: 'repo-guid', project: { id: 'proj-guid' } } });
     const build = (over: Record<string, unknown>) => ({ id: 31, status: 'completed', result: 'succeeded', sourceVersion: 'mrgsha', definition: { name: 'CI' }, ...over });
 
     it('a failed build of the merge commit is failing merge_commit evidence (PR statuses ignored)', async () => {
@@ -251,6 +255,7 @@ describe('azdo provider', () => {
       const fetchJson = fakeFetch([
         ['/pullrequests/7?api-version', { body: { ...completed, lastMergeCommit: null } }],
         ['/pullRequests/7/statuses', { body: { value: [{ state: 'failed', context: { name: 'Build' } }] } }],
+        ['/_apis/policy/evaluations?', { body: { value: [] } }],
       ]);
       const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
       const r = await p.check(adoRemote, 'feature/x', PR7, { postMergeChecks: true });
@@ -262,6 +267,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'active' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'pending', context: { name: 'Build' } }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
@@ -284,6 +290,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'abandoned' }) }],
       ['/pullRequests/7/statuses', { body: { value: [] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });
