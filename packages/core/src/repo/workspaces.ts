@@ -1,5 +1,6 @@
 import type { DB } from '../db.js';
-import type { Workspace } from '../types.js';
+import type { CiMode, Workspace } from '../types.js';
+import { parseRequiredChecks } from '../workspaceProfile.js';
 import type { AgentPrompts } from '../agentPrompts.js';
 import { parseAdoSyncSettings, type AdoSyncSettings } from '../adoSync.js';
 import { NotFoundError } from '../errors.js';
@@ -11,6 +12,8 @@ export interface WorkspaceRow {
   pat: string | null; // the git-host credential — SECRET; never leaves core (masked to hasPat below)
   prompt_overrides: string | null; // JSON map of per-workspace agent system-prompt overrides (#20)
   ado_sync: string | null; // JSON AdoSyncSettings — Azure DevOps work-item import (#27)
+  // repository profile (AF-151); NULL = not configured
+  base_branch: string | null; required_checks: string | null /* JSON string[] */; ci_mode: CiMode | null;
 }
 
 /** Parse the stored prompt-overrides JSON (written already-cleaned by updateWorkspaceFields). */
@@ -28,6 +31,7 @@ export function toWorkspace(r: WorkspaceRow): Workspace {
     hasPat: r.pat != null && r.pat !== '',
     promptOverrides: parseOverrides(r.prompt_overrides),
     adoSync: parseAdoSyncSettings(r.ado_sync),
+    baseBranch: r.base_branch ?? null, requiredChecks: parseRequiredChecks(r.required_checks ?? null), ciMode: r.ci_mode ?? null,
   };
 }
 /** The raw stored PAT for a workspace, or null. Internal-only (git-auth resolution / watcher) —
@@ -46,12 +50,13 @@ export function requireWorkspaceByName(db: DB, name: string): WorkspaceRow {
 }
 export function insertWorkspace(db: DB, name: string, repoPath: string, ts: string): Workspace {
   const info = db.prepare('INSERT INTO workspace(name, repo_path, created_at) VALUES (?, ?, ?)').run(name, repoPath, ts);
-  return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {}, adoSync: null };
+  return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {}, adoSync: null, baseBranch: null, requiredChecks: null, ciMode: null };
 }
 
 /** Patch a workspace's editable fields: repoPath (defining, non-null), the discipline fields
  *  (policy / verify_command), the git PAT (null clears it), and/or the agent prompt overrides
- *  (a cleaned map — empty ⇒ stored NULL), and/or the ADO work-item import settings (null clears).
+ *  (a cleaned map — empty ⇒ stored NULL), and/or the ADO work-item import settings (null clears),
+ *  and/or the repository profile (baseBranch / requiredChecks / ciMode; null clears).
  *  Only keys present in `fields` are written.
  *  Every write stamps updated_at (#23) — getVersion() folds it in, so edits reach open clients. */
 export function updateWorkspaceFields(
@@ -61,6 +66,7 @@ export function updateWorkspaceFields(
     repoPath?: string | undefined; policy?: string | null | undefined; verifyCommand?: string | null | undefined;
     pat?: string | null | undefined; promptOverrides?: AgentPrompts | undefined;
     adoSync?: AdoSyncSettings | null | undefined;
+    baseBranch?: string | null | undefined; requiredChecks?: string[] | null | undefined; ciMode?: CiMode | null | undefined;
   },
   ts: string,
 ): void {
@@ -77,6 +83,12 @@ export function updateWorkspaceFields(
   if ('adoSync' in fields && fields.adoSync !== undefined) {
     sets.push('ado_sync = ?'); vals.push(fields.adoSync === null ? null : JSON.stringify(fields.adoSync));
   }
+  if ('baseBranch' in fields) { sets.push('base_branch = ?'); vals.push(fields.baseBranch ?? null); }
+  if ('requiredChecks' in fields) {
+    const c = fields.requiredChecks;
+    sets.push('required_checks = ?'); vals.push(c && c.length > 0 ? JSON.stringify(c) : null);
+  }
+  if ('ciMode' in fields) { sets.push('ci_mode = ?'); vals.push(fields.ciMode ?? null); }
   if (sets.length === 0) return;
   sets.push('updated_at = ?'); vals.push(ts);
   vals.push(id);

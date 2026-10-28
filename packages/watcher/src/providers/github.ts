@@ -33,6 +33,8 @@ interface CommitStatus { state: string; context: string; target_url: string | nu
 
 const FAILING_CONCLUSIONS = new Set(['failure', 'timed_out', 'cancelled', 'action_required']);
 const FAILING_STATUS_STATES = new Set(['failure', 'error']);
+const CHECK_RUNS_PER_PAGE = 100;
+const CHECK_RUNS_MAX_PAGES = 10;
 
 function toPr(pr: GitHubPr): PrObservation {
   const merged = pr.merged === true || pr.merged_at !== null;
@@ -104,6 +106,17 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
   };
 
   const get = async (url: string): Promise<unknown> => guard(await fetchJson(url, { headers }), url).body;
+  // Every check-run page: a short page ends the list; capped so a runaway list can't eat the budget.
+  const getCheckRuns = async (repo: string, sha: string): Promise<CheckRun[]> => {
+    const runs: CheckRun[] = [];
+    for (let page = 1; page <= CHECK_RUNS_MAX_PAGES; page++) {
+      const body = (await get(`${repo}/commits/${sha}/check-runs?per_page=${CHECK_RUNS_PER_PAGE}&page=${page}`)) as { check_runs?: CheckRun[] };
+      const batch = body.check_runs ?? [];
+      runs.push(...batch);
+      if (batch.length < CHECK_RUNS_PER_PAGE) break;
+    }
+    return runs;
+  };
   const repoUrl = (remote: { owner: string; repo: string }): string =>
     `${apiBase}/repos/${encodeURIComponent(remote.owner)}/${encodeURIComponent(remote.repo)}`;
 
@@ -141,9 +154,9 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       const checksTarget = onMergeCommit ? 'merge_commit' : 'head';
       if (!sha) return { pr: obs, checks: { state: 'unknown', failing: [] }, checksTarget };
 
-      const runsBody = (await get(`${repo}/commits/${sha}/check-runs?per_page=100`)) as { check_runs?: CheckRun[] };
+      const runs = await getCheckRuns(repo, sha);
       const statusBody = (await get(`${repo}/commits/${sha}/status`)) as { statuses?: CommitStatus[] };
-      return { pr: obs, checks: combineChecks(runsBody.check_runs ?? [], statusBody.statuses ?? []), checksTarget };
+      return { pr: obs, checks: combineChecks(runs, statusBody.statuses ?? []), checksTarget };
     },
 
     async describeFailures(remote, result, { postMergeChecks }): Promise<string[]> {
@@ -155,9 +168,8 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       const messages: string[] = [];
       try {
         // Re-read the check-runs and lift the `output` (title/summary) of the failing ones — that
-        // is where a workflow surfaces the actual error. One extra call, only at the bounce moment.
-        const runsBody = (await get(`${repo}/commits/${sha}/check-runs?per_page=100`)) as { check_runs?: CheckRun[] };
-        for (const run of runsBody.check_runs ?? []) {
+        // is where a workflow surfaces the actual error. Extra calls only at the bounce moment.
+        for (const run of await getCheckRuns(repo, sha)) {
           if (run.status !== 'completed' || run.conclusion === null || !FAILING_CONCLUSIONS.has(run.conclusion)) continue;
           const parts = [run.output?.title, run.output?.summary].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
           if (parts.length) messages.push(`${run.name}: ${parts.join(' — ')}`);

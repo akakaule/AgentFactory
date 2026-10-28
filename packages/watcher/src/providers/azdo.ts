@@ -10,7 +10,8 @@ import { fitBody } from '../prBody.js';
  * PR search is the ado-bridge `Build-AdoPrSearchPath` shape, broadened from status=completed
  * to status=all so open/abandoned PRs classify too. "Checks" are the PR status records
  * (build-validation policies and external status writers post there); a merged/abandoned
- * PR keeps its final statuses, so the same read works pre- and post-merge. With postMergeChecks,
+ * PR keeps its final statuses, so the same read works pre- and post-merge. Blocking build-validation
+ * policy evaluations fold in too, since a rejected or queued required build may post no status. With postMergeChecks,
  * a completed PR is judged on its merge commit instead: the commit's statuses plus the builds of
  * that commit on the target branch (CI pipelines post no PR status after completion).
  */
@@ -23,9 +24,18 @@ interface AdoPr {
   lastMergeSourceCommit?: { commitId: string } | null;
   lastMergeCommit?: { commitId: string } | null;
   targetRefName?: string;
-  repository?: { id?: string } | null;
+  repository?: { id?: string; project?: { id?: string } | null } | null;
   creationDate?: string;
   description?: string | null;
+}
+/** One branch-policy evaluation of a PR (`_apis/policy/evaluations`). */
+interface AdoPolicyEvaluation {
+  status?: string; // queued | running | approved | rejected | notApplicable | broken
+  configuration?: {
+    isBlocking?: boolean;
+    type?: { displayName?: string } | null;
+    settings?: { displayName?: string } | null;
+  } | null;
 }
 /** One Azure Pipelines build (`_apis/build/builds`). */
 interface AdoBuild {
@@ -94,6 +104,31 @@ export function combineAdoStatuses(statuses: AdoPrStatus[]): { state: DeliveryCh
   return { state: 'passing', failing: [] };
 }
 
+const POLICY_STATE: Record<string, string> = { approved: 'succeeded', rejected: 'failed', queued: 'pending', running: 'pending' };
+const severity = (s: AdoPrStatus): number =>
+  s.state === 'failed' || s.state === 'error' ? 2 : s.state === 'pending' || s.state === 'notSet' ? 1 : 0;
+
+/**
+ * Add each blocking build-validation policy to the PR statuses as a status named by its display name.
+ * A required build that is rejected or still queued may post no PR status, so without this it is
+ * invisible. A policy and a status with the same name count once; the more severe one wins (a tie
+ * keeps the status, which carries a link).
+ */
+export function mergeAdoPolicyEvaluations(statuses: AdoPrStatus[], evaluations: AdoPolicyEvaluation[]): AdoPrStatus[] {
+  let merged = [...statuses];
+  for (const ev of evaluations) {
+    const cfg = ev.configuration;
+    const name = cfg?.settings?.displayName;
+    const state = POLICY_STATE[ev.status ?? ''];
+    if (cfg?.isBlocking !== true || cfg.type?.displayName !== 'Build' || !name || !state) continue;
+    const policy: AdoPrStatus = { state, context: { name }, targetUrl: null };
+    const same = merged.filter((s) => s.context?.name === name);
+    if (same.length > 0 && Math.max(...same.map(severity)) >= severity(policy)) continue;
+    merged = [...merged.filter((s) => s.context?.name !== name), policy];
+  }
+  return merged;
+}
+
 /**
  * Fold a merge commit's statuses and builds into one verdict (red beats pending beats green).
  * Only builds of `commitId` count; a failed/canceled build fails, an unfinished one is pending.
@@ -117,6 +152,8 @@ export function combineAdoMergeCommitChecks(
 
 export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | null; apiVersion: string }): DeliveryProviderApi {
   const { fetchJson, pat, apiVersion } = opts;
+  // Policy evaluations exist only as a preview resource; a plain version is rejected with 400.
+  const previewApiVersion = apiVersion.includes('-preview') ? apiVersion : `${apiVersion}-preview.1`;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...(pat ? { Authorization: basicPat(pat) } : {}),
@@ -171,7 +208,13 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
         return { pr: obs, checks, checksTarget: 'merge_commit' };
       }
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
-      const checks = combineAdoStatuses(statuses.value ?? []);
+      const projectBase = `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}`;
+      const projectId = pr.repository?.project?.id
+        ?? ((await get(`https://dev.azure.com/${e(remote.organization)}/_apis/projects/${e(remote.project)}?api-version=${apiVersion}`)) as { id?: string }).id
+        ?? remote.project;
+      const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}/${pr.pullRequestId}`;
+      const evaluations = (await get(`${projectBase}/_apis/policy/evaluations?artifactId=${e(artifactId)}&api-version=${previewApiVersion}`)) as { value?: AdoPolicyEvaluation[] };
+      const checks = combineAdoStatuses(mergeAdoPolicyEvaluations(statuses.value ?? [], evaluations.value ?? []));
       // Merge completion is independent of checks; preserve the provider's actual status evidence.
       // PR statuses describe the PR, never the merge commit, so they are not post-merge evidence.
       return { pr: obs, checks, checksTarget: 'head' };

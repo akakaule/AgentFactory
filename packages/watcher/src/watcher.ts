@@ -11,6 +11,11 @@ import { escapeMarkers, renderSection, syncedBody, withSection } from './prBody.
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
+/** Both heads known and different: a check verdict on `observed` says nothing about the approved commit. */
+function isOtherHead(observed: string | null | undefined, approved: string | null | undefined): boolean {
+  return !!observed && !!approved && observed.toLowerCase() !== approved.toLowerCase();
+}
+
 /** HTTP statuses that mean "the credential is wrong", not "back off and retry" (see provider guards). */
 const AUTH_STATUSES = new Set([203, 401, 403]);
 
@@ -53,7 +58,7 @@ export class Watcher {
   }
 
   /** Build a provider bound to a specific token — rebuilt per task since the token varies by workspace. */
-  private buildProvider(provider: 'github' | 'azdo', token: string | null): DeliveryProviderApi {
+  protected buildProvider(provider: 'github' | 'azdo', token: string | null): DeliveryProviderApi {
     return provider === 'github'
       ? makeGitHubProvider({ fetchJson: this.deps.fetchJson, token, apiBase: this.config.github.apiBase, now: this.deps.now })
       : makeAzdoProvider({ fetchJson: this.deps.fetchJson, pat: token, apiVersion: this.config.azdo.apiVersion });
@@ -312,6 +317,9 @@ export class Watcher {
           detail: `PR ${pr.id} has merge conflicts`,
           body: this.mergeConflictBody(pr.url, delivery.branch, pr.mergeConflict.detail),
         }, `PR ${pr.id} has merge conflicts`);
+      } else if (pr && checks.state === 'failing' && isOtherHead(pr.headSha, delivery.approvedHeadSha)) {
+        // the red verdict is for a commit other than the approved one: not this delivery's failure
+        console.log(`[watcher] ${key}: checks failing on ${pr.headSha!.slice(0, 7)}, not the approved head ${delivery.approvedHeadSha!.slice(0, 7)} — not bouncing`);
       } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
         const errors = await this.captureErrors(provider, remote, result);

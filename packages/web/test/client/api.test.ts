@@ -91,3 +91,15 @@ describe('token trend API', () => {
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/analytics/token-trend?workspace=all', expect.anything());
   });
 });
+
+describe('API error status', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('carries the HTTP status on the thrown error so callers can tell 404 from 401', async () => {
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'task AF-999 not found' }), {
+      status: 404, headers: { 'content-type': 'application/json' },
+    })) as unknown as typeof fetch;
+
+    await expect(api.getTask('AF-999')).rejects.toMatchObject({ message: 'task AF-999 not found', status: 404 });
+  });
+});

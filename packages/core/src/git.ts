@@ -19,6 +19,11 @@ export interface BranchDiff { baseRef: string; diff: string; commits: number; he
 // (e.g. 'mængder') diff correctly instead of stranding on a too-narrow ASCII allowlist.
 const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
+/** Whether `ref` passes the SAFE_REF guard (safe as one git argv token / refspec component). */
+export function isSafeRef(ref: string): boolean {
+  return SAFE_REF.test(ref);
+}
+
 /**
  * A branch-kind link's label is the display string an agent submits. By convention it
  * starts with the bare branch ref, but agents sometimes decorate it with a trailing

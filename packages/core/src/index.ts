@@ -26,6 +26,8 @@ export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
+export { effectiveWorkspaceProfile, DEFAULT_CI_MODE, type EffectiveWorkspaceProfile, type ProfileSource } from './workspaceProfile.js';
+export { diagnoseWorkspace, defaultDiagnoseProbes, type DiagnoseProbes, type DiagnosticCheck, type DiagnosticId, type DiagnosticStatus, type WorkspaceDiagnosis } from './diagnoseWorkspace.js';
 export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { EFFORTS, MODEL_CATALOG, MODEL_ID_PATTERN, MAX_REVIEWERS, emptyAgentModels, normalizeAgentModels, resolveAgentModel, resolveReviewers, modelProfileArgs, profileFromArgs, type Effort, type ModelCatalogEntry, type ModelProfile, type AgentModelStages, type AgentModelLayer, type WorkspaceModelLayer, type AgentModels, type AgentModelRole, type ReportedProfile, type ReportedRoles, type AgentModelDefaultsReport, type AgentModelDefaults } from './agentModels.js';
@@ -73,6 +75,7 @@ export { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings, type BeginIntakeAssessmentResult } from './ops/intake.js';
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
+export { captureNotifications, listAttentionOccurrences, listOpenAttention, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 export { type RecentTokenMetric } from './repo/metrics.js';
 export {
   FAILURE_TRIAGE_MARKER, FAILURE_TRIAGE_FEEDBACK_MARKER, FAILURE_TRIAGE_MARKER_PREFIXES, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY,
@@ -135,6 +138,7 @@ import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
 import { recentTokenMetrics } from './repo/metrics.js';
 import { getKv, setKv } from './repo/kv.js';
+import { captureNotifications, listAttentionOccurrences, listOpenAttention, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
@@ -144,7 +148,7 @@ import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSour
 import { nowIso } from './time.js';
 import type { ExpectedRevision, SubmissionSummary } from './types.js';
 import type { GitAuth } from './gitAuth.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput, FailureTriageFeedbackInput } from './types.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput, FailureTriageFeedbackInput, CaptureNotificationsInput, SettleNotificationInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
@@ -244,6 +248,14 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     setModelPrices: (prices: unknown) => setModelPrices(db, prices),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
+    captureNotifications: (input: CaptureNotificationsInput) => captureNotifications(db, input),
+    listAttentionOccurrences: () => listAttentionOccurrences(db),
+    listOpenAttention: (opts: { taskKey?: string | undefined } = {}) => listOpenAttention(db, opts),
+    listNotificationOutbox: (now?: string, limit?: number) => listNotificationOutbox(db, now, limit),
+    listAllNotificationOutbox: () => listAllNotificationOutbox(db),
+    settleNotificationOutbox: (id: number, input: SettleNotificationInput) => settleNotificationOutbox(db, id, input),
+    resolveAttention: (id: number) => resolveAttention(db, id),
+    snoozeAttention: (id: number, until: string) => snoozeAttention(db, id, until),
     addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
     submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
     updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string, expected?: ExpectedRevision | null) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId, expected ?? null),

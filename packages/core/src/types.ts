@@ -68,7 +68,17 @@ export interface Workspace {
   // Azure DevOps work-item import (migration #27); null = not configured. The watcher runs it only
   // when `enabled` and the workspace's origin is on Azure DevOps (see adoSync.ts).
   adoSync: AdoSyncSettings | null;
+  // Repository delivery profile (see workspaceProfile.ts). Raw stored values: null = not configured,
+  // which keeps today's behaviour — the default branch is detected and ciMode reads as 'legacy'.
+  baseBranch: string | null;          // the branch PRs target / diffs compare against; null = detect
+  requiredChecks: string[] | null;    // check names that must pass; null = none configured
+  ciMode: CiMode | null;              // null = 'legacy'
 }
+
+/** How the watcher treats CI on a delivery (stored here; honoured by the required-check parity work):
+ *  'legacy' = today's any-red-check rule, 'required' = only `requiredChecks` gate, 'none' = ignore CI. */
+export type CiMode = 'legacy' | 'required' | 'none';
+export const CI_MODES = ['legacy', 'required', 'none'] as const satisfies readonly CiMode[];
 
 /** A real human (or the seeded system row). Distinct from the `Actor` machine axis. */
 export interface User {
@@ -364,6 +374,57 @@ export interface ActivityFeedRow {
   id: number; taskKey: string; taskTitle: string; workspace: string;
   type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
 }
+
+export type NotificationEventType = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty' | 'blocked' | 'setup_needed' | 'delivery_wait' | 'delivery_stalled';
+export type AttentionReason = 'blocked' | 'review_ready' | 'attempts_exhausted' | 'setup_needed' | 'supervisor_unavailable' | 'delivery_stalled' | 'delivery_wait' | 'failed' | 'queue_empty';
+export type NotificationOutboxState = 'pending' | 'failed' | 'succeeded' | 'permanently_failed';
+
+export interface NotificationOccurrenceInput {
+  key: string;
+  stateKey?: string;
+  eventType: NotificationEventType;
+  reason: AttentionReason;
+  target: string;
+  taskKey?: string | null;
+  text: string;
+  active?: boolean;
+}
+
+export interface CaptureNotificationsInput {
+  sourceCursor: number;
+  destinations: string[];
+  maxAttempts: number;
+  occurrences: NotificationOccurrenceInput[];
+  now?: string;
+}
+
+export interface AttentionOccurrence {
+  id: number; key: string; stateKey: string | null; eventType: NotificationEventType;
+  reason: AttentionReason; target: string; taskKey: string | null; text: string;
+  firstSeenAt: string; lastSeenAt: string; resolvedAt: string | null; snoozedUntil: string | null;
+}
+
+export interface NotificationOutboxEntry {
+  id: number; occurrenceId: number; destination: string; text: string;
+  state: NotificationOutboxState; attempts: number; maxAttempts: number;
+  nextAttemptAt: string; lastError: string | null; sentAt: string | null;
+  createdAt: string; updatedAt: string; eventType: NotificationEventType;
+  reason: AttentionReason; target: string; taskKey: string | null;
+}
+
+/** An outbox row as the board UI sees it: delivery state only. The destination (a webhook URL that
+ *  usually embeds a secret) and the payload text (already on the occurrence) never leave core here. */
+export interface AttentionDelivery {
+  id: number; occurrenceId: number; state: NotificationOutboxState; attempts: number; maxAttempts: number;
+  nextAttemptAt: string; lastError: string | null; sentAt: string | null; updatedAt: string;
+}
+
+export interface OpenAttention { occurrences: AttentionOccurrence[]; outbox: AttentionDelivery[]; }
+
+export interface SettleNotificationInput {
+  ok: boolean; now?: string; retryAt?: string; error?: string;
+}
+
 export interface Attachment { id: number; taskId: number; filename: string; mime: string; size: number; }
 
 /** Compact task identity used for the two directions of the dependency graph in TaskDetail. */
@@ -512,6 +573,10 @@ export interface UpdateWorkspaceInput {
   promptOverrides?: Record<string, string> | undefined;
   // the ADO work-item import settings (defaults fill omitted keys); null clears them
   adoSync?: AdoSyncSettingsInput | null | undefined;
+  // repository profile: null (or an empty requiredChecks list) clears back to the legacy default
+  baseBranch?: string | null | undefined;
+  requiredChecks?: string[] | null | undefined;
+  ciMode?: CiMode | null | undefined;
 }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }

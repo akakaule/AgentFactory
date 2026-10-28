@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices, CiMode, WorkspaceDiagnosis } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff {
@@ -10,6 +10,10 @@ export interface TaskDiff {
 export interface ApproveRevision { submissionId: number; headSha: string | null; }
 export interface MetricsReport { model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; }
 export interface WhoAmI { kind: 'user' | 'service' | 'anon'; userId?: number; email?: string; displayName?: string; label?: string; }
+export interface AttentionState {
+  occurrences: Array<{ id: number; target: string; taskKey: string | null; text: string; resolvedAt: string | null; snoozedUntil: string | null }>;
+  outbox: Array<{ id: number; occurrenceId: number; state: string; attempts: number; maxAttempts: number; lastError: string | null }>;
+}
 
 // Bearer token for token-mode (remote/phone) deployments — persisted in localStorage and
 // sent on every request. Absent in local none-mode, so all of this stays inert there.
@@ -58,7 +62,7 @@ async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!res.ok) {
     let msg = `${res.status}`;
     try { const b = await res.json(); msg = (b as any).message ?? msg; } catch { /* ignore */ }
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: res.status }); // status lets callers tell 404 from 401
   }
   return res;
 }
@@ -72,6 +76,9 @@ const body = (b: unknown) => ({ method: 'POST', body: JSON.stringify(b) });
 export const attachmentUrl = (id: number) => `/api/attachments/${id}`;
 
 export const api = {
+  getAttention: (taskKey?: string) => req<AttentionState>(`/api/attention${taskKey ? `?task=${encodeURIComponent(taskKey)}` : ''}`),
+  resolveAttention: (id: number) => req<{ resolved: boolean }>(`/api/attention/${id}/resolve`, body({})),
+  snoozeAttention: (id: number, until: string) => req<{ snoozed: boolean }>(`/api/attention/${id}/snooze`, body({ until })),
   listTasks: (opts: { status?: Status; workspace?: string; archived?: boolean } = {}) => {
     const q = new URLSearchParams();
     if (opts.status) q.set('status', opts.status);
@@ -124,8 +131,13 @@ export const api = {
   getModelPrices: () => req<{ prices: ModelPrices }>('/api/model-prices'),
   // the WHOLE table: a save replaces it
   setModelPrices: (prices: ModelPrices) => req<{ prices: ModelPrices }>('/api/model-prices', { method: 'PUT', body: JSON.stringify(prices) }),
-  updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null }) =>
+  updateWorkspace: (name: string, b: {
+    repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null;
+    baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null;
+  }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  // read-only setup diagnosis (human-only); never carries the PAT, only whether one is set
+  diagnoseWorkspace: (name: string) => req<WorkspaceDiagnosis>(`/api/workspaces/${name}/diagnose`),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   addTaskDependency: (dependentKey: string, dependencyKey: string) =>
     req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'PUT' }),

@@ -10,11 +10,15 @@ import { I } from '../icons.js';
  */
 export function DeliveryChip({ delivery }: { delivery: DeliverySummary | null }) {
   if (!delivery) return null;
-  const { prState, checksState, prId, prUrl } = delivery;
+  const { prState, checksState, prId, prUrl, headSha, approvedHeadSha } = delivery;
+  // The PR head is not the approved commit (a push after approval): its check verdict says nothing
+  // about the approved delivery, and the watcher won't bounce for it.
+  const otherCommit = !!headSha && !!approvedHeadSha && headSha.toLowerCase() !== approvedHeadSha.toLowerCase();
 
   const prRef = prId ? `PR #${prId.replace(/^#/, '')}` : 'PR';
   const checksText =
-    checksState === 'failing' ? 'checks failed'
+    otherCommit ? 'checks for another commit'
+    : checksState === 'failing' ? 'checks failed'
     : checksState === 'pending' ? 'checks running'
     : checksState === 'passing' ? 'checks passing'
     : checksState === 'none' ? 'no checks'
@@ -30,7 +34,8 @@ export function DeliveryChip({ delivery }: { delivery: DeliverySummary | null })
   // Tone: a failed pipeline reads as an error; a merged PR or green/no-op checks read as ok;
   // everything still in flight (pending / unknown / awaiting first poll) stays neutral.
   const tone =
-    checksState === 'failing' ? ' fail'
+    otherCommit && prState !== 'merged' ? ''
+    : checksState === 'failing' ? ' fail'
     : prState === 'merged' || checksState === 'passing' || checksState === 'none' ? ' ok'
     : '';
 

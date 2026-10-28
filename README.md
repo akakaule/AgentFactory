@@ -90,10 +90,19 @@ For a loop you leave running, the web server can push webhook alerts so you find
 AF_NOTIFY_WEBHOOKS="https://hooks.slack.com/services/…" npm run web:dev:server
 ```
 
-- `AF_NOTIFY_EVENTS` — which events to send (default `in_review,skip_listed,supervisor_down`; also `failed`, `queue_empty`).
-- `AF_NOTIFY_POLL_SEC` — poll interval (default 15).
+An entry that is not an absolute `http(s)` URL is dropped at startup with a warning naming its position, so the remaining destinations keep working. When no valid entry remains, the notifier stays off.
 
-The notifier reads the activity log, so it catches agent-driven transitions from any process (MCP, dispatcher), and only alerts on *new* events after it starts.
+- `AF_NOTIFY_EVENTS` — which events to send (default `in_review,skip_listed,supervisor_down,blocked,setup_needed,delivery_stalled`; also `failed`, `queue_empty`, `delivery_wait`).
+- `AF_NOTIFY_POLL_SEC` — poll interval (default 15).
+- `AF_NOTIFY_REVIEW_WAIT_SEC` — wait before escalating a document stage still awaiting automated review (default 1800). Findings, disputes, or exhausted review attempts alert immediately.
+- `AF_NOTIFY_DELIVERY_WAIT_SEC` — elapsed unchanged delivery state before a stalled-delivery alert (default 3600). Failed checks alert immediately.
+- `AF_NOTIFY_TIMEOUT_MS`, `AF_NOTIFY_MAX_ATTEMPTS`, `AF_NOTIFY_RETRY_BASE_SEC`, `AF_NOTIFY_RETRY_MAX_SEC` — request timeout and bounded delivery retries (defaults 10000, 5, 15, 900).
+- `AF_APP_URL` — public board URL for task deep links; credentials and query parameters are stripped from generated links.
+- `AF_NOTIFY_BOARD_URL` — board base URL for task links in notifier messages; when set, it takes precedence over `AF_APP_URL`.
+
+Attention and per-destination delivery state survive board restarts. The task drawer and supervisor strip show pending, failed, and exhausted notifications and offer **Acknowledge alert** and **Snooze 1 hour** without changing task status or retry budgets. An acknowledged persistent condition alerts again only after the source clears and recurs. A task that leaves review, blocked or delivering and re-enters it starts a new episode that alerts again, even when that happened between polls or while the board was down (the notifier drains the whole activity backlog before re-observing task state, so it alerts each episode once). The attention API (`GET /api/attention`, optionally `?task=AF-12`) is human-only: it returns open alerts with their delivery state, never resolved history or webhook URLs. Failed deliveries are logged and recorded by outbox id and webhook host only, since the URL path usually carries the secret token. Successful destinations are not resent when another destination fails. Delivery is at least once: a receiver may accept a POST just before a timeout or process crash, so an ambiguous success can be delivered again. `X-AgentFactory-Event-Id` stays stable across retries for receiver-side deduplication within a board database. Tests use only a loopback receiver and temporary SQLite databases.
+
+The notifier reads the activity log and current task state, so it catches agent-driven transitions from any process (MCP, dispatcher) and recovers pending attention after a restart.
 
 ### Workspaces (multi-repo)
 

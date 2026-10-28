@@ -177,7 +177,7 @@ describe('archiving a cancelled task', () => {
 describe('migration #29 cancelled', () => {
   it('widens the task status CHECK to accept cancelled', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 30 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
     expect(() => db.prepare(
       "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','cancelled',1,1,'2026-01-01','2026-01-01')",
     ).run()).not.toThrow();
@@ -202,7 +202,7 @@ describe('migration #29 cancelled', () => {
 
     runMigrations(db);
 
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 30 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
     expect(db.prepare("SELECT body FROM activity WHERE task_id = (SELECT id FROM task WHERE key='AF-1')").get()).toEqual({ body: 'kept' });
     db.prepare("UPDATE task SET status = 'cancelled' WHERE key = 'AF-1'").run();
     expect(db.prepare("SELECT status FROM task WHERE key='AF-1'").get()).toEqual({ status: 'cancelled' });
