@@ -10,6 +10,7 @@ import { ReviewEvidence } from './ReviewEvidence.js';
 import { ReviewSendBack } from './ReviewSendBack.js';
 import { ReviewApprove } from './ReviewApprove.js';
 import { ConsensusDiscussion } from './ConsensusDiscussion.js';
+import { remainingConcerns, revisionLines } from '../reviewConcerns.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -33,29 +34,6 @@ const GROUP_SUB: Record<ReviewGroup, string> = {
 
 type Filter = { kind: 'group'; group: ReviewGroup } | { kind: 'criterion'; id: string } | null;
 type Overlay = { kind: 'evidence'; issueId: string } | { kind: 'sendback' } | { kind: 'approve' } | null;
-
-const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : 'unknown');
-
-/** Which revision is under review, and whether it is still what is there (AF-148). Core refuses a
- *  stale implementation approval; the panel says so up front instead of failing on click. */
-function revisionLines(task: TaskDetailView): { line: string | null; stale: string | null; unknown: string | null; review: string | null } {
-  const sub = task.submission ?? null;
-  if (!sub) return { line: null, stale: null, unknown: null, review: null };
-  const seen = sub.lastObservation;
-  const binding = task.aiReview?.binding;
-  return {
-    line: sub.headSha ? `Submission #${sub.id} · commit ${short(sub.headSha)}` : `Submission #${sub.id}`,
-    stale: sub.stage === 'implementation' && sub.freshness === 'stale'
-      ? `The branch moved to ${short(seen?.headSha)} after this submission. Approval is blocked until the new revision is submitted and reviewed — request changes.`
-      : sub.freshness === 'stale' ? 'The deliverable was edited after this submission.' : null,
-    unknown: sub.stage === 'implementation' && sub.freshness === 'unknown'
-      ? `Revision freshness unknown: ${seen?.error ?? 'no commit was recorded at submit'}. Approving records that.`
-      : null,
-    review: binding === 'stale' || binding === 'superseded' ? 'This AI review is for an older revision.'
-      : binding === 'unverified' ? 'This AI review cannot be matched to the submitted commit: none was recorded at submit.'
-      : binding === 'legacy' ? 'This AI review names no revision (recorded before revisions were tracked).' : null,
-  };
-}
 
 function approveLabel(stage: Stage, willDeliver: boolean): string {
   if (stage !== 'implementation') return 'Approve → implementation';
@@ -99,10 +77,10 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
   const names = useMemo(() => shortNames(brief?.reviewers ?? []), [brief?.reviewers]);
   const readOnly = brief?.headline === 'pending';
   const sendCount = selectedIssues(brief, decisions).length;
-  const undecidedCalls = (brief?.issues ?? []).filter((i) => i.group === 'call' && decisions[i.id] === undefined).length;
   const blocking = brief?.headline === 'changes_needed' || brief?.headline === 'your_call';
   const label = approveLabel(task.stage, willDeliver);
   const revision = revisionLines(task);
+  const concerns = remainingConcerns(task, decisions);
   const approveBlocked = task.stage === 'implementation' && task.submission?.freshness === 'stale';
 
   const approveNow = () => {
@@ -162,17 +140,17 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
             )}
           </div>
         )}
-        {revision.line && (
-          <p className="af-rv-revision">
-            {revision.line}
-            {revision.review && <span className="af-rv-muted">{` · ${revision.review}`}</span>}
-          </p>
+        {revision.line && <p className="af-rv-revision">{revision.line}</p>}
+        {concerns.length > 0 && (
+          <div className="af-rv-concerns">
+            <span className="eyebrow">Remaining concerns</span>
+            <ol aria-label="Remaining concerns">
+              {concerns.map((c) => <li key={c} className={c === revision.stale ? 'stale' : undefined}>{c}</li>)}
+            </ol>
+          </div>
         )}
-        {revision.unknown && <p className="af-rv-revision unknown">{revision.unknown}</p>}
-        {revision.stale && <p className="af-rv-error" role="alert">{revision.stale}</p>}
         <div className="actions">
           {blocking ? <>{requestButton}{approveButton}</> : <>{approveButton}{requestButton}</>}
-          {!readOnly && undecidedCalls > 0 && <span className="hint">{`${undecidedCalls} ${undecidedCalls === 1 ? 'issue needs' : 'issues need'} your decision`}</span>}
         </div>
         {approveError && <p className="af-rv-error" role="alert">{approveError}</p>}
       </section>
