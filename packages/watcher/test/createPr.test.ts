@@ -189,6 +189,8 @@ describe('watcher opens the PR after approval', () => {
         if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests?searchCriteria`)) return { body: { value: search } };
         if (method === 'POST' && url.startsWith(`${ADO_BASE}/pullrequests?`)) return create;
         if (method === 'GET' && url.includes('/statuses')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/policy/evaluations?')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/projects/')) return { body: { id: 'proj-guid' } };
         return undefined;
       });
     }
@@ -222,6 +224,8 @@ describe('watcher opens the PR after approval', () => {
         if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests?searchCriteria`)) return { body: { value: created ? [adoPr(77)] : [] } };
         if (method === 'POST' && url.startsWith(`${ADO_BASE}/pullrequests?`)) { created = true; throw new Error('request timed out'); }
         if (method === 'GET' && url.includes('/statuses')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/policy/evaluations?')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/projects/')) return { body: { id: 'proj-guid' } };
         return undefined;
       });
       const w = new Watcher(makeConfig(), adoDeps(core, fetchJson, () => clock));
