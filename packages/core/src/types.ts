@@ -68,7 +68,17 @@ export interface Workspace {
   // Azure DevOps work-item import (migration #27); null = not configured. The watcher runs it only
   // when `enabled` and the workspace's origin is on Azure DevOps (see adoSync.ts).
   adoSync: AdoSyncSettings | null;
+  // Repository delivery profile (see workspaceProfile.ts). Raw stored values: null = not configured,
+  // which keeps today's behaviour — the default branch is detected and ciMode reads as 'legacy'.
+  baseBranch: string | null;          // the branch PRs target / diffs compare against; null = detect
+  requiredChecks: string[] | null;    // check names that must pass; null = none configured
+  ciMode: CiMode | null;              // null = 'legacy'
 }
+
+/** How the watcher treats CI on a delivery (stored here; honoured by the required-check parity work):
+ *  'legacy' = today's any-red-check rule, 'required' = only `requiredChecks` gate, 'none' = ignore CI. */
+export type CiMode = 'legacy' | 'required' | 'none';
+export const CI_MODES = ['legacy', 'required', 'none'] as const satisfies readonly CiMode[];
 
 /** A real human (or the seeded system row). Distinct from the `Actor` machine axis. */
 export interface User {
@@ -512,6 +522,10 @@ export interface UpdateWorkspaceInput {
   promptOverrides?: Record<string, string> | undefined;
   // the ADO work-item import settings (defaults fill omitted keys); null clears them
   adoSync?: AdoSyncSettingsInput | null | undefined;
+  // repository profile: null (or an empty requiredChecks list) clears back to the legacy default
+  baseBranch?: string | null | undefined;
+  requiredChecks?: string[] | null | undefined;
+  ciMode?: CiMode | null | undefined;
 }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }

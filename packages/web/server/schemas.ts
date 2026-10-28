@@ -10,11 +10,16 @@ export const workspaceBody = z.object({ name: workspaceSlug, repoPath: z.string(
 // `pat` is the git-host credential (write-only — GET never returns it, only workspace.hasPat).
 // `promptOverrides` is a full agent-prompt override map (unknown keys / blanks handled by core).
 // `adoSync` is the Azure DevOps work-item import settings object (validated by core; null clears).
+// `baseBranch` / `requiredChecks` / `ciMode` are the repository profile (null clears; core validates).
 export const workspaceUpdateBody = z
-  .object({ repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional(), promptOverrides: z.record(z.string(), z.string()).optional(), adoSync: z.record(z.string(), z.unknown()).nullable().optional() })
+  .object({
+    repoPath: z.string().min(1).optional(), policy: z.string().nullable().optional(), verifyCommand: z.string().nullable().optional(), pat: z.string().nullable().optional(), promptOverrides: z.record(z.string(), z.string()).optional(), adoSync: z.record(z.string(), z.unknown()).nullable().optional(),
+    baseBranch: z.string().nullable().optional(), requiredChecks: z.array(z.string()).nullable().optional(), ciMode: z.enum(['legacy', 'required', 'none']).nullable().optional(),
+  })
   .refine(
-    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined
+      || o.baseBranch !== undefined || o.requiredChecks !== undefined || o.ciMode !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync, baseBranch, requiredChecks, ciMode)',
   );
 // Global agent system prompts: a map of prompt-key → text (a blank value clears that key). Keys are
 // validated against the known set in core (setGlobalPrompts ignores unknown keys).

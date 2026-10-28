@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { transaction } from './transaction.js';
-import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL, MIGRATION_30_SQL } from './schema.js';
+import { SCHEMA_SQL, MIGRATION_2_SQL, MIGRATION_3_SQL, MIGRATION_4_SQL, MIGRATION_5_SQL, MIGRATION_6_SQL, MIGRATION_7_SQL, MIGRATION_8_SQL, MIGRATION_9_SQL, MIGRATION_10_SQL, MIGRATION_11_SQL, MIGRATION_12_SQL, MIGRATION_13_SQL, MIGRATION_15_SQL, MIGRATION_16_SQL, MIGRATION_17_SQL, MIGRATION_18_SQL, MIGRATION_19_SQL, MIGRATION_20_SQL, MIGRATION_21_SQL, MIGRATION_23_SQL, MIGRATION_24_SQL, MIGRATION_25_SQL, MIGRATION_27_SQL, MIGRATION_28_SQL, MIGRATION_30_SQL, WORKSPACE_PROFILE_COLUMNS } from './schema.js';
 
 /**
  * Widen a CHECK constraint by rebuilding the table (SQLite cannot ALTER a CHECK). The rebuild is
@@ -188,6 +188,13 @@ const MIGRATIONS: Migration[] = [
       addMissing('task_visualization', [['submission_id', 'INTEGER'], ['head_sha', 'TEXT']]);
       addMissing('task_delivery', [['submission_id', 'INTEGER'], ['approved_head_sha', 'TEXT'], ['head_sha', 'TEXT']]);
     },
+  },
+  // #31 — workspace repository profile (base_branch / required_checks / ci_mode). Each column is
+  // added only when missing: pre-merge AF-151 builds shipped this at #29, so a DB they migrated may
+  // already have some or all of the columns.
+  (db) => {
+    const cols = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
+    for (const [column, ddl] of WORKSPACE_PROFILE_COLUMNS) if (!cols.includes(column)) db.exec(ddl);
   },
 ];
 

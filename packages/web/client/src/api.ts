@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices, CiMode, WorkspaceDiagnosis } from './types.js';
 import type { AnalyticsData, TokenTrendPoint } from './metrics.js';
 
 export interface TaskDiff {
@@ -124,8 +124,13 @@ export const api = {
   getModelPrices: () => req<{ prices: ModelPrices }>('/api/model-prices'),
   // the WHOLE table: a save replaces it
   setModelPrices: (prices: ModelPrices) => req<{ prices: ModelPrices }>('/api/model-prices', { method: 'PUT', body: JSON.stringify(prices) }),
-  updateWorkspace: (name: string, b: { repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null }) =>
+  updateWorkspace: (name: string, b: {
+    repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null;
+    baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null;
+  }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  // read-only setup diagnosis (human-only); never carries the PAT, only whether one is set
+  diagnoseWorkspace: (name: string) => req<WorkspaceDiagnosis>(`/api/workspaces/${name}/diagnose`),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   addTaskDependency: (dependentKey: string, dependencyKey: string) =>
     req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'PUT' }),

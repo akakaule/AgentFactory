@@ -454,3 +454,15 @@ CREATE TABLE IF NOT EXISTS task_submission (
 );
 CREATE INDEX IF NOT EXISTS idx_task_submission_task ON task_submission(task_id, id);
 `;
+
+// Workspace repository profile (AF-151) — the delivery profile the watcher/PR handoff will honour.
+// One ADD COLUMN per field, each applied only when absent (migrate.ts), so the migration is a
+// no-op on a DB that already received some/all of them from a re-slotted or diverged build. Kept
+// slot-independent (not MIGRATION_N_SQL): pre-merge AF-151 builds shipped it at #29.
+// All three are nullable: NULL = not configured = today's behaviour (detected default branch,
+// ciMode 'legacy'), which is also how every existing row reads after the upgrade.
+export const WORKSPACE_PROFILE_COLUMNS: ReadonlyArray<readonly [column: string, ddl: string]> = [
+  ['base_branch', 'ALTER TABLE workspace ADD COLUMN base_branch TEXT'],
+  ['required_checks', 'ALTER TABLE workspace ADD COLUMN required_checks TEXT'], // JSON string[]
+  ['ci_mode', "ALTER TABLE workspace ADD COLUMN ci_mode TEXT CHECK (ci_mode IS NULL OR ci_mode IN ('legacy','required','none'))"],
+];
