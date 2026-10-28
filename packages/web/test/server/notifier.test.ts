@@ -153,3 +153,44 @@ describe('notifierConfigFromEnv', () => {
     expect(c.pollMs).toBe(30000);
   });
 });
+
+describe('Notifier — board deep links', () => {
+  const withBoard = (events: NotifyEvent[], boardUrl: string) => ({ ...cfg(events), boardUrl });
+
+  it('ends the in_review message with the task deep link when the board URL is configured', async () => {
+    const fc = makeFakeCore();
+    const ff = makeFakeFetch();
+    const n = new Notifier(withBoard(['in_review'], 'http://board:8787'), { core: fc.core, fetch: ff.fetch });
+    await n.tick();
+    fc.push({ type: 'status_change', toStatus: 'in_review', taskKey: 'AF-12', taskTitle: 'Ship it' });
+    await n.tick();
+    expect(ff.calls[0]!.text.endsWith('http://board:8787/#task=AF-12')).toBe(true);
+  });
+
+  it('links failed and skip_listed messages too, without doubling a trailing slash', async () => {
+    const fc = makeFakeCore();
+    const ff = makeFakeFetch();
+    const n = new Notifier(withBoard(['failed', 'skip_listed'], 'http://board:8787/'), { core: fc.core, fetch: ff.fetch });
+    await n.tick();
+    fc.push({ type: 'comment', taskKey: 'AF-12', body: fail({ reason: 'timeout', attempt: 1, maxAttempts: 2 }) });
+    fc.push({ type: 'comment', taskKey: 'AF-12', body: fail({ reason: 'max_attempts', attempt: 2, maxAttempts: 2 }) });
+    await n.tick();
+    expect(ff.calls).toHaveLength(2);
+    for (const c of ff.calls) expect(c.text.endsWith('http://board:8787/#task=AF-12')).toBe(true);
+  });
+
+  it('leaves the message unchanged without a board URL', async () => {
+    const fc = makeFakeCore();
+    const ff = makeFakeFetch();
+    const n = new Notifier(cfg(['in_review']), { core: fc.core, fetch: ff.fetch });
+    await n.tick();
+    fc.push({ type: 'status_change', toStatus: 'in_review', taskKey: 'AF-12', taskTitle: 'Ship it' });
+    await n.tick();
+    expect(ff.calls[0]!.text).toBe(':eyes: *AF-12* needs review — Ship it _(default)_');
+  });
+
+  it('reads AF_NOTIFY_BOARD_URL from env', () => {
+    expect(notifierConfigFromEnv({ AF_NOTIFY_WEBHOOKS: 'http://a', AF_NOTIFY_BOARD_URL: ' http://board:8787 ' })!.boardUrl).toBe('http://board:8787');
+    expect(notifierConfigFromEnv({ AF_NOTIFY_WEBHOOKS: 'http://a' })!.boardUrl).toBeUndefined();
+  });
+});

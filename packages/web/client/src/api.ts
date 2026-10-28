@@ -58,7 +58,7 @@ async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!res.ok) {
     let msg = `${res.status}`;
     try { const b = await res.json(); msg = (b as any).message ?? msg; } catch { /* ignore */ }
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: res.status }); // status lets callers tell 404 from 401
   }
   return res;
 }
