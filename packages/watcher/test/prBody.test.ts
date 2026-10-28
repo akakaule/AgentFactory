@@ -67,6 +67,19 @@ describe('withSection', () => {
   });
 });
 
+/** Task text that quotes the reserved markers, as a task about this very feature would. */
+const QUOTED = `Keep ${SECTION_BEGIN} and ${SECTION_END} current`;
+const markerCount = (body: string) => [body.split(SECTION_BEGIN).length - 1, body.split(SECTION_END).length - 1];
+
+describe('reserved markers in task text', () => {
+  it('renderSection escapes quoted markers in the title, summary and claims', () => {
+    const content = renderSection({ key: 'AF-1', title: QUOTED, resultSummary: QUOTED, criteriaClaims: [{ id: 'AC1', claim: QUOTED }] })!;
+    expect(content).not.toContain(SECTION_BEGIN);
+    expect(content).not.toContain(SECTION_END);
+    expect(content.split('&lt;!-- agentfactory:begin -->')).toHaveLength(4);
+  });
+});
+
 describe('renderSection within a length budget', () => {
   const task = (summary: string, claims: Array<{ id: string; claim: string }>) =>
     ({ key: 'AF-1', title: 'Ship the widget', resultSummary: summary, criteriaClaims: claims });
@@ -114,6 +127,22 @@ describe('watcher-created PR body', () => {
     expect(inner).toContain('widget.test.ts proves it');
     expect(inner).toContain('Built the widget.');
     expect(inner).not.toContain('More detail below.'); // first paragraph only
+  });
+});
+
+describe('watcher-created PR body with quoted markers', () => {
+  it('carries each marker exactly once', async () => {
+    const core = makeCore();
+    deliverWithClaims(core, QUOTED, QUOTED, QUOTED);
+    const fetchJson = apiFake((method, url) => {
+      if (method === 'GET' && url === 'https://api.github.com/repos/acme/widgets') return { body: { default_branch: 'main' } };
+      if (method === 'GET' && url.includes('/pulls?head=')) return { body: [] };
+      if (method === 'POST' && url.endsWith('/pulls')) return { status: 201, body: { number: 43, html_url: 'https://github.com/acme/widgets/pull/43', state: 'open', merged_at: null, head: { sha: 'h' }, merge_commit_sha: null } };
+      return undefined;
+    });
+    await new Watcher(makeConfig(), makeDeps(core, fetchJson)).tick();
+    const body = ((fetchJson.calls.find((c) => c.method === 'POST')!).body as { body: string }).body;
+    expect(markerCount(body)).toEqual([1, 1]);
   });
 });
 
@@ -203,6 +232,23 @@ describe.each([github, azdo])('$name: keeping the section current', (host) => {
     expect(host.patchedBody(patches(fetchJson)[0]!.body)).toBe(`Human only\n\n${SECTION_BEGIN}${content}${SECTION_END}`);
     await watcher.tick();
     expect(patches(fetchJson)).toHaveLength(1);
+  });
+
+  it('quoted markers in task text: one PATCH, then stable polls with each marker once', async () => {
+    const core = makeCore(host.origin);
+    deliverWithClaims(core, QUOTED, QUOTED, QUOTED);
+    const { fetchJson, deps } = host.make(core, 'Human only');
+    const watcher = new Watcher(makeConfig(), deps);
+    await watcher.tick();
+    await watcher.tick();
+    await watcher.tick();
+    const sent = patches(fetchJson);
+    expect(sent).toHaveLength(1);
+    const body = host.patchedBody(sent[0]!.body);
+    expect(body.startsWith(`Human only
+
+${SECTION_BEGIN}`)).toBe(true);
+    expect(markerCount(body)).toEqual([1, 1]);
   });
 
   it('a failed PATCH is logged and does not stop the poll', async () => {

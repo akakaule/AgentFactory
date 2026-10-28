@@ -7,7 +7,7 @@ import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, 
 import { resolveCredential } from './credentials.js';
 import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
 import { syncInbound, syncOutbound } from './adoSync.js';
-import { renderSection, syncedBody, withSection } from './prBody.js';
+import { escapeMarkers, renderSection, syncedBody, withSection } from './prBody.js';
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
@@ -362,7 +362,7 @@ export class Watcher {
     branch: string,
     cred: { envVar: string; base: string },
   ): Promise<PrObservation | null> {
-    const summary = detail.resultSummary?.trim() || 'Implementation approved on the AgentFactory board.';
+    const summary = escapeMarkers(detail.resultSummary?.trim() ?? '') || 'Implementation approved on the AgentFactory board.';
     try {
       const opened = await provider.openPullRequest(remote, {
         branch,

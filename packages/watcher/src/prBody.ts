@@ -26,8 +26,8 @@ interface SectionTask {
  * even the key, title and claim ids fit.
  */
 export function renderSection(task: SectionTask, max = MAX_SECTION): string | null {
-  const header = `### ${task.key}: ${oneLine(task.title)}`;
-  const claims = (task.criteriaClaims ?? []).map((c) => ({ id: c.id, text: clip(oneLine(c.claim), MAX_CLAIM) }));
+  const header = `### ${task.key}: ${escapeMarkers(oneLine(task.title))}`;
+  const claims = (task.criteriaClaims ?? []).map((c) => ({ id: escapeMarkers(c.id), text: clip(escapeMarkers(oneLine(c.claim)), MAX_CLAIM) }));
   const build = (summary: string, claimText: (text: string) => string): string => {
     const lines = [header];
     if (summary) lines.push('', summary);
@@ -43,7 +43,7 @@ export function renderSection(task: SectionTask, max = MAX_SECTION): string | nu
 
   const withoutSummary = build('', (t) => t);
   if (withoutSummary.length <= max) {
-    const summary = firstParagraph(task.resultSummary);
+    const summary = escapeMarkers(firstParagraph(task.resultSummary));
     const room = max - withoutSummary.length - 2; // the blank line before the summary
     return room >= 2 && summary ? build(clip(summary, room), (t) => t) : withoutSummary;
   }
@@ -52,6 +52,15 @@ export function renderSection(task: SectionTask, max = MAX_SECTION): string | nu
   // Each claim with text costs " — " (3) more than its id-only entry.
   const perClaim = Math.floor((max - idsOnly.length) / claims.length) - 3;
   return perClaim >= 2 ? build('', (t) => clip(t, perClaim)) : idsOnly;
+}
+
+/**
+ * Task-derived text with the reserved markers neutralised (`<` → `&lt;`, which Markdown renders
+ * back as `<`), so a summary, title or claim that quotes a marker cannot move the section's
+ * boundaries. Human text outside the section is never passed through this.
+ */
+export function escapeMarkers(text: string): string {
+  return text.replaceAll(SECTION_BEGIN, `&lt;${SECTION_BEGIN.slice(1)}`).replaceAll(SECTION_END, `&lt;${SECTION_END.slice(1)}`);
 }
 
 /**
