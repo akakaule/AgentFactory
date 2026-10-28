@@ -7,6 +7,7 @@ import { v1Brief } from './fixtures/reviewBrief.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
+    getAttention: vi.fn().mockResolvedValue({ occurrences: [], outbox: [] }),
     listTasks: vi.fn().mockResolvedValue([]),
     getTask: vi.fn(),
     createTask: vi.fn(),

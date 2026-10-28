@@ -466,3 +466,40 @@ export const WORKSPACE_PROFILE_COLUMNS: ReadonlyArray<readonly [column: string, 
   ['required_checks', 'ALTER TABLE workspace ADD COLUMN required_checks TEXT'], // JSON string[]
   ['ci_mode', "ALTER TABLE workspace ADD COLUMN ci_mode TEXT CHECK (ci_mode IS NULL OR ci_mode IN ('legacy','required','none'))"],
 ];
+
+// Applied at slot #32. Earlier AF-147 builds used slots #26–#29 for this schema;
+// the migration replays missing main-line changes for those databases.
+export const ATTENTION_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS attention_occurrence (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_key      TEXT NOT NULL UNIQUE,
+  state_key      TEXT,
+  event_type     TEXT NOT NULL CHECK (event_type IN ('in_review','failed','skip_listed','supervisor_down','queue_empty')),
+  reason         TEXT NOT NULL CHECK (reason IN ('blocked','review_ready','attempts_exhausted','setup_needed','supervisor_unavailable','delivery_stalled','delivery_wait','failed','queue_empty')),
+  target         TEXT NOT NULL,
+  task_key       TEXT,
+  text           TEXT NOT NULL,
+  first_seen_at  TEXT NOT NULL,
+  last_seen_at   TEXT NOT NULL,
+  resolved_at    TEXT,
+  snoozed_until  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_attention_open_state ON attention_occurrence(state_key, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_attention_task ON attention_occurrence(task_key, resolved_at);
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurrence_id  INTEGER NOT NULL REFERENCES attention_occurrence(id) ON DELETE CASCADE,
+  destination    TEXT NOT NULL,
+  text           TEXT NOT NULL,
+  state          TEXT NOT NULL CHECK (state IN ('pending','failed','succeeded','permanently_failed')),
+  attempts       INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  max_attempts   INTEGER NOT NULL CHECK (max_attempts > 0),
+  next_attempt_at TEXT NOT NULL,
+  last_error     TEXT,
+  sent_at        TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  UNIQUE (occurrence_id, destination)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_ready ON notification_outbox(state, next_attempt_at);
+`;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../src/db.js';
 import { runMigrations, widenCheck } from '../src/migrate.js';
+import { ATTENTION_SCHEMA_SQL } from '../src/schema.js';
 
 const tables = (db: any) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r: any) => r.name);
@@ -9,10 +10,40 @@ describe('runMigrations', () => {
   it('creates task, activity and link tables and is idempotent', () => {
     const db = openDb(':memory:');
     runMigrations(db);
-    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt']));
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(tables(db)).toEqual(expect.arrayContaining(['activity', 'link', 'task', 'task_dependency', 'workspace', 'app_user', 'api_token', 'agent_session', 'supervisor_heartbeat', 'app_kv', 'task_transcript', 'task_visualization', 'retry_budget', 'retry_attempt', 'attention_occurrence', 'notification_outbox']));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
     runMigrations(db); // second run is a no-op
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
+  });
+
+  it('slot #32 widens an existing attention schema and preserves its outbox', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    db.exec('DROP TABLE notification_outbox; DROP TABLE attention_occurrence');
+    db.exec(ATTENTION_SCHEMA_SQL);
+    db.prepare("INSERT INTO attention_occurrence(event_key,event_type,reason,target,text,first_seen_at,last_seen_at) VALUES ('old','in_review','review_ready','AF-1','hello','t','t')").run();
+    db.prepare("INSERT INTO notification_outbox(occurrence_id,destination,text,state,max_attempts,next_attempt_at,created_at,updated_at) VALUES (1,'https://example.com/hook','hello','succeeded',5,'t','t','t')").run();
+    db.exec('PRAGMA user_version = 31');
+
+    runMigrations(db);
+
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
+    expect(db.prepare("SELECT event_key FROM attention_occurrence WHERE id=1").get()).toMatchObject({ event_key: 'old' });
+    expect(db.prepare('SELECT state FROM notification_outbox WHERE occurrence_id=1').get()).toMatchObject({ state: 'succeeded' });
+    expect(() => db.prepare("INSERT INTO attention_occurrence(event_key,event_type,reason,target,text,first_seen_at,last_seen_at) VALUES ('new','blocked','blocked','AF-1','hello','t','t')").run()).not.toThrow();
+  });
+
+  it('slot #32 restores execution ownership skipped by an AF-147 version-29 database', () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    db.exec('DROP TABLE task_execution; PRAGMA user_version = 29');
+
+    runMigrations(db);
+
+    expect(tables(db)).toContain('task_execution');
+    expect(tables(db)).toContain('attention_occurrence');
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
   it('migration #6 adds a nullable branch column (legacy rows stay NULL)', () => {
@@ -117,7 +148,7 @@ describe('runMigrations', () => {
     const cols = (db.prepare("PRAGMA table_info('task')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(cols).toContain('original_spec');
     expect(cols).toContain('original_acceptance_criteria');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('migration #15 adds task_transcript with a unique (task_id, attempt) index and a state CHECK', () => {
@@ -289,7 +320,7 @@ describe('runMigrations', () => {
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_dependency'"
     ).all() as Array<{ name: string }>).map((row) => row.name);
     expect(indexes).toContain('idx_task_dependency_reverse');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('migration #28 adds task_execution to a main-line version-27 database', () => {
@@ -301,7 +332,7 @@ describe('runMigrations', () => {
     runMigrations(db);
 
     expect(tables(db)).toContain('task_execution');
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('migration #28 reconciles a database whose slot #26 was consumed by the pre-merge execution branch', () => {
@@ -330,7 +361,7 @@ describe('runMigrations', () => {
     const workspaceColumns = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(workspaceColumns).toContain('ado_sync');
     expect(db.prepare("SELECT state FROM task_execution WHERE id='e1'").get()).toMatchObject({ state: 'running' });
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('migration #28 reconciles a database whose slot #27 was consumed by the pre-merge execution branch', () => {
@@ -353,7 +384,7 @@ describe('runMigrations', () => {
     const workspaceColumns = (db.prepare("PRAGMA table_info('workspace')").all() as Array<{ name: string }>).map((c) => c.name);
     expect(workspaceColumns).toContain('ado_sync');
     expect(db.prepare("SELECT state FROM task_execution WHERE id='e1'").get()).toMatchObject({ state: 'running' });
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('enforces the stage CHECK constraint', () => {
@@ -413,7 +444,7 @@ describe('migration #30 revision-bound submissions', () => {
     expect(cols(db, 'task_visualization')).toEqual(expect.arrayContaining(['submission_id', 'head_sha']));
     expect(cols(db, 'task_delivery')).toEqual(expect.arrayContaining(['submission_id', 'approved_head_sha', 'head_sha']));
     expect(() => insertCancelled(db, 'AF-1')).not.toThrow();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it("upgrades main's version-29 (cancelled) history: the revision schema it never had is added", () => {
@@ -427,7 +458,7 @@ describe('migration #30 revision-bound submissions', () => {
     expect(cols(db, 'task_visualization')).toEqual(expect.arrayContaining(['submission_id', 'head_sha']));
     expect(cols(db, 'task_delivery')).toEqual(expect.arrayContaining(['submission_id', 'approved_head_sha', 'head_sha']));
     expect(db.prepare("SELECT status FROM task WHERE key='AF-1'").get()).toEqual({ status: 'cancelled' });
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('upgrades the pre-merge AF-148 version-29 history: cancelled is added, submissions are kept', () => {
@@ -447,7 +478,7 @@ describe('migration #30 revision-bound submissions', () => {
     expect(() => insertCancelled(db, 'AF-2')).not.toThrow();
     expect(db.prepare("SELECT head_sha, read_ticket_seq, last_recorded_ticket FROM task_submission WHERE task_id = (SELECT id FROM task WHERE key='AF-1')").get()).toEqual({ head_sha: 'abc', read_ticket_seq: 0, last_recorded_ticket: 0 });
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 
   it('is a no-op on a version-29 database that already carries both schemas', () => {
@@ -455,6 +486,6 @@ describe('migration #30 revision-bound submissions', () => {
     runMigrations(db);
     db.exec('PRAGMA user_version = 29');
     expect(() => runMigrations(db)).not.toThrow();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 32 });
   });
 });
