@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IntakeSettingsPanel } from '../../client/src/components/IntakeSettingsPanel.js';
 import type { IntakeSettings, Workspace } from '../../client/src/types.js';
@@ -14,6 +14,7 @@ const saved: IntakeSettings = {
   readinessNeedsAttention: true, readinessThreshold: 0.5,
   architecturalNeedsAttention: false, riskAttentionLevel: null, maxHoldMinutes: 60,
   skipSpec: false, skipSpecMaxComplexity: 'small', skipSpecMaxRisk: 'low', skipSpecMinReadiness: 0.8,
+  queueGate: 'block', queueRequiresAssessment: false,
 };
 
 const ws = (id: number, name: string) => ({ id, name }) as Workspace;
@@ -106,6 +107,39 @@ describe('IntakeSettingsPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(api.setIntakeSettings).toHaveBeenCalledWith({ ...saved, skipSpec: true, skipSpecMaxComplexity: 'trivial', skipSpecMaxRisk: 'medium', skipSpecMinReadiness: 0.9 });
+  });
+
+  it('sets how flagged tasks may be queued and what Task Intelligence flags', async () => {
+    const api = await open();
+    const user = userEvent.setup();
+    const gate = screen.getByRole('group', { name: 'Queueing flagged tasks' });
+    expect(within(gate).getByRole('button', { name: 'Block' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(within(gate).getByRole('button', { name: 'Acknowledge' }));
+    await user.click(screen.getByRole('switch', { name: 'Require a current assessment to queue' }));
+    const below = screen.getByRole('spinbutton', { name: 'Flag readiness below %' });
+    await user.clear(below);
+    await user.type(below, '70');
+    await user.click(screen.getByRole('switch', { name: 'Flag architectural work' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Flag risk at or above' }), 'high');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.setIntakeSettings).toHaveBeenCalledWith({
+      ...saved, queueGate: 'acknowledge', queueRequiresAssessment: true,
+      readinessThreshold: 0.7, architecturalNeedsAttention: true, riskAttentionLevel: 'high',
+    });
+  });
+
+  it('turns the readiness flag and the risk flag off', async () => {
+    const api = await open();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('switch', { name: 'Flag low readiness' }));
+    expect(screen.queryByRole('spinbutton', { name: 'Flag readiness below %' })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Flag risk at or above' }), 'high');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Flag risk at or above' }), '');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.setIntakeSettings).toHaveBeenCalledWith({ ...saved, readinessNeedsAttention: false });
   });
 
   it('Cancel closes without saving', async () => {

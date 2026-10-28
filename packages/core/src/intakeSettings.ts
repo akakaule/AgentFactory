@@ -8,6 +8,7 @@ export const defaultIntakeSettings: IntakeSettings = {
   maxAttempts: 3, readinessNeedsAttention: true, readinessThreshold: 0.6,
   architecturalNeedsAttention: true, riskAttentionLevel: null, maxHoldMinutes: 10,
   skipSpec: false, skipSpecMaxComplexity: 'small', skipSpecMaxRisk: 'low', skipSpecMinReadiness: 0.8,
+  queueGate: 'block', queueRequiresAssessment: false,
 };
 
 const settingsSchema = z.object({
@@ -17,6 +18,7 @@ const settingsSchema = z.object({
   architecturalNeedsAttention: z.boolean(), riskAttentionLevel: z.enum(['low', 'medium', 'high', 'critical']).nullable(), maxHoldMinutes: z.number().int().min(1).max(1_440),
   skipSpec: z.boolean(), skipSpecMaxComplexity: z.enum(['trivial', 'small']), skipSpecMaxRisk: z.enum(['low', 'medium', 'high', 'critical']),
   skipSpecMinReadiness: z.number().finite().min(0).max(1),
+  queueGate: z.enum(['off', 'acknowledge', 'block']), queueRequiresAssessment: z.boolean(),
 }).strict();
 
 function clean(input: Partial<IntakeSettings>): IntakeSettings {

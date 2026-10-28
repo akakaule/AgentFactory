@@ -40,6 +40,12 @@ const task = {
 describe('IntakePanel acknowledgement', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('offers no acknowledgment when Task Intelligence blocks queueing, and says how to unblock', () => {
+    render(<IntakePanel task={{ ...task, status: 'backlog', queueGate: { action: 'block', reasons: task.intake!.policy!.reasons } } as TaskDetail} />);
+    expect(screen.queryByRole('button', { name: 'Acknowledge and continue' })).not.toBeInTheDocument();
+    expect(screen.getByText("Can't be queued until this is resolved. Edit the task; it is re-assessed automatically.")).toBeInTheDocument();
+  });
+
   it('acknowledges without opening a browser prompt or requiring a reason', async () => {
     const user = userEvent.setup();
     const prompt = vi.spyOn(window, 'prompt');

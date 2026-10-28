@@ -12,6 +12,11 @@ describe('IntakeChip', () => {
     expect(chip.getAttribute('title')).toMatch(/Held until .+ while Task Intelligence assesses the written spec/);
   });
 
+  it("says a blocked task can't be queued, with the reasons as its title", () => {
+    render(<IntakeChip task={task({ queueGate: { action: 'block', reasons: [{ code: 'outcome_unclear', message: 'the requested outcome is unclear' }] } })} />);
+    expect(screen.getByText("Can't queue").getAttribute('title')).toBe('Task Intelligence blocks queueing: the requested outcome is unclear');
+  });
+
   it('shows nothing for a task that is neither held nor flagged', () => {
     const { container } = render(<IntakeChip task={task({})} />);
     expect(container.textContent).toBe('');

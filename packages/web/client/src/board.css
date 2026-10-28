@@ -479,6 +479,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-dt-top .af-d-title { margin: 10px 0 0; font-size: 24px; }
 .af-dt-strip { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 24px; margin-top: 10px; }
 .af-dt-strip .af-d-tags { margin-bottom: 10px; }
+.af-d-queuegate { margin: -8px 0 14px; color: var(--active-2); font-size: 13px; line-height: 1.45; }
+.af-d-tags + .af-err, .af-d-queuegate + .af-err { margin: -8px 0 14px; color: var(--st-blocked); font-size: 13px; }
 .af-dt-strip .af-d-tags:empty { display: none; }
 .af-dt-tabs { display: flex; gap: 2px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
 .af-dt-tab { position: relative; flex: none; display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 16px; border: 0; border-radius: 8px 8px 0 0; background: none; color: var(--ink-2); font-size: 15px; font-weight: 500; }

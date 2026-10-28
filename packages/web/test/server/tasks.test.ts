@@ -32,6 +32,15 @@ describe('tasks REST API', () => {
     expect(res.status).toBe(404);
   });
 
+  it('POST /status queued on a task Task Intelligence blocks → 409 naming the reason, task stays in backlog', async () => {
+    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'], queueRequiresAssessment: true });
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    const res = await post(app, `/api/tasks/${t.key}/status`, { status: 'queued' });
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toContain('Task Intelligence blocks queueing: Task Intelligence has not assessed this task yet');
+    expect(core.getTask(t.key).status).toBe('backlog');
+  });
+
   describe('delivering-feedback loop', () => {
     it('POST pr-feedback then apply-feedback pulls the task back to queued', async () => {
       const c = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });

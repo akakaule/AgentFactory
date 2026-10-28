@@ -331,6 +331,30 @@ describe('DetailPanel', () => {
     expect(screen.getByLabelText('Search tasks to depend on')).toBeInTheDocument();
   });
 
+  it('disables Queue task and says why when Task Intelligence blocks queueing', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      queueGate: { action: 'block', reasons: [{ code: 'outcome_unclear', message: 'the requested outcome is unclear' }] },
+    });
+
+    render(<DetailPanel taskKey="AF-10" tasks={[]} onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: 'Queue task' })).toBeDisabled();
+    expect(screen.getByText('Task Intelligence blocks queueing: the requested outcome is unclear. Edit the task; it is re-assessed automatically.')).toBeInTheDocument();
+  });
+
+  it('shows why queueing failed instead of swallowing the error', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...backlogTask, queueGate: { action: 'allow', reasons: [] } });
+    mocked.setStatus.mockRejectedValueOnce(new Error('intake acknowledgment is required'));
+
+    render(<DetailPanel taskKey="AF-10" tasks={[]} onClose={vi.fn()} onChanged={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Queue task' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('intake acknowledgment is required');
+  });
+
   it('keeps Queue task enabled while explaining unmet dependencies', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue({

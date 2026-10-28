@@ -7,7 +7,7 @@ import { appendActivity, intakeMarkerActivities } from '../repo/activity.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { updateStatusWithinTransaction } from './updateStatus.js';
 import { nowIso } from '../time.js';
-import { buildIntakeComment, buildIntakeOverrideComment, intakeRevision, parseIntakeComment, skipSpecDecision, SKIP_SPEC_NOTE_PREFIX, validateIntakeAssessment } from '../intake.js';
+import { buildIntakeComment, buildIntakeOverrideComment, intakeQueueGate, intakeRevision, parseIntakeComment, skipSpecDecision, SKIP_SPEC_NOTE_PREFIX, validateIntakeAssessment } from '../intake.js';
 import { getIntakeSettings } from './intakeSettings.js';
 import { intakeEnabledFor } from '../intakeSettings.js';
 import { activeRetryAttempt, markRetryRunning, reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
@@ -152,6 +152,8 @@ export function overrideIntake(db: DB, key: string, input: { expectedRevision: s
     const policy = summary.policy;
     if (!policy || policy.eligibility !== 'attention_required') throw new InvalidTransitionError('the current intake policy does not require an override');
     const settings = getIntakeSettings(db);
+    // under 'block' an acknowledgment can't unblock queueing, so don't let one look like it does
+    if (settings.queueGate === 'block' && (row.status === 'backlog' || row.status === 'cancelled')) throw new InvalidTransitionError('flagged tasks cannot be acknowledged while Task Intelligence blocks queueing them; edit the task instead');
     const reason = input.reason?.trim() || null;
     appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, body: buildIntakeOverrideComment({ sourceRevision: revision, policy, reason, settings }), createdAt: now() });
     const ts = now();
@@ -167,8 +169,9 @@ export function queueWithIntakeAcknowledgment(db: DB, key: string, input: { expe
     if (row.status !== 'backlog' && row.status !== 'cancelled') throw new InvalidTransitionError('only backlog or cancelled tasks can be queued this way');
     const summary = intakeForTask(db, row);
     const settings = getIntakeSettings(db);
-    const needsOverride = summary?.state === 'current' && summary.policy?.eligibility === 'attention_required' && !summary.overridden;
-    if (needsOverride) {
+    const gate = row.kind === 'code' ? intakeQueueGate(summary, settings, row.workspace_name) : null;
+    if (gate?.action === 'block') throw new InvalidTransitionError(`Task Intelligence blocks queueing: ${gate.reasons.map((r) => r.message).join('; ')}`);
+    if (gate?.action === 'acknowledge') {
       if (!input.expectedRevision) throw new InvalidTransitionError('intake acknowledgment is required');
       const expected = expectedCurrentPolicy(db, key, input.expectedRevision);
       const ts = now();
