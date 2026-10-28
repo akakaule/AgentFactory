@@ -2,6 +2,7 @@ import type { DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/co
 import type { FetchJson, FetchResponse } from '../types.js';
 import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
 import { azdoGuard, basicPat } from './azdoHttp.js';
+import { fitBody } from '../prBody.js';
 
 /**
  * Azure DevOps via REST with a PAT. Reads need Code (Read); the one write — opening the PR once a
@@ -25,6 +26,7 @@ interface AdoPr {
   targetRefName?: string;
   repository?: { id?: string; project?: { id?: string } | null } | null;
   creationDate?: string;
+  description?: string | null;
 }
 /** One branch-policy evaluation of a PR (`_apis/policy/evaluations`). */
 interface AdoPolicyEvaluation {
@@ -78,6 +80,8 @@ function toPr(remote: { organization: string; project: string; repo: string }, p
     state: pr.status === 'completed' ? 'merged' : pr.status === 'abandoned' ? 'closed' : 'open',
     headSha: pr.lastMergeSourceCommit?.commitId ?? null,
     mergeCommitSha: pr.lastMergeCommit?.commitId ?? null,
+    // Azure DevOps omits the field when the description is empty
+    body: pr.description ?? '',
   };
   if (obs.state === 'open' && pr.mergeStatus === 'conflicts') {
     return { ...obs, mergeConflict: { detail: pr.mergeFailureMessage?.trim() || 'Azure DevOps reports mergeStatus=conflicts' } };
@@ -182,6 +186,9 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
         // a completed (merged) PR wins, then the active one, then the newest id (abandoned retries)
         pr = prs.find((p) => p.status === 'completed') ?? prs.find((p) => p.status === 'active')
           ?? prs.sort((a, b) => b.pullRequestId - a.pullRequestId)[0] ?? null;
+        // A list response cuts descriptions to 400 characters; the body sync of an open PR needs
+        // the whole description, so read the PR itself.
+        if (pr?.status === 'active') pr = (await get(`${base}/pullrequests/${pr.pullRequestId}?api-version=${apiVersion}`)) as AdoPr;
       }
       if (!pr) return { pr: null, checks: { state: 'unknown', failing: [] } };
 
@@ -256,13 +263,26 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
           sourceRefName: `refs/heads/${branch}`,
           targetRefName: info.defaultBranch,
           title,
-          description: body.length > MAX_DESCRIPTION ? `${body.slice(0, MAX_DESCRIPTION - 1)}…` : body,
+          description: fitBody(body, MAX_DESCRIPTION),
         }),
       });
       // TF401179: an active PR for this source/target pair already exists — the search finds it next tick.
       if (res.status === 409) return null;
       return toPr(remote, guard(res, url, true).body as AdoPr);
     },
+
+    async updatePullRequestBody(remote, prId, body): Promise<void> {
+      if (remote.provider !== 'azdo') throw new Error('azdo provider got a non-azdo remote');
+      const num = /^!(\d+)$/.exec(prId)?.[1];
+      if (!num) throw new Error(`not an Azure DevOps PR id: ${prId}`);
+      const url = `${repoBase(remote)}/pullrequests/${num}?api-version=${apiVersion}`;
+      // Never truncate here: the text outside the markers belongs to humans.
+      if (body.length > MAX_DESCRIPTION) throw new Error(`PR description of ${body.length} characters exceeds Azure DevOps' ${MAX_DESCRIPTION}`);
+      const res = await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ description: body }) });
+      guard(res, url, true);
+    },
+
+    maxBodyLength: MAX_DESCRIPTION,
   };
 }
 

@@ -19,6 +19,7 @@ interface GitHubPr {
   mergeable_state?: string | null; // undocumented REST detail; "dirty" means merge conflicts
   head: { sha: string };
   merge_commit_sha: string | null;
+  body?: string | null;
 }
 interface CheckRun {
   name: string;
@@ -49,6 +50,7 @@ function toPr(pr: GitHubPr): PrObservation {
     state: merged ? 'merged' : pr.state === 'closed' ? 'closed' : 'open',
     headSha: pr.head.sha,
     mergeCommitSha: pr.merge_commit_sha,
+    ...(pr.body !== undefined ? { body: pr.body ?? '' } : {}),
   };
   return detail ? { ...obs, mergeConflict: { detail } } : obs;
 }
@@ -196,5 +198,18 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       }
       return toPr(guard(res, url, true).body as GitHubPr);
     },
+
+    async updatePullRequestBody(remote, prId, body): Promise<void> {
+      if (remote.provider !== 'github') throw new Error('github provider got a non-github remote');
+      const num = /^#(\d+)$/.exec(prId)?.[1];
+      if (!num) throw new Error(`not a GitHub PR id: ${prId}`);
+      const url = `${repoUrl(remote)}/pulls/${num}`;
+      guard(await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ body }) }), url, true);
+    },
+
+    maxBodyLength: MAX_BODY,
   };
 }
+
+/** GitHub rejects a PR body longer than this. */
+const MAX_BODY = 65536;

@@ -8,6 +8,9 @@ export interface PrObservation {
   headSha: string | null;
   mergeCommitSha: string | null;
   mergeConflict?: { detail: string | null };
+  /** The PR description as the host returned it ('' when empty); absent when the response did not
+   *  carry one, so the watcher leaves the board-managed section alone. */
+  body?: string;
 }
 
 export interface DeliveryCheckResult {
@@ -41,6 +44,14 @@ export interface DeliveryProviderApi {
    * Throws ProviderHttpError for anything else (auth/scope, validation), and the watcher backs off.
    */
   openPullRequest(remote: RemoteRef, req: OpenPullRequest): Promise<PrObservation | null>;
+  /**
+   * Replace the description of the PR `prId` (the observation's id) verbatim. Called by the watcher
+   * only when the board-managed section changed, with a body of at most `maxBodyLength`
+   * characters. Throws ProviderHttpError on HTTP failure.
+   */
+  updatePullRequestBody(remote: RemoteRef, prId: string, body: string): Promise<void>;
+  /** The longest PR description the host accepts. */
+  readonly maxBodyLength: number;
 }
 
 export interface OpenPullRequest {
