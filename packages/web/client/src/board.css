@@ -943,7 +943,10 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-muted { color: var(--ink-2); font-size: 13px; }
 .af-rv-error { margin: 6px 0 0; color: var(--st-blocked); font-size: 13.5px; }
 .af-rv-revision { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; }
-.af-rv-revision.unknown { color: var(--active-2); }
+.af-rv-concerns { margin: 10px 0 0; }
+.af-rv-concerns ol { margin: 4px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--ink-1); }
+.af-rv-concerns li + li { margin-top: 2px; }
+.af-rv-concerns li.stale { color: var(--st-blocked); }
 .af-rv-link { padding: 0; border: 0; background: none; color: var(--accent-2); font-size: 13px; font-weight: 500; cursor: pointer; }
 .af-rv-link:hover { text-decoration: underline; }
 .af-rv-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
@@ -990,8 +993,6 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-verdict .actions .af-btn-primary, .af-rv-verdict .actions .af-mini { height: 38px; font-size: 14px; }
 /* keep the panel's own action order (a narrow-screen rule floats .af-btn-primary to the end of the top bar) */
 .af-rv-verdict .actions .af-btn-primary, .af-rv-dfoot .af-btn-primary { order: 0; }
-.af-rv-verdict .hint { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--active-2); }
-.af-rv-verdict .hint::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 
 /* section heads (criteria, issues) */
 .af-rv-sechead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
@@ -1138,7 +1139,6 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   /* the criteria table stacks: one block per criterion */
   .af-rv-row { grid-template-columns: 1fr; gap: 4px; }
   .af-rv-row.head { display: none; }
-  .af-rv-verdict .hint { margin-left: 0; }
   .af-rv-issue .decide .more { margin-left: 0; }
   .af-rv-overlay.center { padding: 0; }
   .af-rv-overlay.center .af-rv-dialog { min-height: 100%; border-radius: 0; }

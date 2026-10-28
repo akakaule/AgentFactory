@@ -65,6 +65,13 @@ describe('ReviewPanel — verdict card', () => {
     expect(screen.getByText('3 issues need your decision')).toBeInTheDocument();
   });
 
+  it('lists the remaining concerns in order, one item each', () => {
+    renderPanel();
+    const list = screen.getByLabelText('Remaining concerns');
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent))
+      .toEqual(['2 must-fix issues', '3 issues need your decision', 'Criteria not met: AC4 Race, AC6 Liveness']);
+  });
+
   it('a pill filters the issues to its group and a second click clears it', async () => {
     const { user } = renderPanel();
     const pill = screen.getByRole('button', { name: 'Your call · 3' });
@@ -273,10 +280,22 @@ describe('ReviewPanel — revision (AF-148)', () => {
     expect(screen.getByText(/Submission #7 · commit aaaaaaa/)).toBeInTheDocument();
   });
 
-  it('a push after submit blocks approval and says why', () => {
+  it('a push after submit blocks approval and says why, first in the remaining concerns', () => {
     renderPanel({ submission: submission({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', observedAt: 't2', error: null } }) });
-    expect(screen.getByRole('alert')).toHaveTextContent(/moved to bbbbbbb after this submission/);
-    expect(screen.getByRole('button', { name: 'Approve anyway…' })).toBeDisabled();
+    const items = within(screen.getByLabelText('Remaining concerns')).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      'The branch moved to bbbbbbb after this submission. Approval is blocked until the new revision is submitted and reviewed — request changes.',
+      'This AI review names no revision (recorded before revisions were tracked).',
+      '2 must-fix issues',
+      '3 issues need your decision',
+      'Criteria not met: AC4 Race, AC6 Liveness',
+    ]);
+    expect(screen.getByRole('button', { name: 'Approve anyway…' })).toHaveAttribute('disabled');
+  });
+
+  it('a clean review shows no remaining concerns list', () => {
+    renderPanel({ reviewBrief: v1Brief([]), aiReview: null, submission: submission() });
+    expect(screen.queryByLabelText('Remaining concerns')).toBeNull();
   });
 
   it('shows unknown freshness with the observation error', () => {
