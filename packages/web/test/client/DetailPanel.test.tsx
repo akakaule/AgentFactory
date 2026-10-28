@@ -174,6 +174,21 @@ describe('DetailPanel', () => {
     expect(screen.getByText('A comment here')).toBeInTheDocument();
   });
 
+  it('links to the task from the drawer header and copies its absolute URL', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue(backlogTask);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(screen.getByRole('link', { name: 'AF-10' })).toHaveAttribute('href', '#task=AF-10');
+    await userEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+    const { origin, pathname, search } = window.location;
+    expect(writeText).toHaveBeenCalledWith(`${origin}${pathname}${search}#task=AF-10`);
+    expect(await screen.findByRole('button', { name: 'Copied ✓' })).toBeInTheDocument();
+  });
+
   it('shows both dependency directions and navigates to a linked task', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue({

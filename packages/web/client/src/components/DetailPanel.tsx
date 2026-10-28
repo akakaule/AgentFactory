@@ -163,10 +163,13 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
   const branchLink = task?.links.filter((l) => l.kind === 'branch').at(-1);
   const visibleLinks = task ? uniqueDisplayLinks(task.links) : [];
 
+  // the `#task=KEY` deep link App follows; the key itself links there (open in a new tab, copy address)
+  const { origin, pathname, search } = window.location;
   const head = (
     <div className="af-drawer-head">
-      <span className="af-key">{taskKey}</span>
+      <a className="af-key" href={`#task=${taskKey}`} title="Link to this task">{taskKey}</a>
       {task && <span className="af-wsbadge">{task.workspace}</span>}
+      <CopyButton body={`${origin}${pathname}${search}#task=${taskKey}`} label="Copy link" />
       <button className="af-x" onClick={onClose} aria-label="Close">✕</button>
     </div>
   );
