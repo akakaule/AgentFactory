@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -32,6 +32,9 @@ export type ProtocolInput =
       /** v8: the task's acceptance criteria (core's parseAcceptanceCriteria) — the submit step asks
        *  for one claim per id. Omitted/empty ⇒ no claims asked for. */
       criteria?: Array<{ id: string; name: string | null }>;
+      /** v9: Task Intelligence skipped the spec stage, so the task still has the placeholder
+       *  criteria — the worker writes them and submits them as `acceptanceCriteria`. */
+      defineCriteria?: boolean;
     };
 
 /** Board text fields (spec, acceptance criteria, plan, summary) are rendered with the board's own
@@ -108,16 +111,25 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   // v7: no PR step. The worker pushes before review; the watcher opens the PR after the
   // implementation review is approved (GitHub and Azure DevOps alike).
   // v8: one claim per acceptance criterion rides the submit; the review panel shows it per criterion.
-  const criteria = input.criteria ?? [];
+  // v9: a skipped spec stage leaves placeholder criteria — the worker writes them, then claims them.
+  const criteria = input.defineCriteria ? [] : input.criteria ?? [];
   const submitWith = [
     'claimAt (the claimedAt value from this claim)',
     'a branch link (label = the branch name)',
     ...(verify ? ['the `verification` outcome'] : []),
     'best-effort metrics',
-    ...(criteria.length > 0
-      ? [`\`criteria\`: one \`{ id, claim }\` per acceptance criterion, a sentence on how the change meets it and which test proves it. Ids: ${criteria.map((c) => (c.name ? `${c.id} ${c.name}` : c.id)).join(', ')}`]
-      : []),
+    ...(input.defineCriteria
+      ? [
+        '`acceptanceCriteria`: the numbered criteria you wrote before coding',
+        '`criteria`: one `{ id, claim }` per criterion you wrote (AC1…ACn in your list\'s order), a sentence on how the change meets it and which test proves it',
+      ]
+      : criteria.length > 0
+        ? [`\`criteria\`: one \`{ id, claim }\` per acceptance criterion, a sentence on how the change meets it and which test proves it. Ids: ${criteria.map((c) => (c.name ? `${c.id} ${c.name}` : c.id)).join(', ')}`]
+        : []),
   ];
+  const defineCriteriaStep = input.defineCriteria
+    ? [`Task Intelligence rated this task simple, so it skipped the spec stage and its acceptance criteria are still a placeholder. Before you write code, write 2–5 acceptance criteria that say what done means for this task; the reviewer checks your work against them. ${NUMBERED_CRITERIA}`]
+    : [];
   return {
     version: PROTOCOL_VERSION,
     stage,
@@ -131,6 +143,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
         'A failed or missing review is not new code feedback. Inspect the current implementation against the task acceptance criteria and curated feedback, complete any remaining work, verify it, and submit for a fresh review. Do not stop solely because the previous review execution failed.',
       ] : setup),
       'Install dependencies inside the task worktree before building or testing. For an npm repository with package-lock.json, run `npm ci --cache .npm-cache` from the worktree root (keep .npm-cache/ ignored). Do not inherit node_modules or workspace-package links from the parent checkout, and do not repair them with manual junctions. Verify local workspace packages resolve inside this worktree; for projects consuming compiled workspace exports, build before running tests.',
+      ...defineCriteriaStep,
     ],
     finish: [
       input.managedGit ? 'Inspect task_git status and diff, then call task_git with { action: "commit", message: "<Conventional Commit message>" } to commit the reviewed work inside the assigned worktree.' : 'Commit all work inside the worktree.',

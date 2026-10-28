@@ -21,8 +21,10 @@ function latestFailureBody(activity: Activity[]): string | null {
  * expander that reveals the captured log. With triage the log is read by exact activity id — the
  * note the label was based on — so it still works once the note has scrolled out of recent activity.
  */
-export function FailureBanner({ taskKey, failure, activity, triage = null, onRestart, onChanged }: {
+export function FailureBanner({ taskKey, failure, activity, triage = null, repairExhausted = false, onRestart, onChanged }: {
   taskKey: string; failure: FailureSummary; activity: Activity[]; triage?: FailureTriageSummary | null;
+  /** The delivery repair budget is spent (even if a newer supervisor note is the current failure). */
+  repairExhausted?: boolean;
   onRestart?: () => void; onChanged?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -56,11 +58,13 @@ export function FailureBanner({ taskKey, failure, activity, triage = null, onRes
       </div>
       {failure.detail && <div className="af-failbanner-detail">{failure.detail}</div>}
       {triage && <FailureTriagePanel taskKey={taskKey} triage={triage} failure={failure} onChanged={onChanged} />}
-      {failure.skipListed && onRestart && (
+      {(failure.skipListed || repairExhausted) && onRestart && (
         <button
           className="af-mini go af-fail-restart"
           onClick={onRestart}
-          title={`Reset the attempt budget and retry — the ${failure.source === 'reviewer' ? 'reviewer' : 'dispatcher'} starts a fresh session. No supervisor restart needed.`}
+          title={repairExhausted || (failure.source === 'watcher' && failure.reason === 'repair_exhausted')
+            ? 'Reset the delivery repair budget — the next failing check bounces the task to a fresh repair. No supervisor restart needed.'
+            : `Reset the attempt budget and retry — the ${failure.source === 'reviewer' ? 'reviewer' : 'dispatcher'} starts a fresh session. No supervisor restart needed.`}
         >
           Restart task
         </button>

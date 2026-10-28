@@ -40,7 +40,15 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   { from: 'delivering',  to: 'queued',      by: 'agent' }, // watcher: CI failed / PR closed unmerged
   { from: 'delivering',  to: 'done',        by: 'human' }, // force-complete (no CI configured / watcher down)
   { from: 'delivering',  to: 'queued',      by: 'human' }, // manual pull-back for rework
-] as const;
+
+  // Cancel (migration #29): a human can always drop a task, whatever it is doing. Terminal for
+  // agents — ops/updateStatus.ts settles the live execution so a running worker or reviewer is
+  // fenced off — and reopenable by a human: to the queue, or (kind-gated) back to review.
+  ...(['backlog', 'queued', 'in_progress', 'in_review', 'blocked', 'delivering', 'done'] as const)
+    .map((from): TransitionRule => ({ from, to: 'cancelled', by: 'human' })),
+  { from: 'cancelled',   to: 'queued',      by: 'human' },
+  { from: 'cancelled',   to: 'in_review',   by: 'human' }, // pr-review reopen (kind-gated in updateStatus)
+];
 
 export function isValidTransition(from: Status, to: Status, by: Actor): boolean {
   return TRANSITIONS.some(t => t.from === from && t.to === to && t.by === by);

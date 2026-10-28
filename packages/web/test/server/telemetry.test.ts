@@ -126,6 +126,28 @@ describe('GET /api/telemetry — live OTel feed', () => {
     expect(detail.metrics.tokensIn).toBeNull();
   });
 
+  it('a restarted board restores recent OTel token usage from task_metric, newest-first', async () => {
+    const core = openCore(':memory:');
+    core.createWorkspace({ name: 'wf2', repoPath: '/r' });
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A', workspace: 'wf2' });
+    core.addTaskMetrics(t.key, { model: 'claude-opus-5-5', tokensIn: 1000, tokensOut: 20, costUsd: 0.02, reportedBy: 'otel:claude-code' });
+    core.addTaskMetrics(t.key, { model: 'gpt-6.1-sol', tokensIn: 500, tokensOut: 10, reportedBy: 'otel:codex' });
+    core.addTaskMetrics(t.key, { model: 'self-reported', tokensIn: 9, reportedBy: 'agent' }); // not OTel: never in the feed
+
+    const feed = await getFeed(buildApp(core));
+    expect(feed).toHaveLength(2);
+    expect(feed[0]).toMatchObject({ taskKey: t.key, workspace: 'wf2', worker: null, agent: 'codex', model: 'gpt-6.1-sol', tokensIn: 500, tokensCached: null, tokensOut: 10, costUsd: null });
+    expect(feed[1]).toMatchObject({ agent: 'claude-code', model: 'claude-opus-5-5', tokensIn: 1000, tokensCached: null, tokensOut: 20, costUsd: 0.02 });
+    expect(Date.parse(feed[0]!.at)).not.toBeNaN();
+  });
+
+  it('a caller-supplied store is not seeded', async () => {
+    const core = openCore(':memory:');
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    core.addTaskMetrics(t.key, { model: 'gpt-6.1-sol', tokensIn: 500, tokensOut: 10, reportedBy: 'otel:codex' });
+    expect(await getFeed(buildApp(core, { telemetry: createTelemetryStore() }))).toHaveLength(0);
+  });
+
   it('token mode: 401 without a token, 200 with a service token', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core, { auth: { mode: 'token' } });

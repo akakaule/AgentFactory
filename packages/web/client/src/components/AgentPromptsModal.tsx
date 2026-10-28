@@ -2,15 +2,20 @@ import { useEffect, useState } from 'react';
 import type { AgentPrompts, EngineSettings, AgentEngine } from '../types.js';
 import { api } from '../api.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
+import { AgentModelsPanel } from './AgentModelsPanel.js';
+import { ModelPricesPanel } from './ModelPricesPanel.js';
 
 const ENGINE_TOGGLES: ReadonlyArray<{ key: AgentEngine; label: string }> = [
   { key: 'claude', label: 'Claude enabled' },
   { key: 'codex', label: 'Codex enabled' },
 ];
 
-/** Edit the GLOBAL default agent system prompts. A workspace can override any of these per repo
- *  (Workspaces modal). Effective prompt an agent runs with = workspace override ?? global ?? ''. */
+/** The Agents modal. Models: the engine switches and the GLOBAL per-step engine/model/effort.
+ *  System prompts: the GLOBAL default agent system prompts. A workspace can override either per repo
+ *  (Workspaces modal). Effective prompt an agent runs with = workspace override ?? global ?? ''.
+ *  Prices: USD per 1M tokens for pricing Codex usage, which reports no cost of its own. */
 export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<'models' | 'prompts' | 'prices'>('models');
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,12 +58,20 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
     <div className="af-overlay">
       <div className="af-modal" style={{ padding: '18px 20px', width: 'min(94vw, 1180px)', maxWidth: '1180px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>Agent system prompts</h3>
+          <h3 style={{ margin: 0 }}>Agents</h3>
           <button className="af-x" onClick={onClose}>✕</button>
         </div>
-        <p style={{ fontSize: '12px', color: 'var(--ink-3)', margin: '6px 0 12px' }}>
-          Global defaults for each agent. A workspace can override any of these in its own settings; blank = built-in behavior.
-        </p>
+        <div className="af-tabs" role="tablist" aria-label="Agent settings">
+          <button type="button" role="tab" aria-selected={tab === 'models'} className={tab === 'models' ? 'on' : ''} onClick={() => setTab('models')}>Models</button>
+          <button type="button" role="tab" aria-selected={tab === 'prompts'} className={tab === 'prompts' ? 'on' : ''} onClick={() => setTab('prompts')}>System prompts</button>
+          <button type="button" role="tab" aria-selected={tab === 'prices'} className={tab === 'prices' ? 'on' : ''} onClick={() => setTab('prices')}>Prices</button>
+        </div>
+        {tab === 'prices' && (
+          <div style={{ maxHeight: '64vh', overflowY: 'auto', paddingRight: '4px' }}>
+            <ModelPricesPanel onClose={onClose} />
+          </div>
+        )}
+        {tab === 'models' && <>
         <div className="af-engines" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 18px', padding: '10px 12px', marginBottom: '14px', border: '1px solid var(--line-soft)', borderRadius: '9px', background: 'var(--bg-deep)' }}>
           <span style={{ fontWeight: 600, fontSize: '13px' }}>Engines</span>
           {ENGINE_TOGGLES.map((e) => (
@@ -76,6 +89,14 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
             Applies live. A stage configured for a disabled engine runs on the other one (with that engine's global args only); with both off, queued tasks wait.
           </span>
         </div>
+        <div style={{ maxHeight: '64vh', overflowY: 'auto', paddingRight: '4px' }}>
+          <AgentModelsPanel engines={engines} onClose={onClose} />
+        </div>
+        </>}
+        {tab === 'prompts' && <>
+        <p style={{ fontSize: '12px', color: 'var(--ink-3)', margin: '6px 0 12px' }}>
+          Global defaults for each agent. A workspace can override any of these in its own settings; blank = built-in behavior.
+        </p>
         {loading ? (
           <div style={{ color: 'var(--ink-3)' }}>Loading…</div>
         ) : (
@@ -106,12 +127,13 @@ export function AgentPromptsModal({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         )}
-        {err && <div className="af-err" style={{ marginTop: '8px' }}>{err}</div>}
         <div style={{ marginTop: '12px' }}>
           <button className="af-btn-primary" onClick={handleSave} disabled={saving || loading}>
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
+        </>}
+        {err && <div className="af-err" style={{ marginTop: '8px' }}>{err}</div>}
       </div>
     </div>
   );

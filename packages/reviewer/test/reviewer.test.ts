@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { openCore } from '@agentfactory/core';
 import { Reviewer } from '../src/reviewer.js';
 import { makeCore, seedInReview, aiReviewBody, makeConfig, makeDeps, makeFakeSpawn, makeFakeConsole } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 // ---------------------------------------------------------------------------
 // delivering-feedback evaluation
@@ -13,7 +14,7 @@ describe('delivering-feedback evaluation', () => {
     const core = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });
     core.createWorkspace({ name: 'ws', repoPath: '/repo/ws' });
     const key = seedInReview(core, 'ws', 'Delivered feature', 'implementation');
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     expect(core.getTask(key).status).toBe('delivering');
     core.addPrFeedback(key, { feedback: 'the null check is missing' });
 
@@ -58,7 +59,7 @@ describe('repoPathOverrides', () => {
 
   it('computeDiff runs against the machine-local clone when an override is set', async () => {
     const core = makeCore('ws', '/board-machine/ws');
-    seedInReview(core, 'ws', 'Remote diff', 'implementation');
+    seedInReview(core, 'ws', 'Remote diff', 'implementation', undefined, false);
     const { spawn } = makeFakeSpawn();
     const diffRepos: string[] = [];
     const computeDiff = async (repoPath: string, _branch: string) => {
@@ -76,7 +77,7 @@ describe('repoPathOverrides', () => {
 
   it('without an override the board path is used, as before', async () => {
     const core = makeCore('ws', '/board-machine/ws');
-    seedInReview(core, 'ws', 'Local diff', 'implementation');
+    seedInReview(core, 'ws', 'Local diff', 'implementation', undefined, false);
     const { spawn } = makeFakeSpawn();
     const diffRepos: string[] = [];
     const computeDiff = async (repoPath: string, _branch: string) => {
@@ -104,6 +105,46 @@ describe('poll + spawn', () => {
     const r = new Reviewer(makeConfig(), makeDeps(core, spawn, { console: makeFakeConsole() }));
     await r.tick();
     expect(calls.length).toBe(0);
+  });
+
+  it('a second reviewer racing for the same task spawns nothing and does not skip-list it', async () => {
+    const core = makeCore();
+    const key = seedInReview(core, 'ws', 'Contended review', 'implementation');
+    const first = makeFakeSpawn();
+    const second = makeFakeSpawn();
+    const secondLog = makeFakeConsole();
+    const r1 = new Reviewer(makeConfig(), makeDeps(core, first.spawn, { console: makeFakeConsole() }));
+    const r2 = new Reviewer(makeConfig(), makeDeps(core, second.spawn, { console: secondLog }));
+
+    await r1.tick();
+    await r2.tick(); // budget remains, but r1's live review execution owns the task
+
+    expect(first.calls).toHaveLength(1);
+    expect(second.calls).toHaveLength(0);
+    expect(r2.isSkipListed(key)).toBe(false);
+    expect(secondLog.errors).toEqual([]);
+    expect(core.getRetryBudget(key, 'reviewer:implementation')).toMatchObject({ attemptsUsed: 1 });
+  });
+
+  it("never cancels a dispatcher's live pre-claim execution between the dispatcher's own ticks", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const T0 = Date.parse('2026-10-22T12:00:00.000Z');
+      vi.setSystemTime(T0);
+      const core = makeCore();
+      const t = core.createTask({ title: 'Queued for a worker', spec: 'S', acceptanceCriteria: 'A', workspace: 'ws' });
+      core.updateStatus(t.key, 'queued', 'human');
+      // a dispatcher polling every 60s reserved + spawned at T0; its worker has not claimed yet
+      const execution = core.reserveExecution(t.key, { operation: 'dispatcher:implementation', maxAttempts: 2, owner: `ws#${t.key}`, startImmediately: true })!;
+      vi.setSystemTime(T0 + 45_000);
+
+      const { spawn } = makeFakeSpawn();
+      await new Reviewer(makeConfig(), makeDeps(core, spawn, { now: () => Date.now(), console: makeFakeConsole() })).tick();
+
+      expect(core.getCurrentExecution(t.key)?.id).toBe(execution.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a tick overlapping a slow diff does not double-spawn the same review', async () => {
@@ -151,7 +192,7 @@ describe('poll + spawn', () => {
     const core = makeCore();
     // The agent decorated the branch link's label with a trailing annotation — the whole
     // string must NOT reach git as a ref (it would fail SAFE_REF and skip-list the review).
-    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)');
+    seedInReview(core, 'ws', 'Conflict fix', 'implementation', 'feature/af-x (PR 4703 source — conflict fix pushed here)', false);
     let seen: string | undefined;
     const computeDiff = async (_repo: string, branch: string) => {
       seen = branch;

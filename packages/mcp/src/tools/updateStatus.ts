@@ -3,9 +3,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpCore } from '../types.js';
 import { AgentStatusEnum, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
+import type { ServerOptions } from '../server.js';
 import { forAgent } from '../content.js';
 
-export function registerUpdateStatus(server: McpServer, core: McpCore): void {
+export function registerUpdateStatus(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
     'update_status',
     {
@@ -30,7 +31,15 @@ export function registerUpdateStatus(server: McpServer, core: McpCore): void {
             content: [{ type: 'text' as const, text: 'this task is in delivery verification — the watcher owns it; a human can force-complete or re-queue from the board' }],
           };
         }
-        const task = await core.updateStatus(key, status, 'agent', null, note);
+        // A cancelled task is over: say so plainly, so a worker that outlived the cancel stops.
+        if (current.status === 'cancelled') {
+          return {
+            isError: true as const,
+            content: [{ type: 'text' as const, text: 'this task was cancelled by a human — stop working on it; only a human can reopen it from the board' }],
+          };
+        }
+        const executionId = opts.executionContext?.get() ?? opts.executionId;
+        const task = await core.updateStatus(key, status, 'agent', null, note, executionId);
         return { content: [{ type: 'text', text: JSON.stringify(forAgent(task), null, 2) }] };
       } catch (err) {
         return toToolError(err);

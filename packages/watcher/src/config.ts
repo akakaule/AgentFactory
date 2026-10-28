@@ -28,9 +28,10 @@ export const baseConfigSchema = z.object({
   /** Poll interval, seconds. */
   pollSeconds: z.number().positive().default(60),
   /**
-   * GitHub check-observation target: false (default) reads PR-head checks; true reads merge-commit
-   * checks after merge. A confirmed merge completes the original delivery regardless of this
-   * recorded check state. Further CI repair is separate work, never an automatic implementation retry.
+   * Check-observation target: false (default) reads PR-head checks (Azure DevOps: PR statuses);
+   * true reads merge-commit checks after merge (GitHub check runs/statuses; Azure DevOps commit
+   * statuses + builds of the merge commit). A confirmed merge completes the original delivery
+   * regardless of this recorded check state; failing merge-commit checks create a backlog follow-up.
    */
   postMergeChecks: z.boolean().default(false),
   /** Cap for the per-task exponential error backoff, seconds. */

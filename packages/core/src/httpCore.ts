@@ -1,5 +1,6 @@
 import { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
 import { GitError } from './git.js';
+import { AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER, COORDINATED_RESTART } from './types.js';
 import type { createCore } from './index.js';
 
 /**
@@ -21,6 +22,18 @@ type Asyncified<T> = {
 export interface BoardIdentity {
   label: string;
   supervisor: boolean;
+  /** Wire capabilities the board speaks — absent on a board that predates them. */
+  capabilities?: readonly string[] | undefined;
+}
+
+/**
+ * Supervisor startup gate: throw (naming the coordinated restart) when the board's whoami lacks a
+ * capability this build requires — including a pre-fence board whose body has no `capabilities`.
+ * The board refuses the reverse mismatch itself: see the whoami route.
+ */
+export function assertBoardCapabilities(id: BoardIdentity): void {
+  const missing = AGENT_CAPABILITIES.filter((c) => !(id.capabilities ?? []).includes(c));
+  if (missing.length > 0) throw new Error(`board is missing ${missing.join(', ')}; ${COORDINATED_RESTART}`);
 }
 
 /** Every op a remote MCP server or supervisor drives over HTTP (the §3.5 cut, verified per consumer).
@@ -28,12 +41,13 @@ export interface BoardIdentity {
  *  only exists on the wire — hence the intersection rather than a wider Pick. */
 export type HttpCore = Pick<
   Asyncified<SyncCore>,
-  | 'claimNextTask' | 'submitResult' | 'createTask' | 'importTask'
+  | 'claimNextTask' | 'submitResult' | 'createTask' | 'importTask' | 'reserveExecution' | 'reconcileExecutions' | 'touchExecution' | 'getCurrentExecution'
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
   | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
-  | 'beginDelivery' | 'recordDeliveryCheck' | 'completeDelivery' | 'failDelivery'
+  | 'getAgentModels' | 'reportAgentModelDefaults'
+  | 'beginDelivery' | 'recordDeliveryCheck' | 'recordDeliveryCheckFailure' | 'completeDelivery' | 'failDelivery' | 'issueRevisionReadTicket'
   | 'listTasks' | 'getTask' | 'listWorkspaces' | 'getAttachment' | 'attachVisualization'
   | 'recordIntakeAssessment' | 'beginIntakeAssessment' | 'intakeRuntimeSettings'
 > & {
@@ -72,12 +86,13 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     throw errorFrom(res.status, message);
   };
 
-  const req = async (method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<unknown> => {
+  const req = async (method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<unknown> => {
     const init: RequestInit = {
       method,
       headers: {
         authorization: `Bearer ${token}`,
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...headers,
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeoutMs),
@@ -88,24 +103,39 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
   };
 
   const enc = encodeURIComponent;
+  const executions = new Map<string, string>();
+  const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
+    if (input.executionId !== undefined) return input;
+    const executionId = executions.get(key);
+    return executionId === undefined ? input : { ...input, executionId };
+  };
 
   return {
     // ── identity ─────────────────────────────────────────────────────────────
-    whoami: async () => (await req('GET', '/api/agent/whoami')) as BoardIdentity,
+    // the startup request advertises this build's capabilities; the board refuses a build lacking one
+    whoami: async () => (await req('GET', '/api/agent/whoami', undefined, { [AGENT_CAPABILITIES_HEADER]: AGENT_CAPABILITIES.join(',') })) as BoardIdentity,
 
     // ── claim / deliver ──────────────────────────────────────────────────────
-    claimNextTask: async (o = {}) => (await req('POST', '/api/agent/claim', o)) as never,
-    submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, input)) as never,
+    claimNextTask: async (o = {}) => {
+      const claim = (await req('POST', '/api/agent/claim', o)) as { key?: string; executionId?: string } | null;
+      if (claim?.key !== undefined && claim.executionId !== undefined) executions.set(claim.key, claim.executionId);
+      return claim as never;
+    },
+    reserveExecution: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/execution/reserve`, input)) as never,
+    reconcileExecutions: async (graceMs) => ((await req('POST', '/api/agent/executions/reconcile', { graceMs })) as { count: number }).count,
+    getCurrentExecution: async (key) => (await req('GET', `/api/agent/tasks/${enc(key)}/execution`)) as never,
+    touchExecution: async (id) => ((await req('POST', `/api/agent/executions/${enc(id)}/touch`, {})) as { touched: boolean }).touched,
+    submitResult: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/submit`, fenced(key, input))) as never,
     createTask: async (input) => (await req('POST', '/api/agent/tasks', input)) as never,
     importTask: async (input) => (await req('POST', '/api/agent/import-task', input)) as never,
 
     // ── narration / lifecycle ────────────────────────────────────────────────
-    reportProgress: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/progress`, input); },
-    addComment: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/comments`, input)) as never,
-    updateStatus: async (key, status, _actor, _actorUserId, note) =>
+    reportProgress: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/progress`, fenced(key, input)); },
+    addComment: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/comments`, fenced(key, input))) as never,
+    updateStatus: async (key, status, _actor, _actorUserId, note, executionId) =>
       // the server derives the actor from the token — the local-signature actor is ignored on the wire
-      (await req('POST', `/api/agent/tasks/${enc(key)}/status`, { status, note })) as never,
-    releaseClaim: async (key) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, {})) as never,
+      (await req('POST', `/api/agent/tasks/${enc(key)}/status`, fenced(key, { status, note, ...(executionId !== undefined ? { executionId } : {}) }))) as never,
+    releaseClaim: async (key, _now, executionId) => (await req('POST', `/api/agent/tasks/${enc(key)}/release-claim`, fenced(key, executionId === undefined ? {} : { executionId }))) as never,
     reserveRetry: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/retry/reserve`, input)) as never,
     reconcileRetry: async (id, input) => (await req('POST', `/api/agent/retry/${enc(id)}/reconcile`, input)) as never,
     reconcileAbandonedRetryReservations: async (graceMs) => ((await req('POST', '/api/agent/retry/reconcile-abandoned', { graceMs })) as { count: number }).count,
@@ -119,9 +149,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     beginIntakeAssessment: async (key, revision, maxAttempts) => (await req('POST', `/api/agent/tasks/${enc(key)}/intake/begin`, { revision, maxAttempts })) as never,
 
     // ── transcript / session / metrics ───────────────────────────────────────
-    appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, input); },
-    saveTranscript: async (key, input) => { await req('PUT', `/api/agent/tasks/${enc(key)}/transcript`, input); },
-    addTaskMetrics: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/metrics`, input)) as never,
+    appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, fenced(key, input)); },
+    saveTranscript: async (key, input) => { await req('PUT', `/api/agent/tasks/${enc(key)}/transcript`, fenced(key, input)); },
+    addTaskMetrics: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/metrics`, fenced(key, input))) as never,
     touchAgentSession: async (key) => { await req('POST', `/api/agent/tasks/${enc(key)}/session/touch`, {}); },
     endAgentSession: async (key) => { await req('POST', `/api/agent/tasks/${enc(key)}/session/end`, {}); },
     listLiveAgents: async () => (await req('GET', '/api/agent/live-agents')) as never,
@@ -132,12 +162,17 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
       ((await req('GET', `/api/agent/prompts/${enc(key)}?workspace=${enc(workspace)}`)) as { prompt: string }).prompt,
     resolveGitAuth: async (workspace) => (await req('GET', `/api/agent/workspaces/${enc(workspace)}/git-auth`)) as never,
     getEngineSettings: async () => (await req('GET', '/api/agent/engines')) as never,
+    getAgentModels: async () => (await req('GET', '/api/agent/agent-models')) as never,
+    reportAgentModelDefaults: async (report) => { await req('POST', '/api/agent/agent-models/defaults', report); },
     getWorkspacePat: async (workspace) =>
       ((await req('GET', `/api/agent/workspaces/${enc(workspace)}/pat`)) as { pat: string | null }).pat,
 
     // ── delivery (watcher) ───────────────────────────────────────────────────
     beginDelivery: async (key, seed) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/begin`, seed)) as never,
+    issueRevisionReadTicket: async (key, submissionId) =>
+      (await req('POST', `/api/agent/tasks/${enc(key)}/revision/read-ticket`, submissionId !== undefined ? { submissionId } : {})) as never,
     recordDeliveryCheck: async (key, obs) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check`, obs)) as never,
+    recordDeliveryCheckFailure: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/check-failed`, input)) as never,
     completeDelivery: async (key, note, expectedStateChangedAt) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/complete`, { note, ...(expectedStateChangedAt !== undefined ? { expectedStateChangedAt } : {}) })) as never,
     failDelivery: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/delivery/fail`, input)) as never,
 
@@ -164,7 +199,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     attachVisualization: async (key, input) => {
       const res = await fetchImpl(`${base}/api/tasks/${enc(key)}/visualization`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'text/html', ...((fenced(key, input).executionId) ? { 'x-agentfactory-execution-id': fenced(key, input).executionId } : {}),
+        // the depicted revision rides headers, since the body is the raw HTML
+        ...(input.revision ? { 'x-agentfactory-submission-id': String(input.revision.submissionId), ...(input.revision.headSha ? { 'x-agentfactory-head-sha': input.revision.headSha } : {}) } : {}) },
         body: input.html,
         signal: AbortSignal.timeout(timeoutMs),
       });

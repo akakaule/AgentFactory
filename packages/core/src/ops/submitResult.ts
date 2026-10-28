@@ -11,16 +11,20 @@ import { NotFoundError, ValidationError, InvalidTransitionError } from '../error
 import { reconcileMergedDelivery } from './delivery.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
-import { parseAcceptanceCriteria } from '../acceptanceCriteria.js';
+import { assertExecutionOwnership, executionById, isLatestOfPhase, settleExecution } from '../repo/execution.js';
+import { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA } from '../acceptanceCriteria.js';
 import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
+import { insertSubmission, contentHash } from '../repo/submissions.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
  * stage a rewritten spec + acceptance criteria, the plan stage the implementation
  * plan, the implementation stage the code (summary + links). The error text is the
- * agent's only feedback over MCP — it names the stage and the expected fields.
+ * agent's only feedback over MCP — it names the stage and the expected fields. An implementation
+ * task whose spec stage was skipped still has the placeholder criteria: only then does its submit
+ * carry the acceptanceCriteria the worker wrote.
  */
-function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCriteria: string | undefined, plan: string | undefined, verification: string | undefined, criteria: CriterionClaim[] | undefined): void {
+function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCriteria: string | undefined, plan: string | undefined, verification: string | undefined, criteria: CriterionClaim[] | undefined, currentCriteria: string): void {
   switch (stage) {
     case 'description':
       if (spec === undefined || acceptanceCriteria === undefined || plan !== undefined || verification !== undefined || criteria !== undefined)
@@ -31,8 +35,10 @@ function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCrit
         throw new ValidationError('plan stage submit delivers the implementation plan: pass { summary, plan }; spec/acceptanceCriteria/verification/criteria are not accepted');
       return;
     case 'implementation':
-      if (spec !== undefined || acceptanceCriteria !== undefined || plan !== undefined)
-        throw new ValidationError('implementation stage submit delivers code: pass { summary, links, verification, criteria }; spec/acceptanceCriteria/plan are not accepted');
+      if (spec !== undefined || plan !== undefined)
+        throw new ValidationError('implementation stage submit delivers code: pass { summary, links, verification, criteria }; spec/plan are not accepted');
+      if (acceptanceCriteria !== undefined && currentCriteria !== PLACEHOLDER_ACCEPTANCE_CRITERIA)
+        throw new ValidationError('this task already has acceptance criteria: acceptanceCriteria is only accepted when the spec stage was skipped');
       return;
   }
 }
@@ -56,14 +62,31 @@ export function submitResult(
   input: SubmitResultInput,
   now: () => string = nowIso,
 ): TaskDetail {
-  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria } = parse(submitResultSchema, input);
+  const { summary, claimAt, links, spec, acceptanceCriteria, plan, verification, criteria, executionId, revision } = parse(submitResultSchema, input);
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
+    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria, row.acceptance_criteria);
+    if (criteria) assertCriterionIds(acceptanceCriteria ?? row.acceptance_criteria, criteria);
+    if (revision !== undefined && row.stage !== 'implementation')
+      throw new ValidationError(`${row.stage} stage submit carries no git revision; its identity is the submitted content`);
+
+    // A response can be lost after the transaction commits. A retry of that same successful
+    // execution is an acknowledgement, not a second result — also once the reviewer has reserved
+    // the submitted task (another phase). A newer worker execution makes the old identity stale,
+    // and a retry with a different summary is refused rather than silently dropped.
+    const own = executionId === undefined ? undefined : executionById(db, executionId);
+    if (own !== undefined && own.task_id === row.id && own.state === 'succeeded' && row.status === 'in_review' && isLatestOfPhase(db, own)) {
+      if (row.result_summary !== summary)
+        throw new InvalidTransitionError(`${key} already holds the result execution ${own.id} submitted; a different retry is not applied`);
+      return toDetail(db, row);
+    }
+
+    const current = assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
+    if (executionId !== undefined && current === undefined)
+      throw new InvalidTransitionError(`execution ${executionId} is not running`);
     assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
     if (claimAt !== undefined && row.claimed_at !== claimAt) throw new InvalidTransitionError(`stale claim for ${key}`);
-    assertStageShape(row.stage, spec, acceptanceCriteria, plan, verification, criteria);
-    if (criteria) assertCriterionIds(row.acceptance_criteria, criteria);
     // Verification gate: when the workspace configures a verify command, the implementation stage
     // must report having run it (attestation — the worktree is gone by submit, so the server can't
     // re-run it here). No command configured ⇒ no gate, preserving today's behaviour.
@@ -87,9 +110,20 @@ export function submitResult(
       applyEdit(db, row.id, { spec: spec!, acceptanceCriteria: acceptanceCriteria! }, ts);
     }
     else if (row.stage === 'plan') setPlan(db, row.id, plan!, ts);
+    else if (acceptanceCriteria !== undefined) applyEdit(db, row.id, { acceptanceCriteria }, ts); // spec stage skipped: the worker wrote them
     setStatus(db, row.id, 'in_review', ts);
     setResultSummary(db, row.id, summary, ts);
     endSession(db, row.id, ts); // the agent finished — drop it from the live view
+    if (executionId !== undefined) settleExecution(db, executionId, 'succeeded', ts, 'result submitted');
+    // The handed-over revision, kept apart from the worktree/branch so cleanup can't erase it:
+    // the pushed head/base for code (unknown when the submit guard could not resolve it), the
+    // content hash for a doc stage.
+    insertSubmission(db, {
+      taskId: row.id, stage: row.stage, executionId: executionId ?? null, branch: row.branch,
+      headSha: revision?.headSha ?? null, baseSha: revision?.baseSha ?? null,
+      contentHash: contentHash(row.stage, findRowByKey(db, key)!), // hash what was stored, after the edit
+      source: row.stage !== 'implementation' ? 'content' : revision?.source ?? 'unknown', ts,
+    });
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     // the claim per criterion rides right after the result it belongs to (criteriaClaimsFor reads it)

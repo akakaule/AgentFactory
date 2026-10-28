@@ -20,8 +20,8 @@ const failBody = (over: Partial<{ reason: string; attempt: number; maxAttempts: 
 function driveToInProgress(db: ReturnType<typeof makeTestDb>, title = 'T') {
   const task = createTask(db, { title, spec: 'S', acceptanceCriteria: 'A' }, at(0));
   updateStatus(db, task.key, 'queued', 'human', at(10));
-  claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
-  return task;
+  const claim = claimNextTask(db, { claimedBy: 'worker-1' }, at(30));
+  return { ...task, executionId: claim!.executionId };
 }
 
 describe('derived failure field', () => {
@@ -36,7 +36,7 @@ describe('derived failure field', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
     // dispatcher releases a crashed claim: posts the failure note, then re-queues
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'timeout', attempt: 1, maxAttempts: 2 }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'timeout', attempt: 1, maxAttempts: 2 }), executionId: task.executionId }, at(95));
     updateStatus(db, task.key, 'queued', 'human', at(96));
 
     const f = getTask(db, task.key).failure!;
@@ -50,8 +50,8 @@ describe('derived failure field', () => {
   it('flags skipListed on the max_attempts note', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed', attempt: 2, maxAttempts: 2 }) }, at(95));
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'max_attempts', attempt: 2, maxAttempts: 2 }) }, at(96));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed', attempt: 2, maxAttempts: 2 }), executionId: task.executionId }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'max_attempts', attempt: 2, maxAttempts: 2 }), executionId: task.executionId }, at(96));
     updateStatus(db, task.key, 'queued', 'human', at(97));
     expect(getTask(db, task.key).failure).toMatchObject({ reason: 'max_attempts', skipListed: true });
   });
@@ -59,18 +59,18 @@ describe('derived failure field', () => {
   it('clears once a later result supersedes it (a retry succeeded)', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed', attempt: 1, maxAttempts: 2 }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed', attempt: 1, maxAttempts: 2 }), executionId: task.executionId }, at(95));
     updateStatus(db, task.key, 'queued', 'human', at(96));
     // a fresh claim succeeds → result postdates the failure note → failure cleared
-    claimNextTask(db, { claimedBy: 'worker-2' }, at(100));
-    submitResult(db, task.key, { summary: 'fixed on retry' }, at(120));
+    const retry = claimNextTask(db, { claimedBy: 'worker-2' }, at(100));
+    submitResult(db, task.key, { summary: 'fixed on retry', executionId: retry!.executionId }, at(120));
     expect(getTask(db, task.key).failure).toBeNull();
   });
 
   it('clears once an operator restart supersedes it (the board Restart action)', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'max_attempts', attempt: 2, maxAttempts: 2 }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'max_attempts', attempt: 2, maxAttempts: 2 }), executionId: task.executionId }, at(95));
     updateStatus(db, task.key, 'queued', 'human', at(96));
     expect(getTask(db, task.key).failure).toMatchObject({ skipListed: true });
     // restart posts a restart/v1 marker that postdates the failure note → derived failure cleared
@@ -83,7 +83,7 @@ describe('derived failure field', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
     addComment(db, task.key, { actor: 'human', body: 'looks like it failed/v1 maybe' }, at(95));
-    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 broken\n{ not json' }, at(96));
+    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 broken\n{ not json', executionId: task.executionId }, at(96));
     expect(getTask(db, task.key).failure).toBeNull();
   });
 
@@ -92,8 +92,8 @@ describe('derived failure field', () => {
   it('a newer malformed marker hides an older well-formed failure', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }) }, at(95));
-    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 broken\n{ not json' }, at(96));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }), executionId: task.executionId }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: 'failure/v1 broken\n{ not json', executionId: task.executionId }, at(96));
     expect(getTask(db, task.key).failure).toBeNull();
     expect(listTasks(db).find((t) => t.key === task.key)!.failure).toBeNull();
   });
@@ -101,7 +101,7 @@ describe('derived failure field', () => {
   it('a later unrelated comment does not clear the failure', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }), executionId: task.executionId }, at(95));
     addComment(db, task.key, { actor: 'human', body: 'looking into it' }, at(96));
     expect(getTask(db, task.key).failure).toMatchObject({ reason: 'crashed' });
   });
@@ -109,15 +109,15 @@ describe('derived failure field', () => {
   it('a later ai-review marker clears a failure (a reviewer crash superseded by a review)', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'review_failed' }) }, at(95));
-    addComment(db, task.key, { actor: 'agent', body: 'ai-review/v1\n```json\n{"verdict":"findings","items":[{"severity":"minor","title":"x"}]}\n```' }, at(96));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'review_failed' }), executionId: task.executionId }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: 'ai-review/v1\n```json\n{"verdict":"findings","items":[{"severity":"minor","title":"x"}]}\n```', executionId: task.executionId }, at(96));
     expect(getTask(db, task.key).failure).toBeNull();
   });
 
   it('still surfaces a failure older than the recent-activity window', () => {
     const db = makeTestDb();
     const task = driveToInProgress(db);
-    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }) }, at(95));
+    addComment(db, task.key, { actor: 'agent', body: failBody({ reason: 'crashed' }), executionId: task.executionId }, at(95));
     for (let i = 0; i < 60; i++) addComment(db, task.key, { actor: 'human', body: `note ${i}` }, at(100 + i));
     const detail = getTask(db, task.key);
     expect(detail.activity.some((a) => a.body.startsWith('failure/v1'))).toBe(false);

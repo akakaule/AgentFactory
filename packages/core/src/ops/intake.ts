@@ -1,12 +1,13 @@
 import type { DB } from '../db.js';
 import type { Activity, IntakeAssessmentV1, IntakeSettings, TaskDetail, RetryReservation } from '../types.js';
 import { transaction } from '../transaction.js';
-import { findRowByKey, intakeForTask, toDetail } from '../repo/tasks.js';
+import { findRowByKey, intakeForTask, setStage, toDetail } from '../repo/tasks.js';
+import { currentExecution, operationPhase } from '../repo/execution.js';
 import { appendActivity, intakeMarkerActivities } from '../repo/activity.js';
 import { NotFoundError, InvalidTransitionError, ValidationError } from '../errors.js';
 import { updateStatusWithinTransaction } from './updateStatus.js';
 import { nowIso } from '../time.js';
-import { buildIntakeComment, buildIntakeOverrideComment, intakeRevision, parseIntakeComment, validateIntakeAssessment } from '../intake.js';
+import { buildIntakeComment, buildIntakeOverrideComment, intakeRevision, parseIntakeComment, skipSpecDecision, SKIP_SPEC_NOTE_PREFIX, validateIntakeAssessment } from '../intake.js';
 import { getIntakeSettings } from './intakeSettings.js';
 import { intakeEnabledFor } from '../intakeSettings.js';
 import { activeRetryAttempt, markRetryRunning, reserveRetry as reserveRetryRow, settleRetry as settleRetryRow } from '../repo/retry.js';
@@ -96,7 +97,29 @@ export function recordIntakeAssessment(db: DB, key: string, input: unknown, now:
     appendActivity(db, { taskId: row.id, type: 'comment', actor: 'agent', body: buildIntakeComment(assessment), createdAt: ts });
     db.prepare('UPDATE task SET updated_at = ? WHERE id = ?').run(ts, row.id);
     if (assessment.attemptId) settleRetryRow(db, assessment.attemptId, assessment.status === 'assessed' ? 'succeeded' : 'failed', ts, assessment.status === 'unavailable' ? assessment.error.kind : undefined);
+    skipSpecIfSimple(db, row, assessment, settings, ts);
     return assessment;
+  });
+}
+
+/**
+ * The one routing decision intake makes (`skipSpec`, off by default): a queued spec-stage task
+ * assessed as simple goes straight to implementation, where the worker writes its acceptance
+ * criteria. Only work no agent has started moves — a live dispatcher/worker execution (the hold
+ * failed open before this assessment landed) keeps the spec stage. The note is a queued → queued
+ * status change so the trail shows the stage advance; the implementation hold recognises it
+ * (SKIP_SPEC_NOTE_PREFIX) and does not hold the task again for its changed revision.
+ */
+function skipSpecIfSimple(db: DB, row: ReturnType<typeof requireTask>, assessment: IntakeAssessmentV1, settings: IntakeSettings, ts: string): void {
+  if (row.status !== 'queued' || row.stage !== 'description') return;
+  const decision = skipSpecDecision(assessment, settings);
+  if (!decision) return;
+  const live = currentExecution(db, row.id);
+  if (live && operationPhase(live.operation) === 'queued') return;
+  setStage(db, row.id, 'implementation', ts);
+  appendActivity(db, {
+    taskId: row.id, type: 'status_change', actor: 'agent', fromStatus: 'queued', toStatus: 'queued', createdAt: ts,
+    body: `${SKIP_SPEC_NOTE_PREFIX} (${decision.reason}); stage description → implementation`,
   });
 }
 
@@ -140,7 +163,8 @@ export function overrideIntake(db: DB, key: string, input: { expectedRevision: s
 export function queueWithIntakeAcknowledgment(db: DB, key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const row = requireTask(db, key);
-    if (row.status !== 'backlog') throw new InvalidTransitionError('only backlog tasks can be queued');
+    // Reopening a cancelled task queues it just like a backlog one, so it passes the same gate.
+    if (row.status !== 'backlog' && row.status !== 'cancelled') throw new InvalidTransitionError('only backlog or cancelled tasks can be queued this way');
     const summary = intakeForTask(db, row);
     const settings = getIntakeSettings(db);
     const needsOverride = summary?.state === 'current' && summary.policy?.eligibility === 'attention_required' && !summary.overridden;

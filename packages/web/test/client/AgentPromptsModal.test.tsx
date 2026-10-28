@@ -9,6 +9,8 @@ vi.mock('../../client/src/api.js', () => ({
     setAgentPrompts: vi.fn().mockResolvedValue({}),
     getEngineSettings: vi.fn().mockResolvedValue({ claude: { enabled: true }, codex: { enabled: false } }),
     setEngineSettings: vi.fn().mockResolvedValue({ claude: { enabled: true }, codex: { enabled: true } }),
+    getAgentModels: vi.fn().mockResolvedValue({ settings: { global: {}, workspaces: {} }, defaults: {}, catalog: [] }),
+    setAgentModels: vi.fn(),
   },
 }));
 import { api } from '../../client/src/api.js';
@@ -20,6 +22,7 @@ describe('AgentPromptsModal — global agent system prompts', () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
     render(<AgentPromptsModal onClose={onClose} />);
+    await user.click(screen.getByRole('tab', { name: 'System prompts' }));
 
     // pre-filled from getAgentPrompts, editable
     const reviewer = await screen.findByDisplayValue('existing reviewer prompt');
@@ -52,6 +55,7 @@ describe('AgentPromptsModal — global agent system prompts', () => {
   it('"Insert example" fills a field with the sample and Save sends it', async () => {
     const user = userEvent.setup();
     render(<AgentPromptsModal onClose={() => {}} />);
+    await user.click(screen.getByRole('tab', { name: 'System prompts' }));
     await screen.findByDisplayValue('existing reviewer prompt'); // loaded
 
     // the Worker · Implementation field starts blank; its Insert-example button fills it

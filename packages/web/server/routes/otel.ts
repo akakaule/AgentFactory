@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { priceUsage } from '@agentfactory/core';
 import type { Core } from '../types.js';
 import type { TelemetryStore } from '../telemetry.js';
 
@@ -51,7 +52,9 @@ function extract(rec: LogRecord): TokenHit | null {
   const a = rec.attributes;
   const name = eventNameOf(rec);
 
-  if (name === 'claude_code.api_request') {
+  // Claude Code 2.x sets `event.name` to the UNPREFIXED "api_request" and keeps the prefixed
+  // name in `body` — so `eventNameOf` alone (attribute first, for codex) would miss it.
+  if (name === 'claude_code.api_request' || asStr(rec.body) === 'claude_code.api_request') {
     const input = asNum(attrOf(a, 'input_tokens')) ?? 0;
     const output = asNum(attrOf(a, 'output_tokens')) ?? 0;
     const cacheRead = asNum(attrOf(a, 'cache_read_tokens')) ?? 0;
@@ -86,6 +89,8 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
     const headerKey = c.req.header('x-task-key')?.trim() || undefined;
     let payload: OtlpLogs;
     try { payload = (await c.req.json()) as OtlpLogs; } catch { return c.json({}, 200); }
+    // Codex reports token counts but no cost: price those from the board's table (Claude's own wins).
+    const prices = core.getModelPrices();
 
     for (const rl of payload.resourceLogs ?? []) {
       // Resource attributes the dispatcher stamps once per session (otel block in its config).
@@ -98,6 +103,10 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
           if (!hit) continue;
           const key = headerKey ?? resourceKey ?? asStr(attrOf(rec.attributes, 'task.key'));
           if (!key) continue; // unattributed — drop from both the live feed and the durable aggregate
+          if (hit.costUsd === undefined && hit.model !== undefined) {
+            const cost = priceUsage(prices, hit.model, hit);
+            if (cost !== undefined) hit.costUsd = cost;
+          }
 
           // Live feed: every task-attributed event, for "what's flowing right now" visibility.
           telemetry?.add({
@@ -118,7 +127,12 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
           };
           if (hit.model !== undefined) input.model = hit.model;
           if (hit.costUsd !== undefined) input.costUsd = hit.costUsd;
-          try { core.addTaskMetrics(key, input); } catch { /* unknown task / invalid — skip this event */ }
+          try {
+            // This authenticated ingest is the board's own token source, not an agent claimant:
+            // it rides the task's current execution so a live worker's usage still lands.
+            const execution = core.getCurrentExecution(key);
+            core.addTaskMetrics(key, execution ? { ...input, executionId: execution.id } : input);
+          } catch { /* unknown task / invalid — skip this event */ }
         }
       }
     }

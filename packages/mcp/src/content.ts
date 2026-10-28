@@ -31,11 +31,12 @@ export function forAgent<T extends Task>(task: T): T {
 }
 
 /**
- * A review's verdict and finding count, with no finding content — what `list_tasks` keeps so an
- * MCP reviewer (/review-task) can tell which in-review tasks still need a review (none, or pending).
+ * A review's verdict, finding count and revision binding, with no finding content — what
+ * `list_tasks` keeps so an MCP reviewer (/review-task) can tell which in-review tasks still need a
+ * review (none, or pending — but not a stale/unverified one only a resubmission can fix).
  */
 export function verdictOnly(review: AiReviewSummary | null): AiReviewSummary | null {
-  return review ? { verdict: review.verdict, findings: review.findings, reviewer: review.reviewer, items: [] } : null;
+  return review ? { verdict: review.verdict, findings: review.findings, reviewer: review.reviewer, items: [], ...(review.binding ? { binding: review.binding } : {}) } : null;
 }
 
 /**

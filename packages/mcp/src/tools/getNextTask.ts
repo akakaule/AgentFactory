@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseAcceptanceCriteria } from '@agentfactory/core';
+import { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA } from '@agentfactory/core';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpCore } from '../types.js';
 import { localizeRepo, taskGitEnabled, type ServerOptions } from '../server.js';
@@ -24,6 +24,10 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
     },
     async ({ workspace }) => {
       try {
+        // A claim starts (or resumes) the worker's current task; never reuse the
+        // previous task's execution fence when polling after release/reclaim.
+        // Pending supervisor reservations are adopted by claimNextTask itself.
+        opts.executionContext?.set(undefined);
         const claimed = await core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel,
           taskKey: opts.taskKey, stage: opts.stage });
         if (claimed === null) {
@@ -36,6 +40,7 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
             ],
           };
         }
+        opts.executionContext?.set(claimed.executionId);
         // branchCreated is the create-vs-reuse signal for the protocol; it must not
         // ride along in the serialized task detail.
         const { branchCreated, ...task } = localizeRepo(claimed, opts);
@@ -57,7 +62,9 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
             managedGit: taskGitEnabled(opts),
             ...(base ? { base } : {}),
             ...(task.verifyCommand ? { verifyCommand: task.verifyCommand } : {}),
-            criteria: parseAcceptanceCriteria(task.acceptanceCriteria).items.map(({ id, name }) => ({ id, name })),
+            ...(task.acceptanceCriteria === PLACEHOLDER_ACCEPTANCE_CRITERIA
+              ? { defineCriteria: true } // spec stage skipped: never ask for a claim on the placeholder
+              : { criteria: parseAcceptanceCriteria(task.acceptanceCriteria).items.map(({ id, name }) => ({ id, name })) }),
           });
         }
         return { content: await detailContent(core, task, protocol ? { protocol } : undefined) };

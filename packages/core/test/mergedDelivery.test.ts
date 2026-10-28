@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createCore, InvalidTransitionError, reviewApprove, type Status } from '../src/index.js';
 import { makeTestDb } from './helpers.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
+import { getTask } from '../src/ops/getTask.js';
 
 const prUrl = 'https://github.com/acme/widgets/pull/42';
 const merged = { prUrl, prId: '#42', prState: 'merged' as const, checksState: 'failing' as const,
@@ -13,7 +15,7 @@ function fixture(status: Status = 'blocked') {
   core.updateStatus(key, 'queued', 'human');
   core.claimNextTask({ claimedBy: 'worker' });
   core.submitResult(key, { summary: 'original fix', links: [{ kind: 'pr', label: '#42', url: prUrl }] });
-  core.reviewApprove(key);
+  core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
   if (status !== 'delivering') {
     core.failDelivery(key, { reason: 'ci_failed', detail: 'verify failed' });
     if (status !== 'queued') core.claimNextTask({ claimedBy: 'repair' });
@@ -110,7 +112,7 @@ describe('merged delivery recovery', () => {
     core.submitResult(key, { summary: 'new work', links: [{ kind: 'pr', label: '#43', url: prUrl.replace('42', '43') }] });
     core.recordDeliveryCheck(key, merged);
     expect(core.getTask(key).status).toBe('in_review');
-    core.reviewApprove(key);
+    core.reviewApprove(key, undefined, undefined, expectedRevisionOf(core.getTask(key)));
     expect(core.getTask(key).delivery?.prUrl).toContain('/43');
   });
 
@@ -126,7 +128,7 @@ describe('merged delivery recovery', () => {
     expect(() => reviewApprove(db, key, undefined, null, () => {
       core.recordDeliveryCheck(key, merged);
       return 'https://github.com/acme/widgets.git';
-    })).toThrow(InvalidTransitionError);
+    }, undefined, expectedRevisionOf(getTask(db, key)))).toThrow(InvalidTransitionError);
     expect(core.getTask(key)).toMatchObject({ status: 'done', delivery: { prState: 'merged' } });
   });
 

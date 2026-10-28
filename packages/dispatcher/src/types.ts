@@ -1,5 +1,14 @@
-import type { EngineSettings } from '@agentfactory/core';
-import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey, RetryReservation } from '@agentfactory/core';
+import type { EngineSettings, AgentModels, AgentModelDefaultsReport } from '@agentfactory/core';
+import type { Status, Actor, Task, Workspace, TaskDetail, Activity, AgentSessionView, AddTaskMetricsInput, UpsertSupervisor, AppendTranscriptInput, SaveTranscriptInput, GitAuth, AgentPromptKey } from '@agentfactory/core';
+
+export interface ExecutionLike {
+  id: string; taskKey: string; operation: string; generation: number; attempt: number; maxAttempts: number;
+  state: 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled'; reservedAt: string;
+}
+export interface RetryReservationLike {
+  id: string; taskKey: string; operation: string; generation: number; attempt: number; maxAttempts: number;
+  state: 'reserved' | 'running' | 'succeeded' | 'failed' | 'cancelled'; reservedAt: string;
+}
 
 /** T or a promise of T — a sync core and the networked HttpCore both satisfy the slice (#45);
  *  the supervisor awaits every call. */
@@ -21,17 +30,27 @@ export interface DispatcherCore {
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
   getEngineSettings(): Awaitable<EngineSettings>;
+  /** Board per-role engine/model/effort (app_kv agent_models), re-read every tick. Optional: a
+   *  core without it leaves the dispatcher on its config file alone. */
+  getAgentModels?(): Awaitable<AgentModels>;
+  /** Report this dispatcher's config-file model defaults so the board can show them. */
+  reportAgentModelDefaults?(report: AgentModelDefaultsReport): Awaitable<void>;
   // claim recovery: the system release edge (crash/timeout reaper + stale-claim scan) — a
   // dedicated op so the supervisor never asserts actor:'human' itself (#45 actor-from-token rule)
-  releaseClaim(key: string): Awaitable<TaskDetail>;
+  releaseClaim(key: string, now?: () => string, executionId?: string): Awaitable<TaskDetail>;
   completeDelivery(key: string, note: string): Awaitable<TaskDetail>;
-  reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
-  reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
+  reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }): Awaitable<ExecutionLike | null>;
+  reconcileExecutions?(graceMs: number): Awaitable<number>;
+  touchExecution?(id: string): Awaitable<boolean>;
+  /** The claim's current execution — how a restarted supervisor fences the release of an orphan it never spawned. */
+  getCurrentExecution?(key: string): Awaitable<{ id: string } | null>;
+  reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;
+  reconcileRetry?(id: string, input: { actualKey: string; operation: string; maxAttempts: number }): Awaitable<RetryReservationLike | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   getRetryBudget?(key: string, operation: string): Awaitable<{ maxAttempts: number; attemptsUsed: number } | null>;
   recordRetryFailure?(key: string, input: { operation: string; maxAttempts: number; attempt: number; reason: string }): Awaitable<void>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
-  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  addComment(key: string, input: { actor: Actor; body: string; executionId?: string }): Awaitable<Activity>;
   addTaskMetrics(key: string, input: AddTaskMetricsInput): Awaitable<TaskDetail>;
   // live agent status: keep a running session warm, and end it when the process exits
   touchAgentSession(key: string): Awaitable<void>;

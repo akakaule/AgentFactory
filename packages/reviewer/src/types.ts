@@ -1,4 +1,4 @@
-import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, EngineSettings } from '@agentfactory/core';
+import type { Status, Actor, Task, TaskDetail, Activity, BranchDiff, UpsertSupervisor, Workspace, AgentPromptKey, VisualizationMeta, RetryReservation, Execution, EngineSettings, AgentModels, AgentModelDefaultsReport } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
 /**
@@ -20,12 +20,19 @@ export interface ReviewerCore {
   resolveAgentPrompt(key: AgentPromptKey, workspace: string): Awaitable<string>;
   /** Board-wide engine availability, re-read every tick so an operator toggle applies live. */
   getEngineSettings(): Awaitable<EngineSettings>;
-  addComment(key: string, input: { actor: Actor; body: string }): Awaitable<Activity>;
+  /** Board per-role engine/model/effort (app_kv agent_models), re-read every tick. Optional: a
+   *  core without it leaves the reviewer on its config file alone. */
+  getAgentModels?(): Awaitable<AgentModels>;
+  /** Report this reviewer's config-file model defaults so the board can show them. */
+  reportAgentModelDefaults?(report: AgentModelDefaultsReport): Awaitable<void>;
+  addComment(key: string, input: { actor: Actor; body: string; executionId?: string | undefined }): Awaitable<Activity>;
+  reserveExecution?(key: string, input: { operation: string; maxAttempts: number; owner?: string | null | undefined; startImmediately?: boolean | undefined }): Awaitable<Execution | null>;
+  touchExecution?(id: string): Awaitable<boolean>;
   reserveRetry(key: string, input: { operation: string; maxAttempts: number }): Awaitable<RetryReservation | null>;
   reconcileAbandonedRetryReservations?(graceMs: number): Awaitable<number>;
   settleRetry(id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }): Awaitable<boolean>;
   // store (or replace) a task's auto-generated change-visualization HTML (no actor axis)
-  attachVisualization(key: string, input: { html: string }): Awaitable<VisualizationMeta>;
+  attachVisualization(key: string, input: { html: string; executionId?: string | undefined; revision?: { submissionId: number; headSha: string | null } | undefined }): Awaitable<VisualizationMeta>;
   // supervisor health: report a heartbeat each poll so the board knows the reviewer is alive
   recordSupervisorHeartbeat(input: UpsertSupervisor): Awaitable<void>;
 }
@@ -73,6 +80,9 @@ export interface ReviewerDeps {
   /** Fetches a ref from origin into refs/remotes/origin/<ref> (production: core's `fetchRemoteRef`);
    *  used for pr-review tasks whose PR head isn't in the local store before diffing. */
   fetchRef: (repoPath: string, ref: string) => Promise<void>;
+  /** Diffs one recorded revision, base..head exactly as submitted (production: core's
+   *  `revisionDiff`); throws NotFoundError when the commits are not in the local clone. */
+  revisionDiff: (repoPath: string, baseSha: string, headSha: string) => Promise<BranchDiff>;
   /** Opens a per-review transcript log file. */
   openLog: (path: string) => LogWriter;
   /** Reads an engine's captured final message (codex `--output-last-message` file); '' if absent. */

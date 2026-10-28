@@ -12,7 +12,9 @@ if (authMode !== 'none' && authMode !== 'token') {
   throw new Error(`AUTH_MODE='${authMode}' is not supported yet (Phase 1 supports none|token; oidc lands in Phase 3)`);
 }
 
-const core = openCore(dbPath);
+// HTTP agent routes must validate the execution identity supplied by each request; a
+// process-local facade cache must never fence an unrelated remote caller on its behalf.
+const core = openCore(dbPath, { autoFence: false });
 const app = buildApp(core, { auth: { mode: authMode } });
 
 // Mount static SPA serving AFTER the API/SSE routes so /api/* and /events take precedence.

@@ -3,6 +3,7 @@ import type { Core } from '@agentfactory/core';
 import { Watcher } from '../src/watcher.js';
 import type { FetchJson, FetchResponse } from '../src/types.js';
 import { ADO_ORIGIN, deliverTask, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 /**
  * Default flow (2026-10-21): the worker pushes before review but never opens the PR. Once the
@@ -81,6 +82,29 @@ describe('watcher opens the PR after approval', () => {
     await w.tick();
     expect(posts(fetchJson)).toHaveLength(1);
     expect(core.getTask(key).delivery).toMatchObject({ prState: 'open', prId: '#43' });
+  });
+
+  it('GitHub: a create POST that times out after creating the PR is found by head branch, never POSTed twice', async () => {
+    const core = makeCore();
+    const key = deliverTask(core);
+    let created = false;
+    let clock = 1_000_000;
+    const fetchJson = apiFake((method, url) => {
+      if (method === 'GET' && url === GH_REPO) return { body: { default_branch: 'main' } };
+      if (method === 'GET' && url.startsWith(`${GH_REPO}/pulls?head=`)) return { body: created ? [ghPr({ number: 43, html_url: 'https://github.com/acme/widgets/pull/43' })] : [] };
+      if (method === 'POST' && url === `${GH_REPO}/pulls`) { created = true; throw new Error('request timed out'); }
+      if (url.includes('/check-runs')) return { body: noChecks };
+      if (url.endsWith('/status')) return { body: { statuses: [] } };
+      return undefined;
+    });
+    const w = new Watcher(makeConfig(), makeDeps(core, fetchJson, { now: () => clock }));
+    await w.tick();
+    expect(core.getTask(key).delivery).toMatchObject({ prState: 'not_found' });
+    clock += 3_600_000; // past the create-failure backoff
+    await w.tick();
+    await w.tick();
+    expect(posts(fetchJson)).toHaveLength(1);
+    expect(core.getTask(key)).toMatchObject({ status: 'delivering', delivery: { prState: 'open', prId: '#43', prUrl: 'https://github.com/acme/widgets/pull/43' } });
   });
 
   it('GitHub 422 "already exists" → records not_found without a bounce or backoff', async () => {
@@ -165,10 +189,13 @@ describe('watcher opens the PR after approval', () => {
         if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests?searchCriteria`)) return { body: { value: search } };
         if (method === 'POST' && url.startsWith(`${ADO_BASE}/pullrequests?`)) return create;
         if (method === 'GET' && url.includes('/statuses')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/policy/evaluations?')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/projects/')) return { body: { id: 'proj-guid' } };
         return undefined;
       });
     }
-    const adoDeps = (core: Core, fetchJson: FetchJson) => makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN });
+    const adoDeps = (core: Core, fetchJson: FetchJson, now: () => number = () => Date.now()) =>
+      makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN, now });
 
     it('no PR for the branch → opens one into the default branch and records it', async () => {
       const core = makeCore(ADO_ORIGIN);
@@ -184,6 +211,33 @@ describe('watcher opens the PR after approval', () => {
       });
       expect(core.getTask(key).delivery).toMatchObject({
         prState: 'open', prId: '!77', prUrl: 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/77',
+      });
+    });
+
+    it('a create POST that times out after creating the PR is found by head branch, never POSTed twice', async () => {
+      const core = makeCore(ADO_ORIGIN);
+      const key = deliverTask(core);
+      let created = false;
+      let clock = 1_000_000;
+      const fetchJson = apiFake((method, url) => {
+        if (method === 'GET' && url.startsWith(`${ADO_BASE}?`)) return { body: { defaultBranch: 'refs/heads/main' } };
+        if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests?searchCriteria`)) return { body: { value: created ? [adoPr(77)] : [] } };
+        if (method === 'POST' && url.startsWith(`${ADO_BASE}/pullrequests?`)) { created = true; throw new Error('request timed out'); }
+        if (method === 'GET' && url.includes('/statuses')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/policy/evaluations?')) return { body: { value: [] } };
+        if (method === 'GET' && url.includes('/_apis/projects/')) return { body: { id: 'proj-guid' } };
+        return undefined;
+      });
+      const w = new Watcher(makeConfig(), adoDeps(core, fetchJson, () => clock));
+      await w.tick();
+      expect(core.getTask(key).delivery).toMatchObject({ prState: 'not_found' });
+      clock += 3_600_000; // past the create-failure backoff
+      await w.tick();
+      await w.tick();
+      expect(posts(fetchJson)).toHaveLength(1);
+      expect(core.getTask(key)).toMatchObject({
+        status: 'delivering',
+        delivery: { prState: 'open', prId: '!77', prUrl: 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/77' },
       });
     });
 
@@ -210,7 +264,7 @@ describe('watcher opens the PR after approval', () => {
       core.updateStatus(t.key, 'queued', 'human');
       core.claimNextTask({ claimedBy: 'w' });
       core.submitResult(t.key, { summary: 'x'.repeat(6000) });
-      core.reviewApprove(t.key);
+      core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
       const fetchJson = ado([]);
       await new Watcher(makeConfig(), adoDeps(core, fetchJson)).tick();
       expect((posts(fetchJson)[0]!.body as { description: string }).description.length).toBeLessThanOrEqual(4000);

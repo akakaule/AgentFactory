@@ -1,15 +1,28 @@
-import type { TaskDetail, Workspace as CoreWorkspace, AdoSyncSettings } from '@agentfactory/core';
+import type { TaskDetail, Workspace as CoreWorkspace, CiMode, EffectiveWorkspaceProfile, AdoSyncSettings, AgentModels, AgentModelDefaults, ModelCatalogEntry } from '@agentfactory/core';
 
 export type { AdoSyncSettings } from '@agentfactory/core';
-/** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin and, for
- *  an Azure DevOps import, the WIQL it runs. Optional so older payloads/fixtures stay valid. */
-export type Workspace = Omit<CoreWorkspace, 'adoSync'> & {
+export type { CiMode, EffectiveWorkspaceProfile, WorkspaceDiagnosis, DiagnosticCheck, DiagnosticId, DiagnosticStatus } from '@agentfactory/core';
+/** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin, for an
+ *  Azure DevOps import the WIQL it runs, and the effective repository profile. Optional so older
+ *  payloads/fixtures stay valid. */
+export type Workspace = Omit<CoreWorkspace, 'adoSync' | 'baseBranch' | 'requiredChecks' | 'ciMode'> & {
   adoSync?: AdoSyncSettings | null;
+  baseBranch?: string | null;
+  requiredChecks?: string[] | null;
+  ciMode?: CiMode | null;
+  profile?: EffectiveWorkspaceProfile;
   remote?: { provider: 'github' } | { provider: 'azdo'; organization: string; project: string } | null;
   adoSyncWiql?: string | null;
 };
 
-export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage } from '@agentfactory/core';
+export type { Task, TaskDetail, Activity, Link, Status, Stage, TaskKind, Actor, ActivityType, LinkKind, TaskMetricsView, Attachment, AiReviewSummary, AiReviewFinding, AiReviewVerdict, AiReviewSeverity, ReviewBrief, ReviewIssue, ReviewOpinion, ReviewCandidateRef, ReviewCriterionRow, ReviewHeadline, ReviewGroup, ReviewDispute, CriterionClaim, FailureSummary, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, AgentSessionView, AgentMilestone, SupervisorView, SupervisorKind, TranscriptEngine, TranscriptBlockBase, TranscriptBlock, TranscriptResponse, AgentPromptKey, AgentPrompts, AgentEngine, EngineSettings, IntakeSettings, IntakeSummary, IntakeAssessmentV1, FailureTriageCategory, FailureTriageSummary, FailureTriageFeedback, FailureTriageFeedbackInput, FailureTriageHistoryItem, FailureTriageHistoryPage, Effort, ModelCatalogEntry, ModelProfile, AgentModelStages, AgentModelLayer, WorkspaceModelLayer, AgentModels, ReportedProfile, ReportedRoles, AgentModelDefaults, ModelPrice, ModelPrices } from '@agentfactory/core';
+
+/** GET/PUT /api/agent-models: the board's model settings, supervisors' file defaults, the catalogue. */
+export interface AgentModelsView {
+  settings: AgentModels;
+  defaults: AgentModelDefaults;
+  catalog: ModelCatalogEntry[];
+}
 
 /** One OTel token event from the live telemetry feed (GET /api/telemetry). Mirror of the
  *  server's TelemetryEvent — ephemeral, newest-first. Only task-attributed events are fed. */
@@ -22,8 +35,9 @@ export interface TelemetryEvent {
   agent: 'claude-code' | 'codex';
   model: string | null;
   tokensIn: number;
-  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive). */
-  tokensCached: number;
+  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive); null for an
+   *  event restored after a board restart. */
+  tokensCached: number | null;
   tokensOut: number;
   costUsd: number | null;
 }

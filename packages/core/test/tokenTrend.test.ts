@@ -9,6 +9,8 @@ import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { addTaskMetrics } from '../src/ops/addTaskMetrics.js';
 import { tokenTrend } from '../src/ops/tokenTrend.js';
 import { createCore } from '../src/index.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
+import { getTask } from '../src/ops/getTask.js';
 
 const NOW = '2026-08-10T12:00:00.000Z';
 const now = () => NOW;
@@ -36,12 +38,12 @@ describe('tokenTrend', () => {
     const db = makeTestDb();
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => '2026-07-19T00:00:00.000Z');
     updateStatus(db, task.key, 'queued', 'human', () => '2026-07-19T01:00:00.000Z');
-    claimNextTask(db, {}, () => '2026-07-19T02:00:00.000Z');
-    addTaskMetrics(db, task.key, { tokensIn: 100, tokensOut: 10 }, () => '2026-07-20T23:30:00.000Z');
-    addTaskMetrics(db, task.key, { tokensIn: 50 }, () => '2026-07-20T23:45:00.000Z');
-    addTaskMetrics(db, task.key, { tokensOut: 7 }, () => '2026-07-20T23:59:59.999Z');
-    submitResult(db, task.key, { summary: 'done' }, () => '2026-08-08T00:00:00.000Z');
-    reviewApprove(db, task.key, () => '2026-08-09T00:00:00.000Z', null, () => null);
+    const { executionId } = claimNextTask(db, {}, () => '2026-07-19T02:00:00.000Z')!;
+    addTaskMetrics(db, task.key, { tokensIn: 100, tokensOut: 10, executionId }, () => '2026-07-20T23:30:00.000Z');
+    addTaskMetrics(db, task.key, { tokensIn: 50, executionId }, () => '2026-07-20T23:45:00.000Z');
+    addTaskMetrics(db, task.key, { tokensOut: 7, executionId }, () => '2026-07-20T23:59:59.999Z');
+    submitResult(db, task.key, { summary: 'done', executionId }, () => '2026-08-08T00:00:00.000Z');
+    reviewApprove(db, task.key, () => '2026-08-09T00:00:00.000Z', null, () => null, undefined, expectedRevisionOf(getTask(db, task.key)));
 
     const points = tokenTrend(db, {}, now);
 

@@ -55,7 +55,7 @@ describe('e2e: a worked loop lands in the analytics', () => {
     await post(app, `/api/tasks/${t.key}/request-changes`, { feedback: 'tighten it up' });
     worker.claimNextTask({ claimedBy: 'worker-1' });
     worker.submitResult(t.key, { summary: 'v2' });
-    await post(app, `/api/tasks/${t.key}/approve`);
+    await post(app, `/api/tasks/${t.key}/approve`, { submissionId: worker.getTask(t.key).submission!.id });
 
     // the loop wrapper reports exact usage post-run, over HTTP
     const rep = await post(app, `/api/tasks/${t.key}/metrics`, {

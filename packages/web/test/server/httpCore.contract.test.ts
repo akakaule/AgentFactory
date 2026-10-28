@@ -64,7 +64,7 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     core.updateStatus(task.key, 'queued', 'human');
     const claim = core.claimNextTask({ claimedBy: 'repair-worker' })!;
     core.submitResult(task.key, { summary: 'done' });
-    core.updateStatus(task.key, 'delivering', 'human');
+    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
     core.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
     core.failDelivery(task.key, { reason: 'ci_failed', detail: 'formatting' });
     core.claimNextTask({ claimedBy: 'repair-worker' });
@@ -79,6 +79,54 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     // Old poll still has a null PR URL. It must not overwrite the observation just stored.
     expect(await http.recordDeliveryCheck(task.key, { ...observation, prState: 'open' })).toMatchObject({ skipped: true });
     expect((await http.getTask(task.key)).delivery?.prState).toBe('merged');
+  });
+
+  it('records a failed provider check over HTTP as unknown revision freshness', async () => {
+    const task = core.createTask({ title: 'Delivery outage', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
+    core.submitResult(task.key, { summary: 'done', revision: { headSha: 'a'.repeat(40), source: 'origin' } });
+    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
+    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    const episode = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
+    // a failure fenced to another episode or submission is ignored; the current one is recorded
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: { ...episode, stateChangedAt: '1970-01-01T00:00:00.000Z' } })).toEqual({ recorded: false });
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: (seeded.submissionId ?? 0) + 1 })).toEqual({ recorded: false });
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: seeded.submissionId ?? null })).toEqual({ recorded: true });
+    expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'unknown', lastObservation: { source: 'provider', error: 'GitHub 503' } });
+  });
+
+  it('issues revision read tickets over HTTP: a late answer under an older ticket cannot overwrite a newer git observation', async () => {
+    const A = 'a'.repeat(40), B = 'b'.repeat(40);
+    const task = core.createTask({ title: 'Read tickets', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
+    const sub = core.submitResult(task.key, { summary: 'done', revision: { headSha: A, source: 'origin' } }).submission!;
+    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: sub.id });
+    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    const episode = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
+    const ticket = await http.issueRevisionReadTicket(task.key, sub.id); // taken before the provider request ...
+    expect(ticket).toEqual({ submissionId: sub.id, ticket: expect.any(Number) });
+    const git = core.issueRevisionReadTicket(task.key, sub.id)!; // ... a git read starts later and sees the push
+    core.observeRevision(task.key, { submissionId: sub.id, headSha: B, source: 'git', readTicket: git.ticket });
+    const aheadStart = new Date(Date.now() + 60_000).toISOString(); // the watcher's clock runs ahead: irrelevant
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: episode, submissionId: sub.id, readStartedAt: aheadStart, readTicket: ticket! })).toEqual({ recorded: false });
+    await http.recordDeliveryCheck(task.key, { expected: episode, prUrl: null, prId: null, prState: 'not_found', checksState: 'unknown', failing: [], headSha: A, readStartedAt: aheadStart, readTicket: ticket! });
+    expect((await http.getTask(task.key)).submission).toMatchObject({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', error: null } });
+    // a fresh ticket records
+    const next = await http.issueRevisionReadTicket(task.key, sub.id);
+    const d = (await http.getTask(task.key)).delivery!;
+    expect(await http.recordDeliveryCheckFailure(task.key, { error: 'GitHub 503', expected: { ...episode, stateChangedAt: d.stateChangedAt }, submissionId: sub.id, readTicket: next! })).toEqual({ recorded: true });
+  });
+
+  it('read tickets are supervisor-gated', async () => {
+    const task = core.createTask({ title: 'Gate', spec: 's', acceptanceCriteria: 'a' });
+    const plain = core.createApiToken({ label: 'plain', isService: true }).token;
+    const app = buildApp(core, { auth: { mode: 'token' } });
+    const res = await app.request(`http://board/api/agent/tasks/${task.key}/revision/read-ticket`, {
+      method: 'POST', headers: { authorization: `Bearer ${plain}`, 'content-type': 'application/json' }, body: '{}',
+    });
+    expect(res.status).toBe(403);
   });
 
   it('reads round-trip: listTasks filters, getTask, listWorkspaces', async () => {
@@ -120,6 +168,17 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     core.claimNextTask({ workspace: 'shop', claimedBy: 'w1' });
     const released = await http.releaseClaim(t.key);
     expect(released.status).toBe('queued');
+  });
+
+  it('agent model settings: read the board document and report file defaults', async () => {
+    core.createWorkspace({ name: 'kl-dis', repoPath: '/r' });
+    const doc = { global: { stages: { description: { engine: 'claude' as const, model: 'claude-opus-5-5', effort: 'high' as const } } },
+      workspaces: { 'kl-dis': { reviewers: [{ engine: 'codex' as const, model: 'gpt-6.1-sol' }] } } };
+    core.setAgentModels(doc);
+    expect(await http.getAgentModels()).toEqual(core.getAgentModels());
+    await http.reportAgentModelDefaults({ supervisor: 'remote-dispatcher', kind: 'dispatcher', roles: { stages: { implementation: { engine: 'claude', model: 'claude-opus-5-5' } } } });
+    expect(core.getAgentModelDefaults()['remote-dispatcher']?.roles.stages?.implementation?.model).toBe('claude-opus-5-5');
+    await expect(http.reportAgentModelDefaults({ supervisor: '', kind: 'dispatcher', roles: {} })).rejects.toBeInstanceOf(ValidationError);
   });
 
   it('importTask: idempotent create + queue over HTTP, attributed to the human-configured import', async () => {
@@ -164,15 +223,30 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     await expect(http.attachVisualization(t.key, { html: '   ' })).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it('attachVisualization carries the depicted revision over HTTP and refuses a replaced submission', async () => {
+    const A = 'a'.repeat(40), B = 'b'.repeat(40);
+    const doc = '<!doctype html><html><body>viz</body></html>';
+    const t = core.createTask({ title: 'Viz rev', spec: 'S', acceptanceCriteria: 'A' });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'w' });
+    const first = core.submitResult(t.key, { summary: 'r1', revision: { headSha: A, source: 'origin' } }).submission!;
+    await http.attachVisualization(t.key, { html: doc, revision: { submissionId: first.id, headSha: B } });
+    expect(core.getTask(t.key).visualizationRevision).toEqual({ submissionId: first.id, headSha: B });
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask({ claimedBy: 'w' });
+    core.submitResult(t.key, { summary: 'r2', revision: { headSha: B, source: 'origin' } });
+    await expect(http.attachVisualization(t.key, { html: doc, revision: { submissionId: first.id, headSha: A } })).rejects.toBeInstanceOf(InvalidTransitionError);
+  });
+
   it('whoami reports the token identity and supervisor capability', async () => {
-    expect(await http.whoami()).toEqual({ label: 'remote-supervisor', supervisor: true });
+    expect(await http.whoami()).toEqual({ label: 'remote-supervisor', supervisor: true, capabilities: ['execution-fence/v1'] });
 
     const plain = core.createApiToken({ label: 'plain-worker', isService: true }).token;
     const app = buildApp(core, { auth: { mode: 'token' } });
     const asPlain = createHttpCore('http://board', plain, {
       fetchImpl: ((url: string | URL | Request, init?: RequestInit) => app.request(url as string, init)) as typeof fetch,
     });
-    expect(await asPlain.whoami()).toEqual({ label: 'plain-worker', supervisor: false });
+    expect(await asPlain.whoami()).toEqual({ label: 'plain-worker', supervisor: false, capabilities: ['execution-fence/v1'] });
   });
 
   it('whoami refuses user tokens (service-only surface)', async () => {

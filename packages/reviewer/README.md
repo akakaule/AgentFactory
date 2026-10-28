@@ -91,7 +91,7 @@ reviews them) and the web server, all pointed at the same DB.
 | `excludeWorkspaces` | `[]` | Workspace slugs to **never** watch — the opt-out escape hatch. Applied whether or not `workspaces` is set. |
 | `engine` | `codex` | Review engine: `codex` or `claude`. |
 | `model` | — (optional) | Model override (codex `-m`, claude `--model`). |
-| `reviewers` | — (optional) | Ordered profiles `{ engine, model?, reasoningEffort? }`. Runs every profile independently and sequentially against the same submission, then posts one combined verdict. `reasoningEffort` is Codex-only: `low`, `medium`, `high`, `xhigh`, or `max`. When omitted, task reviews use the top-level engine/model. Visualization and feedback evaluation still use their existing engine settings. |
+| `reviewers` | — (optional) | Ordered profiles `{ engine, model?, reasoningEffort? }`. Runs every profile independently and sequentially against the same submission, then posts one combined verdict. `reasoningEffort` (`low`, `medium`, `high`, `xhigh`, or `max`) goes to Codex as `-c model_reasoning_effort=…` and to Claude as `--effort …`. When omitted, task reviews use the top-level engine/model. Visualization and feedback evaluation still use their existing engine settings. |
 | `pollSeconds` | `60` | Queue poll interval. |
 | `maxConcurrent` | `1` | Max concurrent reviews **per workspace**. |
 | `reviewMinutes` | `20` | Hard wall-clock cap; the supervisor kills a review that exceeds it (counts as an attempt). |
@@ -117,6 +117,17 @@ Each poll lists `in_review` tasks per workspace and keeps those that **need a re
 `task.aiReview` is absent, or its verdict is `pending` (a newer result superseded the last
 review). A task with a current `clean`/`findings` verdict is skipped, so the reviewer never
 re-reviews settled work and never races itself.
+
+## Models from the board
+
+The **Agents** modal's *Models* tab can set the reviewer list (1–4 profiles
+`{ engine, model?, effort? }`), the consensus switch, and the change-visualization and
+feedback-evaluator models. A workspace can override any of these (the reviewer list as a
+whole). The reviewer reads them every tick. A board setting replaces this file's
+`reviewers`/`engine`/`model`/`visualization`/`consensus.enabled` for that role; consensus
+timing (`totalMinutes`, `maxPromptChars`) always comes from this file or its defaults. With
+nothing set on the board, the reviewer behaves exactly as configured here. It reports this
+file's defaults to the board at startup so the UI can show them.
 
 ## Engine setup
 

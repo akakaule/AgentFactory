@@ -8,6 +8,7 @@ import { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from '../src/ops/reviewPr
 import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { getTask } from '../src/ops/getTask.js';
 import { ValidationError } from '../src/errors.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
 
 const prReview = (db: ReturnType<typeof makeTestDb>) =>
   createTask(db, {
@@ -144,7 +145,7 @@ describe('pr-review tasks', () => {
     const t = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
     updateStatus(db, t.key, 'queued', 'human');
     const claimed = claimNextTask(db, { workspace: 'default' })!;
-    updateStatus(db, claimed.key, 'in_review', 'agent');
+    updateStatus(db, claimed.key, 'in_review', 'agent', undefined, null, undefined, claimed.executionId);
     updateStatus(db, claimed.key, 'done', 'human');
     expect(() => updateStatus(db, claimed.key, 'in_review', 'human')).toThrow(ValidationError);
   });
@@ -153,7 +154,7 @@ describe('pr-review tasks', () => {
     const db = makeTestDb();
     const t = prReview(db);
     updateStatus(db, t.key, 'in_review', 'human');
-    const done = reviewApprove(db, t.key);
+    const done = reviewApprove(db, t.key, undefined, undefined, undefined, undefined, expectedRevisionOf(getTask(db, t.key)));
     expect(done.status).toBe('done');
   });
 

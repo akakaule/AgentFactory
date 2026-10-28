@@ -57,4 +57,16 @@ describe('DeliveryChip', () => {
     render(<DeliveryChip delivery={delivery({ prUrl: null })} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
+
+  it('says the checks are for another commit when the PR head is not the approved head', () => {
+    const { container } = render(<DeliveryChip delivery={delivery({ checksState: 'failing', headSha: 'def', approvedHeadSha: 'abc' })} />);
+    expect(screen.getByText('PR #12 · checks for another commit')).toBeInTheDocument();
+    expect(container.querySelector('.af-delivery.fail')).toBeNull(); // not this delivery's failure
+  });
+
+  it('shows the plain checks result when the PR head is the approved head', () => {
+    render(<DeliveryChip delivery={delivery({ checksState: 'failing', headSha: 'abc', approvedHeadSha: 'abc' })} />);
+    expect(screen.queryByText(/checks for another commit/)).not.toBeInTheDocument();
+    expect(screen.getByText('PR #12 · checks failed')).toBeInTheDocument();
+  });
 });

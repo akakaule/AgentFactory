@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { ValidationError } from './errors.js';
-import { ATTACHMENT_MIMES } from './types.js';
+import { ATTACHMENT_MIMES, CI_MODES } from './types.js';
 import { AGENT_PROMPT_KEYS } from './agentPrompts.js';
 import { adoSyncSettingsSchema } from './adoSync.js';
+import { isSafeRef } from './git.js';
 
 const nonEmpty = z.string().trim().min(1);
 const workspaceSlug = z
@@ -54,19 +55,38 @@ const promptOverridesInput = z
     for (const [k, v] of Object.entries(o)) { const t = v.trim(); if (t !== '') out[k] = t; }
     return out;
   });
+// baseBranch: clearable like policy, and it reaches git as a ref — so it must pass the SAFE_REF guard.
+const baseBranchInput = clearable.refine((s) => s === null || isSafeRef(s), 'baseBranch must be a valid branch name');
+// requiredChecks: check names, trimmed, blanks dropped, de-duplicated; an empty list clears (null).
+const requiredChecksInput = z
+  .array(z.string().max(200, 'a required check name must be at most 200 characters'))
+  .max(50, 'at most 50 required checks')
+  .nullable()
+  .transform((a) => {
+    if (a === null) return null;
+    const out = [...new Set(a.map((s) => s.trim()).filter((s) => s !== ''))];
+    return out.length > 0 ? out : null;
+  });
 export const updateWorkspaceSchema = z
   // repoPath is a defining field (never cleared to null — a workspace must point somewhere), so it
   // takes nonEmpty; policy/verifyCommand/pat are clearable. Name is intentionally not editable here.
-  .object({ repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional(), promptOverrides: promptOverridesInput.optional(), adoSync: adoSyncSettingsSchema.nullable().optional() })
+  .object({
+    repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional(), promptOverrides: promptOverridesInput.optional(), adoSync: adoSyncSettingsSchema.nullable().optional(),
+    baseBranch: baseBranchInput.optional(), requiredChecks: requiredChecksInput.optional(), ciMode: z.enum(CI_MODES).nullable().optional(),
+  })
   .refine(
-    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync)',
+    (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined
+      || o.baseBranch !== undefined || o.requiredChecks !== undefined || o.ciMode !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync, baseBranch, requiredChecks, ciMode)',
   );
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional(), workspace: workspaceSlug.optional() })
   .refine((o) => Object.keys(o).length > 0, 'at least one field required');
+/** A full git object id (SHA-1 or SHA-256), lowercase. */
+export const gitSha = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'expected a full lowercase git commit SHA');
 export const submitResultSchema = z.object({
   summary: nonEmpty,
+  executionId: z.string().min(1).optional(),
   claimAt: nonEmpty.optional(),
   // stage deliverables; which are required/forbidden depends on the task's stage,
   // which the schema can't see — ops/submitResult.ts enforces the per-stage shape
@@ -84,11 +104,14 @@ export const submitResultSchema = z.object({
   links: z
     .array(z.object({ kind: z.enum(['branch', 'pr', 'worktree', 'log', 'url']), label: nonEmpty, url: nonEmpty }))
     .default([]),
+  // implementation stage: the revision handed over, resolved by the submit guard's git boundary
+  revision: z.object({ headSha: gitSha, baseSha: gitSha.nullable().optional(), source: z.enum(['origin', 'local']) }).strict().optional(),
 });
-export const commentSchema = z.object({ body: nonEmpty });
+export const commentSchema = z.object({ body: nonEmpty, executionId: z.string().min(1).optional() });
 export const feedbackSchema = z.object({ feedback: nonEmpty });
 export const taskMetricsSchema = z
   .object({
+    executionId: z.string().min(1).optional(),
     model: nonEmpty.optional(),
     tokensIn: z.number().int().nonnegative().optional(),
     tokensOut: z.number().int().nonnegative().optional(),

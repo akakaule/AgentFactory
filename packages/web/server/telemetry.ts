@@ -4,10 +4,12 @@
  * The OTLP receiver (routes/otel.ts) flattens every event into the durable per-task
  * aggregate (task_metric). That aggregate can't answer "what's flowing right now, from which
  * worker/agent/model?" — so the receiver ALSO pushes each parsed event here. This is the only
- * "storage" the live Telemetry view reads from: ephemeral, current-state, lost on restart
- * (the durable aggregate is untouched). Like the aggregate, the receiver only pushes
- * task-attributed events here — unattributed usage (no task key) is dropped.
+ * "storage" the live Telemetry view reads from: ephemeral and current-state. A restart refills it
+ * from the newest OTel rows in task_metric (`seedFromMetrics`), which keep no worker or cached
+ * split — so restored events carry `worker: null` and `tokensCached: null`. Like the aggregate,
+ * the receiver only pushes task-attributed events here — unattributed usage (no task key) is dropped.
  */
+import type { RecentTokenMetric } from '@agentfactory/core';
 
 export interface TelemetryEvent {
   /** Monotonic id — a stable key for the client and the natural newest-first sort. */
@@ -24,8 +26,9 @@ export interface TelemetryEvent {
   agent: 'claude-code' | 'codex';
   model: string | null;
   tokensIn: number;
-  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive). */
-  tokensCached: number;
+  /** Cache-hit portion already included in `tokensIn` (a breakdown, not additive); null when
+   *  restored from task_metric, which does not keep it. */
+  tokensCached: number | null;
   tokensOut: number;
   costUsd: number | null;
 }
@@ -37,7 +40,7 @@ export interface TelemetryStore {
   recent(limit?: number): TelemetryEvent[];
 }
 
-const DEFAULT_CAP = 500;
+export const DEFAULT_CAP = 500;
 const DEFAULT_LIMIT = 200;
 
 export function createTelemetryStore(cap = DEFAULT_CAP): TelemetryStore {
@@ -53,4 +56,23 @@ export function createTelemetryStore(cap = DEFAULT_CAP): TelemetryStore {
       return buf.slice(-n).reverse();
     },
   };
+}
+
+/** Refill a fresh store from task_metric's newest OTel rows (given newest-first), oldest first so
+ *  `seq` and the newest-first read order match the original arrival order. */
+export function seedFromMetrics(store: TelemetryStore, rows: RecentTokenMetric[]): void {
+  for (const r of [...rows].reverse()) {
+    store.add({
+      at: r.createdAt,
+      taskKey: r.taskKey,
+      workspace: r.workspace,
+      worker: null,
+      agent: r.reportedBy === 'otel:codex' ? 'codex' : 'claude-code',
+      model: r.model,
+      tokensIn: r.tokensIn ?? 0,
+      tokensCached: null,
+      tokensOut: r.tokensOut ?? 0,
+      costUsd: r.costUsd,
+    });
+  }
 }

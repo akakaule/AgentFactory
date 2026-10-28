@@ -13,14 +13,15 @@ import { createWorkspace } from '../src/ops/createWorkspace.js';
 import { NotFoundError, InvalidTransitionError } from '../src/errors.js';
 import type { DB } from '../src/db.js';
 import type { Status } from '../src/types.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
 
 /** Drive a fresh task to done through the real lifecycle. */
 function makeDoneTask(db: DB, title = 'T', workspace?: string): string {
   const task = createTask(db, { title, spec: 'S', acceptanceCriteria: 'A', ...(workspace ? { workspace } : {}) });
   updateStatus(db, task.key, 'queued', 'human');
-  claimNextTask(db, workspace ? { workspace } : {});
-  submitResult(db, task.key, { summary: 'done' });
-  reviewApprove(db, task.key);
+  const { executionId } = claimNextTask(db, workspace ? { workspace } : {})!;
+  submitResult(db, task.key, { summary: 'done', executionId });
+  reviewApprove(db, task.key, undefined, undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
   return task.key;
 }
 

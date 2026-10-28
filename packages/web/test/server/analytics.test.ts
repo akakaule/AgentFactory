@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openCore } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 const post = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
   app.request(path, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } });
@@ -20,7 +21,7 @@ describe('GET /api/analytics', () => {
     core.updateStatus(t1.key, 'queued', 'human');
     core.claimNextTask({ claimedBy: 'worker-1' });
     core.submitResult(t1.key, { summary: 'done' });
-    core.reviewApprove(t1.key);
+    core.reviewApprove(t1.key, undefined, undefined, expectedRevisionOf(core.getTask(t1.key)));
     core.addTaskMetrics(t1.key, { model: 'claude-fable-5', tokensIn: 1000, tokensOut: 200, costUsd: 0.05 });
 
     // stranded release on a second task

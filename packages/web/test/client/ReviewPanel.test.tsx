@@ -65,6 +65,13 @@ describe('ReviewPanel — verdict card', () => {
     expect(screen.getByText('3 issues need your decision')).toBeInTheDocument();
   });
 
+  it('lists the remaining concerns in order, one item each', () => {
+    renderPanel();
+    const list = screen.getByLabelText('Remaining concerns');
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent))
+      .toEqual(['2 must-fix issues', '3 issues need your decision', 'Criteria not met: AC4 Race, AC6 Liveness']);
+  });
+
   it('a pill filters the issues to its group and a second click clears it', async () => {
     const { user } = renderPanel();
     const pill = screen.getByRole('button', { name: 'Your call · 3' });
@@ -257,5 +264,57 @@ describe('ReviewPanel — approve', () => {
     renderPanel({ reviewBrief: v1Brief([{ severity: 'error', file: null, line: null, title: 'Broken', detail: 'It throws.', criteria: ['AC1'] }]), aiReview: null });
     expect(screen.getByText('Reported by codex')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Your call/ })).toBeNull();
+  });
+});
+
+describe('ReviewPanel — revision (AF-148)', () => {
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+  const submission = (over: Partial<NonNullable<TaskDetailView['submission']>> = {}): NonNullable<TaskDetailView['submission']> => ({
+    id: 7, stage: 'implementation', executionId: null, branch: 'feature/AF-146-x', headSha: A, baseSha: null, contentHash: null,
+    source: 'origin', observedAt: 't', createdAt: 't', lastObservation: null, freshness: 'current', ...over,
+  });
+
+  it('names the submission and commit under review', () => {
+    renderPanel({ submission: submission() });
+    expect(screen.getByText(/Submission #7 · commit aaaaaaa/)).toBeInTheDocument();
+  });
+
+  it('a push after submit blocks approval and says why, first in the remaining concerns', () => {
+    renderPanel({ submission: submission({ freshness: 'stale', lastObservation: { headSha: B, source: 'git', observedAt: 't2', error: null } }) });
+    const items = within(screen.getByLabelText('Remaining concerns')).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      'The branch moved to bbbbbbb after this submission. Approval is blocked until the new revision is submitted and reviewed — request changes.',
+      'This AI review names no revision (recorded before revisions were tracked).',
+      '2 must-fix issues',
+      '3 issues need your decision',
+      'Criteria not met: AC4 Race, AC6 Liveness',
+    ]);
+    expect(screen.getByRole('button', { name: 'Approve anyway…' })).toHaveAttribute('disabled');
+  });
+
+  it('a clean review shows no remaining concerns list', () => {
+    renderPanel({ reviewBrief: v1Brief([]), aiReview: null, submission: submission() });
+    expect(screen.queryByLabelText('Remaining concerns')).toBeNull();
+  });
+
+  it('shows unknown freshness with the observation error', () => {
+    renderPanel({ submission: submission({ freshness: 'unknown', lastObservation: { headSha: null, source: 'git', observedAt: 't2', error: 'origin unreachable' } }) });
+    expect(screen.getByText(/freshness unknown: origin unreachable/i)).toBeInTheDocument();
+  });
+
+  it('labels an AI review of an older revision', () => {
+    renderPanel({ submission: submission(), aiReview: { ...af146Review({ links: true }), binding: 'stale', revision: { submissionId: 6, headSha: B } } });
+    expect(screen.getByText(/AI review is for an older revision/)).toBeInTheDocument();
+  });
+
+  it('labels an AI review of a submission that recorded no commit', () => {
+    renderPanel({ submission: submission({ headSha: null, freshness: 'unknown' }), aiReview: { ...af146Review({ links: true }), binding: 'unverified', revision: { submissionId: 7, headSha: A } } });
+    expect(screen.getByText(/AI review cannot be matched to the submitted commit/)).toBeInTheDocument();
+  });
+
+  it('historical tasks (no submission) render without a revision line', () => {
+    renderPanel();
+    expect(screen.queryByText(/Submission #/)).toBeNull();
   });
 });

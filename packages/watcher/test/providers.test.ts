@@ -105,6 +105,29 @@ describe('github provider', () => {
     const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
     const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: true });
     expect(r.checks.state).toBe('pending');
+    expect(r.checksTarget).toBe('merge_commit');
+  });
+
+  it('a merged PR without postMergeChecks reports PR-head check evidence', async () => {
+    const fetchJson = fakeFetch([
+      ['/pulls/42', { body: ghPr({ merged: true, state: 'closed' }) }],
+      ['/commits/headsha/check-runs', { body: { check_runs: [] } }],
+      ['/commits/headsha/status', { body: { statuses: [] } }],
+    ]);
+    const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
+    const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: false });
+    expect(r.checksTarget).toBe('head');
+  });
+
+  it('postMergeChecks without a merge sha falls back to the head and says so', async () => {
+    const fetchJson = fakeFetch([
+      ['/pulls/42', { body: ghPr({ merged: true, state: 'closed', merge_commit_sha: null }) }],
+      ['/commits/headsha/check-runs', { body: { check_runs: [] } }],
+      ['/commits/headsha/status', { body: { statuses: [] } }],
+    ]);
+    const p = makeGitHubProvider({ fetchJson, token: 'tok', apiBase: 'https://api.github.com', now: () => 0 });
+    const r = await p.check(ghRemote, 'feature/x', 'https://github.com/acme/widgets/pull/42', { postMergeChecks: true });
+    expect(r.checksTarget).toBe('head');
   });
 
   it('rate limit (403 + remaining 0) throws with a pause anchored to x-ratelimit-reset', async () => {
@@ -140,6 +163,7 @@ describe('azdo provider', () => {
     status: 'active',
     lastMergeSourceCommit: { commitId: 'srcsha' },
     lastMergeCommit: { commitId: 'mrgsha' },
+    repository: { id: 'repo-guid', project: { id: 'proj-guid' } },
     ...over,
   });
 
@@ -147,6 +171,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests?searchCriteria.sourceRefName=', { body: { value: [adoPr({ pullRequestId: 9, status: 'abandoned' }), adoPr({ status: 'completed' })] } }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'succeeded', context: { name: 'Build' } }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', null, { postMergeChecks: false });
@@ -159,9 +184,10 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'completed' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'succeeded', context: { name: 'Build' } }, { state: 'notSet', context: { name: 'optional' } }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
-    const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
+    const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });
     expect(r.pr).toMatchObject({ state: 'merged' });
     expect(r.checks.state).toBe('pending'); // merge completion is independent of the recorded checks
   });
@@ -170,16 +196,78 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'completed' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'failed', context: { name: 'Build' }, targetUrl: 'https://x' }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
-    const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
+    const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });
     expect(r.checks.state).toBe('failing');
+    expect(r.checksTarget).toBe('head'); // PR statuses describe the PR, never the merge commit
+  });
+
+  describe('postMergeChecks on a completed PR reads the merge commit', () => {
+    const PR7 = 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7';
+    const completed = adoPr({ status: 'completed', targetRefName: 'refs/heads/main', repository: { id: 'repo-guid', project: { id: 'proj-guid' } } });
+    const build = (over: Record<string, unknown>) => ({ id: 31, status: 'completed', result: 'succeeded', sourceVersion: 'mrgsha', definition: { name: 'CI' }, ...over });
+
+    it('a failed build of the merge commit is failing merge_commit evidence (PR statuses ignored)', async () => {
+      const fetchJson = fakeFetch([
+        ['/pullrequests/7?api-version', { body: completed }],
+        ['/commits/mrgsha/statuses', { body: { value: [{ state: 'succeeded', context: { name: 'scan' } }] } }],
+        ['/_apis/build/builds?', { body: { value: [build({ result: 'failed' }), build({ id: 30, sourceVersion: 'othersha', result: 'succeeded' })] } }],
+      ]);
+      const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+      const r = await p.check(adoRemote, 'feature/x', PR7, { postMergeChecks: true });
+      expect(r.checksTarget).toBe('merge_commit');
+      expect(r.checks).toEqual({ state: 'failing', failing: [{ name: 'CI', url: 'https://dev.azure.com/acme/Widgets/_build/results?buildId=31' }] });
+      expect(parseBuildId(r.checks.failing[0]!.url)).toBe('31');
+      expect(fetchJson.calls.some((u) => u.includes('/pullRequests/7/statuses'))).toBe(false);
+      const buildsUrl = fetchJson.calls.find((u) => u.includes('/_apis/build/builds?'))!;
+      expect(buildsUrl).toContain('repositoryId=repo-guid');
+      expect(buildsUrl).toContain(`branchName=${encodeURIComponent('refs/heads/main')}`);
+    });
+
+    it('a running merge-commit build is pending; no builds or statuses is none', async () => {
+      let builds: unknown[] = [build({ status: 'inProgress', result: null })];
+      const fetchJson = fakeFetch([
+        ['/pullrequests/7?api-version', { body: completed }],
+        ['/commits/mrgsha/statuses', { body: { value: [] } }],
+        ['/_apis/build/builds?', { get body() { return { value: builds }; } }],
+      ]);
+      const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+      expect((await p.check(adoRemote, 'feature/x', PR7, { postMergeChecks: true })).checks.state).toBe('pending');
+      builds = [build({ sourceVersion: 'othersha', result: 'failed' })];
+      const r = await p.check(adoRemote, 'feature/x', PR7, { postMergeChecks: true });
+      expect(r).toMatchObject({ checks: { state: 'none' }, checksTarget: 'merge_commit' });
+    });
+
+    it('a failed commit status on the merge commit is failing too', async () => {
+      const fetchJson = fakeFetch([
+        ['/pullrequests/7?api-version', { body: completed }],
+        ['/commits/mrgsha/statuses', { body: { value: [{ state: 'failed', context: { name: 'deploy' }, targetUrl: 'https://x' }] } }],
+        ['/_apis/build/builds?', { body: { value: [build({})] } }],
+      ]);
+      const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+      const r = await p.check(adoRemote, 'feature/x', PR7, { postMergeChecks: true });
+      expect(r.checks).toEqual({ state: 'failing', failing: [{ name: 'deploy', url: 'https://x' }] });
+    });
+
+    it('without a merge commit id it falls back to the PR statuses as head evidence', async () => {
+      const fetchJson = fakeFetch([
+        ['/pullrequests/7?api-version', { body: { ...completed, lastMergeCommit: null } }],
+        ['/pullRequests/7/statuses', { body: { value: [{ state: 'failed', context: { name: 'Build' } }] } }],
+        ['/_apis/policy/evaluations?', { body: { value: [] } }],
+      ]);
+      const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
+      const r = await p.check(adoRemote, 'feature/x', PR7, { postMergeChecks: true });
+      expect(r).toMatchObject({ checks: { state: 'failing' }, checksTarget: 'head' });
+    });
   });
 
   it('an OPEN PR with a pending status still waits', async () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'active' }) }],
       ['/pullRequests/7/statuses', { body: { value: [{ state: 'pending', context: { name: 'Build' } }] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: true });
@@ -202,6 +290,7 @@ describe('azdo provider', () => {
     const fetchJson = fakeFetch([
       ['/pullrequests/7?api-version', { body: adoPr({ status: 'abandoned' }) }],
       ['/pullRequests/7/statuses', { body: { value: [] } }],
+      ['/_apis/policy/evaluations?', { body: { value: [] } }],
     ]);
     const p = makeAzdoProvider({ fetchJson, pat: 'pat', apiVersion: '7.1' });
     const r = await p.check(adoRemote, 'feature/x', 'https://dev.azure.com/acme/Widgets/_git/widgets/pullrequest/7', { postMergeChecks: false });

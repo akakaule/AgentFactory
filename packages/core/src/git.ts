@@ -19,6 +19,11 @@ export interface BranchDiff { baseRef: string; diff: string; commits: number; he
 // (e.g. 'mængder') diff correctly instead of stranding on a too-narrow ASCII allowlist.
 const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
+/** Whether `ref` passes the SAFE_REF guard (safe as one git argv token / refspec component). */
+export function isSafeRef(ref: string): boolean {
+  return SAFE_REF.test(ref);
+}
+
 /**
  * A branch-kind link's label is the display string an agent submits. By convention it
  * starts with the bare branch ref, but agents sometimes decorate it with a trailing
@@ -34,22 +39,34 @@ export function refFromLabel(label: string): string | null {
 
 const MAX_DIFF_BYTES = 32 * 1024 * 1024;
 
-async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string }> {
+interface RunGitOptions {
+  /** Kill git after this many ms (result: `timedOut`). Unset = no limit, as for local-only calls. */
+  timeoutMs?: number;
+  /** Extra environment, e.g. to forbid credential prompts on a network call. */
+  env?: Record<string, string>;
+}
+
+/** Network git calls on a request path must never wait on a human: no terminal or GCM prompts. */
+const NON_INTERACTIVE_ENV = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
+const REMOTE_HEAD_TIMEOUT_MS = 15_000;
+
+async function runGit(repoPath: string, args: string[], opts: RunGitOptions = {}): Promise<{ ok: boolean; stdout: string; timedOut?: boolean }> {
   try {
     const { stdout } = await execFileAsync('git', args, {
       cwd: repoPath,
       encoding: 'utf8',
       maxBuffer: MAX_DIFF_BYTES,
       windowsHide: true,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...opts.env },
+      ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
     });
     return { ok: true, stdout };
   } catch (err) {
-    const e = err as NodeJS.ErrnoException;
+    const e = err as NodeJS.ErrnoException & { killed?: boolean };
     // existsSync(repoPath) ran before any spawn, so ENOENT can only mean the binary.
     if (e.code === 'ENOENT') throw new GitError('git executable not found');
     if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new GitError('diff too large to display');
-    return { ok: false, stdout: '' };
+    return { ok: false, stdout: '', ...(opts.timeoutMs !== undefined && e.killed ? { timedOut: true } : {}) };
   }
 }
 
@@ -105,4 +122,53 @@ export async function branchDiff(repoPath: string, branch: string): Promise<Bran
   const count = await runGit(repoPath, ['rev-list', '--count', '--end-of-options', `${baseSha}..${headSha}`, '--']);
   if (!count.ok) throw new GitError(`git rev-list failed for ${baseRef}..${branch}`);
   return { baseRef, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0, headSha, baseSha };
+}
+
+/** What `remoteBranchHead` saw: the branch's head on origin, or why it could not be read. */
+export interface RemoteHead { headSha: string | null; error: string | null; }
+
+/**
+ * Observe a branch's current head on origin (`git ls-remote`, nothing fetched) — the approve-time
+ * refresh that tells a reviewed submission from a later push. Never throws for an unreachable or
+ * misconfigured remote: the failure is returned so the board can show unknown freshness. With a
+ * resolved workspace credential the bare origin URL is queried with an `http.extraheader` (the
+ * inherited key is reset first so an injected header cannot be sent twice). It runs on the approve
+ * request path, so it never prompts for credentials and gives up after `timeoutMs` — a hung origin
+ * reads as unknown freshness instead of approving long after the client gave up.
+ */
+export async function remoteBranchHead(repoPath: string, branch: string, auth: { remoteUrl: string; configKey: string; configValue: string } | null = null, opts: { timeoutMs?: number } = {}): Promise<RemoteHead> {
+  if (!SAFE_REF.test(branch)) return { headSha: null, error: `branch ref is not checkable: ${branch}` };
+  if (!existsSync(repoPath)) return { headSha: null, error: `repository path does not exist: ${repoPath}` };
+  const authArgs = auth ? ['-c', `${auth.configKey}=`, '-c', `${auth.configKey}=${auth.configValue}`] : [];
+  let r: { ok: boolean; stdout: string; timedOut?: boolean };
+  try {
+    r = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', auth ? auth.remoteUrl : 'origin', `refs/heads/${branch}`],
+      { timeoutMs: opts.timeoutMs ?? REMOTE_HEAD_TIMEOUT_MS, env: NON_INTERACTIVE_ENV });
+  } catch (err) {
+    return { headSha: null, error: (err as Error).message };
+  }
+  if (r.timedOut) return { headSha: null, error: 'origin timed out' };
+  if (!r.ok) return { headSha: null, error: 'origin unreachable' };
+  const sha = r.stdout.trim().split(/\s+/)[0] ?? '';
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) return { headSha: null, error: `branch ${branch} is not on origin` };
+  return { headSha: sha, error: null };
+}
+
+/**
+ * The diff of one recorded revision — `base..head` exactly as submitted — so the reviewed snapshot
+ * stays reproducible after the branch moved or the worktree was removed. Both ids must be full SHAs
+ * (they come from task_submission, never from a request).
+ */
+export async function revisionDiff(repoPath: string, baseSha: string, headSha: string): Promise<BranchDiff> {
+  const sha = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+  if (!sha.test(baseSha) || !sha.test(headSha)) throw new ValidationError('revision diff needs full commit SHAs');
+  if (!existsSync(repoPath)) throw new GitError(`repository path does not exist: ${repoPath}`);
+  for (const id of [baseSha, headSha]) {
+    const has = await runGit(repoPath, ['cat-file', '-e', '--end-of-options', `${id}^{commit}`]);
+    if (!has.ok) throw new NotFoundError(`commit ${id.slice(0, 7)} is not in the board's repository (fetch the branch)`);
+  }
+  const diff = await runGit(repoPath, ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '--find-renames', '--end-of-options', `${baseSha}..${headSha}`, '--']);
+  if (!diff.ok) throw new GitError(`git diff failed for ${baseSha.slice(0, 7)}..${headSha.slice(0, 7)}`);
+  const count = await runGit(repoPath, ['rev-list', '--count', '--end-of-options', `${baseSha}..${headSha}`, '--']);
+  return { baseRef: baseSha, diff: diff.stdout, commits: parseInt(count.stdout.trim(), 10) || 0, headSha, baseSha };
 }

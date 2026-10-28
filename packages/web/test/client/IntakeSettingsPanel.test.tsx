@@ -13,6 +13,7 @@ const saved: IntakeSettings = {
   settleSeconds: 30, maxPerTick: 3, maxAttempts: 2,
   readinessNeedsAttention: true, readinessThreshold: 0.5,
   architecturalNeedsAttention: false, riskAttentionLevel: null, maxHoldMinutes: 60,
+  skipSpec: false, skipSpecMaxComplexity: 'small', skipSpecMaxRisk: 'low', skipSpecMinReadiness: 0.8,
 };
 
 const ws = (id: number, name: string) => ({ id, name }) as Workspace;
@@ -89,6 +90,22 @@ describe('IntakeSettingsPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(api.setIntakeSettings).toHaveBeenCalledWith({ ...saved, mode: 'off' });
+  });
+
+  it('turns on skipping the spec for simple tasks and tunes what counts as simple', async () => {
+    const api = await open();
+    const user = userEvent.setup();
+    expect(screen.queryByRole('group', { name: 'Simple means at most' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'Skip spec for simple tasks' }));
+    await user.click(screen.getByRole('button', { name: 'Trivial' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Highest risk' }), 'medium');
+    const ready = screen.getByRole('spinbutton', { name: 'Minimum readiness %' });
+    await user.clear(ready);
+    await user.type(ready, '90');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.setIntakeSettings).toHaveBeenCalledWith({ ...saved, skipSpec: true, skipSpecMaxComplexity: 'trivial', skipSpecMaxRisk: 'medium', skipSpecMinReadiness: 0.9 });
   });
 
   it('Cancel closes without saving', async () => {

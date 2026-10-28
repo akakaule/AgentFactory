@@ -395,12 +395,81 @@ export const MIGRATION_27_SQL = `
 ALTER TABLE workspace ADD COLUMN ado_sync TEXT;
 `;
 
-// Migration #28 — durable attention occurrences and one outbox row per destination. The source
-// cursor is still kept in app_kv, but capture + cursor advancement happen in one core transaction;
-// outbox state survives board and notifier restarts. `state_key` groups an open edge (such as a
-// supervisor going down) so resolving it permits a later occurrence without duplicate alerts on
-// every poll. Payload text is bounded by the core operation before it reaches this table.
+// Migration #28 — durable execution ownership. A retry reservation describes budget accounting;
+// this record describes the concrete worker/reviewer run that may mutate a task. Keeping the
+// identity separate lets a replacement claim invalidate all late writes from an older process.
+// (Slots #26/#27 went to main's intake widening and ADO import; see migrate.ts for the reconcile.)
 export const MIGRATION_28_SQL = `
+CREATE TABLE IF NOT EXISTS task_execution (
+  id             TEXT PRIMARY KEY,
+  task_id        INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  stage          TEXT NOT NULL CHECK (stage IN ('description','plan','implementation')),
+  operation      TEXT NOT NULL,
+  generation     INTEGER NOT NULL CHECK (generation > 0),
+  attempt        INTEGER NOT NULL CHECK (attempt > 0),
+  max_attempts   INTEGER NOT NULL CHECK (max_attempts > 0),
+  owner          TEXT,
+  state          TEXT NOT NULL CHECK (state IN ('reserved','running','succeeded','failed','cancelled')),
+  reserved_at    TEXT NOT NULL,
+  started_at     TEXT,
+  heartbeat_at   TEXT,
+  retry_after_at TEXT,
+  terminal_reason TEXT,
+  retry_id       TEXT REFERENCES retry_attempt(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_execution_current ON task_execution(task_id, id, state);
+CREATE INDEX IF NOT EXISTS idx_task_execution_reserved ON task_execution(state, reserved_at);
+`;
+
+// Migration #30 — revision-bound submissions. Each submit_result records the revision it hands
+// over: an implementation's pushed head SHA + diff base SHA (resolved at the git boundary), a doc
+// stage's content hash. Reviews/visualizations/approvals then name the submission they concern;
+// last_* hold the latest observation of the branch head (git at approve time, the provider's PR
+// head while delivering) so a later push reads as stale instead of inheriting a green review.
+// Observations are ordered by board-issued read tickets: every reader (the board's git refresh,
+// the watcher's provider poll) takes the next read_ticket_seq before it reads, and an answer is
+// recorded only when its ticket is above last_recorded_ticket, so the reader that started last
+// wins whatever the readers' clocks say.
+// The rows outlive the worktree and the branch, so the reviewed snapshot stays reproducible.
+// (ALTERs for task_visualization/task_delivery run guarded in migrate.ts.)
+export const MIGRATION_30_SQL = `
+CREATE TABLE IF NOT EXISTS task_submission (
+  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id                 INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  stage                   TEXT NOT NULL CHECK (stage IN ('description','plan','implementation')),
+  execution_id            TEXT,
+  branch                  TEXT,
+  head_sha                TEXT,
+  base_sha                TEXT,
+  content_hash            TEXT,
+  revision_source         TEXT NOT NULL CHECK (revision_source IN ('origin','local','content','unknown')),
+  observed_at             TEXT NOT NULL,
+  created_at              TEXT NOT NULL,
+  last_head_sha           TEXT,
+  last_observed_at        TEXT,
+  last_observation_source TEXT CHECK (last_observation_source IS NULL OR last_observation_source IN ('submit','git','provider')),
+  last_observation_error  TEXT,
+  read_ticket_seq         INTEGER NOT NULL DEFAULT 0,
+  last_recorded_ticket    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_task_submission_task ON task_submission(task_id, id);
+`;
+
+// Workspace repository profile (AF-151) — the delivery profile the watcher/PR handoff will honour.
+// One ADD COLUMN per field, each applied only when absent (migrate.ts), so the migration is a
+// no-op on a DB that already received some/all of them from a re-slotted or diverged build. Kept
+// slot-independent (not MIGRATION_N_SQL): pre-merge AF-151 builds shipped it at #29.
+// All three are nullable: NULL = not configured = today's behaviour (detected default branch,
+// ciMode 'legacy'), which is also how every existing row reads after the upgrade.
+export const WORKSPACE_PROFILE_COLUMNS: ReadonlyArray<readonly [column: string, ddl: string]> = [
+  ['base_branch', 'ALTER TABLE workspace ADD COLUMN base_branch TEXT'],
+  ['required_checks', 'ALTER TABLE workspace ADD COLUMN required_checks TEXT'], // JSON string[]
+  ['ci_mode', "ALTER TABLE workspace ADD COLUMN ci_mode TEXT CHECK (ci_mode IS NULL OR ci_mode IN ('legacy','required','none'))"],
+];
+
+// Applied at slot #32. Earlier AF-147 builds used slots #26–#29 for this schema;
+// the migration replays missing main-line changes for those databases.
+export const ATTENTION_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS attention_occurrence (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   event_key      TEXT NOT NULL UNIQUE,
@@ -424,7 +493,7 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
   text           TEXT NOT NULL,
   state          TEXT NOT NULL CHECK (state IN ('pending','failed','succeeded','permanently_failed')),
   attempts       INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-  max_attempts  INTEGER NOT NULL CHECK (max_attempts > 0),
+  max_attempts   INTEGER NOT NULL CHECK (max_attempts > 0),
   next_attempt_at TEXT NOT NULL,
   last_error     TEXT,
   sent_at        TEXT,

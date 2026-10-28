@@ -103,6 +103,6 @@ describe('e2e: review diff over HTTP from a real workspace repo', () => {
     expect(body2.diff).not.toContain('first attempt');
 
     // The rescued loop completes.
-    expect((await post(app, `/api/tasks/${t.key}/approve`)).status).toBe(200);
+    expect((await post(app, `/api/tasks/${t.key}/approve`, { submissionId: worker.getTask(t.key).submission!.id })).status).toBe(200);
   });
 });

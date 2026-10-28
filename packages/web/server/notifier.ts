@@ -54,6 +54,8 @@ export interface NotifierConfig {
   retryMaxMs?: number;
   reviewWaitMs?: number;
   deliveryWaitMs?: number;
+  /** Board base URL for task links in activity messages. */
+  boardUrl?: string;
 }
 
 export interface NotifierDeps {
@@ -98,10 +100,12 @@ export function notifierConfigFromEnv(env: Record<string, string | undefined>, l
   const port = env['PORT'] ?? '8787';
   const reviewWait = Number(env['AF_NOTIFY_REVIEW_WAIT_SEC'] ?? '1800');
   const deliveryWait = Number(env['AF_NOTIFY_DELIVERY_WAIT_SEC'] ?? '3600');
+  const boardUrl = (env['AF_NOTIFY_BOARD_URL'] ?? '').trim();
   return {
     webhooks: [...new Set(webhooks)], events: new Set(chosen),
     pollMs: (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 15) * 1000,
-    appUrl: env['AF_APP_URL']?.trim() || `http://localhost:${port}`,
+    appUrl: boardUrl || env['AF_APP_URL']?.trim() || `http://localhost:${port}`,
+    ...(boardUrl ? { boardUrl } : {}),
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000,
     maxAttempts: Number.isInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : 5,
     retryBaseMs: Number.isFinite(retryBaseSec) && retryBaseSec > 0 ? retryBaseSec * 1000 : 15000,
@@ -189,6 +193,11 @@ export class Notifier {
   }
 
   private classify(row: ActivityFeedRow): { type: NotifyEvent; text: string } | null {
+    const ev = this.classifyText(row);
+    return ev && this.cfg.boardUrl ? { ...ev, text: `${ev.text} ${this.cfg.boardUrl.replace(/\/+$/, '')}/#task=${row.taskKey}` } : ev;
+  }
+
+  private classifyText(row: ActivityFeedRow): { type: NotifyEvent; text: string } | null {
     if (row.type === 'status_change' && row.toStatus === 'in_review') {
       return { type: 'in_review', text: this.taskText(`:eyes: *${row.taskKey}* needs review — ${row.taskTitle} _(${row.workspace})_`, row.taskKey) };
     }

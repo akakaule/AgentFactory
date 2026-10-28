@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openCore } from '@agentfactory/core';
 import { buildApp } from '../../server/app.js';
+import { expectedRevisionOf } from '@agentfactory/core';
 
 // Helpers
 const post = (app: ReturnType<typeof buildApp>, path: string, body: unknown) =>
@@ -40,7 +41,7 @@ describe('tasks REST API', () => {
       c.updateStatus(t.key, 'queued', 'human');
       c.claimNextTask({ workspace: 'ws' });
       c.submitResult(t.key, { summary: 'done' });
-      c.reviewApprove(t.key); // github origin → delivering
+      c.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(c.getTask(t.key))); // github origin → delivering
       expect(c.getTask(t.key).status).toBe('delivering');
 
       expect((await post(a, `/api/tasks/${t.key}/pr-feedback`, { feedback: 'guard the null case' })).status).toBe(201);
@@ -103,7 +104,7 @@ describe('tasks REST API', () => {
       core.claimNextTask();
       core.submitResult(created.key, { summary: 'described', spec: 'polished', acceptanceCriteria: '- ok' });
 
-      const res = await post(app, `/api/tasks/${created.key}/approve`, {});
+      const res = await post(app, `/api/tasks/${created.key}/approve`, { submissionId: core.getTask(created.key).submission!.id });
       expect(res.status).toBe(200);
       const body = await res.json() as { status: string; stage: string };
       expect(body.status).toBe('queued');
@@ -376,7 +377,7 @@ describe('tasks REST API', () => {
       core.updateStatus(task.key, 'queued', 'human');
       core.claimNextTask({ claimedBy: 'worker-1' });
       core.submitResult(task.key, { summary: 'Done!' });
-      core.reviewApprove(task.key);
+      core.reviewApprove(task.key, undefined, undefined, expectedRevisionOf(core.getTask(task.key)));
 
       const res = await post(app, `/api/tasks/${task.key}/status`, { status: 'queued' });
       expect(res.status).toBe(200);
@@ -393,7 +394,7 @@ describe('tasks REST API', () => {
       core.updateStatus(task.key, 'queued', 'human');
       core.claimNextTask();
       core.submitResult(task.key, { summary: 'Done!' });
-      core.updateStatus(task.key, 'delivering', 'human');
+      core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
       return task.key;
     };
 
@@ -418,7 +419,7 @@ describe('tasks REST API', () => {
       core.updateStatus(task.key, 'queued', 'human');
       core.claimNextTask();
       core.submitResult(task.key, { summary: 'Done!' });
-      core.updateStatus(task.key, 'delivering', 'human');
+      core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
       core.beginDelivery(task.key, { provider: 'azdo', branch: 'feature/AF-1-x' });
 
       // before the first watcher poll the PR may well exist → no link yet
@@ -452,7 +453,7 @@ describe('tasks REST API', () => {
       core.claimNextTask(); // moves to in_progress
       core.submitResult(task.key, { summary: 'Done!' }); // moves to in_review
 
-      const res = await post(app, `/api/tasks/${task.key}/approve`, {});
+      const res = await post(app, `/api/tasks/${task.key}/approve`, { submissionId: core.getTask(task.key).submission!.id });
       expect(res.status).toBe(200);
       const body = await res.json() as { status: string };
       expect(body.status).toBe('done');
@@ -465,7 +466,8 @@ describe('tasks REST API', () => {
       core.submitResult(task.key, { summary: 'Done!' });
       core.addComment(task.key, { actor: 'agent', body: 'ai-review/v1 — 1 finding (codex)\n```json\n{"reviewer":"codex","verdict":"findings","findings":[{"severity":"error","title":"AC1 race"}]}\n```' });
 
-      for (const body of [{}, { reason: '   ' }]) {
+      const submissionId = core.getTask(task.key).submission!.id;
+      for (const body of [{ submissionId }, { reason: '   ', submissionId }]) {
         const res = await post(app, `/api/tasks/${task.key}/approve`, body);
         expect(res.status).toBe(400);
         expect((await res.json() as { message: string }).message).toMatch(/needs a reason/);
@@ -473,7 +475,7 @@ describe('tasks REST API', () => {
       expect((await post(app, `/api/tasks/${task.key}/approve`, { reason: 'x'.repeat(2001) })).status).toBe(400);
       expect(core.getTask(task.key).status).toBe('in_review');
 
-      const res = await post(app, `/api/tasks/${task.key}/approve`, { reason: 'Covered by the lock in AF-12.' });
+      const res = await post(app, `/api/tasks/${task.key}/approve`, { reason: 'Covered by the lock in AF-12.', submissionId });
       expect(res.status).toBe(200);
       const body = await res.json() as { status: string; activity: Array<{ body: string }> };
       expect(body.status).toBe('done');

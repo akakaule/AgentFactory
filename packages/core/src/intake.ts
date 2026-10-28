@@ -118,6 +118,24 @@ export function intakeRevision(task: Pick<Task, 'title' | 'spec' | 'acceptanceCr
 }
 
 const riskRank: Record<Risk, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+/** Starts the status-change note a spec skip writes; the implementation hold recognises it. */
+export const SKIP_SPEC_NOTE_PREFIX = 'Task Intelligence: simple task';
+
+/**
+ * Whether a spec-stage assessment is simple enough to skip the spec stage (`skipSpec` setting):
+ * complexity and risk at or under the configured maxima and readiness at or above the minimum.
+ * Returns the human-readable reason for the activity note, or null.
+ */
+export function skipSpecDecision(a: IntakeAssessmentV1, settings: IntakeSettings): { reason: string } | null {
+  if (!settings.skipSpec || a.status !== 'assessed' || a.stage !== 'description') return null;
+  const { complexity, risk, readiness } = a.decisions;
+  if (COMPLEXITIES.indexOf(complexity.value) > COMPLEXITIES.indexOf(settings.skipSpecMaxComplexity)) return null;
+  if (riskRank[risk.value] > riskRank[settings.skipSpecMaxRisk]) return null;
+  if (readiness.probability < settings.skipSpecMinReadiness) return null;
+  return { reason: `${complexity.value}, ${risk.value} risk, ready ${Math.round(readiness.probability * 100)}%` };
+}
+
 export function evaluateIntakePolicy(a: IntakeAssessmentV1, stage: Stage, settings: IntakeSettings): IntakePolicyResult | null {
   if (a.status !== 'assessed' || a.stage !== stage) return null;
   const reasons: IntakeReason[] = [];

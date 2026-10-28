@@ -1,7 +1,7 @@
 export { openDb, type DB } from './db.js';
 export { runMigrations } from './migrate.js';
 export * from './types.js';
-export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
+export { INTAKE_MARKER, INTAKE_OVERRIDE_MARKER, INTAKE_CLAIM_MARKER, INTAKE_QUESTION_SET, INTAKE_POLICY_VERSION, INTAKE_MARKER_PREFIXES, isIntakeMarker, isIntakeAssessmentMarker, parseIntakeAssessment, parseIntakeComment, validateIntakeAssessment, buildIntakeComment, buildIntakeOverrideComment, intakeOverrideRevision, buildIntakeClaimComment, parseIntakeClaimComment, intakeRevision, normalizeIntakeText, evaluateIntakePolicy, skipSpecDecision, type IntakeRevisionInput, type IntakeClaimContext } from './intake.js';
 export { defaultIntakeSettings, normalizeIntakeSettings, parseIntakeSettingsUpdate, intakeEnabledFor, INTAKE_SETTINGS_KEY } from './intakeSettings.js';
 export { reviewSubmissionFingerprint, candidateOutcome, consensusFindings, consensusSchema, consensusVoteSchema, consensusFindingSchema, criterionIdsSchema, VOTE_REASON_MAX, parseConsensusReview, type ReviewConsensus, type ConsensusCandidate, type ConsensusVote } from './reviewConsensus.js';
 export { NotFoundError, InvalidTransitionError, ValidationError } from './errors.js';
@@ -11,33 +11,40 @@ export { importTask, type ImportTaskInput } from './ops/importTask.js';
 export { updateTask } from './ops/updateTask.js';
 export { deleteTask } from './ops/deleteTask.js';
 export { archiveTask, unarchiveTask, archiveDoneTasks } from './ops/archiveTask.js';
+export { expectedRevisionOf } from './ops/approval.js';
 export { listTasks } from './ops/listTasks.js';
 export { getTask } from './ops/getTask.js';
 export { addTaskDependency, removeTaskDependency } from './ops/taskDependencies.js';
 export { claimNextTask, type ClaimOptions, type ClaimResult } from './ops/claimNextTask.js';
+export { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution, EXECUTION_LEASE_MS, type ReserveExecutionInput } from './ops/execution.js';
 export { featureBranch, kebabTitle } from './branch.js';
-export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, GitError, type BranchDiff } from './git.js';
-export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, type ParsedAiReview } from './aiReview.js';
-export { parseAcceptanceCriteria, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
+export { branchDiff, resolveBaseRef, refFromLabel, fetchRemoteRef, remoteBranchHead, revisionDiff, GitError, type BranchDiff, type RemoteHead } from './git.js';
+export { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
+export { isAiReviewMarker, parseAiReviewComment, summarizeAiReview, findingsAtApproval, normalizeCriteria, normalizeFix, formatReviewRevision, parseReviewRevision, type ParsedAiReview } from './aiReview.js';
+export { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA, type AcceptanceCriterion, type ParsedCriteria } from './acceptanceCriteria.js';
 export { buildReviewBrief } from './reviewBrief.js';
 export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComment, parseCriteriaClaims } from './criteriaClaims.js';
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
+export { effectiveWorkspaceProfile, DEFAULT_CI_MODE, type EffectiveWorkspaceProfile, type ProfileSource } from './workspaceProfile.js';
+export { diagnoseWorkspace, defaultDiagnoseProbes, type DiagnoseProbes, type DiagnosticCheck, type DiagnosticId, type DiagnosticStatus, type WorkspaceDiagnosis } from './diagnoseWorkspace.js';
 export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
+export { EFFORTS, MODEL_CATALOG, MODEL_ID_PATTERN, MAX_REVIEWERS, emptyAgentModels, normalizeAgentModels, resolveAgentModel, resolveReviewers, modelProfileArgs, profileFromArgs, type Effort, type ModelCatalogEntry, type ModelProfile, type AgentModelStages, type AgentModelLayer, type WorkspaceModelLayer, type AgentModels, type AgentModelRole, type ReportedProfile, type ReportedRoles, type AgentModelDefaultsReport, type AgentModelDefaults } from './agentModels.js';
+export { DEFAULT_MODEL_PRICES, priceUsage, type ModelPrice, type ModelPrices } from './modelPrices.js';
 export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isFeedbackEvalMarker, parseFeedbackEvalComment, buildFeedbackEvalComment, FEEDBACK_DISPOSITIONS, type FeedbackDisposition, type ParsedPrFeedback, type ParsedFeedbackEval } from './prFeedback.js';
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
-export { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
-export { type DeliveryObservation } from './repo/delivery.js';
+export { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, awaitingPostMergeChecks, POST_MERGE_CHECK_PUBLICATION_MS, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
+export { type DeliveryObservation, type DeliveryChecksTarget } from './repo/delivery.js';
 export { addComment } from './ops/addComment.js';
 export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { releaseClaim } from './ops/releaseClaim.js';
-export { createHttpCore, type HttpCore, type HttpCoreOptions, type BoardIdentity } from './httpCore.js';
+export { createHttpCore, assertBoardCapabilities, type HttpCore, type HttpCoreOptions, type BoardIdentity } from './httpCore.js';
 export { boardSchema, repoPathOverridesSchema, xorDbBoard, resolveBoardToken, assertAbsoluteOverrides, DEFAULT_TOKEN_ENV, type BoardConfig } from './boardConfig.js';
 export { restartTask } from './ops/restartTask.js';
 export { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget, type ReserveRetryInput, type SettleRetryInput, type ReconcileRetryInput, type RecordRetryFailureInput } from './ops/retry.js';
@@ -69,6 +76,7 @@ export { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideI
 export { activitySince, latestActivityId } from './repo/activity.js';
 export { getKv, setKv } from './repo/kv.js';
 export { captureNotifications, listAttentionOccurrences, listOpenAttention, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
+export { type RecentTokenMetric } from './repo/metrics.js';
 export {
   FAILURE_TRIAGE_MARKER, FAILURE_TRIAGE_FEEDBACK_MARKER, FAILURE_TRIAGE_MARKER_PREFIXES, FAILURE_TRIAGE_CATEGORIES, FAILURE_TRIAGE_TAXONOMY,
   FAILURE_TRIAGE_DISPLAY_VERSION, FAILURE_TRIAGE_NOTE_MAX, isFailureTriageMarker, classifyFailureNote, summarizeFailureTriage,
@@ -96,12 +104,16 @@ import { updateStatus } from './ops/updateStatus.js';
 import { releaseClaim } from './ops/releaseClaim.js';
 import { restartTask } from './ops/restartTask.js';
 import { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget } from './ops/retry.js';
+import { reserveExecution, reconcileExecutions, touchExecution, getCurrentExecution } from './ops/execution.js';
+import { executionById } from './repo/execution.js';
 import { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 import { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 import { reviewApprove } from './ops/reviewApprove.js';
-import { getDelivery, beginDelivery, recordDeliveryCheck, completeDelivery, failDelivery, type DeliveryFailureReason } from './ops/delivery.js';
+import { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
 import type { DeliveryObservation } from './repo/delivery.js';
 import { resolveOriginUrl } from './remote.js';
+import { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
+import { remoteBranchHead, type RemoteHead } from './git.js';
 import { resolveGitAuth } from './gitAuth.js';
 import { getWorkspacePat } from './repo/workspaces.js';
 import { getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt } from './agentPrompts.js';
@@ -124,24 +136,52 @@ import { attachVisualization, getVisualization, getVisualizationHtml, type Attac
 import { recordSupervisorHeartbeat, listSupervisors } from './ops/supervisorHeartbeat.js';
 import type { UpsertSupervisor } from './repo/supervisors.js';
 import { activitySince, latestActivityId } from './repo/activity.js';
+import { recentTokenMetrics } from './repo/metrics.js';
 import { getKv, setKv } from './repo/kv.js';
 import { captureNotifications, listAttentionOccurrences, listOpenAttention, listNotificationOutbox, listAllNotificationOutbox, settleNotificationOutbox, resolveAttention, snoozeAttention } from './ops/notifications.js';
 import { getIntakeSettings, setIntakeSettings } from './ops/intakeSettings.js';
 import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideIntake, queueWithIntakeAcknowledgment, intakeRuntimeSettings } from './ops/intake.js';
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
+import { getAgentModels, setAgentModels, getAgentModelDefaults, reportAgentModelDefaults } from './agentModels.js';
+import { getModelPrices, setModelPrices } from './modelPrices.js';
 import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
-import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, CaptureNotificationsInput, SettleNotificationInput, FailureTriageFeedbackInput } from './types.js';
+import type { ExpectedRevision, SubmissionSummary } from './types.js';
+import type { GitAuth } from './gitAuth.js';
+import type { Status, Actor, CreateTaskInput, UpdateTaskInput, SubmitResultInput, CreateWorkspaceInput, UpdateWorkspaceInput, AddTaskMetricsInput, AddAttachmentInput, DeliveryProvider, RetryOperation, AddCommentInput, FailureTriageFeedbackInput, CaptureNotificationsInput, SettleNotificationInput } from './types.js';
 
 export interface CoreOptions {
   /** Injectable origin-URL resolver for the approve→delivering routing (tests pass a fake;
    *  production defaults to shelling `git remote get-url origin` — see remote.ts). */
   resolveOrigin?: ((repoPath: string) => string | null) | undefined;
+  /** Keep HTTP adapters strict: only the request's executionId may fence a mutation. */
+  autoFence?: boolean | undefined;
+  /** Injectable approve-time head observation (tests pass a fake; production runs `git ls-remote`). */
+  resolveRemoteHead?: ((repoPath: string, branch: string, auth: GitAuth | null) => Promise<RemoteHead>) | undefined;
 }
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
 export function createCore(db: DB, opts: CoreOptions = {}) {
   const resolveOrigin = opts.resolveOrigin ?? resolveOriginUrl;
+  const resolveRemoteHead = opts.resolveRemoteHead ?? remoteBranchHead;
+  // Keep the public in-process facade as ergonomic as the HTTP client: once a claim returns an
+  // execution identity, subsequent mutations from that same facade are fenced automatically.
+  // Raw ops still require callers to pass the identity, which keeps the DB boundary strict.
+  const autoFence = opts.autoFence ?? true;
+  const executionIds = new Map<string, string>();
+  const fenced = <T extends { executionId?: string | undefined }>(key: string, input: T): T => {
+    if (!autoFence || input.executionId !== undefined) return input;
+    const executionId = executionIds.get(key);
+    if (executionId === undefined) return input;
+    // Only a LIVE cached fence is ergonomic. Once it settled (submit, release, reconcile) replaying
+    // it would turn this facade's own later claim-less calls into stale-execution errors.
+    const state = executionById(db, executionId)?.state;
+    if (state !== 'reserved' && state !== 'running') {
+      executionIds.delete(key);
+      return input;
+    }
+    return { ...input, executionId };
+  };
   return {
     createTask: (input: CreateTaskInput) => createTask(db, input),
     /** Supervisor-side import from an external tracker (ADO work items): idempotent create + queue. */
@@ -155,7 +195,15 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     getTask: (key: string) => getTask(db, key),
     addTaskDependency: (dependentKey: string, dependencyKey: string) => addTaskDependency(db, dependentKey, dependencyKey),
     removeTaskDependency: (dependentKey: string, dependencyKey: string) => removeTaskDependency(db, dependentKey, dependencyKey),
-    claimNextTask: (opts?: ClaimOptions) => claimNextTask(db, opts),
+    claimNextTask: (opts?: ClaimOptions) => {
+      const claim = claimNextTask(db, opts);
+      if (claim) executionIds.set(claim.key, claim.executionId);
+      return claim;
+    },
+    reserveExecution: (key: string, input: { operation: string; maxAttempts: number; owner?: string | null; startImmediately?: boolean }) => reserveExecution(db, key, input),
+    reconcileExecutions: (graceMs: number) => reconcileExecutions(db, graceMs),
+    touchExecution: (id: string) => touchExecution(db, id),
+    getCurrentExecution: (key: string) => getCurrentExecution(db, key),
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),
     listWorkspaces: () => listWorkspaces(db),
@@ -171,14 +219,14 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     createUser: (input: { email: string; displayName?: string; oidcSubject?: string | null; isSystem?: boolean }) => createUser(db, input),
     createApiToken: (input: { label: string; userId?: number | null; isService?: boolean; isSupervisor?: boolean }) => createApiToken(db, input),
     authenticateToken: (rawToken: string) => authenticateToken(db, rawToken),
-    reportProgress: (key: string, input: { message: string; tokensIn?: number; tokensOut?: number }) => reportProgress(db, key, input),
+    reportProgress: (key: string, input: { message: string; tokensIn?: number; tokensOut?: number; executionId?: string }) => reportProgress(db, key, fenced(key, input)),
     touchAgentSession: (key: string) => touchAgentSession(db, key),
     endAgentSession: (key: string) => endAgentSession(db, key),
     listLiveAgents: () => listLiveAgents(db),
-    appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, input),
-    saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, input),
+    appendTranscript: (key: string, input: AppendTranscriptInput) => appendTranscript(db, key, fenced(key, input)),
+    saveTranscript: (key: string, input: SaveTranscriptInput) => saveTranscript(db, key, fenced(key, input)),
     getTranscript: (key: string) => getTranscript(db, key),
-    attachVisualization: (key: string, input: AttachVisualizationInput) => attachVisualization(db, key, input),
+    attachVisualization: (key: string, input: AttachVisualizationInput) => attachVisualization(db, key, fenced(key, input)),
     getVisualization: (key: string) => getVisualization(db, key),
     getVisualizationHtml: (key: string) => getVisualizationHtml(db, key),
     recordSupervisorHeartbeat: (input: UpsertSupervisor) => recordSupervisorHeartbeat(db, input),
@@ -187,6 +235,17 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     latestActivityId: () => latestActivityId(db),
     getEngineSettings: () => getEngineSettings(db),
     setEngineSettings: (partial: unknown) => setEngineSettings(db, partial),
+    /** Board-editable per-role engine/model/effort (global + per-workspace); supervisors read it every tick. */
+    getAgentModels: () => getAgentModels(db),
+    setAgentModels: (doc: unknown) => setAgentModels(db, doc),
+    /** Supervisors' config-file model defaults, reported so the board can show them. */
+    getAgentModelDefaults: () => getAgentModelDefaults(db),
+    reportAgentModelDefaults: (report: unknown) => { reportAgentModelDefaults(db, report); },
+    /** Board-editable USD-per-1M-token prices; the OTLP receiver prices Codex usage with them. */
+    getModelPrices: () => getModelPrices(db),
+    /** Latest OTel usage rows (newest first) — the live Telemetry feed restores these on a restart. */
+    recentTokenMetrics: (limit: number) => recentTokenMetrics(db, limit),
+    setModelPrices: (prices: unknown) => setModelPrices(db, prices),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
     captureNotifications: (input: CaptureNotificationsInput) => captureNotifications(db, input),
@@ -197,10 +256,10 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     settleNotificationOutbox: (id: number, input: SettleNotificationInput) => settleNotificationOutbox(db, id, input),
     resolveAttention: (id: number) => resolveAttention(db, id),
     snoozeAttention: (id: number, until: string) => snoozeAttention(db, id, until),
-    addComment: (key: string, input: { actor: Actor; body: string; actorUserId?: number | null }) => addComment(db, key, input),
-    submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, input),
-    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string) => updateStatus(db, key, status, actor, nowIso, actorUserId, note),
-    releaseClaim: (key: string) => releaseClaim(db, key),
+    addComment: (key: string, input: AddCommentInput) => addComment(db, key, fenced(key, input)),
+    submitResult: (key: string, input: SubmitResultInput) => submitResult(db, key, fenced(key, input)),
+    updateStatus: (key: string, status: Status, actor: Actor, actorUserId: number | null = null, note?: string, executionId?: string, expected?: ExpectedRevision | null) => updateStatus(db, key, status, actor, nowIso, actorUserId, note, fenced(key, { executionId }).executionId, expected ?? null),
+    releaseClaim: (key: string, now?: () => string, executionId?: string) => releaseClaim(db, key, now, fenced(key, { executionId }).executionId),
     restartTask: (key: string, actorUserId: number | null = null) => restartTask(db, key, actorUserId),
     reserveRetry: (key: string, input: { operation: RetryOperation; maxAttempts: number }) => reserveRetry(db, key, input),
     settleRetry: (id: string, input: { state: 'running' | 'succeeded' | 'failed' | 'cancelled'; reason?: string | undefined }) => settleRetry(db, id, input),
@@ -213,9 +272,27 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
      *  and pull the task back to queued to apply a warranted verdict (composed feedback for the worker). */
     addPrFeedback: (key: string, input: AddPrFeedbackInput) => addPrFeedback(db, key, input),
     applyFeedbackFix: (key: string, actorUserId: number | null = null) => applyFeedbackFix(db, key, actorUserId),
-    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null),
+    reviewApprove: (key: string, actorUserId: number | null = null, overrideReason?: string | null, expected?: ExpectedRevision | null) => reviewApprove(db, key, nowIso, actorUserId, resolveOrigin, overrideReason ?? null, expected ?? null),
+    observeRevision: (key: string, input: RevisionObservationInput) => observeRevision(db, key, input),
+    /** The git adapter's approve-time refresh: observe the current implementation submission's
+     *  branch head on origin (outside any transaction) and record it — a later push then reads
+     *  stale, an unreachable origin reads unknown. No-op for doc stages / unresolved revisions.
+     *  It takes a read ticket before reading, like every reader: the one that started last wins. */
+    refreshRevision: async (key: string): Promise<SubmissionSummary | null> => {
+      const task = getTask(db, key);
+      const sub = task.submission ?? null;
+      if (!sub || sub.stage !== 'implementation' || sub.headSha === null || task.branch === null) return sub;
+      const ticket = issueRevisionReadTicket(db, key, sub.id);
+      if (!ticket) return getTask(db, key).submission ?? null;
+      const readStartedAt = nowIso();
+      const head = await resolveRemoteHead(task.repoPath, task.branch, resolveGitAuth(db, task.workspace, { env: process.env, resolveOrigin }));
+      return observeRevision(db, key, { submissionId: sub.id, headSha: head.headSha, source: 'git', error: head.error, readTicket: ticket.ticket, readStartedAt });
+    },
+    /** A read ticket for the task's current submission: the watcher takes one before each provider poll. */
+    issueRevisionReadTicket: (key: string, submissionId?: number) => issueRevisionReadTicket(db, key, submissionId),
     getDelivery: (key: string) => getDelivery(db, key),
     beginDelivery: (key: string, seed: { provider: DeliveryProvider; branch: string; prUrl?: string | null }) => beginDelivery(db, key, seed),
+    recordDeliveryCheckFailure: (key: string, input: DeliveryCheckFailureInput) => recordDeliveryCheckFailure(db, key, input),
     recordDeliveryCheck: (key: string, obs: DeliveryObservation) => recordDeliveryCheck(db, key, obs),
     completeDelivery: (key: string, note: string, expectedStateChangedAt?: string) => completeDelivery(db, key, note, expectedStateChangedAt),
     failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined }) => failDelivery(db, key, input),
@@ -223,7 +300,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
     tokenTrend: (opts: { workspace?: string | undefined } = {}) => tokenTrend(db, opts),
-    addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, input),
+    addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, fenced(key, input)),
     addAttachment: (key: string, input: AddAttachmentInput) => addAttachment(db, key, input),
     deleteAttachment: (id: number) => deleteAttachment(db, id),
     getAttachment: (id: number) => getAttachment(db, id),

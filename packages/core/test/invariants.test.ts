@@ -11,6 +11,8 @@ import { reviewApprove } from '../src/ops/reviewApprove.js';
 import { reviewRequestChanges } from '../src/ops/reviewRequestChanges.js';
 import { deleteTask } from '../src/ops/deleteTask.js';
 import { createCore } from '../src/index.js';
+import { expectedRevisionOf } from '../src/ops/approval.js';
+import { getTask } from '../src/ops/getTask.js';
 
 // Helper to count activity rows in the DB
 function countActivity(db: ReturnType<typeof makeTestDb>): number {
@@ -69,9 +71,9 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const ts4 = '2026-01-04T00:00:00.000Z';
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    claimNextTask(db, undefined, () => ts3);
+    const { executionId } = claimNextTask(db, undefined, () => ts3)!;
     const before = countActivity(db);
-    submitResult(db, task.key, { summary: 'done!' }, () => ts4);
+    submitResult(db, task.key, { summary: 'done!', executionId }, () => ts4);
     expect(getVersion(db)).toBe(`${ts4}#1`);
     expect(countActivity(db)).toBeGreaterThan(before);
   });
@@ -85,10 +87,10 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const ts5 = '2026-01-05T00:00:00.000Z';
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    claimNextTask(db, undefined, () => ts3);
-    submitResult(db, task.key, { summary: 'done!' }, () => ts4);
+    const { executionId } = claimNextTask(db, undefined, () => ts3)!;
+    submitResult(db, task.key, { summary: 'done!', executionId }, () => ts4);
     const before = countActivity(db);
-    reviewApprove(db, task.key, () => ts5);
+    reviewApprove(db, task.key, () => ts5, undefined, undefined, undefined, expectedRevisionOf(getTask(db, task.key)));
     expect(getVersion(db)).toBe(`${ts5}#1`);
     expect(countActivity(db)).toBe(before + 1);
   });
@@ -102,8 +104,8 @@ describe('invariants: every mutating op advances getVersion and tracks activity'
     const ts5 = '2026-01-05T00:00:00.000Z';
     const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, () => ts1);
     updateStatus(db, task.key, 'queued', 'human', () => ts2);
-    claimNextTask(db, undefined, () => ts3);
-    submitResult(db, task.key, { summary: 'done!' }, () => ts4);
+    const { executionId } = claimNextTask(db, undefined, () => ts3)!;
+    submitResult(db, task.key, { summary: 'done!', executionId }, () => ts4);
     const before = countActivity(db);
     reviewRequestChanges(db, task.key, { feedback: 'needs work' }, () => ts5);
     expect(getVersion(db)).toBe(`${ts5}#1`);

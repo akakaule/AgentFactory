@@ -10,6 +10,7 @@ import { ReviewEvidence } from './ReviewEvidence.js';
 import { ReviewSendBack } from './ReviewSendBack.js';
 import { ReviewApprove } from './ReviewApprove.js';
 import { ConsensusDiscussion } from './ConsensusDiscussion.js';
+import { remainingConcerns, revisionLines } from '../reviewConcerns.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -76,9 +77,11 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
   const names = useMemo(() => shortNames(brief?.reviewers ?? []), [brief?.reviewers]);
   const readOnly = brief?.headline === 'pending';
   const sendCount = selectedIssues(brief, decisions).length;
-  const undecidedCalls = (brief?.issues ?? []).filter((i) => i.group === 'call' && decisions[i.id] === undefined).length;
   const blocking = brief?.headline === 'changes_needed' || brief?.headline === 'your_call';
   const label = approveLabel(task.stage, willDeliver);
+  const revision = revisionLines(task);
+  const concerns = remainingConcerns(task, decisions);
+  const approveBlocked = task.stage === 'implementation' && task.submission?.freshness === 'stale';
 
   const approveNow = () => {
     setApproveError(null);
@@ -94,8 +97,8 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
     </button>
   );
   const approveButton = blocking
-    ? <button type="button" className="af-mini" onClick={() => setOverlay({ kind: 'approve' })}>Approve anyway…</button>
-    : <button type="button" className="af-btn-primary" onClick={approveNow}>{I.check({ width: 14, height: 14 })}{label}</button>;
+    ? <button type="button" className="af-mini" disabled={approveBlocked} onClick={() => setOverlay({ kind: 'approve' })}>Approve anyway…</button>
+    : <button type="button" className="af-btn-primary" disabled={approveBlocked} onClick={approveNow}>{I.check({ width: 14, height: 14 })}{label}</button>;
 
   return (
     <div className="af-rv">
@@ -137,9 +140,17 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
             )}
           </div>
         )}
+        {revision.line && <p className="af-rv-revision">{revision.line}</p>}
+        {concerns.length > 0 && (
+          <div className="af-rv-concerns">
+            <span className="eyebrow">Remaining concerns</span>
+            <ol aria-label="Remaining concerns">
+              {concerns.map((c) => <li key={c} className={c === revision.stale ? 'stale' : undefined}>{c}</li>)}
+            </ol>
+          </div>
+        )}
         <div className="actions">
           {blocking ? <>{requestButton}{approveButton}</> : <>{approveButton}{requestButton}</>}
-          {!readOnly && undecidedCalls > 0 && <span className="hint">{`${undecidedCalls} ${undecidedCalls === 1 ? 'issue needs' : 'issues need'} your decision`}</span>}
         </div>
         {approveError && <p className="af-rv-error" role="alert">{approveError}</p>}
       </section>
