@@ -291,7 +291,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   box-shadow: -24px 0 60px rgba(0,0,0,0.45); animation: af-slidein .22s cubic-bezier(.2,.7,.2,1);
 }
 .af-drawer-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
-.af-drawer-head .af-key { font-size: 13px; }
+.af-drawer-head .af-key { font-size: 13px; text-decoration: none; }
+.af-drawer-head .af-key:hover { color: var(--ink); text-decoration: underline; }
 .af-x { margin-left: auto; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: transparent; border: 1px solid transparent; color: var(--ink-2); font-size: 14px; }
 .af-x:hover { background: var(--card); border-color: var(--line); color: var(--ink); }
 .af-drawer-body { flex: 1; overflow-y: auto; padding: 18px; }
