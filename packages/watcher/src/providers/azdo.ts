@@ -2,6 +2,7 @@ import type { DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/co
 import type { FetchJson, FetchResponse } from '../types.js';
 import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
 import { azdoGuard, basicPat } from './azdoHttp.js';
+import { fitBody } from '../prBody.js';
 
 /**
  * Azure DevOps via REST with a PAT. Reads need Code (Read); the one write — opening the PR once a
@@ -24,6 +25,7 @@ interface AdoPr {
   targetRefName?: string;
   repository?: { id?: string } | null;
   creationDate?: string;
+  description?: string | null;
 }
 /** One Azure Pipelines build (`_apis/build/builds`). */
 interface AdoBuild {
@@ -68,6 +70,8 @@ function toPr(remote: { organization: string; project: string; repo: string }, p
     state: pr.status === 'completed' ? 'merged' : pr.status === 'abandoned' ? 'closed' : 'open',
     headSha: pr.lastMergeSourceCommit?.commitId ?? null,
     mergeCommitSha: pr.lastMergeCommit?.commitId ?? null,
+    // Azure DevOps omits the field when the description is empty
+    body: pr.description ?? '',
   };
   if (obs.state === 'open' && pr.mergeStatus === 'conflicts') {
     return { ...obs, mergeConflict: { detail: pr.mergeFailureMessage?.trim() || 'Azure DevOps reports mergeStatus=conflicts' } };
@@ -213,12 +217,21 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
           sourceRefName: `refs/heads/${branch}`,
           targetRefName: info.defaultBranch,
           title,
-          description: body.length > MAX_DESCRIPTION ? `${body.slice(0, MAX_DESCRIPTION - 1)}…` : body,
+          description: fitBody(body, MAX_DESCRIPTION),
         }),
       });
       // TF401179: an active PR for this source/target pair already exists — the search finds it next tick.
       if (res.status === 409) return null;
       return toPr(remote, guard(res, url, true).body as AdoPr);
+    },
+
+    async updatePullRequestBody(remote, prId, body): Promise<void> {
+      if (remote.provider !== 'azdo') throw new Error('azdo provider got a non-azdo remote');
+      const num = /^!(\d+)$/.exec(prId)?.[1];
+      if (!num) throw new Error(`not an Azure DevOps PR id: ${prId}`);
+      const url = `${repoBase(remote)}/pullrequests/${num}?api-version=${apiVersion}`;
+      const res = await fetchJson(url, { headers, method: 'PATCH', body: JSON.stringify({ description: fitBody(body, MAX_DESCRIPTION) }) });
+      guard(res, url, true);
     },
   };
 }

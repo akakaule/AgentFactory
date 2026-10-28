@@ -7,6 +7,7 @@ import { ProviderHttpError, type DeliveryCheckResult, type DeliveryProviderApi, 
 import { resolveCredential } from './credentials.js';
 import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
 import { syncInbound, syncOutbound } from './adoSync.js';
+import { renderSection, sectionIsCurrent, withSection } from './prBody.js';
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
@@ -275,6 +276,8 @@ export class Watcher {
     if (recorded.skipped) return;
     if (recorded.changed) console.log(`[watcher] ${key}: ${pr ? `PR ${pr.id} ${pr.state}` : 'no PR found'} · checks ${checks.state}`);
 
+    if (pr?.state === 'open') await this.syncPrBody(key, detail, provider, remote, pr);
+
     // Recording a merge already reconciles completion atomically in core. Never bounce a merged
     // PR for historical failed checks or ask a worker to implement the same delivery again.
     if (pr?.state === 'merged') return;
@@ -353,7 +356,7 @@ export class Watcher {
    */
   private async openPr(
     key: string,
-    detail: { title: string; resultSummary: string | null },
+    detail: Parameters<typeof renderSection>[0],
     provider: DeliveryProviderApi,
     remote: RemoteRef,
     branch: string,
@@ -364,7 +367,7 @@ export class Watcher {
       const opened = await provider.openPullRequest(remote, {
         branch,
         title: `${key}: ${detail.title}`,
-        body: `${summary}\n\n---\nOpened by AgentFactory for ${key} after its implementation review was approved.`,
+        body: withSection(`${summary}\n\n---\nOpened by AgentFactory for ${key} after its implementation review was approved.`, renderSection(detail)),
       });
       this.deps.console.log(opened
         ? `[watcher] ${key}: opened PR ${opened.id} (${opened.url})`
@@ -373,6 +376,29 @@ export class Watcher {
     } catch (err) {
       this.noteFailure(key, err, cred, 'opening the PR');
       return null;
+    }
+  }
+
+  /**
+   * Keep the board-managed section of an open PR's body current: rewrite only the text between the
+   * markers (or append the section once) when it differs from the task. Best-effort — a failed
+   * PATCH is logged and retried on the next poll; it never backs off or bounces the delivery.
+   */
+  private async syncPrBody(
+    key: string,
+    detail: Parameters<typeof renderSection>[0],
+    provider: DeliveryProviderApi,
+    remote: RemoteRef,
+    pr: PrObservation,
+  ): Promise<void> {
+    if (pr.body === undefined) return; // the host did not report a body: nothing safe to rewrite
+    const content = renderSection(detail);
+    if (sectionIsCurrent(pr.body, content)) return;
+    try {
+      await provider.updatePullRequestBody(remote, pr.id, withSection(pr.body, content));
+      this.deps.console.log(`[watcher] ${key}: updated the AgentFactory section of PR ${pr.id}`);
+    } catch (err) {
+      this.deps.console.warn(`[watcher] ${key}: could not update the PR body of ${pr.id} (${err instanceof Error ? err.message : String(err)})`);
     }
   }
 
