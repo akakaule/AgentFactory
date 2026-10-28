@@ -92,6 +92,7 @@ AF_NOTIFY_WEBHOOKS="https://hooks.slack.com/services/…" npm run web:dev:server
 
 - `AF_NOTIFY_EVENTS` — which events to send (default `in_review,skip_listed,supervisor_down`; also `failed`, `queue_empty`).
 - `AF_NOTIFY_POLL_SEC` — poll interval (default 15).
+- `AF_NOTIFY_BOARD_URL` — the board's base URL (e.g. `http://boardhost:8787`); when set, review/failure/skip-list messages end with a `<url>/#task=KEY` link that opens the task's drawer.
 
 The notifier reads the activity log, so it catches agent-driven transitions from any process (MCP, dispatcher), and only alerts on *new* events after it starts.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../client/src/App.js';
 
@@ -57,6 +57,7 @@ const ws = (id: number, name: string, repoPath: string) =>
   });
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '/');
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.')]);
   vi.mocked(api.getTokenTrend).mockResolvedValue([]);
@@ -248,5 +249,71 @@ describe('App', () => {
     await user.type(screen.getByLabelText('Search tasks to depend on'), 'Default task');
 
     expect(screen.getByRole('button', { name: /Add AF-1.*Default task/i })).toBeInTheDocument();
+  });
+
+  describe('#task=KEY deep link', () => {
+    const detail = (key: string) => ({
+      id: Number(key.slice(3)), key, title: `Task ${key}`, status: 'backlog' as const, stage: 'implementation' as const, kind: 'code' as const,
+      spec: 's', acceptanceCriteria: 'a', resultSummary: null, seq: Number(key.slice(3)), workspace: 'default', repoPath: '.',
+      unmetDependencyCount: 0, claimedBy: null, claimedAt: null, archivedAt: null, aiReview: null,
+      failure: null, delivery: null, branch: null, plan: null, originalSpec: null,
+      originalAcceptanceCriteria: null, policy: null, verifyCommand: null, hasVisualization: false,
+      visualizationGeneratedAt: null, attachments: [], activity: [], links: [], dependencies: [], dependents: [],
+      metrics: {
+        queueMin: 0, workMin: 0, reviewMin: 0, blockedMin: 0, deliveringMin: 0, rounds: 0, reopened: false,
+        claimCount: 0, doneAt: null, model: null, tokensIn: null, tokensOut: null, costUsd: null,
+      },
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    });
+    const drawerKey = () => document.querySelector('.af-drawer-head .af-key')?.textContent ?? null;
+
+    beforeEach(() => {
+      vi.mocked(api.getTask).mockImplementation(async (key: string) => {
+        if (key === 'AF-999') throw new Error('task AF-999 not found');
+        return detail(key) as Awaited<ReturnType<typeof api.getTask>>;
+      });
+    });
+
+    it('opens the drawer for the task named in the hash at load', async () => {
+      window.history.replaceState(null, '', '/#task=AF-12');
+      render(<App />);
+      expect(await screen.findByText('Task AF-12')).toBeInTheDocument();
+      expect(drawerKey()).toBe('AF-12');
+    });
+
+    it('switches the drawer when the hash changes', async () => {
+      window.history.replaceState(null, '', '/#task=AF-12');
+      render(<App />);
+      await screen.findByText('Task AF-12');
+      act(() => {
+        window.history.replaceState(null, '', '/#task=AF-13');
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+      expect(await screen.findByText('Task AF-13')).toBeInTheDocument();
+      expect(drawerKey()).toBe('AF-13');
+    });
+
+    it('opens no drawer and shows no error for an unknown key', async () => {
+      window.history.replaceState(null, '', '/#task=AF-999');
+      render(<App />);
+      await waitFor(() => expect(api.getTask).toHaveBeenCalledWith('AF-999'));
+      await screen.findByRole('heading', { level: 1 });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(drawerKey()).toBeNull();
+      expect(screen.queryByText(/not found/)).toBeNull();
+    });
+
+    it('writes the hash when a task is opened from the board and clears it on close', async () => {
+      const row = { ...detail('AF-12'), repoPath: undefined };
+      vi.mocked(api.listTasks).mockResolvedValue([row] as unknown as Awaited<ReturnType<typeof api.listTasks>>);
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(await screen.findByText('Task AF-12'));
+      await waitFor(() => expect(drawerKey()).toBe('AF-12'));
+      expect(window.location.hash).toBe('#task=AF-12');
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+      expect(drawerKey()).toBeNull();
+      expect(window.location.hash).toBe('');
+    });
   });
 });

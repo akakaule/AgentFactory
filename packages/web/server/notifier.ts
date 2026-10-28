@@ -38,6 +38,8 @@ export interface NotifierConfig {
   webhooks: string[];
   events: Set<NotifyEvent>;
   pollMs: number;
+  /** Board base URL (AF_NOTIFY_BOARD_URL); when set, task messages end with its `#task=KEY` deep link. */
+  boardUrl?: string;
 }
 
 export interface NotifierDeps {
@@ -55,7 +57,13 @@ export function notifierConfigFromEnv(env: Record<string, string | undefined>): 
     (e): e is NotifyEvent => (ALL_NOTIFY_EVENTS as readonly string[]).includes(e),
   );
   const pollSec = Number(env['AF_NOTIFY_POLL_SEC'] ?? '15');
-  return { webhooks, events: new Set(chosen), pollMs: (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 15) * 1000 };
+  const boardUrl = (env['AF_NOTIFY_BOARD_URL'] ?? '').trim();
+  return {
+    webhooks,
+    events: new Set(chosen),
+    pollMs: (Number.isFinite(pollSec) && pollSec > 0 ? pollSec : 15) * 1000,
+    ...(boardUrl ? { boardUrl } : {}),
+  };
 }
 
 export class Notifier {
@@ -120,6 +128,11 @@ export class Notifier {
   }
 
   private classify(row: ActivityFeedRow): { type: NotifyEvent; text: string } | null {
+    const ev = this.classifyText(row);
+    return ev && this.cfg.boardUrl ? { ...ev, text: `${ev.text} ${this.cfg.boardUrl.replace(/\/+$/, '')}/#task=${row.taskKey}` } : ev;
+  }
+
+  private classifyText(row: ActivityFeedRow): { type: NotifyEvent; text: string } | null {
     if (row.type === 'status_change' && row.toStatus === 'in_review') {
       return { type: 'in_review', text: `:eyes: *${row.taskKey}* needs review — ${row.taskTitle} _(${row.workspace})_` };
     }

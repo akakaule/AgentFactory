@@ -39,6 +39,18 @@ function useChangeTicker(tasks: Task[]): string | null {
   return line;
 }
 
+/** The task key a `#task=KEY` deep link names, or null. */
+function hashTaskKey(): string | null {
+  const m = /^#task=([A-Za-z][A-Za-z0-9]*-\d+)$/.exec(window.location.hash);
+  return m ? m[1]! : null;
+}
+
+/** Mirror the open drawer into the URL without adding history entries or firing hashchange. */
+function writeTaskHash(key: string | null): void {
+  const { pathname, search } = window.location;
+  window.history.replaceState(window.history.state, '', key ? `${pathname}${search}#task=${key}` : `${pathname}${search}`);
+}
+
 export function App() {
   const [view, setView] = useState<View>('board');
   const [rangeDays, setRangeDays] = useState<number | null>(7);
@@ -98,7 +110,26 @@ export function App() {
     api.setStatus(key, to, undefined, undefined, revision).then(refetch).catch(() => {});
   };
 
-  const switchView = (v: View) => { setView(v); setSelectedKey(null); };
+  const openTask = (key: string) => { setSelectedKey(key); writeTaskHash(key); };
+  const closeTask = () => { setSelectedKey(null); writeTaskHash(null); };
+
+  // `#task=KEY` opens that task's drawer on load and on hashchange; an unknown key opens nothing.
+  useEffect(() => {
+    let generation = 0;
+    const follow = () => {
+      const key = hashTaskKey();
+      const mine = ++generation;
+      if (!key) return;
+      api.getTask(key)
+        .then(() => { if (mine === generation) setSelectedKey(key); })
+        .catch(() => { if (mine === generation) writeTaskHash(null); });
+    };
+    follow();
+    window.addEventListener('hashchange', follow);
+    return () => { generation++; window.removeEventListener('hashchange', follow); };
+  }, []);
+
+  const switchView = (v: View) => { setView(v); closeTask(); };
   const taskChrome = view === 'board' || view === 'list' || view === 'archive'; // search + New task
 
 
@@ -158,7 +189,7 @@ export function App() {
       {view === 'board' && (
         <BoardView
           tasks={visible}
-          onSelect={setSelectedKey}
+          onSelect={openTask}
           showWorkspaceBadges={showBadges}
           workspaces={workspaces}
           onMove={moveTask}
@@ -167,11 +198,11 @@ export function App() {
             api.archiveDone(wsFilter !== 'all' ? { workspace: wsFilter } : {}).then(refetch).catch(() => {})}
         />
       )}
-      {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={setSelectedKey} />}
-      {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={setSelectedKey} />}
+      {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={openTask} />}
+      {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={openTask} />}
       {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
-      {view === 'live' && <LiveView onOpen={setSelectedKey} />}
-      {view === 'telemetry' && <TelemetryView onOpen={setSelectedKey} />}
+      {view === 'live' && <LiveView onOpen={openTask} />}
+      {view === 'telemetry' && <TelemetryView onOpen={openTask} />}
 
       {/* Bottom tab bar — shown only on phones (CSS); the header switcher hides there */}
       <nav className="af-tabbar" aria-label="Views">
@@ -188,8 +219,8 @@ export function App() {
           taskKey={selectedKey}
           tasks={tasks}
           workspaces={workspaces.map((w) => w.name)}
-          onOpenTask={setSelectedKey}
-          onClose={() => setSelectedKey(null)}
+          onOpenTask={openTask}
+          onClose={closeTask}
           onChanged={refetch}
         />
       )}
