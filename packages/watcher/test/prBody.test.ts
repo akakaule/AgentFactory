@@ -33,11 +33,16 @@ const ADO_BASE = 'https://dev.azure.com/acme/Widgets/_apis/git/repositories/widg
 const patches = (f: { calls: Call[] }) => f.calls.filter((c) => c.method === 'PATCH');
 
 /** create (with one AC) → claim → submit with an AC1 claim → approve ⇒ delivering. */
-function deliverWithClaims(core: Core, title = 'Ship the widget'): string {
+function deliverWithClaims(
+  core: Core,
+  title = 'Ship the widget',
+  summary = 'Built the widget.\n\nMore detail below.',
+  claim = 'widget.test.ts proves it',
+): string {
   const t = core.createTask({ title, spec: 'spec', acceptanceCriteria: '1. Works — it works.' });
   core.updateStatus(t.key, 'queued', 'human');
   core.claimNextTask({ claimedBy: 'worker-1' });
-  core.submitResult(t.key, { summary: 'Built the widget.\n\nMore detail below.', criteria: [{ id: 'AC1', claim: 'widget.test.ts proves it' }] });
+  core.submitResult(t.key, { summary, criteria: [{ id: 'AC1', claim }] });
   const approved = core.reviewApprove(t.key, undefined, undefined, expectedRevisionOf(core.getTask(t.key)));
   if (approved.status !== 'delivering') throw new Error(`expected delivering, got ${approved.status}`);
   return t.key;
@@ -70,6 +75,8 @@ describe('withSection', () => {
 /** Task text that quotes the reserved markers, as a task about this very feature would. */
 const QUOTED = `Keep ${SECTION_BEGIN} and ${SECTION_END} current`;
 const markerCount = (body: string) => [body.split(SECTION_BEGIN).length - 1, body.split(SECTION_END).length - 1];
+/** How many escaped (quoted) begin markers a body carries: one per task-derived field that quoted it. */
+const escapedCount = (body: string) => body.split('&lt;!-- agentfactory:begin -->').length - 1;
 
 describe('reserved markers in task text', () => {
   it('renderSection escapes quoted markers in the title, summary and claims', () => {
@@ -143,6 +150,8 @@ describe('watcher-created PR body with quoted markers', () => {
     await new Watcher(makeConfig(), makeDeps(core, fetchJson)).tick();
     const body = ((fetchJson.calls.find((c) => c.method === 'POST')!).body as { body: string }).body;
     expect(markerCount(body)).toEqual([1, 1]);
+    // the summary prefix plus the section's title, summary and claim all quoted the markers
+    expect(escapedCount(body)).toBe(4);
   });
 });
 
@@ -186,6 +195,8 @@ const azdo: Host = {
       if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests/7?`)) return { body: pr() };
       if (method === 'PATCH' && url.startsWith(`${ADO_BASE}/pullrequests/7?`)) { description = (sent as { description: string }).description; return { body: pr() }; }
       if (method === 'GET' && url.includes('/statuses')) return { body: { value: [] } };
+      if (method === 'GET' && url.includes('/_apis/policy/evaluations')) return { body: { value: [] } };
+      if (method === 'GET' && url.includes('/_apis/projects/')) return { body: { id: 'p' } };
       return undefined;
     });
     return { fetchJson, deps: makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN }) };
@@ -249,6 +260,7 @@ describe.each([github, azdo])('$name: keeping the section current', (host) => {
 
 ${SECTION_BEGIN}`)).toBe(true);
     expect(markerCount(body)).toEqual([1, 1]);
+    expect(escapedCount(body)).toBe(3); // title, summary and claim all reached the section
   });
 
   it('a failed PATCH is logged and does not stop the poll', async () => {
@@ -264,6 +276,35 @@ ${SECTION_BEGIN}`)).toBe(true);
     await new Watcher(makeConfig(), deps).tick();
     expect(core.getTask(key).delivery).toMatchObject({ prState: 'open' });
     expect(warns.some((w) => w.includes('PR body'))).toBe(true);
+  });
+});
+
+describe('Azure DevOps PR found by branch search', () => {
+  it('reads the complete description, not the 400-character excerpt in the list response', async () => {
+    const core = makeCore(ADO_ORIGIN);
+    deliverWithClaims(core);
+    const outro = `
+${'o'.repeat(600)}`;
+    const full = `Human intro
+${SECTION_BEGIN}old${SECTION_END}${outro}`;
+    const pr = (description: string) => ({ pullRequestId: 7, status: 'active', mergeStatus: 'succeeded', lastMergeSourceCommit: { commitId: 'src' }, lastMergeCommit: { commitId: 'm' }, description });
+    const fetchJson = apiFake((method, url) => {
+      // Azure truncates list descriptions to 400 characters
+      if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests?searchCriteria`)) return { body: { value: [pr(full.slice(0, 400))] } };
+      if (method === 'GET' && url.startsWith(`${ADO_BASE}/pullrequests/7?`)) return { body: pr(full) };
+      if (method === 'PATCH' && url.startsWith(`${ADO_BASE}/pullrequests/7?`)) return { body: pr(full) };
+      if (method === 'GET' && url.includes('/statuses')) return { body: { value: [] } };
+      if (method === 'GET' && url.includes('/_apis/policy/evaluations')) return { body: { value: [] } };
+      if (method === 'GET' && url.includes('/_apis/projects/')) return { body: { id: 'p' } };
+      return undefined;
+    });
+    await new Watcher(makeConfig(), makeDeps(core, fetchJson, { resolveOrigin: () => ADO_ORIGIN })).tick();
+    const sent = patches(fetchJson);
+    expect(sent).toHaveLength(1);
+    const body = azdo.patchedBody(sent[0]!.body);
+    expect(body.startsWith(`Human intro
+${SECTION_BEGIN}`)).toBe(true);
+    expect(body.endsWith(`${SECTION_END}${outro}`)).toBe(true);
   });
 });
 

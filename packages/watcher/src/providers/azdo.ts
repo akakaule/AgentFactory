@@ -186,6 +186,9 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
         // a completed (merged) PR wins, then the active one, then the newest id (abandoned retries)
         pr = prs.find((p) => p.status === 'completed') ?? prs.find((p) => p.status === 'active')
           ?? prs.sort((a, b) => b.pullRequestId - a.pullRequestId)[0] ?? null;
+        // A list response cuts descriptions to 400 characters; the body sync of an open PR needs
+        // the whole description, so read the PR itself.
+        if (pr?.status === 'active') pr = (await get(`${base}/pullrequests/${pr.pullRequestId}?api-version=${apiVersion}`)) as AdoPr;
       }
       if (!pr) return { pr: null, checks: { state: 'unknown', failing: [] } };
 
