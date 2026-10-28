@@ -47,6 +47,78 @@ describe('workspace profile migration', () => {
     expect(listWorkspaces(db).find((w) => w.name === 'div')).toMatchObject({ baseBranch: 'develop', ciMode: null });
   });
 
+  it('is migration #31: a fresh DB ends at user_version 31 with the profile columns', () => {
+    const db = makeTestDb();
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(workspaceColumns(db)).toEqual(expect.arrayContaining(PROFILE_COLUMNS));
+  });
+
+  // Rebuild main's history up to `version`: #29 = cancelled, #30 = the revision schema (task_submission).
+  const atVersion = (version: 29 | 30) => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    dropProfileColumns(db);
+    if (version === 29) {
+      db.exec('DROP TABLE task_submission');
+      db.exec('ALTER TABLE task_visualization DROP COLUMN submission_id');
+      db.exec('ALTER TABLE task_visualization DROP COLUMN head_sha');
+      for (const c of ['submission_id', 'approved_head_sha', 'head_sha']) db.exec(`ALTER TABLE task_delivery DROP COLUMN ${c}`);
+    }
+    db.prepare("INSERT INTO workspace(name, repo_path, created_at) VALUES ('old', '/old', '2026-01-01')").run();
+    db.exec(`PRAGMA user_version = ${version}`);
+    return db;
+  };
+  const expectUnsetProfile = (db: ReturnType<typeof makeTestDb>) => {
+    expect(workspaceColumns(db)).toEqual(expect.arrayContaining(PROFILE_COLUMNS));
+    const old = listWorkspaces(db).find((w) => w.name === 'old')!;
+    expect(old).toMatchObject({ baseBranch: null, requiredChecks: null, ciMode: null });
+    const eff = effectiveWorkspaceProfile(old, null);
+    expect(eff.requiredChecks.value).toEqual([]);
+    expect(eff.ciMode.value).toBe('legacy');
+  };
+
+  it('upgrades a version-29 (cancelled, no task_submission) DB to 31 with the profile columns', () => {
+    const db = atVersion(29);
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','cancelled',1,1,'2026-01-01','2026-01-01')",
+    ).run();
+
+    runMigrations(db);
+
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expectUnsetProfile(db);
+    expect(db.prepare("SELECT status FROM task WHERE key='AF-1'").get()).toEqual({ status: 'cancelled' });
+  });
+
+  it('upgrades a version-30 (task_submission) DB to 31 with the profile columns, leaving submissions untouched', () => {
+    const db = atVersion(30);
+    db.prepare(
+      "INSERT INTO task(key,title,spec,acceptance_criteria,status,seq,workspace_id,created_at,updated_at) VALUES ('AF-1','t','s','a','in_review',1,1,'2026-01-01','2026-01-01')",
+    ).run();
+    db.prepare(
+      "INSERT INTO task_submission(task_id,stage,revision_source,observed_at,created_at,head_sha,read_ticket_seq,last_recorded_ticket) VALUES ((SELECT id FROM task WHERE key='AF-1'),'implementation','origin','2026-01-01','2026-01-01','abc',3,2)",
+    ).run();
+    const before = db.prepare('SELECT * FROM task_submission ORDER BY id').all();
+
+    runMigrations(db);
+
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expectUnsetProfile(db);
+    expect(db.prepare('SELECT * FROM task_submission ORDER BY id').all()).toEqual(before);
+  });
+
+  it('upgrades a divergent version-30 DB that already has base_branch, keeping its value', () => {
+    const db = atVersion(30);
+    db.exec('ALTER TABLE workspace ADD COLUMN base_branch TEXT');
+    db.prepare("UPDATE workspace SET base_branch = 'develop' WHERE name = 'old'").run();
+
+    expect(() => runMigrations(db)).not.toThrow();
+
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 31 });
+    expect(workspaceColumns(db)).toEqual(expect.arrayContaining(PROFILE_COLUMNS));
+    expect(listWorkspaces(db).find((w) => w.name === 'old')).toMatchObject({ baseBranch: 'develop' });
+  });
+
   it('re-running the migration on a rewound DB is a no-op', () => {
     const db = makeTestDb();
     const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
