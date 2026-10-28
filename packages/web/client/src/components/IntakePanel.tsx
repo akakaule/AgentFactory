@@ -25,6 +25,7 @@ export function IntakePanel({ task, onChanged }: { task: TaskDetail; onChanged?:
   const a = intake.assessment;
   const attention = intake.policy?.eligibility === 'attention_required';
   const reasons = intake.policy?.reasons ?? [];
+  const blocked = task.queueGate?.action === 'block';
   return (
     <section className={'af-intake-panel' + (attention ? ' attention' : '')}>
       <div className="af-intake-head"><strong>Task Intelligence</strong><span>{a.provider.name} · {timeAgo(a.assessedAt)}</span></div>
@@ -57,7 +58,8 @@ export function IntakePanel({ task, onChanged }: { task: TaskDetail; onChanged?:
         <button className="af-intake-link" onClick={() => { if (history === null) void api.getIntakeHistory(task.key).then(setHistory); else setHistory(null); }}>
           {history === null ? 'Show assessment history' : 'Hide assessment history'}
         </button>
-        {attention && intake.state === 'current' && !intake.overridden && (
+        {blocked && <div className="af-intake-muted">Can't be queued until this is resolved. Edit the task; it is re-assessed automatically.</div>}
+        {!blocked && attention && intake.state === 'current' && !intake.overridden && (
           <div className="af-intake-ack">
             {reasonOpen && (
               <div className="af-intake-note">

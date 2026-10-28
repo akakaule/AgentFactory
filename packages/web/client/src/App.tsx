@@ -17,6 +17,7 @@ import { AgentPromptsModal } from './components/AgentPromptsModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate, USER_TOKEN_HINT } from './components/TokenGate.js';
 import { IntakeSettingsPanel } from './components/IntakeSettingsPanel.js';
+import { queueBlockMessage } from './queueGate.js';
 import { Mark, I } from './icons.js';
 
 type View = 'board' | 'list' | 'archive' | 'analytics' | 'live' | 'telemetry';
@@ -99,11 +100,13 @@ export function App() {
 
   const moveTask = (key: string, to: Status) => {
     const task = tasks.find((candidate) => candidate.key === key);
-    const attention = task?.status === 'backlog' && to === 'queued' && task.intake?.state === 'current' && task.intake.policy?.eligibility === 'attention_required';
-    if (attention) {
+    const queueing = task !== undefined && task.status === 'backlog' && to === 'queued';
+    const blocked = queueing ? queueBlockMessage(task) : null;
+    if (blocked) { window.alert(`${blocked}. Edit the task; it is re-assessed automatically.`); return; }
+    if (queueing && task.queueGate?.action === 'acknowledge' && task.intake) {
       const confirmed = window.confirm('Task Intelligence flagged this task. Queue it anyway?');
       if (!confirmed) return;
-      api.setStatus(key, to, undefined, { expectedRevision: task.intake!.assessment.sourceRevision }).then(refetch).catch(() => {});
+      api.setStatus(key, to, undefined, { expectedRevision: task.intake.assessment.sourceRevision }).then(refetch).catch(() => {});
       return;
     }
     const revision = task ? reviewCloseRevision(task, to) : undefined;

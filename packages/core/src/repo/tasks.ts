@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeQueueGate, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, criteriaClaimsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
@@ -18,7 +18,7 @@ import { nowIso } from '../time.js';
 import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 import { getKv } from './kv.js';
 import { normalizeIntakeSettings, intakeEnabledFor } from '../intakeSettings.js';
-import { evaluateIntakePolicy, intakeOverrideRevision, intakeRevision, parseIntakeComment, SKIP_SPEC_NOTE_PREFIX } from '../intake.js';
+import { evaluateIntakePolicy, intakeOverrideRevision, intakeQueueGate, intakeRevision, parseIntakeComment, SKIP_SPEC_NOTE_PREFIX } from '../intake.js';
 
 export interface TaskRow {
   id: number; key: string; title: string; spec: string; acceptance_criteria: string;
@@ -80,6 +80,12 @@ function intakeSummaryFromActivities(r: TaskRow, activities: ReturnType<typeof i
 
 export function intakeForTask(db: DB, r: TaskRow): IntakeSummary | null {
   return intakeSummaryFromActivities(r, intakeMarkerActivities(db, r.id), storedIntakeSettings(db));
+}
+
+/** What queueing this task needs from Task Intelligence — only backlog/cancelled code tasks can be queued by a person. */
+function queueGateFor(r: TaskRow, intake: IntakeSummary | null, settings: ReturnType<typeof normalizeIntakeSettings>): IntakeQueueGate | null {
+  if (r.kind !== 'code' || (r.status !== 'backlog' && r.status !== 'cancelled')) return null;
+  return intakeQueueGate(intake, settings, r.workspace_name);
 }
 
 export function intakeByTaskIds(db: DB, rows: TaskRow[]): Map<number, IntakeSummary | null> {
@@ -278,6 +284,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
   const viz = visualizationMetaFor(db, r.id);
   const { failures, triage } = failureAndTriage(db, [r]);
   const aiReview = aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null;
+  const intake = intakeForTask(db, r);
   return {
     ...toTask(r),
     aiReview,
@@ -285,8 +292,9 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     failure: failures.get(r.id) ?? null,
     failureTriage: triage.get(r.id) ?? null,
     delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
-    intake: intakeForTask(db, r),
-    intakeHold: intakeHoldsByRows(db, [r], new Map([[r.id, intakeForTask(db, r)]]), nowIso()).get(r.id) ?? null,
+    intake,
+    queueGate: queueGateFor(r, intake, storedIntakeSettings(db)),
+    intakeHold: intakeHoldsByRows(db, [r], new Map([[r.id, intake]]), nowIso()).get(r.id) ?? null,
     hasVisualization: viz !== null,
     visualizationGeneratedAt: viz?.generatedAt ?? null,
     visualizationRevision: viz?.revision ?? null,
@@ -387,9 +395,11 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const deliveries = deliveryByTaskIds(db, ids);
   const intakes = intakeByTaskIds(db, rows);
   const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
+  const intakeSettings = storedIntakeSettings(db);
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
     reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null,
+    queueGate: queueGateFor(r, intakes.get(r.id) ?? null, intakeSettings),
     submission: r.status === 'in_review' ? submissionRef(db, r) : null }));
 }
 

@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { ValidationError } from './errors.js';
 import type {
   Complexity, IntakeAssessmentV1, IntakeAssessed, IntakeChoice, IntakeDecisions, IntakeErrorKind,
-  IntakePolicyResult, IntakeReason, IntakeReadinessPart, IntakeSettings, Risk, Stage,
+  IntakePolicyResult, IntakeQueueGate, IntakeReason, IntakeReadinessPart, IntakeSettings, IntakeSummary, Risk, Stage,
 } from './types.js';
+import { intakeEnabledFor } from './intakeSettings.js';
 import type { Task } from './types.js';
 
 export const INTAKE_MARKER = 'intake/v1';
@@ -155,6 +156,30 @@ export function evaluateIntakePolicy(a: IntakeAssessmentV1, stage: Stage, settin
   if (settings.riskAttentionLevel && riskRank[a.decisions.risk.value] >= riskRank[settings.riskAttentionLevel])
     reasons.push({ code: 'risk_at_or_above', message: `risk is ${a.decisions.risk.value}` });
   return { policyVersion: INTAKE_POLICY_VERSION, eligibility: reasons.length ? 'attention_required' : 'eligible', reasons };
+}
+
+const NOT_ASSESSED: Record<'none' | 'stale' | 'unavailable', string> = {
+  none: 'Task Intelligence has not assessed this task yet',
+  stale: 'the task changed since Task Intelligence assessed it',
+  unavailable: 'the Task Intelligence assessment failed',
+};
+
+/**
+ * Whether a backlog/cancelled task may be queued (`queueGate` / `queueRequiresAssessment` settings):
+ * a flagged current assessment is refused in 'block' mode and needs an acknowledgment in
+ * 'acknowledge' mode; with `queueRequiresAssessment`, so is a task with no current assessment.
+ * Workspaces without intake are never gated.
+ */
+export function intakeQueueGate(summary: IntakeSummary | null, settings: IntakeSettings, workspace: string): IntakeQueueGate {
+  const allow: IntakeQueueGate = { action: 'allow', reasons: [] };
+  if (settings.queueGate === 'off' || !intakeEnabledFor(settings, workspace)) return allow;
+  if (summary?.state === 'current') {
+    if (summary.policy?.eligibility !== 'attention_required') return allow;
+    if (settings.queueGate === 'block') return { action: 'block', reasons: summary.policy.reasons };
+    return summary.overridden ? allow : { action: 'acknowledge', reasons: summary.policy.reasons };
+  }
+  if (!settings.queueRequiresAssessment) return allow;
+  return { action: 'block', reasons: [{ code: 'not_assessed', message: NOT_ASSESSED[summary?.state ?? 'none'] }] };
 }
 
 export function buildIntakeOverrideComment(input: { sourceRevision: string; policy: IntakePolicyResult; reason: string | null; settings: IntakeSettings }): string {

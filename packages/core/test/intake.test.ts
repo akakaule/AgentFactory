@@ -30,7 +30,7 @@ describe('task intake core contract', () => {
   it('queues an already acknowledged revision without another acknowledgment', () => {
     const core = createCore(makeTestDb());
     const task = core.createTask({ title: 'one', spec: 's', acceptanceCriteria: 'a' });
-    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'] });
+    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'], queueGate: 'acknowledge' });
     const revision = intakeRevision(core.getTask(task.key));
     core.recordIntakeAssessment(task.key, assessed(task.key, revision));
     core.overrideIntake(task.key, { expectedRevision: revision });
@@ -40,7 +40,7 @@ describe('task intake core contract', () => {
   it('reopening a cancelled task needs the same acknowledgment as queueing it from backlog', () => {
     const core = createCore(makeTestDb());
     const task = core.createTask({ title: 'flagged', spec: 's', acceptanceCriteria: 'a' });
-    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'] });
+    core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'], queueGate: 'acknowledge' });
     const revision = intakeRevision(core.getTask(task.key));
     core.recordIntakeAssessment(task.key, assessed(task.key, revision));
     core.updateStatus(task.key, 'cancelled', 'human');

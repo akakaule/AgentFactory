@@ -293,9 +293,12 @@ export interface IntakeUnavailable extends IntakeAssessmentBase {
   status: 'unavailable'; error: { kind: IntakeErrorKind; detail: string };
 }
 export type IntakeAssessmentV1 = IntakeAssessed | IntakeUnavailable;
-export type IntakeReasonCode = 'readiness_low' | 'outcome_unclear' | 'scope_unbounded' | 'not_verifiable' | 'architectural' | 'risk_at_or_above';
+export type IntakeReasonCode = 'readiness_low' | 'outcome_unclear' | 'scope_unbounded' | 'not_verifiable' | 'architectural' | 'risk_at_or_above' | 'not_assessed';
 export interface IntakeReason { code: IntakeReasonCode; message: string; }
 export interface IntakePolicyResult { policyVersion: 'intake-policy/v1'; eligibility: 'eligible' | 'attention_required'; reasons: IntakeReason[]; }
+export type IntakeQueueGateMode = 'off' | 'acknowledge' | 'block';
+/** What queueing a backlog/cancelled task needs right now (`intakeQueueGate`). */
+export interface IntakeQueueGate { action: 'allow' | 'acknowledge' | 'block'; reasons: IntakeReason[]; }
 export interface IntakeSummary {
   state: 'current' | 'stale' | 'unavailable'; assessment: IntakeAssessmentV1;
   policy: IntakePolicyResult | null; overridden: boolean;
@@ -307,6 +310,10 @@ export interface IntakeSettings {
   architecturalNeedsAttention: boolean; riskAttentionLevel: Risk | null; maxHoldMinutes: number;
   /** Skip the spec stage for a queued spec-stage task assessed at or under these thresholds. */
   skipSpec: boolean; skipSpecMaxComplexity: 'trivial' | 'small'; skipSpecMaxRisk: Risk; skipSpecMinReadiness: number;
+  /** Queueing a flagged backlog/cancelled task: refused ('block'), allowed after an acknowledgment, or ungated ('off'). */
+  queueGate: IntakeQueueGateMode;
+  /** Also refuse to queue a task with no current assessment (never assessed, edited since, or the assessment failed). */
+  queueRequiresAssessment: boolean;
 }
 export interface TaskIntakeState {
   key: string; title: string; spec: string; acceptanceCriteria: string; stage: Stage; plan: string | null;
@@ -354,6 +361,7 @@ export interface Task {
   failure: FailureSummary | null; // derived: latest current supervisor failure (timeout/crash/denial/skip-list)
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
+  queueGate?: IntakeQueueGate | null; // derived for backlog/cancelled tasks: whether Task Intelligence lets them be queued
   intakeHold?: { until: string } | null; // derived: queued implementation work waiting (≤ maxHoldMinutes) for its revision's intake assessment; unclaimable meanwhile
   failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
   // list rows: the identity of an in-review task's current submission (what a review-closing drag

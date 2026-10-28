@@ -8,6 +8,7 @@ import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { ReviewPanel } from './ReviewPanel.js';
 import { CopyButton } from './CopyButton.js';
+import { queueBlockMessage } from '../queueGate.js';
 import { composePrReview } from '../composePrReview.js';
 import { parseCriteriaClaims } from '../criteriaClaims.js';
 import { LiveSection } from './LiveSection.js';
@@ -112,6 +113,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [tab, setTab] = useState<DetailTab>('overview');
   const [showViz, setShowViz] = useState(false);
+  const [queueError, setQueueError] = useState<string | null>(null);
   const currentTaskKey = useRef(taskKey);
   const requestGeneration = useRef(0);
   currentTaskKey.current = taskKey;
@@ -138,6 +140,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
     setConfirmingCancel(false);
     setTab('overview');
     setShowViz(false);
+    setQueueError(null);
     refetch();
   }, [refetch]);
 
@@ -211,13 +214,16 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
       <h2 className="af-d-title">{task.title}</h2>
     </>);
 
+    // Task Intelligence may refuse to queue a backlog/cancelled task (intake queue gate)
+    const queueBlocked = queueBlockMessage(task);
+    const queue = (to: 'queued' | 'in_review' = 'queued') => {
+      setQueueError(null);
+      api.setStatus(task.key, to).then(afterMutation).catch((e: Error) => setQueueError(e.message));
+    };
     const tags = (<>
       <div className="af-d-tags">
         {task.status === 'backlog' && (<>
-          <button
-            className="af-mini go"
-            onClick={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
-          >
+          <button className="af-mini go" disabled={queueBlocked !== null} title={queueBlocked ?? undefined} onClick={() => queue()}>
             Queue task
           </button>
           {!editing && <button className="af-mini" onClick={() => setEditing(true)}>Edit</button>}
@@ -270,10 +276,11 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
         {task.status === 'cancelled' && !task.archivedAt && (<>
           <button
             className="af-mini"
-            onClick={() => api.setStatus(task.key, task.kind === 'pr-review' ? 'in_review' : 'queued').then(afterMutation).catch(() => {})}
-            title={task.kind === 'pr-review'
+            disabled={queueBlocked !== null}
+            onClick={() => queue(task.kind === 'pr-review' ? 'in_review' : 'queued')}
+            title={queueBlocked ?? (task.kind === 'pr-review'
               ? 'Reopen the cancelled review — moves it back to in_review.'
-              : 'Reopen the cancelled task — moves it back to the queue with a fresh retry budget.'}
+              : 'Reopen the cancelled task — moves it back to the queue with a fresh retry budget.')}
           >
             Reopen
           </button>
@@ -309,6 +316,8 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
           </button>
         )}
       </div>
+      {queueBlocked && <p className="af-d-queuegate">{queueBlocked}. Edit the task; it is re-assessed automatically.</p>}
+      {queueError && <p className="af-err" role="alert">{queueError}</p>}
     </>);
 
     const dependencies = (<>
