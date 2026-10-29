@@ -1,14 +1,15 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import type { VerificationStatus } from '@agentfactory/core';
 
 export const VERIFY_TIMEOUT_MS = 20 * 60_000;
 export const VERIFY_LOG_MAX_BYTES = 256 * 1024;
 const TRUNCATED_MARKER = '[truncated]\n';
-// Output kept past the cap before redaction, so a secret straddling the cut is still
-// matched whole and the cut then lands in redacted text.
-const REDACTION_SLACK_BYTES = 8 * 1024;
+// Longest text a URL-userinfo match can span (scheme + `://` + userinfo + `@`): unredacted
+// output this close to the end is held back until more arrives, so a match is seen whole.
+const URL_MATCH_MAX = 32 + 3 + 2048 + 1;
 
 export interface VerifyRun {
   status: VerificationStatus;
@@ -29,15 +30,68 @@ export interface VerifyRunOptions {
   secrets?: string[];
 }
 
+const USERINFO = /([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@]{1,2048}@/gi;
+
+const usableSecrets = (secrets: string[]) =>
+  // Longest first, so a header value is replaced whole before the PAT inside it.
+  [...new Set(secrets)].filter(s => s.length >= 4).sort((a, b) => b.length - a.length);
+
 /** Replace every secret and every `scheme://userinfo@` with a marker. */
 export function redact(text: string, secrets: string[]): string {
   // Bounded repeats: an unbounded scheme/userinfo run backtracks quadratically over long output.
-  let out = text.replace(/([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@]{1,2048}@/gi, '$1[redacted]@');
-  // Longest first, so a header value is replaced whole before the PAT inside it.
-  for (const secret of [...new Set(secrets)].filter(s => s.length >= 4).sort((a, b) => b.length - a.length)) {
-    out = out.replaceAll(secret, '[redacted]');
-  }
+  let out = text.replace(USERINFO, '$1[redacted]@');
+  for (const secret of usableSecrets(secrets)) out = out.replaceAll(secret, '[redacted]');
   return out;
+}
+
+/**
+ * Redacts output as it streams, so only redacted text is ever evicted by the tail cap: raw text
+ * is committed only up to a point no secret or URL-userinfo match crosses, and the last stretch
+ * that a match could still be growing into is held back until more output (or the end) arrives.
+ */
+export class StreamRedactor {
+  private readonly secrets: string[];
+  private readonly hold: number;
+  private pending = '';
+
+  constructor(secrets: string[]) {
+    this.secrets = usableSecrets(secrets);
+    this.hold = Math.max(URL_MATCH_MAX, ...this.secrets.map(s => s.length));
+  }
+
+  /** Add raw text; returns the redacted text now safe to commit. */
+  push(text: string): string {
+    this.pending += text;
+    if (this.pending.length < this.hold * 4) return '';
+    let cut = this.pending.length - this.hold;
+    // Every match ends within the hold, so one starting before `cut` is complete: move the cut
+    // back to its start until no match straddles it.
+    const spans = this.matchSpans();
+    for (let moved = true; moved;) {
+      moved = false;
+      for (const [start, end] of spans) if (start < cut && cut < end) { cut = start; moved = true; }
+    }
+    if (/[\udc00-\udfff]/.test(this.pending[cut] ?? '')) cut--; // keep a surrogate pair together
+    const out = redact(this.pending.slice(0, cut), this.secrets);
+    this.pending = this.pending.slice(cut);
+    return out;
+  }
+
+  /** Redact and release everything held back. */
+  end(): string {
+    const out = redact(this.pending, this.secrets);
+    this.pending = '';
+    return out;
+  }
+
+  private matchSpans(): Array<[number, number]> {
+    const spans: Array<[number, number]> = [];
+    for (const m of this.pending.matchAll(USERINFO)) spans.push([m.index, m.index + m[0].length]);
+    for (const secret of this.secrets) {
+      for (let i = this.pending.indexOf(secret); i !== -1; i = this.pending.indexOf(secret, i + 1)) spans.push([i, i + secret.length]);
+    }
+    return spans;
+  }
 }
 
 /** Keep the tail of `buf` within `maxBytes`, prefixed with the truncation marker, on a UTF-8 boundary. */
@@ -93,27 +147,33 @@ function resolvable(word: string, cwd: string, env: NodeJS.ProcessEnv): boolean 
  */
 export function runVerifyCommand(opts: VerifyRunOptions): Promise<VerifyRun> {
   const maxBytes = opts.maxBytes ?? VERIFY_LOG_MAX_BYTES;
-  const keep = maxBytes + REDACTION_SLACK_BYTES;
   const startedAt = new Date().toISOString();
   const leading = leadingExecutable(opts.command);
   if (leading && !resolvable(leading, opts.cwd, opts.env)) {
     return Promise.resolve({ status: 'errored', exitCode: null, truncated: false, startedAt, finishedAt: new Date().toISOString(),
-      log: redact(`verify command not found: ${leading}
-`, opts.secrets ?? []) });
+      log: redact(`verify command not found: ${leading}\n`, opts.secrets ?? []) });
   }
   return new Promise((resolvePromise) => {
+    // Raw output is redacted before anything is evicted; only redacted bytes are dropped by the cap.
+    const redactor = new StreamRedactor(opts.secrets ?? []);
+    const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
     let chunks: Buffer[] = [];
     let size = 0;
     let dropped = false;
-    const append = (chunk: Buffer) => {
+    const commit = (text: string) => {
+      if (!text) return;
+      const chunk = Buffer.from(text, 'utf8');
       chunks.push(chunk);
       size += chunk.length;
-      if (size > keep * 2) {
+      if (size > maxBytes * 2) {
         const all = Buffer.concat(chunks);
-        const tail = all.subarray(all.length - keep);
+        let start = all.length - maxBytes;
+        while (start < all.length && (all[start]! & 0xc0) === 0x80) start++; // keep whole characters
+        const tail = all.subarray(start);
         chunks = [tail]; size = tail.length; dropped = true;
       }
     };
+    const append = (stream: keyof typeof decoders) => (chunk: Buffer) => commit(redactor.push(decoders[stream].write(chunk)));
     let timedOut = false;
     let spawnError: Error | null = null;
     let settled = false;
@@ -121,10 +181,10 @@ export function runVerifyCommand(opts: VerifyRunOptions): Promise<VerifyRun> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (spawnError) append(Buffer.from(`\n${spawnError.message}\n`));
-      let all = Buffer.concat(chunks);
-      if (all.length > keep) { all = all.subarray(all.length - keep); dropped = true; }
-      const { log, truncated } = capTail(redact(all.toString('utf8'), opts.secrets ?? []), maxBytes, dropped);
+      commit(redactor.push(decoders.stdout.end() + decoders.stderr.end()));
+      if (spawnError) commit(redactor.push(`\n${spawnError.message}\n`));
+      commit(redactor.end());
+      const { log, truncated } = capTail(Buffer.concat(chunks).toString('utf8'), maxBytes, dropped);
       const status: VerificationStatus = timedOut ? 'timed_out'
         : spawnError || exitCode === null || exitCode === COMMAND_NOT_FOUND ? 'errored'
         : exitCode === 0 ? 'passed' : 'failed';
@@ -138,8 +198,8 @@ export function runVerifyCommand(opts: VerifyRunOptions): Promise<VerifyRun> {
       timedOut = true;
       if (child.pid !== undefined) killTree(child.pid);
     }, opts.timeoutMs ?? VERIFY_TIMEOUT_MS);
-    child.stdout?.on('data', append);
-    child.stderr?.on('data', append);
+    child.stdout?.on('data', append('stdout'));
+    child.stderr?.on('data', append('stderr'));
     child.on('error', (err) => { spawnError = err; finish(null); });
     child.on('close', (code) => finish(code));
   });

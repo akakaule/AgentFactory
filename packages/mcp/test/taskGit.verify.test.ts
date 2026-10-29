@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import type { Core, GitAuth, RecordVerificationInput } from '@agentfactory/core';
 import { makeClient, textOf } from './harness.js';
+import { StreamRedactor } from '../src/verify.js';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -113,6 +114,30 @@ describe('task_git verify', { timeout: 180_000 }, () => {
     expect(log).toContain('[redacted]');
   });
 
+  it('redacts URL userinfo cut at the retention boundary when the rest of the output shrinks under redaction', async () => {
+    // 300 KiB filler, a credential URL, then auth-header lines that redaction shrinks from 53 to 10 bytes:
+    // a raw tail cut landing inside the URL must not leave its password in the stored log.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'af-task-verify-script-')));
+    try {
+      for (const offset of [13, 3]) {
+        const script = join(dir, `emit-${offset}.js`);
+        writeFileSync(script, [
+          `const header = ${JSON.stringify(configValue)} + '\\n';`,
+          `const after = ${256 * 1024 + 8 * 1024} - ${offset};`,
+          `let rest = header.repeat(Math.floor(after / header.length));`,
+          `rest += 'y'.repeat(after - rest.length);`,
+          `process.stdout.write('x'.repeat(300 * 1024) + '\\nhttps://x:secret@host\\n' + rest);`,
+        ].join('\n'));
+        await f.verify(`node "${script}"`);
+        const { log, truncated } = recorded(f.record);
+        expect(truncated).toBe(true);
+        expect(log).not.toContain('secret');
+        expect(log).not.toContain('pat-123');
+        expect(Buffer.byteLength(log, 'utf8')).toBeLessThanOrEqual(262144);
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('returns ok:false when storing the record fails', async () => {
     f.state.reject = new Error('HTTP 500: board unavailable');
     const { res, body } = await f.verify('node -e "0"');
@@ -137,5 +162,20 @@ describe('task_git verify timeout', { timeout: 180_000 }, () => {
       expect(input.status).toBe('timed_out');
       expect(Date.parse(input.finishedAt!) - Date.parse(input.startedAt!)).toBeLessThan(4500);
     } finally { await f.dispose(); }
+  });
+});
+
+describe('StreamRedactor', () => {
+  it('redacts secrets and URL userinfo split across chunks, wherever the chunks break', () => {
+    const text = 'x'.repeat(20_000) + ' https://x:secret@host pat-123 ' + 'y'.repeat(20_000);
+    for (const size of [1, 7, 4096, 9000]) {
+      const r = new StreamRedactor(['pat-123']);
+      let out = '';
+      for (let i = 0; i < text.length; i += size) out += r.push(text.slice(i, i + size));
+      out += r.end();
+      expect(out).not.toContain('secret');
+      expect(out).not.toContain('pat-123');
+      expect(out).toBe(text.replace('x:secret', '[redacted]').replace('pat-123', '[redacted]'));
+    }
   });
 });
