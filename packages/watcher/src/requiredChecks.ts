@@ -43,16 +43,23 @@ export interface JudgedChecks {
  * Apply the workspace's ciMode to one provider poll. 'legacy' (or unset) keeps the provider's
  * any-red-check verdict. 'none' ignores CI: the checks read 'none' and never bounce. 'required'
  * lets only `requiredChecks` decide: a failed one fails (listed), a pending or missing one waits
- * (pending, the missing ones listed with `missing`), otherwise passing. Only PR-head evidence is
- * judged by name — post-merge (merge-commit) evidence keeps the provider's verdict, so a required
- * check that never runs on the merge commit can't hold a done task pending forever.
+ * (pending, the missing ones listed with `missing`), otherwise passing. Post-merge (merge-commit)
+ * evidence is judged by name too, except that a required check the merge commit never reports does
+ * not wait: it can't hold a done task pending forever, and the publication window keeps watching
+ * for one that publishes late.
  */
 export function judgeChecks(ciMode: CiMode | null, requiredChecks: readonly string[] | null, result: DeliveryCheckResult): JudgedChecks {
   if (ciMode === 'none') {
     return result.pr ? { checks: { state: 'none', failing: [] }, ciMode: 'none' } : { checks: result.checks };
   }
-  if (ciMode !== 'required' || !result.pr || result.checksTarget === 'merge_commit' || !result.observed) return { checks: result.checks };
-  const { checks, verdict } = evaluateRequiredChecks(requiredChecks ?? [], result.observed);
+  if (ciMode !== 'required' || !result.pr || !result.observed) return { checks: result.checks };
+  const postMerge = result.checksTarget === 'merge_commit';
+  const { checks: all, verdict: raw } = evaluateRequiredChecks(requiredChecks ?? [], result.observed);
+  const checks = postMerge ? Object.fromEntries(Object.entries(all).filter(([, s]) => s !== 'missing')) : all;
+  const verdict = postMerge && raw === 'waiting' && !Object.values(checks).includes('pending') ? 'passed' : raw;
+  if (postMerge && verdict === 'passed' && Object.keys(checks).length === 0) {
+    return { checks: { state: 'none', failing: [] }, ciMode: 'required' };
+  }
   if (verdict === 'failed') {
     const urls = new Map(result.observed.filter((o) => o.state === 'failing').map((o) => [o.name, o.url]));
     const failing = Object.entries(checks).filter(([, s]) => s === 'failed').map(([name]) => ({ name, url: urls.get(name) ?? null }));

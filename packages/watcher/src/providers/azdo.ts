@@ -158,6 +158,19 @@ export function combineAdoMergeCommitChecks(
   return { state: 'passing', failing: [] };
 }
 
+/** A merge commit's statuses and own builds by name, in the states `combineAdoMergeCommitChecks` folds them to. */
+export function observedAdoMergeCommitChecks(
+  statuses: AdoPrStatus[], builds: AdoBuild[], commitId: string, buildUrl: (id: number) => string,
+): ObservedCheck[] {
+  return [
+    ...observedAdoStatuses(statuses),
+    ...builds.filter((b) => b.sourceVersion === commitId).map((b): ObservedCheck => ({
+      name: b.definition?.name ?? `build ${b.id}`, url: buildUrl(b.id),
+      state: b.status !== 'completed' ? 'pending' : b.result === 'failed' || b.result === 'canceled' ? 'failing' : 'passing',
+    })),
+  ];
+}
+
 export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | null; apiVersion: string }): DeliveryProviderApi {
   const { fetchJson, pat, apiVersion } = opts;
   // Policy evaluations exist only as a preview resource; a plain version is rejected with 400.
@@ -214,9 +227,10 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
           `${projectBase}/_apis/build/builds?repositoryId=${e(repoId)}&repositoryType=TfsGit` +
           `${pr.targetRefName ? `&branchName=${e(pr.targetRefName)}` : ''}&queryOrder=queueTimeDescending&$top=50&api-version=${apiVersion}`,
         )) as { value?: AdoBuild[] };
-        const checks = combineAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit,
-          (id) => `${projectBase}/_build/results?buildId=${id}`);
-        return { pr: obs, checks, checksTarget: 'merge_commit' };
+        const buildUrl = (id: number): string => `${projectBase}/_build/results?buildId=${id}`;
+        const checks = combineAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit, buildUrl);
+        const observed = observedAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit, buildUrl);
+        return { pr: obs, checks, observed, checksTarget: 'merge_commit' };
       }
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       const projectBase = `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}`;

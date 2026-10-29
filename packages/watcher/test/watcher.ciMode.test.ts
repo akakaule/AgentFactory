@@ -107,3 +107,95 @@ describe.each(hosts)('ciMode on $host', (host) => {
     expect(failureNotes).toHaveLength(1);
   });
 });
+
+// Post-merge (merge-commit) evidence obeys the same rule: under 'required' only the named checks
+// decide, so a non-required check failing on the merge commit creates no repair work.
+
+/** A GitHub host whose PR is merged; the merge commit carries `checks` as check runs. */
+function githubMerged(checks: Check[]): FetchJson {
+  const runs = checks.map((c) => ({
+    name: c.name, status: c.state === 'pending' ? 'in_progress' : 'completed',
+    conclusion: c.state === 'pending' ? null : c.state === 'passing' ? 'success' : 'failure',
+    html_url: `https://gh/run/${c.name}`, details_url: null,
+  }));
+  const mergedPr = ghPr({ merged: true, merged_at: '2026-01-01T00:00:00Z', state: 'closed' });
+  return async (url: string) => {
+    const body = url.includes('/pulls?') ? [mergedPr] : url.includes('/pulls/42') ? mergedPr
+      : url.includes('/commits/mergesha/check-runs') ? { check_runs: runs }
+      : url.includes('/check-runs') ? { check_runs: [] }
+      : url.includes('/status') ? { statuses: [] }
+      : null;
+    if (body === null) throw new Error(`unrouted ${url}`);
+    return { status: 200, headers: {}, body };
+  };
+}
+
+/** An Azure DevOps host whose PR is completed; the merge commit's builds are `checks`. */
+function azdoMerged(checks: Check[]): FetchJson {
+  const completed = {
+    pullRequestId: 7, status: 'completed', targetRefName: 'refs/heads/main', repository: { id: 'repo-guid' },
+    lastMergeSourceCommit: { commitId: 'srcsha' }, lastMergeCommit: { commitId: 'mrgsha' },
+  };
+  const builds = checks.map((c, i) => ({
+    id: 30 + i, status: c.state === 'pending' ? 'inProgress' : 'completed',
+    result: c.state === 'pending' ? null : c.state === 'passing' ? 'succeeded' : 'failed',
+    sourceVersion: 'mrgsha', definition: { name: c.name },
+  }));
+  return async (url: string) => {
+    const body = url.includes('/pullrequests?searchCriteria') ? { value: [completed] }
+      : url.includes('/pullrequests/7?') ? completed
+      : url.includes('/commits/mrgsha/statuses') ? { value: [] }
+      : url.includes('/_apis/build/builds?') ? { value: builds }
+      : url.includes('/timeline') ? { records: [] }
+      : url.includes('/pullRequests/7/statuses') ? { value: [] }
+      : null;
+    if (body === null) throw new Error(`unrouted ${url}`);
+    return { status: 200, headers: {}, body };
+  };
+}
+
+const mergedHosts = [
+  { host: 'GitHub', origin: GH_ORIGIN, fetch: githubMerged },
+  { host: 'Azure DevOps', origin: ADO_ORIGIN, fetch: azdoMerged },
+] as const;
+
+async function pollMerged(host: (typeof mergedHosts)[number], profile: { ciMode: CiMode | null; requiredChecks?: string[] | null }, checks: Check[]) {
+  const core = makeCore(host.origin);
+  core.updateWorkspace('default', { ciMode: profile.ciMode, requiredChecks: profile.requiredChecks ?? null });
+  const key = deliverTask(core);
+  const w = new Watcher(makeConfig({ postMergeChecks: true }), makeDeps(core, host.fetch(checks), { resolveOrigin: () => host.origin }));
+  await w.tick();
+  await w.tick();
+  return core.getTask(key);
+}
+
+describe.each(mergedHosts)('ciMode post-merge on $host', (host) => {
+  it('required: a non-required check failing on the merge commit neither fails the delivery nor creates repair work', async () => {
+    const task = await pollMerged(host, { ciMode: 'required', requiredChecks: ['build'] },
+      [{ name: 'build', state: 'passing' }, { name: 'lint', state: 'failing' }]);
+    expect(task.status).toBe('done');
+    expect(task.delivery).toMatchObject({ checksState: 'passing', ciMode: 'required', failing: [] });
+    expect(task.dependents).toEqual([]);
+  });
+
+  it('required: a required check failing on the merge commit creates one follow-up', async () => {
+    const task = await pollMerged(host, { ciMode: 'required', requiredChecks: ['build'] },
+      [{ name: 'build', state: 'failing' }, { name: 'lint', state: 'passing' }]);
+    expect(task.status).toBe('done');
+    expect(task.delivery).toMatchObject({ checksState: 'failing', failing: [expect.objectContaining({ name: 'build' })] });
+    expect(task.dependents).toHaveLength(1);
+  });
+
+  it('required: a required check the merge commit never reports does not hold the delivery pending', async () => {
+    const task = await pollMerged(host, { ciMode: 'required', requiredChecks: ['build'] }, [{ name: 'lint', state: 'failing' }]);
+    expect(task.status).toBe('done');
+    expect(task.delivery!.checksState).not.toBe('pending');
+    expect(task.dependents).toEqual([]);
+  });
+
+  it('legacy: a failing merge-commit check still creates one follow-up', async () => {
+    const task = await pollMerged(host, { ciMode: null }, [{ name: 'lint', state: 'failing' }]);
+    expect(task.delivery!.checksState).toBe('failing');
+    expect(task.dependents).toHaveLength(1);
+  });
+});
