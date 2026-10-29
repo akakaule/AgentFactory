@@ -1,6 +1,6 @@
 import type { DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
-import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
+import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type ObservedCheck, type PrObservation } from './types.js';
 import { azdoGuard, basicPat } from './azdoHttp.js';
 import { fitBody } from '../prBody.js';
 
@@ -104,6 +104,14 @@ export function combineAdoStatuses(statuses: AdoPrStatus[]): { state: DeliveryCh
   return { state: 'passing', failing: [] };
 }
 
+/** Every PR status by name, in the states `combineAdoStatuses` folds them to. */
+export function observedAdoStatuses(statuses: AdoPrStatus[]): ObservedCheck[] {
+  return statuses.map((s) => ({
+    name: s.context?.name ?? 'status', url: s.targetUrl ?? null,
+    state: s.state === 'failed' || s.state === 'error' ? 'failing' : s.state === 'pending' || s.state === 'notSet' ? 'pending' : 'passing',
+  }));
+}
+
 const POLICY_STATE: Record<string, string> = { approved: 'succeeded', rejected: 'failed', queued: 'pending', running: 'pending' };
 const severity = (s: AdoPrStatus): number =>
   s.state === 'failed' || s.state === 'error' ? 2 : s.state === 'pending' || s.state === 'notSet' ? 1 : 0;
@@ -148,6 +156,19 @@ export function combineAdoMergeCommitChecks(
   if (pending) return { state: 'pending', failing: [] };
   if (statuses.length === 0 && own.length === 0) return { state: 'none', failing: [] };
   return { state: 'passing', failing: [] };
+}
+
+/** A merge commit's statuses and own builds by name, in the states `combineAdoMergeCommitChecks` folds them to. */
+export function observedAdoMergeCommitChecks(
+  statuses: AdoPrStatus[], builds: AdoBuild[], commitId: string, buildUrl: (id: number) => string,
+): ObservedCheck[] {
+  return [
+    ...observedAdoStatuses(statuses),
+    ...builds.filter((b) => b.sourceVersion === commitId).map((b): ObservedCheck => ({
+      name: b.definition?.name ?? `build ${b.id}`, url: buildUrl(b.id),
+      state: b.status !== 'completed' ? 'pending' : b.result === 'failed' || b.result === 'canceled' ? 'failing' : 'passing',
+    })),
+  ];
 }
 
 export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | null; apiVersion: string }): DeliveryProviderApi {
@@ -206,9 +227,10 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
           `${projectBase}/_apis/build/builds?repositoryId=${e(repoId)}&repositoryType=TfsGit` +
           `${pr.targetRefName ? `&branchName=${e(pr.targetRefName)}` : ''}&queryOrder=queueTimeDescending&$top=50&api-version=${apiVersion}`,
         )) as { value?: AdoBuild[] };
-        const checks = combineAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit,
-          (id) => `${projectBase}/_build/results?buildId=${id}`);
-        return { pr: obs, checks, checksTarget: 'merge_commit' };
+        const buildUrl = (id: number): string => `${projectBase}/_build/results?buildId=${id}`;
+        const checks = combineAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit, buildUrl);
+        const observed = observedAdoMergeCommitChecks(commitStatuses.value ?? [], builds.value ?? [], mergeCommit, buildUrl);
+        return { pr: obs, checks, observed, checksTarget: 'merge_commit' };
       }
       const statuses = (await get(`${base}/pullRequests/${pr.pullRequestId}/statuses?api-version=${apiVersion}`)) as { value?: AdoPrStatus[] };
       const projectBase = `https://dev.azure.com/${e(remote.organization)}/${e(remote.project)}`;
@@ -217,10 +239,10 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
         ?? remote.project;
       const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}/${pr.pullRequestId}`;
       const evaluations = (await get(`${projectBase}/_apis/policy/evaluations?artifactId=${e(artifactId)}&api-version=${previewApiVersion}`)) as { value?: AdoPolicyEvaluation[] };
-      const checks = combineAdoStatuses(mergeAdoPolicyEvaluations(statuses.value ?? [], evaluations.value ?? []));
+      const merged = mergeAdoPolicyEvaluations(statuses.value ?? [], evaluations.value ?? []);
       // Merge completion is independent of checks; preserve the provider's actual status evidence.
       // PR statuses describe the PR, never the merge commit, so they are not post-merge evidence.
-      return { pr: obs, checks, checksTarget: 'head' };
+      return { pr: obs, checks: combineAdoStatuses(merged), observed: observedAdoStatuses(merged), checksTarget: 'head' };
     },
 
     async describeFailures(remote, result): Promise<string[]> {

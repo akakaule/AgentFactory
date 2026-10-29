@@ -98,6 +98,20 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect((await http.getTask(task.key)).delivery?.prState).toBe('merged');
   });
 
+  it('keeps missing required checks and the ciMode of a delivery check over HTTP', async () => {
+    const task = core.createTask({ title: 'Required checks', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
+    core.submitResult(task.key, { summary: 'done', revision: { headSha: 'a'.repeat(40), source: 'origin' } });
+    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
+    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    const expected = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
+    await http.recordDeliveryCheck(task.key, { expected, prUrl: 'https://github.com/acme/widgets/pull/42', prId: '#42',
+      prState: 'open', checksState: 'pending', ciMode: 'required', failing: [{ name: 'build', url: null, missing: true }] });
+    expect((await http.getTask(task.key)).delivery).toMatchObject({ checksState: 'pending', ciMode: 'required',
+      failing: [{ name: 'build', url: null, missing: true }] });
+  });
+
   it('records a failed provider check over HTTP as unknown revision freshness', async () => {
     const task = core.createTask({ title: 'Delivery outage', spec: 's', acceptanceCriteria: 'a' });
     core.updateStatus(task.key, 'queued', 'human');
