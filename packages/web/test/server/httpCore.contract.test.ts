@@ -55,6 +55,23 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect(core.getTask(t.key).status).toBe('in_review');
   });
 
+  it('records and reads back a runner verification exactly like a local core', async () => {
+    const t = core.createTask({ title: 'Verified', spec: 'S', acceptanceCriteria: 'A' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const claim = (await http.claimNextTask({ claimedBy: 'remote-1' }))!;
+    const input = {
+      executionId: claim.executionId, status: 'failed' as const, exitCode: 1, command: 'npm test',
+      headBefore: 'abc', headAfter: 'abc', cleanBefore: true, cleanAfter: true, log: 'x', truncated: false,
+    };
+
+    const recorded = await http.recordVerification(t.key, input);
+    expect(recorded).toEqual(core.latestVerification(t.key, claim.executionId));
+    expect(await http.latestVerification(t.key, claim.executionId)).toEqual(recorded);
+    expect(recorded).toMatchObject({ ...input, submissionId: null, validForRevision: null });
+    expect(await http.latestVerification(t.key, 'no-such-execution')).toBeNull();
+    await expect(http.recordVerification(t.key, { ...input, status: 'ok' } as never)).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it('an empty queue resolves null', async () => {
     expect(await http.claimNextTask()).toBeNull();
   });
@@ -79,6 +96,20 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     // Old poll still has a null PR URL. It must not overwrite the observation just stored.
     expect(await http.recordDeliveryCheck(task.key, { ...observation, prState: 'open' })).toMatchObject({ skipped: true });
     expect((await http.getTask(task.key)).delivery?.prState).toBe('merged');
+  });
+
+  it('keeps missing required checks and the ciMode of a delivery check over HTTP', async () => {
+    const task = core.createTask({ title: 'Required checks', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    const claim = core.claimNextTask({ claimedBy: 'worker' })!;
+    core.submitResult(task.key, { summary: 'done', revision: { headSha: 'a'.repeat(40), source: 'origin' } });
+    core.updateStatus(task.key, 'delivering', 'human', null, undefined, undefined, { submissionId: core.getTask(task.key).submission!.id });
+    const seeded = await http.beginDelivery(task.key, { provider: 'github', branch: claim.branch! });
+    const expected = { status: 'delivering' as const, branch: seeded.branch, prUrl: seeded.prUrl, stateChangedAt: seeded.stateChangedAt };
+    await http.recordDeliveryCheck(task.key, { expected, prUrl: 'https://github.com/acme/widgets/pull/42', prId: '#42',
+      prState: 'open', checksState: 'pending', ciMode: 'required', failing: [{ name: 'build', url: null, missing: true }] });
+    expect((await http.getTask(task.key)).delivery).toMatchObject({ checksState: 'pending', ciMode: 'required',
+      failing: [{ name: 'build', url: null, missing: true }] });
   });
 
   it('records a failed provider check over HTTP as unknown revision freshness', async () => {

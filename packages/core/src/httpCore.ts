@@ -43,7 +43,7 @@ export type HttpCore = Pick<
   Asyncified<SyncCore>,
   | 'claimNextTask' | 'submitResult' | 'createTask' | 'importTask' | 'reserveExecution' | 'reconcileExecutions' | 'touchExecution' | 'getCurrentExecution'
   | 'reportProgress' | 'addComment' | 'updateStatus' | 'releaseClaim' | 'reserveRetry' | 'reconcileRetry' | 'reconcileAbandonedRetryReservations' | 'getRetryBudget' | 'recordRetryFailure' | 'settleRetry'
-  | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics'
+  | 'appendTranscript' | 'saveTranscript' | 'addTaskMetrics' | 'recordVerification' | 'latestVerification'
   | 'touchAgentSession' | 'endAgentSession' | 'listLiveAgents'
   | 'recordSupervisorHeartbeat' | 'resolveAgentPrompt' | 'resolveGitAuth' | 'getWorkspacePat' | 'getEngineSettings'
   | 'getAgentModels' | 'reportAgentModelDefaults'
@@ -152,6 +152,9 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
     appendTranscript: async (key, input) => { await req('POST', `/api/agent/tasks/${enc(key)}/transcript`, fenced(key, input)); },
     saveTranscript: async (key, input) => { await req('PUT', `/api/agent/tasks/${enc(key)}/transcript`, fenced(key, input)); },
     addTaskMetrics: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/metrics`, fenced(key, input))) as never,
+    recordVerification: async (key, input) => (await req('POST', `/api/agent/tasks/${enc(key)}/verifications`, input)) as never,
+    latestVerification: async (key, executionId) =>
+      (await req('GET', `/api/agent/tasks/${enc(key)}/verifications/latest?executionId=${enc(executionId)}`)) as never,
     touchAgentSession: async (key) => { await req('POST', `/api/agent/tasks/${enc(key)}/session/touch`, {}); },
     endAgentSession: async (key) => { await req('POST', `/api/agent/tasks/${enc(key)}/session/end`, {}); },
     listLiveAgents: async () => (await req('GET', '/api/agent/live-agents')) as never,

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER, COORDINATED_RESTART, ValidationError } from '@agentfactory/core';
+import { AGENT_CAPABILITIES, AGENT_CAPABILITIES_HEADER, CI_MODES, COORDINATED_RESTART, ValidationError } from '@agentfactory/core';
 import type { Core } from '../types.js';
 import { validated } from '../validate.js';
 import { requireService, requireSupervisor, principalOf } from '../auth.js';
@@ -39,7 +39,8 @@ const deliveryCheckBody = z.object({
   prUrl: z.string().nullable(), prId: z.string().nullable(),
   prState: z.string(), checksState: z.string(),
   checksTarget: z.enum(['head', 'merge_commit']).optional(),
-  failing: z.array(z.object({ name: z.string(), url: z.string().nullable() })),
+  failing: z.array(z.object({ name: z.string(), url: z.string().nullable(), missing: z.boolean().optional() })),
+  ciMode: z.enum(CI_MODES).optional(), // the workspace ciMode the checks were judged under (AF-173)
   headSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable().optional(), // the PR head the provider reports
   readStartedAt: z.string().datetime().optional(), // when the provider request began, on the watcher's clock (display only)
   readTicket: readTicket.optional(), // the board-issued read ticket taken before the request (orders observations)
@@ -180,6 +181,15 @@ export function agentOpsRoutes(core: Core): Hono {
 
   r.post('/tasks/:key/metrics', async (c) =>
     c.json(core.addTaskMetrics(c.req.param('key'), await body<Parameters<Core['addTaskMetrics']>[1]>(c)), 201));
+
+  // ── runner verification records (core validates the body and the live-execution fence) ──
+  r.post('/tasks/:key/verifications', async (c) =>
+    c.json(core.recordVerification(c.req.param('key'), await body<Parameters<Core['recordVerification']>[1]>(c)), 201));
+  r.get('/tasks/:key/verifications/latest', (c) => {
+    const executionId = c.req.query('executionId');
+    if (!executionId) throw new ValidationError('verification executionId query parameter is required');
+    return c.json(core.latestVerification(c.req.param('key'), executionId));
+  });
 
   r.post('/tasks/:key/session/touch', (c) => {
     core.touchAgentSession(c.req.param('key'));

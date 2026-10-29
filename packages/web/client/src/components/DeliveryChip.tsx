@@ -10,7 +10,7 @@ import { I } from '../icons.js';
  */
 export function DeliveryChip({ delivery }: { delivery: DeliverySummary | null }) {
   if (!delivery) return null;
-  const { prState, checksState, prId, prUrl, headSha, approvedHeadSha } = delivery;
+  const { prState, checksState, prId, prUrl, headSha, approvedHeadSha, ciMode } = delivery;
   // The PR head is not the approved commit (a push after approval): its check verdict says nothing
   // about the approved delivery, and the watcher won't bounce for it.
   const otherCommit = !!headSha && !!approvedHeadSha && headSha.toLowerCase() !== approvedHeadSha.toLowerCase();
@@ -21,7 +21,7 @@ export function DeliveryChip({ delivery }: { delivery: DeliverySummary | null })
     : checksState === 'failing' ? 'checks failed'
     : checksState === 'pending' ? 'checks running'
     : checksState === 'passing' ? 'checks passing'
-    : checksState === 'none' ? 'no checks'
+    : checksState === 'none' ? (ciMode === 'none' ? 'no CI by choice' : 'no checks') // ciMode 'none': the workspace ignores CI
     : null;
 
   const label =

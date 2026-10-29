@@ -1,6 +1,6 @@
 import type { RemoteRef, DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
-import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type MergeOutcome, type PrObservation } from './types.js';
+import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type MergeOutcome, type ObservedCheck, type PrObservation } from './types.js';
 
 /**
  * GitHub via REST with a token — deliberately not the `gh` CLI: a long-lived poller wants the
@@ -71,6 +71,20 @@ export function combineChecks(runs: CheckRun[], statuses: CommitStatus[]): { sta
   if (pending) return { state: 'pending', failing: [] };
   if (runs.length === 0 && statuses.length === 0) return { state: 'none', failing: [] };
   return { state: 'passing', failing: [] };
+}
+
+/** Every check-run and commit status by name, in the states `combineChecks` folds them to. */
+export function observedChecks(runs: CheckRun[], statuses: CommitStatus[]): ObservedCheck[] {
+  return [
+    ...runs.map((r): ObservedCheck => ({
+      name: r.name, url: r.html_url ?? r.details_url ?? null,
+      state: r.status !== 'completed' ? 'pending' : r.conclusion !== null && FAILING_CONCLUSIONS.has(r.conclusion) ? 'failing' : 'passing',
+    })),
+    ...statuses.map((s): ObservedCheck => ({
+      name: s.context, url: s.target_url ?? null,
+      state: s.state === 'pending' ? 'pending' : FAILING_STATUS_STATES.has(s.state) ? 'failing' : 'passing',
+    })),
+  ];
 }
 
 export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string | null; apiBase: string; now: () => number }): DeliveryProviderApi {
@@ -156,8 +170,8 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       if (!sha) return { pr: obs, checks: { state: 'unknown', failing: [] }, checksTarget };
 
       const runs = await getCheckRuns(repo, sha);
-      const statusBody = (await get(`${repo}/commits/${sha}/status`)) as { statuses?: CommitStatus[] };
-      return { pr: obs, checks: combineChecks(runs, statusBody.statuses ?? []), checksTarget };
+      const statuses = ((await get(`${repo}/commits/${sha}/status`)) as { statuses?: CommitStatus[] }).statuses ?? [];
+      return { pr: obs, checks: combineChecks(runs, statuses), observed: observedChecks(runs, statuses), checksTarget };
     },
 
     async describeFailures(remote, result, { postMergeChecks }): Promise<string[]> {
@@ -181,14 +195,18 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       return capExcerpts(messages);
     },
 
-    async openPullRequest(remote, { branch, title, body }): Promise<PrObservation | null> {
+    async openPullRequest(remote, { branch, base, title, body }): Promise<PrObservation | null> {
       if (remote.provider !== 'github') throw new Error('github provider got a non-github remote');
       const repo = repoUrl(remote);
-      const info = (await get(repo)) as { default_branch?: string };
-      if (!info.default_branch) throw new ProviderHttpError(`github reports no default branch for ${repo}`, 0);
+      let target = base ?? null;
+      if (target === null) {
+        const info = (await get(repo)) as { default_branch?: string };
+        if (!info.default_branch) throw new ProviderHttpError(`github reports no default branch for ${repo}`, 0);
+        target = info.default_branch;
+      }
       const url = `${repo}/pulls`;
       const res = await fetchJson(url, {
-        headers, method: 'POST', body: JSON.stringify({ title, head: branch, base: info.default_branch, body }),
+        headers, method: 'POST', body: JSON.stringify({ title, head: branch, base: target, body }),
       });
       if (res.status === 422) {
         // "A pull request already exists for owner:branch" — the search finds it next tick. Any
