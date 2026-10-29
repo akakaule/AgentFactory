@@ -73,11 +73,12 @@ export const updateWorkspaceSchema = z
   .object({
     repoPath: nonEmpty.optional(), policy: clearable.optional(), verifyCommand: clearable.optional(), pat: clearable.optional(), promptOverrides: promptOverridesInput.optional(), adoSync: adoSyncSettingsSchema.nullable().optional(),
     baseBranch: baseBranchInput.optional(), requiredChecks: requiredChecksInput.optional(), ciMode: z.enum(CI_MODES).nullable().optional(),
+    createPullRequests: z.boolean().nullable().optional(),
   })
   .refine(
     (o) => o.repoPath !== undefined || o.policy !== undefined || o.verifyCommand !== undefined || o.pat !== undefined || o.promptOverrides !== undefined || o.adoSync !== undefined
-      || o.baseBranch !== undefined || o.requiredChecks !== undefined || o.ciMode !== undefined,
-    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync, baseBranch, requiredChecks, ciMode)',
+      || o.baseBranch !== undefined || o.requiredChecks !== undefined || o.ciMode !== undefined || o.createPullRequests !== undefined,
+    'at least one field required (repoPath, policy, verifyCommand, pat, promptOverrides, adoSync, baseBranch, requiredChecks, ciMode, createPullRequests)',
   );
 export const updateTaskSchema = z
   .object({ title: nonEmpty.optional(), spec: nonEmpty.optional(), acceptanceCriteria: nonEmpty.optional(), workspace: workspaceSlug.optional() })

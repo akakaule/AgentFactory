@@ -133,7 +133,7 @@ export const api = {
   setModelPrices: (prices: ModelPrices) => req<{ prices: ModelPrices }>('/api/model-prices', { method: 'PUT', body: JSON.stringify(prices) }),
   updateWorkspace: (name: string, b: {
     repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null;
-    baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null;
+    baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null; createPullRequests?: boolean | null;
   }) =>
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   // read-only setup diagnosis (human-only); never carries the PAT, only whether one is set

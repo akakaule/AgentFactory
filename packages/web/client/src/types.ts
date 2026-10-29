@@ -5,11 +5,12 @@ export type { CiMode, EffectiveWorkspaceProfile, WorkspaceDiagnosis, DiagnosticC
 /** A workspace as GET /api/workspaces serves it: core's shape plus the board-only origin, for an
  *  Azure DevOps import the WIQL it runs, and the effective repository profile. Optional so older
  *  payloads/fixtures stay valid. */
-export type Workspace = Omit<CoreWorkspace, 'adoSync' | 'baseBranch' | 'requiredChecks' | 'ciMode'> & {
+export type Workspace = Omit<CoreWorkspace, 'adoSync' | 'baseBranch' | 'requiredChecks' | 'ciMode' | 'createPullRequests'> & {
   adoSync?: AdoSyncSettings | null;
   baseBranch?: string | null;
   requiredChecks?: string[] | null;
   ciMode?: CiMode | null;
+  createPullRequests?: boolean | null;
   profile?: EffectiveWorkspaceProfile;
   remote?: { provider: 'github' } | { provider: 'azdo'; organization: string; project: string } | null;
   adoSyncWiql?: string | null;

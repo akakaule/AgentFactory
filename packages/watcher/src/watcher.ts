@@ -22,7 +22,7 @@ const AUTH_STATUSES = new Set([203, 401, 403]);
 
 /**
  * The watcher supervisor: polls every `delivering` task in its workspaces, opens the PR when the
- * approved branch has none (config.createPullRequests), observes the PR + pipeline on the task's
+ * approved branch has none (workspace createPullRequests, else config.createPullRequests), observes the PR + pipeline on the task's
  * git host, and finishes the close the human approval started —
  * completes the current delivery when its PR merged, including during repair; `delivering → queued`
  * (with a failure/v1 comment carrying the failing checks or merge-conflict detail) when CI
@@ -261,8 +261,10 @@ export class Watcher {
       checks = { state: 'unknown', failing: [] };
     }
     // The worker pushes before review but never opens the PR (protocol v7): once the human
-    // approved the implementation (delivering) and no PR exists, the watcher opens it.
-    if (!pr && detail.status === 'delivering' && this.config.createPullRequests) {
+    // approved the implementation (delivering) and no PR exists, the watcher opens it — unless the
+    // workspace turned PR creation off (its createPullRequests, when set, beats the config's).
+    const createPullRequests = this.workspaceProfiles.get(detail.workspace)?.createPullRequests ?? this.config.createPullRequests;
+    if (!pr && detail.status === 'delivering' && createPullRequests) {
       const opened = await this.openPr(key, detail, detail.workspace, provider, remote, delivery.branch, cred);
       if (opened) {
         pr = opened;

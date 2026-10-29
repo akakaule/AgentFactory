@@ -47,7 +47,8 @@ export const baseConfigSchema = z.object({
    * Open the PR once a task is delivering (its implementation review was approved) and no PR exists
    * for the branch — the worker pushes before review but never opens the PR itself (protocol v7).
    * Needs a write-scoped credential (see `github` / `azdo`). When off, or when creation fails,
-   * the board's "Open PR" link is the manual way.
+   * the board's "Open PR" link is the manual way. A workspace's own createPullRequests (Workspaces
+   * editor), when set, overrides this for that workspace.
    */
   createPullRequests: z.boolean().default(true),
   /**

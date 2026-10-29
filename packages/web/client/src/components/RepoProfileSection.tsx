@@ -2,27 +2,33 @@ import { useState } from 'react';
 import type { CiMode, DiagnosticStatus, EffectiveWorkspaceProfile, Workspace, WorkspaceDiagnosis } from '../types.js';
 import { api } from '../api.js';
 
+/** Watcher PR creation as the editor holds it: 'on' / 'off', '' = follow the watcher config. */
+export type PrSwitch = 'on' | 'off' | '';
+
 /** The editable form of the repository profile: required checks as comma-separated text, '' = unset. */
-export interface ProfileDraft { baseBranch: string; requiredChecks: string; ciMode: CiMode | '' }
+export interface ProfileDraft { baseBranch: string; requiredChecks: string; ciMode: CiMode | ''; createPullRequests: PrSwitch }
+
+const toPrSwitch = (v: boolean | null | undefined): PrSwitch => (v == null ? '' : v ? 'on' : 'off');
 
 export function toProfileDraft(w: Workspace): ProfileDraft {
-  return { baseBranch: w.baseBranch ?? '', requiredChecks: (w.requiredChecks ?? []).join(', '), ciMode: w.ciMode ?? '' };
+  return { baseBranch: w.baseBranch ?? '', requiredChecks: (w.requiredChecks ?? []).join(', '), ciMode: w.ciMode ?? '', createPullRequests: toPrSwitch(w.createPullRequests) };
 }
 
 const checkList = (s: string): string[] => s.split(',').map((x) => x.trim()).filter(Boolean);
 
 /** The draft as the server stores it (trimmed branch, normalized check list) — the baseline after a save. */
 export function normalizeProfileDraft(d: ProfileDraft): ProfileDraft {
-  return { baseBranch: d.baseBranch.trim(), requiredChecks: checkList(d.requiredChecks).join(', '), ciMode: d.ciMode };
+  return { baseBranch: d.baseBranch.trim(), requiredChecks: checkList(d.requiredChecks).join(', '), ciMode: d.ciMode, createPullRequests: d.createPullRequests };
 }
 
 /** The PATCH fields for the profile values the user changed (only those); '' / [] clears to null. */
-export function profilePatch(initial: ProfileDraft, d: ProfileDraft): { baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null } {
-  const out: { baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null } = {};
+export function profilePatch(initial: ProfileDraft, d: ProfileDraft): { baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null; createPullRequests?: boolean | null } {
+  const out: { baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null; createPullRequests?: boolean | null } = {};
   if (d.baseBranch.trim() !== initial.baseBranch) out.baseBranch = d.baseBranch.trim() || null;
   const checks = checkList(d.requiredChecks);
   if (checks.join('\n') !== checkList(initial.requiredChecks).join('\n')) out.requiredChecks = checks.length > 0 ? checks : null;
   if (d.ciMode !== initial.ciMode) out.ciMode = d.ciMode || null;
+  if (d.createPullRequests !== initial.createPullRequests) out.createPullRequests = d.createPullRequests === '' ? null : d.createPullRequests === 'on';
   return out;
 }
 
@@ -90,6 +96,14 @@ export function RepoProfileSection({ workspace, draft, onChange }: { workspace: 
             <option value="none">none — ignore CI</option>
           </select>
           <Effective field="ciMode" profile={profile} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+          <label htmlFor={`ws-${workspace.id}-prs`} style={labelStyle}>Watcher opens PRs</label>
+          <select id={`ws-${workspace.id}-prs`} value={draft.createPullRequests} onChange={(e) => set('createPullRequests', e.target.value as PrSwitch)} style={inputStyle}>
+            <option value="">Follow watcher config</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
         </div>
       </div>
       <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
