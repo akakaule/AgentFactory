@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailPanel } from '../../client/src/components/DetailPanel.js';
 import type { TaskDetail } from '../../client/src/types.js';
@@ -522,21 +522,37 @@ describe('DetailPanel', () => {
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-17', 'queued');
   });
 
-  // AF-181: the review panel's next action outside review names buttons the drawer already has.
+  // AF-181: outside review the drawer renders the same next-action line in the status's own
+  // section, beside its primary control; every action the sentence names is an enabled button.
   it.each([
-    ['blocked', {}, 'Unblock or cancel', ['Unblock → Queued', 'Cancel task']],
+    ['blocked', {}, 'Unblock or cancel', ['Unblock → Queued'], ['Cancel task']],
     ['delivering', {
       delivery: { provider: 'github', branch: 'b', prUrl: null, prId: null, prState: 'open', checksState: 'pending', failing: [], checkedAt: null, stateChangedAt: 't' },
-    }, 'Wait for the PR to merge, or pull it back', ['Re-queue']],
-    ['cancelled', {}, 'Reopen or archive', ['Reopen', 'Archive']],
-  ] as const)('a %s task\'s next action matches enabled drawer buttons', async (status, over, sentence, buttons) => {
+    }, 'Wait for the PR to merge, or pull it back', ['Re-queue'], []],
+    ['cancelled', {}, 'Reopen or archive', ['Reopen', 'Archive'], []],
+  ] as const)('a %s task renders its next action beside the enabled drawer buttons', async (status, over, sentence, buttons, elsewhere) => {
     const mocked = await getApiMock();
     const t = { ...inReviewTask, key: 'AF-19', status, ...over } as TaskDetail;
     mocked.getTask.mockResolvedValue(t);
     expect(nextAction(t)).toBe(sentence);
     render(<DetailPanel taskKey="AF-19" onClose={vi.fn()} onChanged={vi.fn()} />);
     await screen.findByText('Journey');
-    for (const name of buttons) expect(screen.getByRole('button', { name })).toBeEnabled();
+    const line = screen.getByLabelText('Next action');
+    expect(line.textContent).toBe(sentence);
+    // the review panel's controls never appear for a non-review status
+    expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Request changes/ })).toBeNull();
+    const section = line.parentElement!;
+    for (const name of buttons) expect(within(section).getByRole('button', { name })).toBeEnabled();
+    for (const name of elsewhere) expect(screen.getByRole('button', { name })).toBeEnabled();
+  });
+
+  it('shows no next action for a status without one', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, key: 'AF-19', status: 'queued' } as TaskDetail);
+    render(<DetailPanel taskKey="AF-19" onClose={vi.fn()} onChanged={vi.fn()} />);
+    await screen.findByText('Journey');
+    expect(screen.queryByLabelText('Next action')).toBeNull();
   });
 
   it('shows the claimant and a Release claim button on an in_progress task', async () => {

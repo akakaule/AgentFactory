@@ -11,6 +11,7 @@ import { ReviewSendBack } from './ReviewSendBack.js';
 import { ReviewApprove } from './ReviewApprove.js';
 import { ConsensusDiscussion } from './ConsensusDiscussion.js';
 import { approveLabel, nextAction, remainingConcerns, revisionLines } from '../reviewConcerns.js';
+import { NextAction } from './NextAction.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -146,7 +147,7 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
             </ol>
           </div>
         )}
-        {next && <p className="af-rv-next" aria-label="Next action">{next}</p>}
+        <NextAction sentence={next} />
         <div className="af-rv-changed" role="group" aria-label="What changed">
           <span className="eyebrow">What changed</span>
           {summaryLine && <span className="sum">{summaryLine}</span>}

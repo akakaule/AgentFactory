@@ -201,7 +201,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-delivery-fails { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .af-delivery-fails li { font-size: 12px; }
 .af-delivery-fails a, .af-delivery-fails span { color: var(--st-blocked); }
-.af-delivery-acts { display: flex; gap: 8px; margin-top: 9px; }
+.af-delivery-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .af-airev-warn span { min-width: 0; overflow-wrap: anywhere; }
 .af-airev-warn { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--active-2); background: color-mix(in srgb, var(--active) 9%, var(--bg-deep)); border: 1px solid color-mix(in srgb, var(--active) 30%, var(--line-soft)); border-radius: 8px; padding: 8px 11px; margin-bottom: 9px; }
 .af-airev-warn svg { width: 14px; height: 14px; flex: none; margin-top: 1px; color: var(--active-2); }
@@ -956,6 +956,8 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-concerns li + li { margin-top: 2px; }
 .af-rv-concerns li.stale { color: var(--st-blocked); }
 .af-rv-next { margin: 10px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink-1); }
+/* in the drawer's flex action rows the line takes its own row above the buttons */
+.af-d-tags > .af-rv-next, .af-delivery-acts > .af-rv-next { flex-basis: 100%; margin: 0; }
 .af-rv-changed { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 0; font-size: 13px; color: var(--ink-1); }
 .af-rv-changed .files { color: var(--ink-2); }
 .af-rv-link { padding: 0; border: 0; background: none; color: var(--accent-2); font-size: 13px; font-weight: 500; cursor: pointer; }

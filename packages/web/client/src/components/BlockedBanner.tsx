@@ -1,6 +1,7 @@
 import type { Activity } from '../types.js';
 import { shortTime } from '../time.js';
 import { I } from '../icons.js';
+import { NextAction } from './NextAction.js';
 
 /**
  * Why a task is currently blocked: the note an agent attached on the latest move to `blocked`
@@ -29,7 +30,7 @@ export function blockReason(activity: Activity[]): { text: string | null; at: st
 }
 
 /** Drawer banner that puts the block reason (and the unblock action) front-and-center for a blocked task. */
-export function BlockedBanner({ activity, onUnblock }: { activity: Activity[]; onUnblock: () => void }) {
+export function BlockedBanner({ activity, onUnblock, next = null }: { activity: Activity[]; onUnblock: () => void; next?: string | null }) {
   const { text, at } = blockReason(activity);
   return (
     <div className="af-blockbanner">
@@ -41,6 +42,7 @@ export function BlockedBanner({ activity, onUnblock }: { activity: Activity[]; o
       <div className={'af-blockbanner-detail' + (text ? '' : ' muted')}>
         {text ?? "No reason given — the agent didn't say why."}
       </div>
+      <NextAction sentence={next} />
       <button className="af-mini" onClick={onUnblock}>Unblock → Queued</button>
     </div>
   );

@@ -7,6 +7,8 @@ import { useEventStream } from '../useEventStream.js';
 import { CommentBox } from './CommentBox.js';
 import { ReviewActions } from './ReviewActions.js';
 import { ReviewPanel } from './ReviewPanel.js';
+import { NextAction } from './NextAction.js';
+import { nextAction } from '../reviewConcerns.js';
 import { CopyButton } from './CopyButton.js';
 import { queueBlockMessage } from '../queueGate.js';
 import { composePrReview } from '../composePrReview.js';
@@ -274,6 +276,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
           </button>
         </>)}
         {task.status === 'cancelled' && !task.archivedAt && (<>
+          <NextAction sentence={nextAction(task)} />
           <button
             className="af-mini"
             disabled={queueBlocked !== null}
@@ -336,6 +339,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
       {task.status === 'blocked' && (
         <BlockedBanner
           activity={task.activity}
+          next={nextAction(task)}
           onUnblock={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
         />
       )}
@@ -421,6 +425,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
           {task.status === 'delivering' && (
             <>
               <div className="af-delivery-acts">
+                <NextAction sentence={nextAction(task)} />
                 {task.createPrUrl && (
                   <a
                     className="af-mini go"
