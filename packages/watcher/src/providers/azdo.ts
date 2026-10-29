@@ -1,6 +1,6 @@
 import type { DeliveryChecksState, DeliveryFailingCheck } from '@agentfactory/core';
 import type { FetchJson, FetchResponse } from '../types.js';
-import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type PrObservation } from './types.js';
+import { ProviderHttpError, capExcerpts, type DeliveryCheckResult, type DeliveryProviderApi, type ObservedCheck, type PrObservation } from './types.js';
 import { azdoGuard, basicPat } from './azdoHttp.js';
 import { fitBody } from '../prBody.js';
 
@@ -102,6 +102,14 @@ export function combineAdoStatuses(statuses: AdoPrStatus[]): { state: DeliveryCh
   if (pending) return { state: 'pending', failing: [] };
   if (statuses.length === 0) return { state: 'none', failing: [] };
   return { state: 'passing', failing: [] };
+}
+
+/** Every PR status by name, in the states `combineAdoStatuses` folds them to. */
+export function observedAdoStatuses(statuses: AdoPrStatus[]): ObservedCheck[] {
+  return statuses.map((s) => ({
+    name: s.context?.name ?? 'status', url: s.targetUrl ?? null,
+    state: s.state === 'failed' || s.state === 'error' ? 'failing' : s.state === 'pending' || s.state === 'notSet' ? 'pending' : 'passing',
+  }));
 }
 
 const POLICY_STATE: Record<string, string> = { approved: 'succeeded', rejected: 'failed', queued: 'pending', running: 'pending' };
@@ -217,10 +225,10 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
         ?? remote.project;
       const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}/${pr.pullRequestId}`;
       const evaluations = (await get(`${projectBase}/_apis/policy/evaluations?artifactId=${e(artifactId)}&api-version=${previewApiVersion}`)) as { value?: AdoPolicyEvaluation[] };
-      const checks = combineAdoStatuses(mergeAdoPolicyEvaluations(statuses.value ?? [], evaluations.value ?? []));
+      const merged = mergeAdoPolicyEvaluations(statuses.value ?? [], evaluations.value ?? []);
       // Merge completion is independent of checks; preserve the provider's actual status evidence.
       // PR statuses describe the PR, never the merge commit, so they are not post-merge evidence.
-      return { pr: obs, checks, checksTarget: 'head' };
+      return { pr: obs, checks: combineAdoStatuses(merged), observed: observedAdoStatuses(merged), checksTarget: 'head' };
     },
 
     async describeFailures(remote, result): Promise<string[]> {

@@ -69,4 +69,14 @@ describe('DeliveryChip', () => {
     expect(screen.queryByText(/checks for another commit/)).not.toBeInTheDocument();
     expect(screen.getByText('PR #12 · checks failed')).toBeInTheDocument();
   });
+  it('says "no CI by choice" when the workspace opted out of CI', () => {
+    const { container } = render(<DeliveryChip delivery={delivery({ checksState: 'none', ciMode: 'none' })} />);
+    expect(screen.getByText('PR #12 · no CI by choice')).toBeInTheDocument();
+    expect(container.querySelector('.af-delivery.ok')).toBeTruthy();
+  });
+
+  it('still says "no checks" when the host reported none without an opt-out', () => {
+    render(<DeliveryChip delivery={delivery({ checksState: 'none' })} />);
+    expect(screen.getByText('PR #12 · no checks')).toBeInTheDocument();
+  });
 });

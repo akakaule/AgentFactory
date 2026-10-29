@@ -8,6 +8,7 @@ import { resolveCredential } from './credentials.js';
 import { makeAzdoWorkItems } from './providers/azdoWorkItems.js';
 import { syncInbound, syncOutbound } from './adoSync.js';
 import { escapeMarkers, renderSection, syncedBody, withSection } from './prBody.js';
+import { judgeChecks } from './requiredChecks.js';
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
@@ -46,6 +47,8 @@ export class Watcher {
   private remoteCache = new Map<string, RemoteRef | null>();
   /** `<org>\0<token>` → the PAT owner's account, looked up once for the ADO work-item claim. */
   private adoIdentity = new Map<string, string>();
+  /** This tick's workspaces by name: each delivery's checks are judged under its workspace's ciMode. */
+  private workspaceProfiles = new Map<string, Workspace>();
 
   constructor(
     private readonly config: WatcherConfig,
@@ -92,6 +95,7 @@ export class Watcher {
     // Served set, re-read each tick: the explicit allowlist if set, else every DB workspace,
     // minus excludeWorkspaces — so a newly-created workspace is watched with no config edit.
     const workspaces = await core.listWorkspaces();
+    this.workspaceProfiles = new Map(workspaces.map((w) => [w.name, w]));
     const served = resolveServedWorkspaces(workspaces.map((w) => w.name), {
       workspaces: this.config.workspaces,
       exclude: this.config.excludeWorkspaces,
@@ -265,6 +269,14 @@ export class Watcher {
         checks = { state: 'pending', failing: [] };
       }
     }
+    // The workspace's ciMode decides which checks count: all (legacy), only requiredChecks, or none.
+    const profile = this.workspaceProfiles.get(detail.workspace);
+    const judged = judgeChecks(profile?.ciMode ?? null, profile?.requiredChecks ?? null, {
+      pr, checks, ...(result.checksTarget ? { checksTarget: result.checksTarget } : {}),
+      // the provider's per-check evidence describes its own PR only, not one this poll dropped or opened
+      ...(pr === result.pr && result.observed ? { observed: result.observed } : {}),
+    });
+    checks = judged.checks;
     const recorded = await core.recordDeliveryCheck(key, {
       expected: { status: detail.status, branch: delivery.branch, prUrl: delivery.prUrl, stateChangedAt: delivery.stateChangedAt },
       prUrl: pr?.url ?? null,
@@ -273,6 +285,7 @@ export class Watcher {
       checksState: checks.state,
       checksTarget: result.checksTarget ?? 'head',
       failing: checks.failing,
+      ...(judged.ciMode ? { ciMode: judged.ciMode } : {}),
       // the PR head as the host reports it: persisted next to the approved head, so a push after
       // approval marks the approved submission stale (only full SHAs — the board validates them)
       ...(pr?.headSha && FULL_SHA.test(pr.headSha) ? { headSha: pr.headSha } : {}),
@@ -326,7 +339,7 @@ export class Watcher {
         console.log(`[watcher] ${key}: checks failing on ${pr.headSha!.slice(0, 7)}, not the approved head ${delivery.approvedHeadSha!.slice(0, 7)} — not bouncing`);
       } else if (pr && checks.state === 'failing') {
         const names = checks.failing.map((f) => f.name).join(', ');
-        const errors = await this.captureErrors(provider, remote, result);
+        const errors = await this.captureErrors(provider, remote, { ...result, checks });
         await bounce({
           reason: 'ci_failed',
           detail: `PR ${pr.id} checks failed: ${names}`,

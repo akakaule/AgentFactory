@@ -324,7 +324,9 @@ export interface TaskIntakeState {
 export type DeliveryProvider = 'github' | 'azdo';
 export type DeliveryPrState = 'unknown' | 'not_found' | 'open' | 'merged' | 'closed';
 export type DeliveryChecksState = 'unknown' | 'none' | 'pending' | 'passing' | 'failing';
-export interface DeliveryFailingCheck { name: string; url: string | null; }
+/** A check holding up a delivery. `missing`: a required check (workspace ciMode 'required') the
+ *  host has not reported yet — listed while the delivery waits for it, never a failure. */
+export interface DeliveryFailingCheck { name: string; url: string | null; missing?: boolean; }
 
 /**
  * The PR/pipeline state of a task's current approved delivery, as last observed by the watcher supervisor
@@ -340,7 +342,8 @@ export interface DeliverySummary {
   prId: string | null;
   prState: DeliveryPrState;
   checksState: DeliveryChecksState;
-  failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing')
+  failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing'), or missing required checks while pending
+  ciMode?: CiMode;                     // the workspace ciMode the checks were judged under; absent = legacy
   checkedAt: string | null;            // last watcher poll; null until the first one
   stateChangedAt: string;              // last time the observed state actually changed
   approvedHeadSha?: string | null;     // the submitted head the human approved (migration #30)

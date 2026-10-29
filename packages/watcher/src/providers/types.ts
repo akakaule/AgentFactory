@@ -13,10 +13,20 @@ export interface PrObservation {
   body?: string;
 }
 
+/** One check the host reported, folded to the three states a verdict needs. */
+export interface ObservedCheck {
+  name: string;
+  state: 'passing' | 'pending' | 'failing';
+  url: string | null;
+}
+
 export interface DeliveryCheckResult {
   /** null = no PR found for the branch (recorded as pr_state 'not_found'; the watcher keeps waiting). */
   pr: PrObservation | null;
   checks: { state: DeliveryChecksState; failing: DeliveryFailingCheck[] };
+  /** Every check behind `checks`, by name — what a workspace's requiredChecks are judged on. Absent
+   *  when the poll read no checks (no PR, unknown commit, merge conflict). */
+  observed?: ObservedCheck[];
   /** The commit the checks describe; only 'merge_commit' is post-merge evidence. Absent = head. */
   checksTarget?: DeliveryChecksTarget;
 }
