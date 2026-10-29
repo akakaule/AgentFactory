@@ -55,6 +55,23 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     expect(core.getTask(t.key).status).toBe('in_review');
   });
 
+  it('records and reads back a runner verification exactly like a local core', async () => {
+    const t = core.createTask({ title: 'Verified', spec: 'S', acceptanceCriteria: 'A' });
+    core.updateStatus(t.key, 'queued', 'human');
+    const claim = (await http.claimNextTask({ claimedBy: 'remote-1' }))!;
+    const input = {
+      executionId: claim.executionId, status: 'failed' as const, exitCode: 1, command: 'npm test',
+      headBefore: 'abc', headAfter: 'abc', cleanBefore: true, cleanAfter: true, log: 'x', truncated: false,
+    };
+
+    const recorded = await http.recordVerification(t.key, input);
+    expect(recorded).toEqual(core.latestVerification(t.key, claim.executionId));
+    expect(await http.latestVerification(t.key, claim.executionId)).toEqual(recorded);
+    expect(recorded).toMatchObject({ ...input, submissionId: null, validForRevision: null });
+    expect(await http.latestVerification(t.key, 'no-such-execution')).toBeNull();
+    await expect(http.recordVerification(t.key, { ...input, status: 'ok' } as never)).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it('an empty queue resolves null', async () => {
     expect(await http.claimNextTask()).toBeNull();
   });

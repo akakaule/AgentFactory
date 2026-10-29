@@ -503,3 +503,29 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
 );
 CREATE INDEX IF NOT EXISTS idx_notification_ready ON notification_outbox(state, next_attempt_at);
 `;
+
+// Migration #33 — runner verification records. One row per verify-command run a runner captured
+// for a task execution (exit status, the branch head and worktree cleanliness before/after, the
+// captured log). submission_id and valid_for_revision stay NULL until the record is bound to the
+// revision handed over at submit; valid_for_revision is then 1 only when the run proves that commit.
+export const MIGRATION_33_SQL = `
+CREATE TABLE IF NOT EXISTS task_verification (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id            INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  execution_id       TEXT NOT NULL REFERENCES task_execution(id) ON DELETE CASCADE,
+  command            TEXT NOT NULL,
+  status             TEXT NOT NULL CHECK (status IN ('passed','failed','errored','timed_out')),
+  exit_code          INTEGER,
+  head_before        TEXT,
+  head_after         TEXT,
+  clean_before       INTEGER CHECK (clean_before IS NULL OR clean_before IN (0,1)),
+  clean_after        INTEGER CHECK (clean_after IS NULL OR clean_after IN (0,1)),
+  log                TEXT NOT NULL,
+  truncated          INTEGER NOT NULL CHECK (truncated IN (0,1)),
+  started_at         TEXT NOT NULL,
+  finished_at        TEXT NOT NULL,
+  submission_id      INTEGER REFERENCES task_submission(id) ON DELETE SET NULL,
+  valid_for_revision INTEGER CHECK (valid_for_revision IS NULL OR valid_for_revision IN (0,1))
+);
+CREATE INDEX IF NOT EXISTS idx_task_verification_execution ON task_verification(task_id, execution_id, id);
+`;

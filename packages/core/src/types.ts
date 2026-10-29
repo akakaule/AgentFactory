@@ -602,6 +602,26 @@ export interface SubmitResultInput {
   criteria?: CriterionClaim[] | undefined;   // implementation: the agent's claim per acceptance criterion
   revision?: SubmissionRevisionInput | undefined; // implementation: the pushed head/base SHA, resolved at the git boundary
 }
+export const VERIFICATION_STATUSES = ['passed', 'failed', 'errored', 'timed_out'] as const;
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+/** A verify-command run the runner captured for one task execution (migration #33). */
+export interface Verification {
+  id: number; taskKey: string; executionId: string; command: string; status: VerificationStatus;
+  exitCode: number | null; headBefore: string | null; headAfter: string | null;
+  cleanBefore: boolean | null; cleanAfter: boolean | null; log: string; truncated: boolean;
+  startedAt: string; finishedAt: string;
+  /** The submission the run was bound to at submit; null until then. */
+  submissionId: number | null;
+  /** Whether the run proves the bound submission's exact commit; null until bound. */
+  validForRevision: boolean | null;
+}
+export interface RecordVerificationInput {
+  executionId: string; command: string; status: VerificationStatus;
+  exitCode?: number | null; headBefore?: string | null; headAfter?: string | null;
+  cleanBefore?: boolean | null; cleanAfter?: boolean | null; log: string; truncated: boolean;
+  /** Default to the board's clock when the runner does not report them. */
+  startedAt?: string; finishedAt?: string;
+}
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;
 }
