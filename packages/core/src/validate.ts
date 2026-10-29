@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from './errors.js';
-import { ATTACHMENT_MIMES, CI_MODES } from './types.js';
+import { ATTACHMENT_MIMES, CI_MODES, VERIFICATION_STATUSES } from './types.js';
 import { AGENT_PROMPT_KEYS } from './agentPrompts.js';
 import { adoSyncSettingsSchema } from './adoSync.js';
 import { isSafeRef } from './git.js';
@@ -127,6 +127,21 @@ export const attachmentSchema = z.object({
   filename: nonEmpty,
   mime: z.enum(ATTACHMENT_MIMES),
   dataBase64: z.string(), // emptiness/size checked after decoding
+});
+
+export const recordVerificationSchema = z.object({
+  executionId: z.string().min(1),
+  command: z.string().min(1),
+  status: z.enum(VERIFICATION_STATUSES),
+  exitCode: z.number().int().nullable().optional(),
+  headBefore: z.string().min(1).nullable().optional(),
+  headAfter: z.string().min(1).nullable().optional(),
+  cleanBefore: z.boolean().nullable().optional(),
+  cleanAfter: z.boolean().nullable().optional(),
+  log: z.string(),
+  truncated: z.boolean(),
+  startedAt: z.string().datetime().optional(),
+  finishedAt: z.string().datetime().optional(),
 });
 
 export function parse<S extends z.ZodTypeAny>(schema: S, input: unknown): z.output<S> {

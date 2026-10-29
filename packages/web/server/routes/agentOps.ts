@@ -181,6 +181,15 @@ export function agentOpsRoutes(core: Core): Hono {
   r.post('/tasks/:key/metrics', async (c) =>
     c.json(core.addTaskMetrics(c.req.param('key'), await body<Parameters<Core['addTaskMetrics']>[1]>(c)), 201));
 
+  // ── runner verification records (core validates the body and the live-execution fence) ──
+  r.post('/tasks/:key/verifications', async (c) =>
+    c.json(core.recordVerification(c.req.param('key'), await body<Parameters<Core['recordVerification']>[1]>(c)), 201));
+  r.get('/tasks/:key/verifications/latest', (c) => {
+    const executionId = c.req.query('executionId');
+    if (!executionId) throw new ValidationError('verification executionId query parameter is required');
+    return c.json(core.latestVerification(c.req.param('key'), executionId));
+  });
+
   r.post('/tasks/:key/session/touch', (c) => {
     core.touchAgentSession(c.req.param('key'));
     return c.json({ ok: true });
