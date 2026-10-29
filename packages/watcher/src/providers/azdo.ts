@@ -251,17 +251,21 @@ export function makeAzdoProvider(opts: { fetchJson: FetchJson; pat: string | nul
       return capExcerpts(messages);
     },
 
-    async openPullRequest(remote, { branch, title, body }): Promise<PrObservation | null> {
+    async openPullRequest(remote, { branch, base: baseBranch, title, body }): Promise<PrObservation | null> {
       if (remote.provider !== 'azdo') throw new Error('azdo provider got a non-azdo remote');
       const base = repoBase(remote);
-      const info = (await get(`${base}?api-version=${apiVersion}`)) as { defaultBranch?: string };
-      if (!info.defaultBranch) throw new ProviderHttpError(`azdo reports no default branch for ${base}`, 0);
+      let targetRefName = baseBranch ? `refs/heads/${baseBranch}` : null;
+      if (targetRefName === null) {
+        const info = (await get(`${base}?api-version=${apiVersion}`)) as { defaultBranch?: string };
+        if (!info.defaultBranch) throw new ProviderHttpError(`azdo reports no default branch for ${base}`, 0);
+        targetRefName = info.defaultBranch;
+      }
       const url = `${base}/pullrequests?api-version=${apiVersion}`;
       const res = await fetchJson(url, {
         headers, method: 'POST',
         body: JSON.stringify({
           sourceRefName: `refs/heads/${branch}`,
-          targetRefName: info.defaultBranch,
+          targetRefName,
           title,
           description: fitBody(body, MAX_DESCRIPTION),
         }),
