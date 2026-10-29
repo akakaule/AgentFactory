@@ -955,6 +955,9 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-concerns ol { margin: 4px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--ink-1); }
 .af-rv-concerns li + li { margin-top: 2px; }
 .af-rv-concerns li.stale { color: var(--st-blocked); }
+.af-rv-next { margin: 10px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink-1); }
+.af-rv-changed { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 0; font-size: 13px; color: var(--ink-1); }
+.af-rv-changed .files { color: var(--ink-2); }
 .af-rv-link { padding: 0; border: 0; background: none; color: var(--accent-2); font-size: 13px; font-weight: 500; cursor: pointer; }
 .af-rv-link:hover { text-decoration: underline; }
 .af-rv-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }

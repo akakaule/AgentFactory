@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { remainingConcerns } from '../../client/src/reviewConcerns.js';
+import { nextAction, remainingConcerns } from '../../client/src/reviewConcerns.js';
 import type { ReviewBrief, ReviewIssue, TaskDetailView } from '../../client/src/types.js';
 
 const issue = (id: string, group: ReviewIssue['group']): ReviewIssue => ({
@@ -97,5 +97,24 @@ describe('remainingConcerns', () => {
     const b = brief([issue('F2', 'call'), issue('F3', 'call')]);
     expect(remainingConcerns(task({ reviewBrief: b }), { F2: 'must' })).toEqual(['1 issue needs your decision']);
     expect(remainingConcerns(task({ reviewBrief: { ...b, headline: 'pending' } }))).toEqual([]);
+  });
+});
+
+describe('nextAction', () => {
+  const stale = submission({ freshness: 'stale', lastObservation: { headSha: 'def5678', source: 'git', observedAt: 't2', error: null } });
+
+  it('names only the actions the drawer already has', () => {
+    expect(nextAction(task({ reviewBrief: brief([issue('F1', 'must')]) }))).toBe('Request changes');
+    expect(nextAction(task({ branch: 'feature/AF-150-x' }))).toBe('Approve → deliver');
+    expect(nextAction(task())).toBe('Approve');
+    expect(nextAction(task({ stage: 'description' }))).toBe('Approve → implementation');
+    expect(nextAction(task({ reviewBrief: brief([issue('F1', 'must')]), submission: stale }))).toBe('Request changes: the branch moved');
+    expect(nextAction(task({ status: 'blocked' }))).toBe('Unblock or cancel');
+    expect(nextAction(task({ status: 'delivering', delivery: delivery('open') }))).toBe('Wait for the PR to merge, or pull it back');
+    expect(nextAction(task({ status: 'cancelled' }))).toBe('Reopen or archive');
+  });
+
+  it('has nothing to suggest for statuses outside the table', () => {
+    for (const status of ['backlog', 'queued', 'in_progress', 'done'] as const) expect(nextAction(task({ status }))).toBeNull();
   });
 });
