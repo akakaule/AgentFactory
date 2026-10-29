@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { TaskDetail, SubmitResultInput, Stage, CriterionClaim } from '../types.js';
+import type { TaskDetail, SubmitResultInput, Stage, CriterionClaim, Verification } from '../types.js';
 import { transaction } from '../transaction.js';
 import { submitResultSchema, parse } from '../validate.js';
 import { assertTransition } from '../transitions.js';
@@ -15,6 +15,7 @@ import { assertExecutionOwnership, executionById, isLatestOfPhase, settleExecuti
 import { parseAcceptanceCriteria, PLACEHOLDER_ACCEPTANCE_CRITERIA } from '../acceptanceCriteria.js';
 import { buildCriteriaClaimsComment } from '../criteriaClaims.js';
 import { insertSubmission, contentHash } from '../repo/submissions.js';
+import { latestVerificationFor, bindVerification } from '../repo/verifications.js';
 
 /**
  * Each stage delivers a different artifact through the same submit: the description
@@ -41,6 +42,13 @@ function assertStageShape(stage: Stage, spec: string | undefined, acceptanceCrit
         throw new ValidationError('this task already has acceptance criteria: acceptanceCriteria is only accepted when the spec stage was skipped');
       return;
   }
+}
+
+/** A runner verification proves the submitted commit only when it passed on that exact head, the
+ *  head did not move during the run, and the worktree was clean before and after it. */
+function provesRevision(v: Verification, headSha: string | null): boolean {
+  return v.status === 'passed' && headSha !== null && v.headBefore === headSha && v.headAfter === headSha
+    && v.cleanBefore === true && v.cleanAfter === true;
 }
 
 /** Each claim must name one of the task's criteria, once. The message lists the valid ids — it is
@@ -87,10 +95,16 @@ export function submitResult(
       throw new InvalidTransitionError(`execution ${executionId} is not running`);
     assertTransition(row.status, 'in_review', 'agent'); // rejects unless in_progress
     if (claimAt !== undefined && row.claimed_at !== claimAt) throw new InvalidTransitionError(`stale claim for ${key}`);
+    // The execution's latest runner verification is bound to the submission below; it proves the
+    // revision only when it ran clean on exactly the submitted head.
+    const runnerVerification = row.stage === 'implementation' && executionId !== undefined
+      ? latestVerificationFor(db, row.id, key, executionId) : null;
+    const proven = runnerVerification !== null && provesRevision(runnerVerification, revision?.headSha ?? null);
     // Verification gate: when the workspace configures a verify command, the implementation stage
-    // must report having run it (attestation — the worktree is gone by submit, so the server can't
-    // re-run it here). No command configured ⇒ no gate, preserving today's behaviour.
-    if (row.stage === 'implementation' && row.workspace_verify_command && row.workspace_verify_command.trim().length > 0 && verification === undefined)
+    // must either carry a runner verification that proves the submitted revision or report having
+    // run it (attestation — the worktree is gone by submit, so the server can't re-run it here).
+    // No command configured ⇒ no gate, preserving today's behaviour.
+    if (row.stage === 'implementation' && row.workspace_verify_command && row.workspace_verify_command.trim().length > 0 && verification === undefined && !proven)
       throw new ValidationError(`this workspace requires verification: run \`${row.workspace_verify_command}\` from the worktree root and report its outcome via the \`verification\` field`);
     const ts = now();
     if (reconcileMergedDelivery(db, row, ts)) {
@@ -118,12 +132,13 @@ export function submitResult(
     // The handed-over revision, kept apart from the worktree/branch so cleanup can't erase it:
     // the pushed head/base for code (unknown when the submit guard could not resolve it), the
     // content hash for a doc stage.
-    insertSubmission(db, {
+    const submissionId = insertSubmission(db, {
       taskId: row.id, stage: row.stage, executionId: executionId ?? null, branch: row.branch,
       headSha: revision?.headSha ?? null, baseSha: revision?.baseSha ?? null,
       contentHash: contentHash(row.stage, findRowByKey(db, key)!), // hash what was stored, after the edit
       source: row.stage !== 'implementation' ? 'content' : revision?.source ?? 'unknown', ts,
     });
+    if (runnerVerification !== null) bindVerification(db, runnerVerification.id, submissionId, proven);
     insertLinks(db, row.id, links ?? []);
     appendActivity(db, { taskId: row.id, type: 'result', actor: 'agent', body: summary, createdAt: ts });
     // the claim per criterion rides right after the result it belongs to (criteriaClaimsFor reads it)
