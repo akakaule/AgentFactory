@@ -38,7 +38,8 @@ export interface DeliveryProviderApi {
    */
   describeFailures?(remote: RemoteRef, result: DeliveryCheckResult, opts: { postMergeChecks: boolean }): Promise<string[]>;
   /**
-   * Open a PR from `branch` into the repository's default branch (looked up on the host). Called
+   * Open a PR from `branch` into `base` when given (the workspace's configured base branch), else
+   * into the repository's default branch (looked up on the host). Called
    * by the watcher only for a delivering task with no PR of its own. Returns null when the host
    * reports that an open PR for the branch already exists — the next check's search finds it.
    * Throws ProviderHttpError for anything else (auth/scope, validation), and the watcher backs off.
@@ -66,6 +67,8 @@ export type MergeOutcome = { merged: true } | { merged: false; reason: string };
 
 export interface OpenPullRequest {
   branch: string;
+  /** The bare target branch name (e.g. `develop`); null/omitted = the host's default branch. */
+  base?: string | null | undefined;
   title: string;
   body: string;
 }

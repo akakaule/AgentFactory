@@ -181,14 +181,18 @@ export function makeGitHubProvider(opts: { fetchJson: FetchJson; token: string |
       return capExcerpts(messages);
     },
 
-    async openPullRequest(remote, { branch, title, body }): Promise<PrObservation | null> {
+    async openPullRequest(remote, { branch, base, title, body }): Promise<PrObservation | null> {
       if (remote.provider !== 'github') throw new Error('github provider got a non-github remote');
       const repo = repoUrl(remote);
-      const info = (await get(repo)) as { default_branch?: string };
-      if (!info.default_branch) throw new ProviderHttpError(`github reports no default branch for ${repo}`, 0);
+      let target = base ?? null;
+      if (target === null) {
+        const info = (await get(repo)) as { default_branch?: string };
+        if (!info.default_branch) throw new ProviderHttpError(`github reports no default branch for ${repo}`, 0);
+        target = info.default_branch;
+      }
       const url = `${repo}/pulls`;
       const res = await fetchJson(url, {
-        headers, method: 'POST', body: JSON.stringify({ title, head: branch, base: info.default_branch, body }),
+        headers, method: 'POST', body: JSON.stringify({ title, head: branch, base: target, body }),
       });
       if (res.status === 422) {
         // "A pull request already exists for owner:branch" — the search finds it next tick. Any

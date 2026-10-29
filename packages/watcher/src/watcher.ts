@@ -1,4 +1,4 @@
-import { InvalidTransitionError, awaitingPostMergeChecks, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type RevisionReadTicket, type Status, type Workspace } from '@agentfactory/core';
+import { InvalidTransitionError, awaitingPostMergeChecks, effectiveWorkspaceProfile, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type RevisionReadTicket, type Status, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -259,7 +259,7 @@ export class Watcher {
     // The worker pushes before review but never opens the PR (protocol v7): once the human
     // approved the implementation (delivering) and no PR exists, the watcher opens it.
     if (!pr && detail.status === 'delivering' && this.config.createPullRequests) {
-      const opened = await this.openPr(key, detail, provider, remote, delivery.branch, cred);
+      const opened = await this.openPr(key, detail, detail.workspace, provider, remote, delivery.branch, cred);
       if (opened) {
         pr = opened;
         checks = { state: 'pending', failing: [] };
@@ -369,6 +369,7 @@ export class Watcher {
   private async openPr(
     key: string,
     detail: Parameters<typeof renderSection>[0],
+    workspace: string,
     provider: DeliveryProviderApi,
     remote: RemoteRef,
     branch: string,
@@ -376,8 +377,12 @@ export class Watcher {
   ): Promise<PrObservation | null> {
     const summary = escapeMarkers(detail.resultSummary?.trim() ?? '') || 'Implementation approved on the AgentFactory board.';
     try {
+      // the workspace's configured base branch (AF-151); unset = the provider looks up the host default
+      const ws = (await this.deps.core.listWorkspaces()).find((w) => w.name === workspace);
+      const base = ws ? effectiveWorkspaceProfile(ws, null).baseBranch.value : null;
       const opened = await provider.openPullRequest(remote, {
         branch,
+        base,
         title: `${key}: ${detail.title}`,
         body: withSection(`${summary}\n\n---\nOpened by AgentFactory for ${key} after its implementation review was approved.`, renderSection(detail) ?? ''),
       });
