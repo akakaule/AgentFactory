@@ -10,6 +10,7 @@ import type { McpCore } from '../types.js';
 import { localizeRepo, taskGitEnabled, type ServerOptions } from '../server.js';
 import { resolveDefaultBranchName } from '../git.js';
 import { toToolError } from '../errors.js';
+import { runVerifyCommand, VERIFY_TIMEOUT_MS } from '../verify.js';
 
 const exec = promisify(execFile);
 const samePath = (a: string, b: string): boolean => {
@@ -24,11 +25,11 @@ export function registerTaskGit(server: McpServer, core: McpCore, opts: ServerOp
   server.registerTool('task_git', {
     title: 'Task Git lifecycle',
     description: 'Perform the required Git writes for this server\'s assigned implementation task. ' +
-      'Use prepare before coding, commit with a Conventional Commit message, push after tests pass, ' +
+      'Use prepare before coding, commit with a Conventional Commit message, verify to run the workspace verify command and record its result, push after tests pass, ' +
       'then cleanup after publishing. Use status/diff/log to inspect work, merge_default to merge origin default, and continue_merge after resolving conflicts. ' +
       'Cleanup refuses dirty or unpublished work. No force push or branch reset is supported.',
     inputSchema: {
-      action: z.enum(['prepare', 'status', 'diff', 'log', 'merge_default', 'continue_merge', 'commit', 'push', 'cleanup']),
+      action: z.enum(['prepare', 'status', 'diff', 'log', 'merge_default', 'continue_merge', 'commit', 'verify', 'push', 'cleanup']),
       message: z.string().trim().min(1).max(4000).optional(),
     },
   }, async ({ action, message }) => {
@@ -55,6 +56,8 @@ export function registerTaskGit(server: McpServer, core: McpCore, opts: ServerOp
       const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
       // Inherited Git routing must never redirect an operation away from the claimed repo.
       for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key];
+      // The verify command gets the worker's environment, not the broker's managed credential.
+      const verifyEnv: NodeJS.ProcessEnv = { ...env };
       const auth = await core.resolveGitAuth(task.workspace);
       if (auth) {
         const n = Number(env['GIT_CONFIG_COUNT'] ?? '0') || 0;
@@ -197,6 +200,30 @@ export function registerTaskGit(server: McpServer, core: McpCore, opts: ServerOp
           await git(worktree, ['add', '--all', '--', '.']);
           const staged = await git(worktree, ['diff', '--cached', '--name-only']);
           if (staged) await git(worktree, ['commit', '-m', message]);
+        } else if (action === 'verify') {
+          const command = task.verifyCommand?.trim();
+          if (!command) throw new Error('The workspace has no verify command.');
+          const executionId = opts.executionContext?.get() ?? opts.executionId;
+          if (!executionId) throw new Error('No execution is bound to this session; claim the task first.');
+          const clean = async () => !await git(worktree, ['status', '--porcelain', '--untracked-files=all']);
+          const headBefore = await git(worktree, ['rev-parse', 'HEAD']);
+          const cleanBefore = await clean();
+          const run = await runVerifyCommand({ command, cwd: worktree, env: verifyEnv,
+            timeoutMs: opts.verifyTimeoutMs ?? VERIFY_TIMEOUT_MS, secrets: verifySecrets(auth?.configValue, env) });
+          const headAfter = await git(worktree, ['rev-parse', 'HEAD']);
+          const cleanAfter = await clean();
+          try {
+            const stored = await core.recordVerification(task.key, { executionId, command, status: run.status, exitCode: run.exitCode,
+              headBefore, headAfter, cleanBefore, cleanAfter, log: run.log, truncated: run.truncated,
+              startedAt: run.startedAt, finishedAt: run.finishedAt });
+            result = { verification: { id: stored.id, status: run.status, exitCode: run.exitCode, truncated: run.truncated,
+              headBefore, headAfter, cleanBefore, cleanAfter, logTail: run.log.slice(-4000) } };
+          } catch (err) {
+            // The run happened but nothing stands for it on the board: report that, not a pass.
+            return { isError: true as const, content: [{ type: 'text' as const, text: JSON.stringify({ action, branch, worktree, ok: false,
+              error: `Recording the verification failed: ${err instanceof Error ? err.message : String(err)}`,
+              verification: { status: run.status, exitCode: run.exitCode } }) }] };
+          }
         } else {
           if (merging) throw new Error('Finish the active merge before publishing or cleanup.');
           if (await git(worktree, ['status', '--porcelain', '--untracked-files=all'])) throw new Error('Commit or preserve all uncommitted work before publishing or cleanup.');
@@ -218,4 +245,26 @@ export function registerTaskGit(server: McpServer, core: McpCore, opts: ServerOp
     }
     finally { busy = false; }
   });
+}
+
+/** Values a verify log must never carry: the managed auth header, the PAT inside it, and any
+ *  extraheader value an inherited `GIT_CONFIG_*` (e.g. the dispatcher's) supplies. */
+function verifySecrets(configValue: string | undefined, env: NodeJS.ProcessEnv): string[] {
+  const headers = configValue ? [configValue] : [];
+  const count = Number(env['GIT_CONFIG_COUNT'] ?? '0') || 0;
+  for (let i = 0; i < count; i++) {
+    const value = env[`GIT_CONFIG_VALUE_${i}`];
+    if (value && /^http\..*extraheader$/i.test(env[`GIT_CONFIG_KEY_${i}`] ?? '')) headers.push(value);
+  }
+  const secrets: string[] = [];
+  for (const header of headers) {
+    secrets.push(header);
+    const token = header.match(/^\s*authorization:\s*(?:basic|bearer)\s+(\S+)/i)?.[1];
+    if (!token) continue;
+    secrets.push(token);
+    const decoded = Buffer.from(token, 'base64').toString('utf8');
+    // Basic credentials are `user:pat`; the PAT is everything after the first colon.
+    if (/^[^:]*:./.test(decoded) && Buffer.from(decoded, 'utf8').toString('base64') === token) secrets.push(decoded.slice(decoded.indexOf(':') + 1));
+  }
+  return secrets;
 }
