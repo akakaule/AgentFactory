@@ -199,3 +199,12 @@ describe.each(mergedHosts)('ciMode post-merge on $host', (host) => {
     expect(task.dependents).toHaveLength(1);
   });
 });
+
+describe.each(hosts)('per-check evidence on $host', (host) => {
+  it('records every check the poll read, passing ones too', async () => {
+    const { task } = await poll(host, { ciMode: null }, [{ name: 'build', state: 'passing' }, { name: 'lint', state: 'pending' }]);
+    expect(task.delivery?.checks?.map((c) => [c.name, c.state])).toEqual([['build', 'passing'], ['lint', 'pending']]);
+    expect(task.evidence?.filter((e) => e.source === 'provider').map((e) => [e.label, e.state]))
+      .toEqual([['build', 'passed'], ['lint', 'unverified']]);
+  });
+});

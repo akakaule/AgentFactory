@@ -55,6 +55,7 @@ export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type Failur
 export { tokenTrend, type TokenTrendPoint } from './ops/tokenTrend.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { recordVerification, latestVerification } from './ops/verification.js';
+export { verificationEvidence, type EvidenceSource } from './verificationEvidence.js';
 export { addAttachment } from './ops/addAttachment.js';
 export { deleteAttachment } from './ops/deleteAttachment.js';
 export { getAttachment } from './ops/getAttachment.js';

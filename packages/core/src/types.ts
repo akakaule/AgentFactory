@@ -330,6 +330,8 @@ export type DeliveryChecksState = 'unknown' | 'none' | 'pending' | 'passing' | '
 /** A check holding up a delivery. `missing`: a required check (workspace ciMode 'required') the
  *  host has not reported yet — listed while the delivery waits for it, never a failure. */
 export interface DeliveryFailingCheck { name: string; url: string | null; missing?: boolean; }
+/** One check the host reported on the delivery, folded to the three states a verdict needs. */
+export interface DeliveryCheck { name: string; state: 'passing' | 'pending' | 'failing'; url: string | null; }
 
 /**
  * The PR/pipeline state of a task's current approved delivery, as last observed by the watcher supervisor
@@ -347,6 +349,7 @@ export interface DeliverySummary {
   checksState: DeliveryChecksState;
   failing: DeliveryFailingCheck[];     // failing check names + run URLs (empty unless checksState is 'failing'), or missing required checks while pending
   ciMode?: CiMode;                     // the workspace ciMode the checks were judged under; absent = legacy
+  checks?: DeliveryCheck[];            // every check the last poll read, by name; absent when it read none (or an older watcher)
   checkedAt: string | null;            // last watcher poll; null until the first one
   stateChangedAt: string;              // last time the observed state actually changed
   approvedHeadSha?: string | null;     // the submitted head the human approved (migration #30)
@@ -563,6 +566,19 @@ export interface TaskDetail extends Task {
   // (criteria-claims/v1, src/criteriaClaims.ts); null when that result reported none.
   // Always set by the board; optional so older servers' payloads still type.
   criteriaClaims?: CriterionClaim[] | null;
+  // runner runs, worker `verify:` reports and provider checks in one list (verificationEvidence).
+  // Always set by the board; optional so older servers' payloads still type.
+  evidence?: EvidenceItem[];
+}
+
+export type EvidenceSourceKind = 'runner' | 'reported' | 'provider';
+export type EvidenceState = 'passed' | 'failed' | 'errored' | 'timed_out' | 'stale' | 'unverified';
+/** One piece of verification evidence: where it came from, what it says about the current revision. */
+export interface EvidenceItem {
+  source: EvidenceSourceKind; state: EvidenceState;
+  headSha: string | null; // the commit it describes, when known; null for a worker's own report
+  at: string;             // when it was recorded (run finish, comment, last provider poll)
+  label: string;          // the command, the reported outcome, or the check name
 }
 
 /** The implementing agent's claim for one acceptance criterion (id AC1…ACn from parseAcceptanceCriteria). */

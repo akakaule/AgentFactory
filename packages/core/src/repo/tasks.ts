@@ -1,11 +1,13 @@
 import type { DB } from '../db.js';
 import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeQueueGate, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary } from '../types.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
-import { recentActivity, activitySteps, criteriaClaimsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
+import { recentActivity, activitySteps, criteriaClaimsFor, verifyReportsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
 import { RESERVED_BY_OTHER_SQL, reservedByOtherParams } from './execution.js';
 import { attachmentsMeta } from './attachments.js';
 import { visualizationMetaFor } from './visualizations.js';
+import { verificationsFor } from './verifications.js';
+import { verificationEvidence } from '../verificationEvidence.js';
 import { latestSubmissionFor, reviewBinding, toSubmissionSummary, type DocContent } from './submissions.js';
 import { deriveTaskMetrics } from '../metrics.js';
 import { parseAiReviewComment, summarizeAiReview } from '../aiReview.js';
@@ -285,20 +287,25 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
   const { failures, triage } = failureAndTriage(db, [r]);
   const aiReview = aiReviewByTaskIds(db, [r.id]).get(r.id) ?? null;
   const intake = intakeForTask(db, r);
+  const delivery = deliveryByTaskIds(db, [r.id]).get(r.id) ?? null;
+  const submission = submissionFor(db, r);
   return {
     ...toTask(r),
     aiReview,
     reviewBrief: buildReviewBrief(aiReview, r.acceptance_criteria, r.stage),
     failure: failures.get(r.id) ?? null,
     failureTriage: triage.get(r.id) ?? null,
-    delivery: deliveryByTaskIds(db, [r.id]).get(r.id) ?? null,
+    delivery,
     intake,
     queueGate: queueGateFor(r, intake, storedIntakeSettings(db)),
     intakeHold: intakeHoldsByRows(db, [r], new Map([[r.id, intake]]), nowIso()).get(r.id) ?? null,
     hasVisualization: viz !== null,
     visualizationGeneratedAt: viz?.generatedAt ?? null,
     visualizationRevision: viz?.revision ?? null,
-    submission: submissionFor(db, r),
+    submission,
+    evidence: verificationEvidence({
+      submission, verifications: verificationsFor(db, r.id, r.key), activity: verifyReportsFor(db, r.id), delivery,
+    }),
     repoPath: r.workspace_repo_path,
     branch: r.branch,
     plan: r.plan,
