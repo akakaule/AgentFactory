@@ -1,12 +1,14 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { openCore } from '@agentfactory/core';
+import { openCore, type Core } from '@agentfactory/core';
 import { buildServer, type ServerOptions } from '../src/server.js';
+import type { McpCore } from '../src/types.js';
 
-export async function makeClient(opts: ServerOptions = {}) {
+/** `wrap` lets a test stub individual ops the server sees while it still seeds the real core. */
+export async function makeClient(opts: ServerOptions = {}, wrap: (core: Core) => McpCore = (core) => core) {
   const core = openCore(':memory:');
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  const server = buildServer(core, opts);
+  const server = buildServer(wrap(core), opts);
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return { client, core };

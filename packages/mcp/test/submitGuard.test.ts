@@ -40,6 +40,10 @@ function addOrigin(repo: string): string {
   return bare;
 }
 
+// Real git subprocesses (~0.5s each on Windows under antivirus); the 5s default is too tight
+// once other git-heavy suites run alongside.
+const GIT_SUITE = { timeout: 30_000 };
+
 beforeEach(() => { temps.length = 0; });
 afterEach(() => {
   for (const d of temps.splice(0)) {
@@ -47,7 +51,7 @@ afterEach(() => {
   }
 });
 
-describe('checkSubmission — passing states', () => {
+describe('checkSubmission — passing states', GIT_SUITE, () => {
   it('accepts a fully-pushed branch with no surviving worktree', async () => {
     const repo = initRepo();
     addOrigin(repo);
@@ -57,7 +61,7 @@ describe('checkSubmission — passing states', () => {
   });
 });
 
-describe('checkSubmission — rejecting states', () => {
+describe('checkSubmission — rejecting states', GIT_SUITE, () => {
   it('rejects a branch missing on origin with a push command', async () => {
     const repo = initRepo();
     addOrigin(repo); // branch never pushed
@@ -89,7 +93,7 @@ describe('checkSubmission — rejecting states', () => {
   });
 });
 
-describe('checkSubmission — origin variants', () => {
+describe('checkSubmission — origin variants', GIT_SUITE, () => {
   it('with no origin remote: enforces the worktree check, skips push checks', async () => {
     const repo = initRepo(); // no origin at all
     // clean (no worktree) → accepted even though nothing is pushed
@@ -140,7 +144,7 @@ describe('checkSubmission — origin variants', () => {
   });
 });
 
-describe('checkSubmission — degradation (skips, never blocks)', () => {
+describe('checkSubmission — degradation (skips, never blocks)', GIT_SUITE, () => {
   it('skips a null branch (legacy claim)', async () => {
     const repo = initRepo();
     expect((await checkSubmission({ repoPath: repo, branch: null, key: KEY })).ok).toBe(true);
@@ -161,7 +165,7 @@ describe('checkSubmission — degradation (skips, never blocks)', () => {
   });
 });
 
-describe('submit_result tool — guardrail wiring (integration)', () => {
+describe('submit_result tool — guardrail wiring (integration)', GIT_SUITE, () => {
   /** Repo with main + a reachable bare origin, but no feature branch yet. */
   function mainOnlyRepoWithOrigin(): string {
     const dir = mkTemp('af-int-');
@@ -214,7 +218,7 @@ describe('submit_result tool — guardrail wiring (integration)', () => {
   });
 });
 
-describe('checkSubmission — resolves the handed-over revision (AF-148)', () => {
+describe('checkSubmission — resolves the handed-over revision (AF-148)', GIT_SUITE, () => {
   it('returns the pushed head on origin and its merge-base with the default branch', async () => {
     const repo = initRepo();
     addOrigin(repo);

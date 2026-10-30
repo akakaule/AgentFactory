@@ -17,5 +17,5 @@ export type McpCore = AwaitableSlice<
   Core,
   | 'claimNextTask' | 'submitResult' | 'createTask'
   | 'getTask' | 'listTasks' | 'addComment' | 'updateStatus' | 'reportProgress'
-  | 'addTaskMetrics' | 'resolveGitAuth' | 'getAttachment'
+  | 'addTaskMetrics' | 'recordVerification' | 'resolveGitAuth' | 'getAttachment'
 >;

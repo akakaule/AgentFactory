@@ -22,6 +22,8 @@ export interface ServerOptions {
    *  board-central task.repoPath in every path handed to the agent (protocol worktree,
    *  serialized detail) and in the submit guard, which must inspect THIS machine's repo. */
   repoPath?: string | undefined;
+  /** task_git verify timeout; defaults to 20 minutes (tests shorten it). */
+  verifyTimeoutMs?: number | undefined;
 }
 
 export function taskGitEnabled(opts: ServerOptions): boolean {
