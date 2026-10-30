@@ -46,3 +46,9 @@ export function latestVerificationFor(db: DB, taskId: number, taskKey: string, e
   ).get(taskId, executionId) as VerificationRow | undefined;
   return row ? toVerification(row, taskKey) : null;
 }
+
+/** Bind a record to the submission it was handed over with, and whether it proves that revision. */
+export function bindVerification(db: DB, id: number, submissionId: number, validForRevision: boolean): void {
+  db.prepare('UPDATE task_verification SET submission_id = ?, valid_for_revision = ? WHERE id = ?')
+    .run(submissionId, validForRevision ? 1 : 0, id);
+}
