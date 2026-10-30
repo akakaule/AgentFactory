@@ -972,6 +972,12 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-concerns ol { margin: 4px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--ink-1); }
 .af-rv-concerns li + li { margin-top: 2px; }
 .af-rv-concerns li.stale { color: var(--st-blocked); }
+.af-rv-evidence { margin: 10px 0 0; }
+.af-rv-evidence ul { margin: 4px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--ink-1); }
+.af-rv-evidence li + li { margin-top: 2px; }
+.af-rv-evidence li.stale, .af-rv-evidence li.failed, .af-rv-evidence li.errored, .af-rv-evidence li.timed_out { color: var(--st-blocked); }
+.af-rv-evidence li.unverified, .af-rv-evidence .none { color: var(--ink-3); }
+.af-rv-evidence .none { margin: 4px 0 0; font-size: 13.5px; }
 .af-rv-next { margin: 10px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink-1); }
 /* in the drawer's flex action rows the line takes its own row above the buttons */
 .af-d-tags > .af-rv-next, .af-delivery-acts > .af-rv-next { flex-basis: 100%; margin: 0; }
