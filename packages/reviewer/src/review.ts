@@ -1,4 +1,4 @@
-import type { TaskDetail, BranchDiff } from '@agentfactory/core';
+import type { TaskDetail, BranchDiff, EvidenceItem } from '@agentfactory/core';
 import { isAiReviewMarker, parseAiReviewComment, isFeedbackEvalMarker, parseAcceptanceCriteria } from '@agentfactory/core';
 import type { ReviewEngine } from './config.js';
 
@@ -71,6 +71,28 @@ function criteriaSection(task: TaskDetail): string[] {
   ];
 }
 
+const EVIDENCE_SOURCE_LABEL: Record<EvidenceItem['source'], string> = {
+  runner: 'Runner', reported: 'Reported', provider: 'Provider',
+};
+
+/** "<Source> · <state> · <short sha or check name>"; a worker's report names no commit or check. */
+function evidenceLine(item: EvidenceItem): string {
+  const detail = item.source === 'reported' ? null
+    : item.source === 'runner' && item.headSha ? item.headSha.slice(0, 7)
+    : item.label || null;
+  return [EVIDENCE_SOURCE_LABEL[item.source], item.state, ...(detail ? [detail] : [])].join(' · ');
+}
+
+/** The task's verification evidence (verificationEvidence), one line per item. */
+function evidenceSection(task: TaskDetail): string[] {
+  const items = task.evidence ?? [];
+  return [
+    '=== VERIFICATION EVIDENCE ===',
+    "Reported evidence is the worker's claim, not proof. Stale evidence covers an older commit than the one under review.",
+    ...(items.length === 0 ? ['Evidence: none recorded'] : items.map(evidenceLine)),
+  ];
+}
+
 /** Implementation-stage prompt: review the branch diff against the brief. */
 function implementationPrompt(
   task: TaskDetail,
@@ -108,6 +130,8 @@ function implementationPrompt(
     '',
     "=== SUBMITTED RESULT (implementer's own summary - verify, don't trust) ===",
     latestResult(task),
+    '',
+    ...evidenceSection(task),
     '',
     '=== BRANCH ===',
     `${branch} (${diff.commits} commit(s) vs ${diff.baseRef})`,
