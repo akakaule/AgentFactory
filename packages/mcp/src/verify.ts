@@ -116,8 +116,26 @@ function killTree(pid: number): void {
 const SHELL_BUILTINS = new Set(['cd', 'chdir', 'pushd', 'popd', 'echo', 'set', 'export', 'call', 'if', 'for', 'exit',
   'true', 'false', 'test', '[', 'type', 'ver', 'cls', 'rem', 'command', 'exec', 'env', 'source', '.', 'setlocal', 'endlocal']);
 
-/** The leading word of a shell command, or null when it is not a plain executable name. */
+/**
+ * Whether `command` is one simple command: no unquoted control operator (`&`, `|`, `;`,
+ * newline, grouping parens or substitution) that could run anything after its first word.
+ */
+function isSimpleCommand(command: string): boolean {
+  let quote: string | null = null;
+  for (const ch of command.trim()) {
+    if (quote) { if (ch === quote) quote = null; continue; }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if ('&|;\n\r()`'.includes(ch)) return false;
+  }
+  return true;
+}
+
+/**
+ * The leading word of a simple shell command, or null when it is not a plain executable
+ * name or the command is compound (the shell then decides, e.g. running a `||` fallback).
+ */
 function leadingExecutable(command: string): string | null {
+  if (!isSimpleCommand(command)) return null;
   const m = command.trim().match(/^(?:"([^"]+)"|'([^']+)'|([^\s&|;<>()]+))/);
   const word = m?.[1] ?? m?.[2] ?? m?.[3];
   // Variable assignments, expansions and redirections are the shell's to interpret.
@@ -140,7 +158,8 @@ function resolvable(word: string, cwd: string, env: NodeJS.ProcessEnv): boolean 
 /**
  * Run a workspace verify command through the platform shell, capturing stdout and stderr
  * interleaved. Exit 0 → passed, other exit → failed, timeout → timed_out, a command that
- * could not be started (its leading executable does not resolve, or a spawn error) → errored.
+ * could not be started (a simple command whose executable does not resolve, or a spawn
+ * error) → errored. A compound command always runs; its final exit code decides.
  * A command that ran is judged by its exit code alone, even one equal to the shell's
  * command-not-found code (127, or 9009 from cmd).
  */

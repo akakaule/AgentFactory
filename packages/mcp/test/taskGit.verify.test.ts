@@ -89,6 +89,16 @@ describe('task_git verify', { timeout: 180_000 }, () => {
     expect(recorded(f.record).status).toBe('errored');
   });
 
+  it('runs a compound command whose fallback recovers from a missing executable', async () => {
+    await f.verify('does-not-exist-xyz || node -e "0"');
+    expect(recorded(f.record)).toMatchObject({ status: 'passed', exitCode: 0 });
+  });
+
+  it('judges a compound command by its final exit code', async () => {
+    await f.verify('node -e "0" && does-not-exist-xyz');
+    expect(recorded(f.record).status).toBe('failed');
+  });
+
   it("records a command that ran and exited with the shell's not-found code as failed", async () => {
     const reserved = process.platform === 'win32' ? 9009 : 127;
     await f.verify(`node -e "process.exit(${reserved})"`);
