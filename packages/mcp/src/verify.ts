@@ -113,9 +113,6 @@ function killTree(pid: number): void {
   }
 }
 
-// What the shell answers when the command itself cannot be found: the command never ran.
-// cmd.exe /c answers 1 instead, so the leading executable is also resolved before the run.
-const COMMAND_NOT_FOUND = process.platform === 'win32' ? 9009 : 127;
 const SHELL_BUILTINS = new Set(['cd', 'chdir', 'pushd', 'popd', 'echo', 'set', 'export', 'call', 'if', 'for', 'exit',
   'true', 'false', 'test', '[', 'type', 'ver', 'cls', 'rem', 'command', 'exec', 'env', 'source', '.', 'setlocal', 'endlocal']);
 
@@ -143,7 +140,9 @@ function resolvable(word: string, cwd: string, env: NodeJS.ProcessEnv): boolean 
 /**
  * Run a workspace verify command through the platform shell, capturing stdout and stderr
  * interleaved. Exit 0 → passed, other exit → failed, timeout → timed_out, a command that
- * could not be started (spawn error or the shell's command-not-found) → errored.
+ * could not be started (its leading executable does not resolve, or a spawn error) → errored.
+ * A command that ran is judged by its exit code alone, even one equal to the shell's
+ * command-not-found code (127, or 9009 from cmd).
  */
 export function runVerifyCommand(opts: VerifyRunOptions): Promise<VerifyRun> {
   const maxBytes = opts.maxBytes ?? VERIFY_LOG_MAX_BYTES;
@@ -186,7 +185,7 @@ export function runVerifyCommand(opts: VerifyRunOptions): Promise<VerifyRun> {
       commit(redactor.end());
       const { log, truncated } = capTail(Buffer.concat(chunks).toString('utf8'), maxBytes, dropped);
       const status: VerificationStatus = timedOut ? 'timed_out'
-        : spawnError || exitCode === null || exitCode === COMMAND_NOT_FOUND ? 'errored'
+        : spawnError || exitCode === null ? 'errored'
         : exitCode === 0 ? 'passed' : 'failed';
       resolvePromise({ status, exitCode: timedOut ? null : exitCode, log, truncated, startedAt, finishedAt: new Date().toISOString() });
     };

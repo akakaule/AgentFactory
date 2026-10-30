@@ -89,6 +89,12 @@ describe('task_git verify', { timeout: 180_000 }, () => {
     expect(recorded(f.record).status).toBe('errored');
   });
 
+  it("records a command that ran and exited with the shell's not-found code as failed", async () => {
+    const reserved = process.platform === 'win32' ? 9009 : 127;
+    await f.verify(`node -e "process.exit(${reserved})"`);
+    expect(recorded(f.record)).toMatchObject({ status: 'failed', exitCode: reserved });
+  });
+
   it('records a pass on a clean tree with the HEAD before and after', async () => {
     const head = git(f.worktree, 'rev-parse', 'HEAD');
     await f.verify('node -e "0"');
