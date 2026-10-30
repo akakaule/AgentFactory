@@ -11,7 +11,7 @@ export type Protocol =
   | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
   | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -105,7 +105,11 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   // Verify-before-handoff runs inside the worktree, so it must come BEFORE the worktree is removed.
   // Without a workspace command, discover the CI checks instead of omitting gates such as Prettier.
   const verify = input.verifyCommand && input.verifyCommand.trim().length > 0 ? input.verifyCommand.trim() : null;
-  const verifyStep = verify
+  // v10: a managed-git worker runs it through task_git verify, which records the run and binds it to
+  // the submission at submit — so there is no outcome for the worker to report.
+  const verifyStep = verify && input.managedGit
+    ? `Call task_git with { action: "verify" } to run \`${verify}\` in the worktree after committing; it MUST pass before you push. The board records the run and binds it to your submission. If it fails, fix, commit and verify again.`
+    : verify
     ? `Run \`${verify}\` from the worktree root; it MUST pass before you push. Report its outcome via submit_result \`verification\`.`
     : 'Read the repository CI workflow and run its locally runnable checks from the worktree root, including lint, formatting and type checks when configured, plus the repo tests and build. All must pass before you push; report any CI-only checks you could not run in the result.';
   // v7: no PR step. The worker pushes before review; the watcher opens the PR after the
@@ -116,7 +120,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
   const submitWith = [
     'claimAt (the claimedAt value from this claim)',
     'a branch link (label = the branch name)',
-    ...(verify ? ['the `verification` outcome'] : []),
+    ...(verify && !input.managedGit ? ['the `verification` outcome'] : []),
     'best-effort metrics',
     ...(input.defineCriteria
       ? [

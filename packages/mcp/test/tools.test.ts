@@ -149,7 +149,7 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(9);
+    expect(payload.protocol.version).toBe(10);
     expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
@@ -440,6 +440,21 @@ describe('submit_result', () => {
     const detail = core.getTask(t.key);
     expect(detail.status).toBe('in_review');
     expect(detail.metrics).toMatchObject({ model: 'claude-fable-5', tokensIn: 41000, tokensOut: 9000, costUsd: 0.92 });
+  });
+
+  it('a protocol v9 worker reporting its own verification outcome is still accepted', async () => {
+    const { client, core } = await makeClient();
+    core.updateWorkspace('default', { verifyCommand: 'npm test' });
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask();
+
+    const res = await client.callTool({
+      name: 'submit_result',
+      arguments: { key: t.key, summary: 'Done!', links: [], verification: 'all green' },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(textOf(res)).status).toBe('in_review');
   });
 
   it('submitting without metrics leaves the task unreported (null, not zero)', async () => {

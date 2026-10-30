@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProtocol } from '../src/protocol.js';
+import { buildProtocol, PROTOCOL_VERSION } from '../src/protocol.js';
 
 it.each([true, false])('requires isolated npm workspace dependencies before verification (managed Git: %s)', (managedGit) => {
   const p = buildProtocol({ stage: 'implementation', repoPath: 'C:/Git/AgentFactory', key: 'AF-147',
@@ -59,7 +59,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(9);
+    expect(p.version).toBe(10);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -73,7 +73,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(9);
+    expect(p.version).toBe(10);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -95,7 +95,7 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(9);
+    expect(p.version).toBe(10);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
@@ -243,5 +243,41 @@ describe('buildProtocol: no worker PR step (v7)', () => {
     expect(pushIdx).toBeGreaterThanOrEqual(0);
     expect(pushIdx).toBeLessThan(removeIdx);
     expect(removeIdx).toBeLessThan(submitIdx);
+  });
+});
+
+// v10: a managed-git worker runs the verify command through task_git, which records the run and
+// binds it to the submission — so the worker neither runs it in a shell nor reports an outcome.
+describe('buildProtocol v10 managed-git verify', () => {
+  const impl = (managedGit: boolean) => buildProtocol({
+    stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-9',
+    branch: 'feature/AF-9-v', branchCreated: true, managedGit, verifyCommand: 'npm test',
+  });
+
+  it('PROTOCOL_VERSION is 10', () => {
+    expect(PROTOCOL_VERSION).toBe(10);
+    expect(impl(true).version).toBe(10);
+  });
+
+  it('managed git calls task_git verify before task_git push', () => {
+    const steps = impl(true).finish.join('\n');
+    const verifyIdx = steps.indexOf('action: "verify"');
+    expect(verifyIdx).toBeGreaterThanOrEqual(0);
+    expect(verifyIdx).toBeLessThan(steps.indexOf('action: "push"'));
+    expect(steps.indexOf('action: "commit"')).toBeLessThan(verifyIdx);
+  });
+
+  it('managed git is not asked to report a verification outcome', () => {
+    const steps = impl(true).finish.join('\n');
+    expect(steps).not.toContain('Report its outcome via submit_result');
+    expect(steps).not.toContain('`verification`');
+  });
+
+  it('non-managed workers keep the shell verify step and the verification deliverable', () => {
+    const p = impl(false);
+    const steps = p.finish.join('\n');
+    expect(steps).toContain('Run `npm test` from the worktree root; it MUST pass before you push. Report its outcome via submit_result `verification`.');
+    expect(p.finish.at(-1)).toContain('the `verification` outcome');
+    expect(steps).not.toContain('action: "verify"');
   });
 });
