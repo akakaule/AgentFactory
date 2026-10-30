@@ -73,6 +73,12 @@ describe('ReviewPanel — verdict card', () => {
       .toEqual(['2 must-fix issues', '3 issues need your decision', 'Criteria not met: AC4 Race, AC6 Liveness']);
   });
 
+  it('shows the verification evidence and flags missing runner evidence', () => {
+    renderPanel({ verifyCommand: 'npm test', evidence: [{ source: 'reported', state: 'unverified', headSha: null, at: 't', label: 'green' }] });
+    expect(within(screen.getByLabelText('Evidence')).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Reported · unverified']);
+    expect(within(screen.getByLabelText('Remaining concerns')).getByText('No runner verification')).toBeInTheDocument();
+  });
+
   it('a pill filters the issues to its group and a second click clears it', async () => {
     const { user } = renderPanel();
     const pill = screen.getByRole('button', { name: 'Your call · 3' });

@@ -7,6 +7,7 @@ import { GROUP_LABEL, HEADLINE_TITLE, reviewSentence, shortNames } from '../revi
 import { ReviewCriteria } from './ReviewCriteria.js';
 import { ReviewIssueCard } from './ReviewIssueCard.js';
 import { ReviewEvidence } from './ReviewEvidence.js';
+import { ReviewEvidenceSection } from './ReviewEvidenceSection.js';
 import { ReviewSendBack } from './ReviewSendBack.js';
 import { ReviewApprove } from './ReviewApprove.js';
 import { ConsensusDiscussion } from './ConsensusDiscussion.js';
@@ -147,6 +148,7 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
             </ol>
           </div>
         )}
+        {task.evidence && <ReviewEvidenceSection evidence={task.evidence} />}
         <NextAction sentence={next} />
         <div className="af-rv-changed" role="group" aria-label="What changed">
           <span className="eyebrow">What changed</span>
