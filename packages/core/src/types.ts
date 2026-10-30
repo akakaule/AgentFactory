@@ -73,6 +73,9 @@ export interface Workspace {
   baseBranch: string | null;          // the branch PRs target / diffs compare against; null = detect
   requiredChecks: string[] | null;    // check names that must pass; null = none configured
   ciMode: CiMode | null;              // null = 'legacy'
+  // Whether the watcher opens this workspace's delivery PRs (migration #34); null = follow the
+  // watcher config's createPullRequests.
+  createPullRequests: boolean | null;
 }
 
 /** How the watcher treats CI on a delivery (stored here; honoured by the required-check parity work):
@@ -588,6 +591,8 @@ export interface UpdateWorkspaceInput {
   baseBranch?: string | null | undefined;
   requiredChecks?: string[] | null | undefined;
   ciMode?: CiMode | null | undefined;
+  // watcher PR creation for this workspace; null follows the watcher config
+  createPullRequests?: boolean | null | undefined;
 }
 export interface UpdateTaskInput { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string; }
 export interface LinkInput { kind: LinkKind; label: string; url: string; }

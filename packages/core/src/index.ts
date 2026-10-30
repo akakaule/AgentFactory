@@ -62,6 +62,7 @@ export { deriveTaskMetrics, type DerivedTaskMetrics, type ActivityStep } from '.
 export { createWorkspace } from './ops/createWorkspace.js';
 export { updateWorkspace } from './ops/updateWorkspace.js';
 export { listWorkspaces } from './ops/listWorkspaces.js';
+export { getWorkspace } from './ops/getWorkspace.js';
 export { resolveServedWorkspaces } from './workspaceSelection.js';
 export { createUser, createApiToken, authenticateToken, type CreatedApiToken, type AuthedToken } from './ops/auth.js';
 export { generateToken, hashToken } from './token.js';
@@ -131,6 +132,7 @@ import { getAttachment } from './ops/getAttachment.js';
 import { createWorkspace } from './ops/createWorkspace.js';
 import { updateWorkspace } from './ops/updateWorkspace.js';
 import { listWorkspaces } from './ops/listWorkspaces.js';
+import { getWorkspace } from './ops/getWorkspace.js';
 import { createUser, createApiToken, authenticateToken } from './ops/auth.js';
 import { reportProgress, touchAgentSession, endAgentSession, listLiveAgents } from './ops/agentSession.js';
 import { appendTranscript, saveTranscript, getTranscript, type AppendTranscriptInput, type SaveTranscriptInput } from './ops/transcript.js';
@@ -209,6 +211,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     createWorkspace: (input: CreateWorkspaceInput) => createWorkspace(db, input),
     updateWorkspace: (name: string, input: UpdateWorkspaceInput) => updateWorkspace(db, name, input),
     listWorkspaces: () => listWorkspaces(db),
+    getWorkspace: (name: string) => getWorkspace(db, name),
     /** The git auth (http.extraheader against a bare origin) for a workspace, or null — used by
      *  the dispatcher (worker git env) and the MCP submit-verify. Resolves DB PAT → env → null. */
     resolveGitAuth: (workspace: string) => resolveGitAuth(db, workspace, { env: process.env, resolveOrigin }),

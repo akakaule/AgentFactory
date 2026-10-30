@@ -14,6 +14,7 @@ export interface WorkspaceRow {
   ado_sync: string | null; // JSON AdoSyncSettings — Azure DevOps work-item import (#27)
   // repository profile (AF-151); NULL = not configured
   base_branch: string | null; required_checks: string | null /* JSON string[] */; ci_mode: CiMode | null;
+  create_pull_requests: number | null; // watcher PR creation (#34); NULL = follow the watcher config
 }
 
 /** Parse the stored prompt-overrides JSON (written already-cleaned by updateWorkspaceFields). */
@@ -32,6 +33,7 @@ export function toWorkspace(r: WorkspaceRow): Workspace {
     promptOverrides: parseOverrides(r.prompt_overrides),
     adoSync: parseAdoSyncSettings(r.ado_sync),
     baseBranch: r.base_branch ?? null, requiredChecks: parseRequiredChecks(r.required_checks ?? null), ciMode: r.ci_mode ?? null,
+    createPullRequests: r.create_pull_requests == null ? null : r.create_pull_requests === 1,
   };
 }
 /** The raw stored PAT for a workspace, or null. Internal-only (git-auth resolution / watcher) —
@@ -50,13 +52,14 @@ export function requireWorkspaceByName(db: DB, name: string): WorkspaceRow {
 }
 export function insertWorkspace(db: DB, name: string, repoPath: string, ts: string): Workspace {
   const info = db.prepare('INSERT INTO workspace(name, repo_path, created_at) VALUES (?, ?, ?)').run(name, repoPath, ts);
-  return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {}, adoSync: null, baseBranch: null, requiredChecks: null, ciMode: null };
+  return { id: Number(info.lastInsertRowid), name, repoPath, createdAt: ts, policy: null, verifyCommand: null, hasPat: false, promptOverrides: {}, adoSync: null, baseBranch: null, requiredChecks: null, ciMode: null, createPullRequests: null };
 }
 
 /** Patch a workspace's editable fields: repoPath (defining, non-null), the discipline fields
  *  (policy / verify_command), the git PAT (null clears it), and/or the agent prompt overrides
  *  (a cleaned map — empty ⇒ stored NULL), and/or the ADO work-item import settings (null clears),
- *  and/or the repository profile (baseBranch / requiredChecks / ciMode; null clears).
+ *  and/or the repository profile (baseBranch / requiredChecks / ciMode; null clears),
+ *  and/or the watcher PR-creation switch (createPullRequests; null follows the watcher config).
  *  Only keys present in `fields` are written.
  *  Every write stamps updated_at (#23) — getVersion() folds it in, so edits reach open clients. */
 export function updateWorkspaceFields(
@@ -67,6 +70,7 @@ export function updateWorkspaceFields(
     pat?: string | null | undefined; promptOverrides?: AgentPrompts | undefined;
     adoSync?: AdoSyncSettings | null | undefined;
     baseBranch?: string | null | undefined; requiredChecks?: string[] | null | undefined; ciMode?: CiMode | null | undefined;
+    createPullRequests?: boolean | null | undefined;
   },
   ts: string,
 ): void {
@@ -89,6 +93,10 @@ export function updateWorkspaceFields(
     sets.push('required_checks = ?'); vals.push(c && c.length > 0 ? JSON.stringify(c) : null);
   }
   if ('ciMode' in fields) { sets.push('ci_mode = ?'); vals.push(fields.ciMode ?? null); }
+  if ('createPullRequests' in fields) {
+    const v = fields.createPullRequests;
+    sets.push('create_pull_requests = ?'); vals.push(v == null ? null : v ? 1 : 0);
+  }
   if (sets.length === 0) return;
   sets.push('updated_at = ?'); vals.push(ts);
   vals.push(id);

@@ -99,6 +99,24 @@ describe('WorkspacesModal — repository profile', () => {
     expect(vi.mocked(api.updateWorkspace).mock.calls[1]![1]).toMatchObject({ baseBranch: null, requiredChecks: null, ciMode: null });
   });
 
+  it('the PR creation switch sends false for Off, true for On and null for Follow watcher config', async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws()]} onCreated={noop} onClose={noop} />);
+    const select = screen.getByLabelText('Watcher opens PRs');
+    await user.selectOptions(select, 'Off');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.selectOptions(select, 'On');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.selectOptions(select, 'Follow watcher config');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const bodies = vi.mocked(api.updateWorkspace).mock.calls.map((c) => c[1]);
+    expect(bodies).toEqual([
+      expect.objectContaining({ createPullRequests: false }),
+      expect.objectContaining({ createPullRequests: true }),
+      expect.objectContaining({ createPullRequests: null }),
+    ]);
+  });
+
   it('Diagnose runs the read-only check and lists every result with its status and reason', async () => {
     const diagnosis: WorkspaceDiagnosis = {
       workspace: 'repo-a', repoPath: '/a',

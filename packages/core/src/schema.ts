@@ -529,3 +529,9 @@ CREATE TABLE IF NOT EXISTS task_verification (
 );
 CREATE INDEX IF NOT EXISTS idx_task_verification_execution ON task_verification(task_id, execution_id, id);
 `;
+
+// Migration #34 — per-workspace switch for the watcher opening delivery PRs (AF-187).
+// NULL = follow the watcher config's createPullRequests; 0/1 = off/on for this workspace.
+export const MIGRATION_34_SQL = `
+ALTER TABLE workspace ADD COLUMN create_pull_requests INTEGER CHECK (create_pull_requests IS NULL OR create_pull_requests IN (0,1));
+`;

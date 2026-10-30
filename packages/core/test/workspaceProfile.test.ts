@@ -49,7 +49,7 @@ describe('workspace profile migration', () => {
 
   it('is migration #31: a fresh DB ends at user_version 31 with the profile columns', () => {
     const db = makeTestDb();
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 33 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 34 });
     expect(workspaceColumns(db)).toEqual(expect.arrayContaining(PROFILE_COLUMNS));
   });
 
@@ -85,7 +85,7 @@ describe('workspace profile migration', () => {
 
     runMigrations(db);
 
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 33 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 34 });
     expectUnsetProfile(db);
     expect(db.prepare("SELECT status FROM task WHERE key='AF-1'").get()).toEqual({ status: 'cancelled' });
   });
@@ -102,7 +102,7 @@ describe('workspace profile migration', () => {
 
     runMigrations(db);
 
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 33 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 34 });
     expectUnsetProfile(db);
     expect(db.prepare('SELECT * FROM task_submission ORDER BY id').all()).toEqual(before);
   });
@@ -114,7 +114,7 @@ describe('workspace profile migration', () => {
 
     expect(() => runMigrations(db)).not.toThrow();
 
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 33 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 34 });
     expect(workspaceColumns(db)).toEqual(expect.arrayContaining(PROFILE_COLUMNS));
     expect(listWorkspaces(db).find((w) => w.name === 'old')).toMatchObject({ baseBranch: 'develop' });
   });
