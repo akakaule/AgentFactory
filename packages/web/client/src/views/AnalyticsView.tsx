@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useEventStream } from '../useEventStream.js';
 import { useWorkspaces } from '../useWorkspaces.js';
 import { wsColor } from '../wsColor.js';
-import { computeAnalytics, fmtDur, fmtNum, shortBranch, type AnalyticsData, type TokenTrendPoint } from '../metrics.js';
+import { computeAnalytics, fmtDur, fmtNum, shortBranch, type AnalyticsData } from '../metrics.js';
 import { I } from '../icons.js';
+import { SpendPanel } from './SpendPanel.js';
 
 interface Props {
   ws: string;
   rangeDays: number | null;
   onRange: (d: number | null) => void;
+  onOpen?: (key: string) => void;
 }
 
 function StageRow({ label, hue, mono, val, max, fmt }: {
@@ -35,45 +37,14 @@ function AnalyticsEmpty({ ws, rangeDays }: { ws: string; rangeDays: number | nul
   );
 }
 
-function TokenTrendChart({ points, workspace }: { points: TokenTrendPoint[]; workspace: string }) {
-  const max = Math.max(1, ...points.flatMap((p) => [p.tokensIn, p.tokensOut]));
-  const totalIn = points.reduce((sum, p) => sum + p.tokensIn, 0);
-  const totalOut = points.reduce((sum, p) => sum + p.tokensOut, 0);
-
-  return (
-    <>
-      <div className="an-trend-chart" role="img" aria-label={`Daily input and output tokens for ${workspace || 'all workspaces'}`}>
-        {points.map((p) => (
-          <div
-            className="an-trend-day"
-            key={p.date}
-            title={`${p.date} · input ${p.tokensIn.toLocaleString('en-US')} · output ${p.tokensOut.toLocaleString('en-US')}`}
-          >
-            <span className="bars">
-              <i className="in" style={{ height: `${(p.tokensIn / max) * 100}%` }}></i>
-              <i className="out" style={{ height: `${(p.tokensOut / max) * 100}%` }}></i>
-            </span>
-            <span className="date">{p.date.slice(8)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="an-caption"><b>{fmtNum(totalIn)} input · {fmtNum(totalOut)} output</b> · {workspace || 'all workspaces'}</div>
-    </>
-  );
-}
-
 type TokGroup = 'model' | 'workspace' | 'branch' | 'stage';
+const TASK_ROWS = 20;
 
-export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
+export function AnalyticsView({ ws, rangeDays, onRange, onOpen }: Props) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tokGroup, setTokGroup] = useState<TokGroup>('model');
-  const [trend, setTrend] = useState<{ ws: string; points: TokenTrendPoint[] } | null>(null);
-  const [trendErr, setTrendErr] = useState<{ ws: string; message: string } | null>(null);
-  const [trendWs, setTrendWs] = useState('');
-  const trendWsRef = useRef('');
-  const selGen = useRef(0);
-  const inflight = useRef<{ gen: number; again: boolean } | null>(null);
+  const [showAllTasks, setShowAllTasks] = useState(false);
   // Surface a failed/timed-out load instead of swallowing it — otherwise `data` stays null
   // and the view sits on "Loading…" forever (indistinguishable from a real load). A stale
   // refetch failure keeps the data already on screen; the error UI only shows when empty.
@@ -84,51 +55,6 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
   }, []);
   useEffect(refetch, [refetch]);
   useEventStream(refetch);
-
-  const refetchTrend = useCallback(function fetchTrend(): void {
-    const gen = selGen.current;
-    const active = inflight.current;
-    if (active?.gen === gen) {
-      active.again = true;
-      return;
-    }
-
-    const selectedWs = trendWsRef.current;
-    inflight.current = { gen, again: false };
-    const settle = (result: { points: TokenTrendPoint[] } | { message: string }) => {
-      // A selection change invalidates this request. It must not touch the current
-      // generation's in-flight marker, error, or data.
-      if (gen !== selGen.current) return;
-
-      const again = inflight.current?.gen === gen && inflight.current.again;
-      inflight.current = null;
-      if ('points' in result) {
-        setTrend({ ws: selectedWs, points: result.points });
-        setTrendErr(null);
-      } else {
-        setTrendErr({ ws: selectedWs, message: result.message });
-      }
-      if (again) fetchTrend();
-    };
-
-    api.getTokenTrend(selectedWs || undefined)
-      .then((points) => settle({ points }))
-      .catch((e: unknown) => settle({
-        message: e instanceof Error && e.message ? e.message : 'Could not load token spend.',
-      }));
-  }, []);
-  useEffect(refetchTrend, [refetchTrend]);
-  useEventStream(refetchTrend);
-
-  const changeTrendWs = useCallback((nextWs: string) => {
-    if (nextWs === trendWsRef.current) return;
-    setTrendWs(nextWs);
-    trendWsRef.current = nextWs;
-    selGen.current += 1;
-    inflight.current = null;
-    setTrendErr(null);
-    refetchTrend();
-  }, [refetchTrend]);
   const { workspaces } = useWorkspaces();
 
   const a = useMemo(() => (data ? computeAnalytics(data, ws, rangeDays) : null), [data, ws, rangeDays]);
@@ -148,7 +74,9 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
           </div>
         </div>
 
-        {!a && !error && <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Loading…</div>}
+        <SpendPanel workspaces={workspaces} />
+
+        {!a && !error &&<div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Loading…</div>}
         {!a && error && (
           <div className="an-empty">
             <div className="ico">{I.chart({})}</div>
@@ -298,71 +226,68 @@ export function AnalyticsView({ ws, rangeDays, onRange }: Props) {
             </div>
           )}
 
-          {/* Workers */}
-          <div className="an-panel span">
-            <div className="an-ph"><h3>Workers</h3><small>· {rangeLabel}</small></div>
+          {/* Spend by workspace */}
+          <section className="an-panel span" aria-label="Spend by workspace">
+            <div className="an-ph">
+              <h3>Spend by workspace</h3><small>· done tasks, {rangeLabel}</small>
+              {a.workspaceSpend.some((w) => w.cost != null) && (
+                <span className="right">${a.workspaceSpend.reduce((s, w) => s + (w.cost ?? 0), 0).toFixed(2)} total</span>
+              )}
+            </div>
             <table className="an-table">
               <thead>
                 <tr>
-                  <th>Worker</th><th>Workspace</th><th className="r">Claims</th><th className="r">Done</th>
-                  <th>First-pass</th><th className="r">Med. work</th><th className="r">Releases</th><th>Branch</th><th className="r">Tokens</th><th className="r">Cost</th>
+                  <th>Workspace</th><th className="r">Done</th><th className="r">Reported</th><th className="r">Input</th>
+                  <th className="r">Output</th><th className="r">Tokens</th><th className="r">Cost</th><th className="r">Cost / task</th>
                 </tr>
               </thead>
               <tbody>
-                {a.workers.map((w) => {
-                  const unl = w.name === '(unlabeled)';
-                  return (
-                    <tr key={w.name}>
-                      <td><span className="an-wk"><span className="dot" style={{ background: unl ? 'var(--ink-3)' : wsColor(workspaces, w.ws) }}></span><span className="mono" style={unl ? { color: 'var(--ink-3)' } : undefined}>{w.name}</span></span></td>
-                      <td className="mono dim">{w.ws}</td>
-                      <td className="r mono">{w.claims}</td>
-                      <td className="r mono">{w.done}</td>
-                      <td>{w.firstPass == null ? <span className="dim">—</span> :
-                        <span className={'an-pill ' + (w.firstPass >= 75 ? 'good' : w.firstPass >= 50 ? 'warn' : 'bad')}><span className="dot" style={{ background: 'currentColor' }}></span>{w.firstPass}%</span>}</td>
-                      <td className="r mono">{fmtDur(w.medWork)}</td>
-                      <td className="r mono" style={w.releases > 0 ? { color: 'var(--active-2)' } : undefined}>{w.releases}</td>
-                      <td className="mono dim">{w.branch
-                        ? <span className="an-br" title={shortBranch(w.branch)}>{shortBranch(w.branch)}</span>
-                        : <span className="dim">—</span>}</td>
-                      <td className="r mono">{w.tokens == null ? <span className="dim">n/a</span> : fmtNum(w.tokens)}</td>
-                      <td className="r mono">{w.cost == null ? <span className="dim">n/a</span> : '$' + w.cost.toFixed(2)}</td>
-                    </tr>
-                  );
-                })}
+                {a.workspaceSpend.map((w) => (
+                  <tr key={w.workspace}>
+                    <td><span className="an-wk"><span className="dot" style={{ background: wsColor(workspaces, w.workspace) }}></span><span className="mono">{w.workspace}</span></span></td>
+                    <td className="r mono">{w.done}</td>
+                    <td className="r mono dim">{w.reported} / {w.done}</td>
+                    <td className="r mono">{w.tokensIn == null ? <span className="dim">n/a</span> : fmtNum(w.tokensIn)}</td>
+                    <td className="r mono">{w.tokensOut == null ? <span className="dim">n/a</span> : fmtNum(w.tokensOut)}</td>
+                    <td className="r mono">{w.tokens == null ? <span className="dim">n/a</span> : fmtNum(w.tokens)}</td>
+                    <td className="r mono">{w.cost == null ? <span className="dim">n/a</span> : '$' + w.cost.toFixed(2)}</td>
+                    <td className="r mono">{w.costPerTask == null ? <span className="dim">n/a</span> : '$' + w.costPerTask.toFixed(2)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          </div>
-        </>); })()}
+            <div className="an-caption">Cost / task averages over tasks that reported a cost. Unreported usage shows <b>n/a</b>, never zero.</div>
+          </section>
 
-        <section className="an-panel span an-trend-panel" aria-label="Token spend">
-          <div className="an-ph an-trend-head">
-            <h3>Token spend</h3><small>daily · last 30 days UTC</small>
-            <div className="an-trend-legend" aria-label="Token types">
-              <span><i className="in"></i>Input</span>
-              <span><i className="out"></i>Output</span>
-            </div>
-            <select
-              className="an-trend-ws"
-              aria-label="Token spend workspace"
-              value={trendWs}
-              onChange={(e) => changeTrendWs(e.target.value)}
-            >
-              <option value="">All workspaces</option>
-              {workspaces.map((w) => <option key={w.id} value={w.name}>{w.name}</option>)}
-            </select>
-          </div>
-          {trendErr?.ws === trendWs ? (
-            <div className="an-trend-error">
-              <b>Couldn't load token spend for {trendWs || 'all workspaces'}</b>
-              <span>{trendErr.message}</span>
-              <button className="af-btn-primary" onClick={() => { setTrendErr(null); refetchTrend(); }}>Retry</button>
-            </div>
-          ) : !trend || trend.ws !== trendWs ? (
-            <div className="an-trend-loading">Loading token spend for {trendWs || 'all workspaces'}…</div>
-          ) : (
-            <TokenTrendChart points={trend.points} workspace={trend.ws} />
-          )}
-        </section>
+          {/* Spend by task */}
+          <section className="an-panel span" aria-label="Spend by task">
+            <div className="an-ph"><h3>Spend by task</h3><small>· done tasks, {rangeLabel}</small><span className="right">{a.taskSpend.length} tasks</span></div>
+            <table className="an-table">
+              <thead>
+                <tr>
+                  <th>Task</th><th>Title</th><th>Workspace</th><th className="r">Input</th>
+                  <th className="r">Output</th><th className="r">Tokens</th><th className="r">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(showAllTasks ? a.taskSpend : a.taskSpend.slice(0, TASK_ROWS)).map((t) => (
+                  <tr key={t.key} className="an-row-link" onClick={() => onOpen?.(t.key)}>
+                    <td className="mono">{t.key}</td>
+                    <td><span className="an-title" title={t.title}>{t.title}</span></td>
+                    <td><span className="an-wk"><span className="dot" style={{ background: wsColor(workspaces, t.workspace) }}></span><span className="mono dim">{t.workspace}</span></span></td>
+                    <td className="r mono">{t.tokensIn == null ? <span className="dim">n/a</span> : fmtNum(t.tokensIn)}</td>
+                    <td className="r mono">{t.tokensOut == null ? <span className="dim">n/a</span> : fmtNum(t.tokensOut)}</td>
+                    <td className="r mono">{t.tokens == null ? <span className="dim">n/a</span> : fmtNum(t.tokens)}</td>
+                    <td className="r mono">{t.cost == null ? <span className="dim">n/a</span> : '$' + t.cost.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!showAllTasks && a.taskSpend.length > TASK_ROWS && (
+              <button className="an-more" onClick={() => setShowAllTasks(true)}>Show all {a.taskSpend.length} tasks</button>
+            )}
+          </section>
+        </>); })()}
       </div>
     </div>
   );

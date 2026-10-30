@@ -52,7 +52,7 @@ export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
-export { tokenTrend, type TokenTrendPoint } from './ops/tokenTrend.js';
+export { spendByDay, type SpendRow, type SpendMonth } from './ops/spendByDay.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { recordVerification, latestVerification } from './ops/verification.js';
 export { verificationEvidence, type EvidenceSource } from './verificationEvidence.js';
@@ -124,7 +124,7 @@ import type { AgentPromptKey } from './agentPrompts.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 import { analyticsRows } from './ops/analyticsRows.js';
-import { tokenTrend } from './ops/tokenTrend.js';
+import { spendByDay } from './ops/spendByDay.js';
 import { addTaskMetrics } from './ops/addTaskMetrics.js';
 import { recordVerification, latestVerification } from './ops/verification.js';
 import { addAttachment } from './ops/addAttachment.js';
@@ -305,7 +305,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     reviewPrReviewed: (key: string, input: { review?: string | undefined; actorUserId?: number | null }) => reviewPrReviewed(db, key, input),
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
     analyticsRows: () => analyticsRows(db),
-    tokenTrend: (opts: { workspace?: string | undefined } = {}) => tokenTrend(db, opts),
+    spendByDay: (opts: { month?: string | undefined; workspace?: string | undefined } = {}) => spendByDay(db, opts),
     addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, fenced(key, input)),
     /** Runner verification records (migration #33): one per verify-command run of a live execution. */
     recordVerification: (key: string, input: RecordVerificationInput) => recordVerification(db, key, input),

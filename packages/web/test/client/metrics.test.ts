@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeAnalytics, fmtDur, fmtNum, median, shortBranch, type AnalyticsTaskRow, type AnalyticsData } from '../../client/src/metrics.js';
+import { computeAnalytics, computeSpend, fmtDur, fmtNum, fmtUsd, median, monthLabel, niceTicks, providerOf, recentMonths, shortBranch, PROVIDER_COLORS, SERIES_COLORS, type AnalyticsTaskRow, type AnalyticsData, type SpendMonth, type SpendRow } from '../../client/src/metrics.js';
 
 const NOW = Date.parse('2026-06-11T12:00:00.000Z');
 const daysAgo = (d: number) => new Date(NOW - d * 86400000).toISOString();
@@ -8,7 +8,7 @@ let seq = 0;
 function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
   seq += 1;
   return {
-    key: `AF-${seq}`, workspace: 'demo', status: 'done', doneAt: daysAgo(1),
+    key: `AF-${seq}`, title: `Task ${seq}`, workspace: 'demo', status: 'done', doneAt: daysAgo(1),
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0, deliveringMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
     stageTokens: { implementation: 12000 },
@@ -205,35 +205,56 @@ describe('computeAnalytics', () => {
     expect(a.tokWsMax).toBe(1);
   });
 
-  it('groups workers, excludes null workers, and rolls stranded releases into "(unlabeled)"', () => {
+  it('rolls up tokens and cost per workspace, sorted by cost, unreported shown as null', () => {
     const a = computeAnalytics(data([
-      doneRow({ worker: 'worker-1', rounds: 0 }),
-      doneRow({ worker: 'worker-1', rounds: 1 }),
-      doneRow({ worker: null }),                                   // counts toward coverage, no row
-      { ...doneRow({ worker: 'worker-2' }), status: 'in_progress', doneAt: null },
-    ], [
-      { worker: 'worker-2', workspace: 'demo', at: daysAgo(1) },
-      { worker: null, workspace: 'demo', at: daysAgo(2) },
+      doneRow({ workspace: 'demo', tokensIn: 50000, tokensOut: 5000, costUsd: 1.5 }),
+      doneRow({ workspace: 'demo', tokensIn: 20000, tokensOut: 2000, costUsd: 0.5 }),
+      doneRow({ workspace: 'demo', tokensIn: null, tokensOut: null, costUsd: null, model: null }), // unreported: counted as done, not as zero spend
+      doneRow({ workspace: 'shop', tokensIn: 1000, tokensOut: 100, costUsd: 4 }),
+      doneRow({ workspace: 'docs', tokensIn: 3000, tokensOut: 300, costUsd: null }), // tokens without a price
+      doneRow({ workspace: 'idle', tokensIn: null, tokensOut: null, costUsd: null, model: null }),
+      doneRow({ workspace: 'shop', doneAt: daysAgo(40), costUsd: 99 }), // out of range
     ]), 'all', 7, NOW);
-
-    const w1 = a.workers.find((w) => w.name === 'worker-1')!;
-    expect(w1).toMatchObject({ done: 2, claims: 2, firstPass: 50, releases: 0 });
-    const w2 = a.workers.find((w) => w.name === 'worker-2')!;
-    expect(w2).toMatchObject({ done: 0, claims: 2, releases: 1 }); // 1 in-progress + 1 release
-    const unl = a.workers.find((w) => w.name === '(unlabeled)')!;
-    expect(unl).toMatchObject({ releases: 1 });
-    expect(a.workers.some((w) => w.name === '' || w.name === null)).toBe(false);
+    expect(a.workspaceSpend).toEqual([
+      { workspace: 'shop', done: 1, reported: 1, tokensIn: 1000, tokensOut: 100, tokens: 1100, cost: 4, costReported: 1, costPerTask: 4 },
+      { workspace: 'demo', done: 3, reported: 2, tokensIn: 70000, tokensOut: 7000, tokens: 77000, cost: 2, costReported: 2, costPerTask: 1 },
+      { workspace: 'docs', done: 1, reported: 1, tokensIn: 3000, tokensOut: 300, tokens: 3300, cost: null, costReported: 0, costPerTask: null },
+      { workspace: 'idle', done: 1, reported: 0, tokensIn: null, tokensOut: null, tokens: null, cost: null, costReported: 0, costPerTask: null },
+    ]);
   });
 
-  it('derives each worker branch from its first branch-bearing task (done, else in-progress)', () => {
+  it('limits workspaceSpend to the selected workspace', () => {
     const a = computeAnalytics(data([
-      doneRow({ worker: 'worker-1', branch: 'feature/AF-9-thing' }),
-      doneRow({ worker: 'worker-2', branch: null }),                                              // branchless task → null
-      { ...doneRow({ worker: 'worker-3', branch: 'feature/AF-11-wip' }), status: 'in_progress', doneAt: null },
+      doneRow({ workspace: 'demo', costUsd: 1 }),
+      doneRow({ workspace: 'shop', costUsd: 2 }),
+    ]), 'demo', 7, NOW);
+    expect(a.workspaceSpend.map((w) => w.workspace)).toEqual(['demo']);
+  });
+
+  it('lists done tasks in range with their spend, most expensive first, unreported last', () => {
+    const a = computeAnalytics(data([
+      doneRow({ key: 'AF-1', title: 'Cheap', workspace: 'demo', tokensIn: 1000, tokensOut: 100, costUsd: 0.1 }),
+      doneRow({ key: 'AF-2', title: 'Pricey', workspace: 'shop', tokensIn: 90000, tokensOut: 9000, costUsd: 3 }),
+      doneRow({ key: 'AF-3', title: 'Silent', tokensIn: null, tokensOut: null, costUsd: null, model: null }),
+      doneRow({ key: 'AF-4', title: 'Unpriced', tokensIn: 5000, tokensOut: 500, costUsd: null }),
+      doneRow({ key: 'AF-5', doneAt: daysAgo(40), costUsd: 99 }), // out of range
+      { ...doneRow({ key: 'AF-6', costUsd: 50 }), status: 'in_progress', doneAt: null }, // not done
     ]), 'all', 7, NOW);
-    expect(a.workers.find((w) => w.name === 'worker-1')!.branch).toBe('feature/AF-9-thing');
-    expect(a.workers.find((w) => w.name === 'worker-2')!.branch).toBeNull();
-    expect(a.workers.find((w) => w.name === 'worker-3')!.branch).toBe('feature/AF-11-wip');      // from the in-progress task
+    expect(a.taskSpend.map((t) => t.key)).toEqual(['AF-2', 'AF-1', 'AF-4', 'AF-3']);
+    expect(a.taskSpend[0]).toEqual({
+      key: 'AF-2', title: 'Pricey', workspace: 'shop', doneAt: daysAgo(1),
+      tokensIn: 90000, tokensOut: 9000, tokens: 99000, cost: 3,
+    });
+    expect(a.taskSpend[3]).toMatchObject({ tokensIn: null, tokensOut: null, tokens: null, cost: null });
+  });
+
+  it('limits taskSpend to the selected workspace and tolerates rows without a title', () => {
+    const a = computeAnalytics(data([
+      { ...doneRow({ key: 'AF-1', workspace: 'demo' }), title: undefined } as unknown as AnalyticsTaskRow,
+      doneRow({ key: 'AF-2', workspace: 'shop' }),
+    ]), 'demo', 7, NOW);
+    expect(a.taskSpend).toHaveLength(1);
+    expect(a.taskSpend[0]).toMatchObject({ key: 'AF-1', title: '' });
   });
 
   it('builds a throughput series covering the window', () => {
@@ -268,5 +289,90 @@ describe('computeAnalytics', () => {
   it('tolerates a payload with no failures field (stale server)', () => {
     const a = computeAnalytics({ tasks: [doneRow()], stranded: [] } as unknown as AnalyticsData, 'all', 7, NOW);
     expect(a.failures.total).toBe(0);
+  });
+});
+
+describe('spend', () => {
+  const row = (over: Partial<SpendRow>): SpendRow => ({
+    date: '2026-10-01', workspace: 'demo', model: 'claude-opus-5-5', costUsd: 0, tokens: 0, unpricedTokens: 0, ...over,
+  });
+  const month = (rows: SpendRow[], m = '2026-10'): SpendMonth => ({ month: m, dataUpTo: rows.length ? '2026-10-30T11:00:00.000Z' : null, rows });
+
+  it('maps models to providers', () => {
+    expect(providerOf('claude-opus-5-5')).toBe('Anthropic');
+    expect(providerOf('claude-opus-4-8[1m]')).toBe('Anthropic');
+    expect(providerOf('gpt-6.1-sol')).toBe('OpenAI');
+    expect(providerOf('GPT-5 Codex')).toBe('OpenAI');
+    expect(providerOf('gpt-5-codex')).toBe('OpenAI');
+    expect(providerOf('mistral-large')).toBe('Other');
+    expect(providerOf(null)).toBe('Other');
+  });
+
+  it('lists the current UTC month and the previous ones, labelled', () => {
+    expect(recentMonths(Date.parse('2026-01-15T00:00:00.000Z'), 3)).toEqual(['2026-01', '2025-12', '2025-11']);
+    expect(monthLabel('2026-10')).toBe('Oct 2026');
+  });
+
+  it('formats dollars with cents and thousands separators', () => {
+    expect(fmtUsd(9314.04)).toBe('$9,314.04');
+    expect(fmtUsd(0)).toBe('$0.00');
+  });
+
+  it('picks nice ticks that cover the max', () => {
+    expect(niceTicks(520)).toEqual([0, 150, 300, 450, 600]);
+    expect(niceTicks(0.8)).toEqual([0, 0.2, 0.4, 0.6, 0.8]);
+    expect(niceTicks(0)).toEqual([0]);
+  });
+
+  it('splits cost by provider in fixed order, zero-fills every day of the month, and keeps unpriced tokens apart', () => {
+    const v = computeSpend(month([
+      row({ date: '2026-10-01', model: 'gpt-6.1-sol', costUsd: 0.25, tokens: 110, unpricedTokens: 77 }),
+      row({ date: '2026-10-01', model: 'claude-opus-5-5', costUsd: 2, tokens: 160 }),
+      row({ date: '2026-10-03', model: 'claude-fable-5', costUsd: 1, tokens: 40 }),
+    ]), 'provider', 'cost', []);
+
+    expect(v.total).toBe(3.25);
+    expect(v.series).toEqual([
+      { key: 'Anthropic', color: PROVIDER_COLORS.Anthropic, value: 3 },
+      { key: 'OpenAI', color: PROVIDER_COLORS.OpenAI, value: 0.25 },
+    ]);
+    expect(v.days).toHaveLength(31);
+    expect(v.days[0]).toEqual({ date: '2026-10-01', values: { Anthropic: 2, OpenAI: 0.25 }, total: 2.25 });
+    expect(v.days[1]).toEqual({ date: '2026-10-02', values: {}, total: 0 });
+    expect(v.days[30]!.date).toBe('2026-10-31');
+    expect(v.unpricedTokens).toBe(77);
+    expect(v.max).toBe(v.ticks.at(-1));
+  });
+
+  it('measures tokens instead of cost, so unpriced usage still counts', () => {
+    const v = computeSpend(month([
+      row({ model: 'gpt-6.1-sol', costUsd: 0, tokens: 110, unpricedTokens: 110 }),
+      row({ model: 'claude-opus-5-5', costUsd: 2, tokens: 160 }),
+    ]), 'provider', 'tokens', []);
+    expect(v.total).toBe(270);
+    expect(v.series.map((s) => [s.key, s.value])).toEqual([['Anthropic', 160], ['OpenAI', 110]]);
+  });
+
+  it('drops providers whose total is zero in the chosen metric', () => {
+    const v = computeSpend(month([row({ model: 'gpt-6.1-sol', tokens: 110, unpricedTokens: 110 })]), 'provider', 'cost', []);
+    expect(v.series).toEqual([]);
+    expect(v.total).toBe(0);
+    expect(v.unpricedTokens).toBe(110);
+  });
+
+  it('splits by workspace in board order, giving each a fixed color and folding past seven into Other', () => {
+    const names = ['w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'];
+    const v = computeSpend(month(names.map((workspace, i) => row({ workspace, costUsd: i + 1 }))), 'workspace', 'cost', [...names].reverse());
+    expect(v.series.map((s) => s.key)).toEqual(['w9', 'w8', 'w7', 'w6', 'w5', 'w4', 'w3', 'Other']);
+    expect(v.series[0]).toEqual({ key: 'w9', color: SERIES_COLORS[0], value: 9 });
+    expect(v.series.at(-1)).toEqual({ key: 'Other', color: 'var(--ink-3)', value: 3 }); // w2 + w1
+    expect(v.days[0]!.values.Other).toBe(3);
+  });
+
+  it('places workspaces the board does not list after the known ones, alphabetically', () => {
+    const v = computeSpend(month([
+      row({ workspace: 'zeta', costUsd: 1 }), row({ workspace: 'alpha', costUsd: 1 }), row({ workspace: 'known', costUsd: 1 }),
+    ]), 'workspace', 'cost', ['known']);
+    expect(v.series.map((s) => s.key)).toEqual(['known', 'alpha', 'zeta']);
   });
 });

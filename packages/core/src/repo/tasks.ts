@@ -15,7 +15,7 @@ import { buildReviewBrief } from '../reviewBrief.js';
 import { parseFailureComment, summarizeFailure, type ParsedFailure } from '../failure.js';
 import { classifyFailureNote, parseFailureTriageFeedbackComment, summarizeFailureTriage } from '../failureTriage.js';
 import { deliveryByTaskIds } from './delivery.js';
-import { tokenAggregateFor, tokenBreakdownFor } from './metrics.js';
+import { tokenAggregateFor, tokenBreakdownFor, costByTaskIds } from './metrics.js';
 import { nowIso } from '../time.js';
 import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 import { getKv } from './kv.js';
@@ -403,11 +403,12 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const intakes = intakeByTaskIds(db, rows);
   const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
   const intakeSettings = storedIntakeSettings(db);
+  const costs = costByTaskIds(db, ids);
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
     reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null,
     queueGate: queueGateFor(r, intakes.get(r.id) ?? null, intakeSettings),
-    submission: r.status === 'in_review' ? submissionRef(db, r) : null }));
+    submission: r.status === 'in_review' ? submissionRef(db, r) : null, costUsd: costs.get(r.id) ?? null }));
 }
 
 /** The current submission's identity for a list row (see Task.submission). */

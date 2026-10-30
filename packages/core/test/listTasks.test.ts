@@ -2,8 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { makeTestDb } from './helpers.js';
 import { createTask } from '../src/ops/createTask.js';
 import { listTasks } from '../src/ops/listTasks.js';
+import { addTaskMetrics } from '../src/ops/addTaskMetrics.js';
 
 describe('listTasks', () => {
+  it("carries each task's summed reported cost, null when nothing priced was reported", () => {
+    const db = makeTestDb();
+    const priced = createTask(db, { title: 'Priced', spec: 'S', acceptanceCriteria: 'A' });
+    const unpriced = createTask(db, { title: 'Unpriced', spec: 'S', acceptanceCriteria: 'A' });
+    createTask(db, { title: 'Silent', spec: 'S', acceptanceCriteria: 'A' });
+    addTaskMetrics(db, priced.key, { tokensIn: 100, tokensOut: 10, costUsd: 1.25 });
+    addTaskMetrics(db, priced.key, { tokensIn: 50, tokensOut: 5, costUsd: 0.5 });
+    addTaskMetrics(db, priced.key, { tokensIn: 50, tokensOut: 5 }); // unpriced report: adds nothing
+    addTaskMetrics(db, unpriced.key, { tokensIn: 80, tokensOut: 8 });
+
+    expect(listTasks(db).map((t) => t.costUsd)).toEqual([1.75, null, null]);
+  });
+
   it('no filter returns all tasks ordered by seq ascending', () => {
     const db = makeTestDb();
     createTask(db, { title: 'Task 1', spec: 'S1', acceptanceCriteria: 'A1' });

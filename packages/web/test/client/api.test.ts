@@ -65,9 +65,9 @@ describe('task dependency API', () => {
   });
 });
 
-describe('token trend API', () => {
+describe('spend API', () => {
   beforeEach(() => {
-    global.fetch = vi.fn(async () => new Response('[]', {
+    global.fetch = vi.fn(async () => new Response('{"month":"2026-10","dataUpTo":null,"rows":[]}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
     })) as unknown as typeof fetch;
@@ -75,20 +75,20 @@ describe('token trend API', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('omits the workspace query only for absent or empty values', async () => {
-    await api.getTokenTrend();
-    await api.getTokenTrend('');
+  it('always sends the month and omits the workspace only for absent or empty values', async () => {
+    await api.getSpend('2026-10');
+    await api.getSpend('2026-10', '');
 
-    expect(fetch).toHaveBeenNthCalledWith(1, '/api/analytics/token-trend', expect.anything());
-    expect(fetch).toHaveBeenNthCalledWith(2, '/api/analytics/token-trend', expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/analytics/spend?month=2026-10', expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/analytics/spend?month=2026-10', expect.anything());
   });
 
   it('encodes workspace names and sends literal all', async () => {
-    await api.getTokenTrend('repo a/α');
-    await api.getTokenTrend('all');
+    await api.getSpend('2026-09', 'repo a/α');
+    await api.getSpend('2026-09', 'all');
 
-    expect(fetch).toHaveBeenNthCalledWith(1, '/api/analytics/token-trend?workspace=repo+a%2F%CE%B1', expect.anything());
-    expect(fetch).toHaveBeenNthCalledWith(2, '/api/analytics/token-trend?workspace=all', expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/analytics/spend?month=2026-09&workspace=repo+a%2F%CE%B1', expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/analytics/spend?month=2026-09&workspace=all', expect.anything());
   });
 });
 

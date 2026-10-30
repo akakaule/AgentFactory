@@ -209,7 +209,7 @@ export function App() {
       )}
       {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={openTask} />}
       {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={openTask} />}
-      {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} />}
+      {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} onOpen={openTask} />}
       {view === 'live' && <LiveView onOpen={openTask} />}
       {view === 'telemetry' && <TelemetryView onOpen={openTask} />}
 

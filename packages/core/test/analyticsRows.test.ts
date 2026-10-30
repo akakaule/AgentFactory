@@ -34,7 +34,7 @@ describe('analyticsRows', () => {
     const { tasks } = analyticsRows(db, at(999));
     expect(tasks).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
-      key: task.key, workspace: 'default', status: 'done',
+      key: task.key, title: 'T', workspace: 'default', status: 'done',
       queueMin: 20, workMin: 60, reviewMin: 60, blockedMin: 0,
       rounds: 0, reopened: false, worker: 'worker-1',
       model: null, tokensIn: null, tokensOut: null, costUsd: null,

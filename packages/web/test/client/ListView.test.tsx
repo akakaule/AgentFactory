@@ -22,6 +22,17 @@ const tasks: Task[] = [
 ];
 
 describe('ListView', () => {
+  it("shows each task's cost, a dash when none is reported", () => {
+    render(<ListView tasks={[
+      { ...makeTask('AF-2', 'Costly task', 'in_progress'), costUsd: 1.5 },
+      { ...makeTask('AF-5', 'Free task', 'backlog'), costUsd: null },
+    ]} onOpen={vi.fn()} />);
+    expect(screen.getByRole('columnheader', { name: 'Cost' })).toBeInTheDocument();
+    const [costly, free] = screen.getAllByRole('row').slice(1);
+    expect(costly!.querySelector('.cost')?.textContent).toBe('$1.50');
+    expect(free!.querySelector('.cost')?.textContent).toBe('—');
+  });
+
   it('renders one row per task, sorted active-first / archive-last', () => {
     render(<ListView tasks={tasks} onOpen={vi.fn()} />);
     const titles = screen.getAllByRole('row').slice(1).map((r) => r.querySelector('.ti')?.textContent);
