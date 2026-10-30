@@ -40,6 +40,7 @@ const deliveryCheckBody = z.object({
   prState: z.string(), checksState: z.string(),
   checksTarget: z.enum(['head', 'merge_commit']).optional(),
   failing: z.array(z.object({ name: z.string(), url: z.string().nullable(), missing: z.boolean().optional() })),
+  checks: z.array(z.object({ name: z.string(), state: z.enum(['passing', 'pending', 'failing']), url: z.string().nullable() })).optional(),
   ciMode: z.enum(CI_MODES).optional(), // the workspace ciMode the checks were judged under (AF-173)
   headSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable().optional(), // the PR head the provider reports
   readStartedAt: z.string().datetime().optional(), // when the provider request began, on the watcher's clock (display only)

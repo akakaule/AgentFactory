@@ -287,6 +287,8 @@ export class Watcher {
       checksState: checks.state,
       checksTarget: result.checksTarget ?? 'head',
       failing: checks.failing,
+      // every check behind the verdict (the provider's verification evidence), for the PR it describes
+      ...(pr === result.pr && result.observed ? { checks: result.observed } : {}),
       ...(judged.ciMode ? { ciMode: judged.ciMode } : {}),
       // the PR head as the host reports it: persisted next to the approved head, so a push after
       // approval marks the approved submission stale (only full SHAs — the board validates them)

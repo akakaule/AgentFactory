@@ -1,6 +1,6 @@
 import type { DB } from '../db.js';
 import { deliveryExhaustionReported } from './retry.js';
-import type { CiMode, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryFailingCheck, RevisionReadTicket, Status } from '../types.js';
+import type { CiMode, DeliverySummary, DeliveryProvider, DeliveryPrState, DeliveryChecksState, DeliveryCheck, DeliveryFailingCheck, RevisionReadTicket, Status } from '../types.js';
 
 export interface DeliveryRow {
   task_id: number; provider: DeliveryProvider; branch: string;
@@ -28,6 +28,8 @@ export interface DeliveryObservation {
    */
   checksTarget?: DeliveryChecksTarget | undefined;
   failing?: DeliveryFailingCheck[] | undefined;
+  /** Every check the poll read, by name (passing ones too) — the provider's verification evidence. */
+  checks?: DeliveryCheck[] | undefined;
   /** The workspace ciMode the watcher judged the checks under; absent or 'legacy' = every check counts. */
   ciMode?: CiMode | undefined;
   /** The PR's head commit as the provider reports it; undefined = not reported (keeps the stored one). */
@@ -44,25 +46,35 @@ export type DeliveryChecksTarget = 'head' | 'merge_commit';
 
 const CI_MODES_RECORDED = new Set<string>(['required', 'none']);
 
-/** The `detail` JSON: the checks holding the delivery up, plus a non-legacy ciMode (no column: #30 is the head). */
-const parseDetail = (detail: string | null): { failing: DeliveryFailingCheck[]; ciMode?: CiMode } => {
+const CHECK_STATES = new Set<string>(['passing', 'pending', 'failing']);
+
+/** The `detail` JSON: the checks holding the delivery up, every check read, plus a non-legacy ciMode (no column: #30 is the head). */
+const parseDetail = (detail: string | null): { failing: DeliveryFailingCheck[]; checks?: DeliveryCheck[]; ciMode?: CiMode } => {
   if (!detail) return { failing: [] };
   try {
-    const o = JSON.parse(detail) as { failing?: unknown; ciMode?: unknown };
+    const o = JSON.parse(detail) as { failing?: unknown; checks?: unknown; ciMode?: unknown };
     const failing = !Array.isArray(o.failing) ? [] : o.failing
       .filter((f): f is { name: string; url?: unknown; missing?: unknown } => typeof f === 'object' && f !== null && typeof (f as { name?: unknown }).name === 'string')
       .map((f) => ({ name: f.name, url: typeof f.url === 'string' ? f.url : null, ...(f.missing === true ? { missing: true } : {}) }));
-    return typeof o.ciMode === 'string' && CI_MODES_RECORDED.has(o.ciMode) ? { failing, ciMode: o.ciMode as CiMode } : { failing };
+    const checks = !Array.isArray(o.checks) ? undefined : o.checks
+      .filter((c): c is { name: string; state: DeliveryCheck['state']; url?: unknown } => typeof c === 'object' && c !== null
+        && typeof (c as { name?: unknown }).name === 'string' && CHECK_STATES.has((c as { state?: unknown }).state as string))
+      .map((c) => ({ name: c.name, state: c.state, url: typeof c.url === 'string' ? c.url : null }));
+    return {
+      failing, ...(checks ? { checks } : {}),
+      ...(typeof o.ciMode === 'string' && CI_MODES_RECORDED.has(o.ciMode) ? { ciMode: o.ciMode as CiMode } : {}),
+    };
   } catch {
     return { failing: [] };
   }
 };
 
-const serializeDetail = (obs: Pick<DeliveryObservation, 'failing' | 'ciMode'>): string | null => {
+const serializeDetail = (obs: Pick<DeliveryObservation, 'failing' | 'checks' | 'ciMode'>): string | null => {
   const failing = obs.failing && obs.failing.length > 0 ? obs.failing : null;
+  const checks = obs.checks && obs.checks.length > 0 ? obs.checks.map((c) => ({ name: c.name, state: c.state, url: c.url })) : null;
   const ciMode = obs.ciMode && CI_MODES_RECORDED.has(obs.ciMode) ? obs.ciMode : null;
-  if (!failing && !ciMode) return null;
-  return JSON.stringify({ ...(failing ? { failing } : {}), ...(ciMode ? { ciMode } : {}) });
+  if (!failing && !checks && !ciMode) return null;
+  return JSON.stringify({ ...(failing ? { failing } : {}), ...(checks ? { checks } : {}), ...(ciMode ? { ciMode } : {}) });
 };
 
 export function toDeliverySummary(r: DeliveryRow): DeliverySummary {

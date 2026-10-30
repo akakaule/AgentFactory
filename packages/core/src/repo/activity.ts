@@ -246,6 +246,14 @@ export function criteriaClaimsFor(db: DB, taskId: number): CriterionClaim[] | nu
   }
   return null;
 }
+/** Every `verify:` attestation the agent reported, oldest first — a dedicated read like criteriaClaimsFor. */
+export function verifyReportsFor(db: DB, taskId: number): Array<Pick<Activity, 'type' | 'actor' | 'body' | 'createdAt'>> {
+  const rows = db.prepare(
+    `SELECT type, actor, body, created_at FROM activity
+     WHERE task_id = ? AND type = 'comment' AND actor = 'agent' AND body LIKE 'verify: %' ORDER BY id ASC`
+  ).all(taskId) as Array<{ type: ActivityType; actor: Actor; body: string; created_at: string }>;
+  return rows.map((r) => ({ type: r.type, actor: r.actor, body: r.body, createdAt: r.created_at }));
+}
 /** Full status history projection for metrics derivation (no limit, id order). */
 export function activitySteps(db: DB, taskId: number): ActivityStep[] {
   const rows = db.prepare(

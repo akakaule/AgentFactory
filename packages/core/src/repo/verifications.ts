@@ -52,3 +52,9 @@ export function bindVerification(db: DB, id: number, submissionId: number, valid
   db.prepare('UPDATE task_verification SET submission_id = ?, valid_for_revision = ? WHERE id = ?')
     .run(submissionId, validForRevision ? 1 : 0, id);
 }
+
+/** Every record of a task, oldest first. */
+export function verificationsFor(db: DB, taskId: number, taskKey: string): Verification[] {
+  const rows = db.prepare('SELECT * FROM task_verification WHERE task_id = ? ORDER BY id ASC').all(taskId) as unknown as VerificationRow[];
+  return rows.map((r) => toVerification(r, taskKey));
+}
