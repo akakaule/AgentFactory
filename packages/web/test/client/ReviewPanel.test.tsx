@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReviewPanel } from '../../client/src/components/ReviewPanel.js';
 import type { TaskDetailView } from '../../client/src/types.js';
+import { nextAction } from '../../client/src/reviewConcerns.js';
 import { af146Brief, af146Review, AF146_CRITERIA, v1Brief } from './fixtures/reviewBrief.js';
 
 vi.mock('../../client/src/api.js', () => ({ api: { getDiff: vi.fn() } }));
@@ -316,5 +317,43 @@ describe('ReviewPanel — revision (AF-148)', () => {
   it('historical tasks (no submission) render without a revision line', () => {
     renderPanel();
     expect(screen.queryByText(/Submission #/)).toBeNull();
+  });
+});
+
+describe('ReviewPanel — next action and what changed (AF-181)', () => {
+  const stale: NonNullable<TaskDetailView['submission']> = {
+    id: 7, stage: 'implementation', executionId: null, branch: 'feature/AF-146-x', headSha: 'a'.repeat(40), baseSha: null, contentHash: null,
+    source: 'origin', observedAt: 't', createdAt: 't', freshness: 'stale',
+    lastObservation: { headSha: 'b'.repeat(40), source: 'git', observedAt: 't2', error: null },
+  };
+  const nextActionText = () => screen.getByLabelText('Next action').textContent;
+
+  it.each([
+    ['must-fix', {}, /^Request changes/],
+    ['clean', { reviewBrief: v1Brief([]), aiReview: null }, /^Approve → deliver$/],
+    ['stale', { submission: stale }, /^Request changes/],
+  ] as const)('the %s next action names an enabled button on the panel', (_name, over, button) => {
+    renderPanel(over as Partial<TaskDetailView>);
+    const sentence = nextAction(task(over as Partial<TaskDetailView>));
+    expect(nextActionText()).toBe(sentence);
+    expect(screen.getByRole('button', { name: button })).toBeEnabled();
+  });
+
+  it('shows the summary\'s first line and the changed-file count', async () => {
+    const diff = ['a.ts', 'b.ts', 'c.ts'].map((f) => [
+      `diff --git a/${f} b/${f}`, `--- a/${f}`, `+++ b/${f}`, '@@ -1,1 +1,1 @@', '-old', '+new',
+    ].join('\n')).join('\n') + '\n';
+    (await getDiffMock()).mockResolvedValue({ branch: 'feature/AF-146-x', baseRef: 'main', diff, commits: 1 });
+    renderPanel({ resultSummary: 'Adds X.\nMore' });
+    const changed = screen.getByRole('group', { name: 'What changed' });
+    expect(within(changed).getByText('Adds X.')).toBeInTheDocument();
+    expect(within(changed).queryByText(/More/)).toBeNull();
+    expect(await within(changed).findByText('3 files')).toBeInTheDocument();
+  });
+
+  it('Open changes calls onOpenChanges once', async () => {
+    const { user, onOpenChanges } = renderPanel();
+    await user.click(within(screen.getByRole('group', { name: 'What changed' })).getByRole('button', { name: 'Open changes' }));
+    expect(onOpenChanges).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-import type { TaskDetailView } from './types.js';
+import type { Stage, TaskDetailView } from './types.js';
 import { defaultDecisions, type ReviewDecisions } from './composeReviewFeedback.js';
 import { criterionLabel } from './reviewText.js';
 
@@ -50,4 +50,29 @@ export function remainingConcerns(task: TaskDetailView, decisions?: ReviewDecisi
     task.status === 'blocked' ? 'Blocked' : null,
     task.status === 'delivering' && delivery?.prState !== 'merged' ? 'PR not merged yet' : null,
   ].filter((c): c is string => c !== null);
+}
+
+/** The approve button's label: implementation approvals on a git-host branch go to delivery. */
+export function approveLabel(stage: Stage, willDeliver: boolean): string {
+  if (stage !== 'implementation') return 'Approve → implementation';
+  return willDeliver ? 'Approve → deliver' : 'Approve';
+}
+
+/**
+ * The one thing to do next, naming only actions the drawer already has (AF-181). `willDeliver`
+ * defaults to the drawer's own rule. null = nothing to suggest for this status.
+ */
+export function nextAction(task: TaskDetailView, willDeliver = task.stage === 'implementation' && task.branch != null): string | null {
+  switch (task.status) {
+    case 'blocked': return 'Unblock or cancel';
+    case 'delivering': return 'Wait for the PR to merge, or pull it back';
+    case 'cancelled': return 'Reopen or archive';
+    case 'in_review': break;
+    default: return null;
+  }
+  if (task.stage === 'implementation' && task.submission?.freshness === 'stale') return 'Request changes: the branch moved';
+  const brief = task.reviewBrief ?? null;
+  if ((brief?.counts.must ?? 0) > 0) return 'Request changes';
+  if (brief?.headline === 'your_call') return 'Decide each your-call issue, then request changes or approve anyway';
+  return approveLabel(task.stage, willDeliver);
 }

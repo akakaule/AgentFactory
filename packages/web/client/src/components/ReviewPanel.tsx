@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ReviewBrief, ReviewGroup, Stage, TaskDetailView } from '../types.js';
+import type { ReviewBrief, ReviewGroup, TaskDetailView } from '../types.js';
 import { api } from '../api.js';
 import { parseUnifiedDiff, type ParsedDiff } from '../diff.js';
 import { defaultDecisions, selectedIssues, type ReviewDecisions } from '../composeReviewFeedback.js';
@@ -10,7 +10,8 @@ import { ReviewEvidence } from './ReviewEvidence.js';
 import { ReviewSendBack } from './ReviewSendBack.js';
 import { ReviewApprove } from './ReviewApprove.js';
 import { ConsensusDiscussion } from './ConsensusDiscussion.js';
-import { remainingConcerns, revisionLines } from '../reviewConcerns.js';
+import { approveLabel, nextAction, remainingConcerns, revisionLines } from '../reviewConcerns.js';
+import { NextAction } from './NextAction.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -35,11 +36,6 @@ const GROUP_SUB: Record<ReviewGroup, string> = {
 type Filter = { kind: 'group'; group: ReviewGroup } | { kind: 'criterion'; id: string } | null;
 type Overlay = { kind: 'evidence'; issueId: string } | { kind: 'sendback' } | { kind: 'approve' } | null;
 
-function approveLabel(stage: Stage, willDeliver: boolean): string {
-  if (stage !== 'implementation') return 'Approve → implementation';
-  return willDeliver ? 'Approve → deliver' : 'Approve';
-}
-
 /** A review's identity: a new review (or a newer result) resets the human's decisions — also one
  *  that reuses the same issue ids, so a decision never carries over to a different finding. */
 const signatureOf = (brief: ReviewBrief | null) =>
@@ -61,18 +57,17 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
 
   useEffect(() => { setDecisions(defaultDecisions(brief)); setFilter(null); }, [signature]);
 
-  // The evidence panel reads the task's existing diff — fetched on first use, again when the task changes.
+  // The "What changed" row and the evidence panel read the task's existing diff — fetched once, again when the task changes.
   const branchLink = task.links.some((l) => l.kind === 'branch');
-  const evidenceOpen = overlay?.kind === 'evidence';
   useEffect(() => {
-    if (!evidenceOpen || diff?.key === task.updatedAt) return;
+    if (diff?.key === task.updatedAt) return;
     if (!branchLink) { setDiff({ key: task.updatedAt, parsed: null, error: 'No branch to show the code from.' }); return; }
     let alive = true;
     api.getDiff(task.key)
       .then((d) => { if (alive) setDiff({ key: task.updatedAt, parsed: parseUnifiedDiff(d.diff), error: null }); })
       .catch((e: Error) => { if (alive) setDiff({ key: task.updatedAt, parsed: null, error: e.message }); });
     return () => { alive = false; };
-  }, [evidenceOpen, task.key, task.updatedAt, branchLink, diff?.key]);
+  }, [task.key, task.updatedAt, branchLink, diff?.key]);
 
   const names = useMemo(() => shortNames(brief?.reviewers ?? []), [brief?.reviewers]);
   const readOnly = brief?.headline === 'pending';
@@ -81,6 +76,9 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
   const label = approveLabel(task.stage, willDeliver);
   const revision = revisionLines(task);
   const concerns = remainingConcerns(task, decisions);
+  const next = nextAction(task, willDeliver);
+  const summaryLine = task.resultSummary?.split('\n')[0]?.trim() || null;
+  const fileCount = diff?.key === task.updatedAt ? diff.parsed?.files.length ?? null : null;
   const approveBlocked = task.stage === 'implementation' && task.submission?.freshness === 'stale';
 
   const approveNow = () => {
@@ -149,6 +147,13 @@ export function ReviewPanel({ task, willDeliver, onApprove, onRequestChanges, on
             </ol>
           </div>
         )}
+        <NextAction sentence={next} />
+        <div className="af-rv-changed" role="group" aria-label="What changed">
+          <span className="eyebrow">What changed</span>
+          {summaryLine && <span className="sum">{summaryLine}</span>}
+          {fileCount !== null && <span className="files">{`${fileCount} ${fileCount === 1 ? 'file' : 'files'}`}</span>}
+          <button type="button" className="af-rv-link" onClick={onOpenChanges}>Open changes</button>
+        </div>
         <div className="actions">
           {blocking ? <>{requestButton}{approveButton}</> : <>{approveButton}{requestButton}</>}
         </div>

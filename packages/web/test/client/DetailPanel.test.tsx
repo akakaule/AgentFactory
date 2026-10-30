@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailPanel } from '../../client/src/components/DetailPanel.js';
 import type { TaskDetail } from '../../client/src/types.js';
 import { v1Brief } from './fixtures/reviewBrief.js';
+import { nextAction } from '../../client/src/reviewConcerns.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
@@ -521,6 +522,39 @@ describe('DetailPanel', () => {
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-17', 'queued');
   });
 
+  // AF-181: outside review the drawer renders the same next-action line in the status's own
+  // section, beside its primary control; every action the sentence names is an enabled button.
+  it.each([
+    ['blocked', {}, 'Unblock or cancel', ['Unblock → Queued'], ['Cancel task']],
+    ['delivering', {
+      delivery: { provider: 'github', branch: 'b', prUrl: null, prId: null, prState: 'open', checksState: 'pending', failing: [], checkedAt: null, stateChangedAt: 't' },
+    }, 'Wait for the PR to merge, or pull it back', ['Re-queue'], []],
+    ['cancelled', {}, 'Reopen or archive', ['Reopen', 'Archive'], []],
+  ] as const)('a %s task renders its next action beside the enabled drawer buttons', async (status, over, sentence, buttons, elsewhere) => {
+    const mocked = await getApiMock();
+    const t = { ...inReviewTask, key: 'AF-19', status, ...over } as TaskDetail;
+    mocked.getTask.mockResolvedValue(t);
+    expect(nextAction(t)).toBe(sentence);
+    render(<DetailPanel taskKey="AF-19" onClose={vi.fn()} onChanged={vi.fn()} />);
+    await screen.findByText('Journey');
+    const line = screen.getByLabelText('Next action');
+    expect(line.textContent).toBe(sentence);
+    // the review panel's controls never appear for a non-review status
+    expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Request changes/ })).toBeNull();
+    const section = line.parentElement!;
+    for (const name of buttons) expect(within(section).getByRole('button', { name })).toBeEnabled();
+    for (const name of elsewhere) expect(screen.getByRole('button', { name })).toBeEnabled();
+  });
+
+  it('shows no next action for a status without one', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({ ...inReviewTask, key: 'AF-19', status: 'queued' } as TaskDetail);
+    render(<DetailPanel taskKey="AF-19" onClose={vi.fn()} onChanged={vi.fn()} />);
+    await screen.findByText('Journey');
+    expect(screen.queryByLabelText('Next action')).toBeNull();
+  });
+
   it('shows the claimant and a Release claim button on an in_progress task', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(inProgressTask);
@@ -593,7 +627,7 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    await screen.findByText('Implementation complete');
+    await screen.findByText('Implementation complete', { selector: '.af-result' });
     expect(screen.queryByRole('button', { name: 'Release claim' })).not.toBeInTheDocument();
   });
 
@@ -633,7 +667,7 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    expect(await screen.findByText('Implementation complete')).toBeInTheDocument();
+    expect(await screen.findByText('Implementation complete', { selector: '.af-result' })).toBeInTheDocument();
   });
 
   it('does NOT render ReviewActions for a backlog task', async () => {
@@ -712,7 +746,7 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    await screen.findByText('Implementation complete');
+    await screen.findByText('Implementation complete', { selector: '.af-result' });
     expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
   });
 
@@ -735,7 +769,7 @@ describe('DetailPanel', () => {
 
     render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    await screen.findByText('Implementation complete');
+    await screen.findByText('Implementation complete', { selector: '.af-result' });
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
   });
 
@@ -1063,7 +1097,7 @@ describe('DetailPanel', () => {
       });
       const user = userEvent.setup();
       render(<DetailPanel taskKey="AF-11" onClose={vi.fn()} onChanged={vi.fn()} />);
-      await screen.findByText('Implementation complete');
+      await screen.findByText('Implementation complete', { selector: '.af-result' });
       await user.click(screen.getByRole('tab', { name: 'Changes' }));
 
       expect(await screen.findByText('new line')).toBeInTheDocument();
