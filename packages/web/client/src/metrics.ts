@@ -2,7 +2,7 @@
    Everything derives from the per-task rows GET /api/analytics ships. */
 
 export interface AnalyticsTaskRow {
-  key: string; workspace: string; status: string; doneAt: string | null;
+  key: string; title?: string; workspace: string; status: string; doneAt: string | null; // title optional: a stale server build omits it
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number;
   deliveringMin?: number; // optional: a stale server build omits it (pre-delivering-bucket)
   rounds: number; reopened: boolean; claimCount: number; worker: string | null;
@@ -15,7 +15,9 @@ export interface StrandedRelease { worker: string | null; workspace: string; at:
 export interface FailureEvent { reason: string; workspace: string; at: string; }
 export interface IntakeAnalytics { assessments: number; unavailable: number; unavailableRate: number; latencyP50: number | null; latencyP95: number | null; failuresByKind: Record<string, number>; coverage: { numerator: number; denominator: number }; reassessments: number; overrides: number; authFailuresIncluded: false; }
 export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; intake?: IntakeAnalytics; }
-export interface TokenTrendPoint { date: string; tokensIn: number; tokensOut: number; }
+/** GET /api/analytics/spend: one UTC month of reported usage by day x workspace x model. */
+export interface SpendRow { date: string; workspace: string; model: string | null; costUsd: number; tokens: number; unpricedTokens: number; }
+export interface SpendMonth { month: string; dataUpTo: string | null; rows: SpendRow[]; }
 
 /** Friendly labels for known supervisor failure reasons; unknown reasons render as-is. */
 export const FAILURE_LABELS: Record<string, string> = {
@@ -26,10 +28,17 @@ export const FAILURE_LABELS: Record<string, string> = {
 
 export type StageKey = 'queue' | 'work' | 'review' | 'blocked' | 'delivering';
 export interface Stage { key: StageKey; label: string; hue: string; val: number; }
-export interface WorkerStats {
-  name: string; ws: string; claims: number; done: number;
-  firstPass: number | null; medWork: number | null; releases: number;
-  tokens: number | null; cost: number | null; branch: string | null;
+/** One done task's spend. Token/cost fields are null when the task never reported them. */
+export interface TaskSpend {
+  key: string; title: string; workspace: string; doneAt: string;
+  tokensIn: number | null; tokensOut: number | null; tokens: number | null; cost: number | null;
+}
+/** Per-workspace spend over done tasks in range. Token/cost fields are null when no task
+ *  in the workspace reported them (unreported is n/a, never zero). */
+export interface WorkspaceSpend {
+  workspace: string; done: number; reported: number;
+  tokensIn: number | null; tokensOut: number | null; tokens: number | null;
+  cost: number | null; costReported: number; costPerTask: number | null;
 }
 export interface ComputedAnalytics {
   intake?: IntakeAnalytics;
@@ -49,7 +58,8 @@ export interface ComputedAnalytics {
   tokensByBranch: Array<{ branch: string; tokens: number }>; tokBranchMax: number;
   tokensByStage: Array<{ stage: string; tokens: number }>; tokStageMax: number;
   tokenCoverage: { reported: number; total: number };
-  workers: WorkerStats[];
+  workspaceSpend: WorkspaceSpend[];
+  taskSpend: TaskSpend[];
   failures: { byReason: Array<{ reason: string; label: string; count: number }>; total: number; max: number };
 }
 
@@ -101,10 +111,6 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
   const doneAll = data.tasks.filter((t) => t.status === 'done' && t.doneAt && matchWs(t.workspace));
   const doneIn = doneAll.filter((t) => doneTs(t) >= cutoff);
   const donePrev = prevCutoff === null ? [] : doneAll.filter((t) => doneTs(t) >= prevCutoff && doneTs(t) < cutoff);
-  const inProg = data.tasks.filter((t) => t.status === 'in_progress' && t.worker && matchWs(t.workspace));
-  const stranded = data.stranded
-    .filter((s) => matchWs(s.workspace) && Date.parse(s.at) >= cutoff)
-    .map((s) => ({ ...s, worker: s.worker ?? UNLABELED }));
 
   const N = doneIn.length;
   const firstPass = doneIn.filter((t) => t.rounds === 0).length;
@@ -190,33 +196,30 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
   const tokStageMax = Math.max(1, ...tokensByStage.map((x) => x.tokens));
   const tokenCoverage = { reported: tokRep.length, total: N };
 
-  const names = new Set<string>();
-  doneIn.forEach((t) => { if (t.worker) names.add(t.worker); });
-  inProg.forEach((t) => { if (t.worker) names.add(t.worker); });
-  stranded.forEach((s) => names.add(s.worker));
-  const workers: WorkerStats[] = [...names].map((name) => {
-    const done = doneIn.filter((t) => t.worker === name);
-    const claimsInProg = inProg.filter((t) => t.worker === name).length;
-    const releases = stranded.filter((s) => s.worker === name).length;
-    const fp = done.filter((t) => t.rounds === 0).length;
-    const rep = done.filter((t) => t.costUsd != null);
-    const ws0 = done[0]?.workspace ?? inProg.find((t) => t.worker === name)?.workspace
-      ?? data.stranded.find((s) => (s.worker ?? UNLABELED) === name)?.workspace ?? '—';
-    // worker is 1:1 with a task, so its first branch-bearing task is its feature branch
-    const branch = done.find((t) => t.branch)?.branch
-      ?? inProg.find((t) => t.worker === name && t.branch)?.branch ?? null;
+  const sumOr = (rows: AnalyticsTaskRow[], f: (t: AnalyticsTaskRow) => number) =>
+    rows.length ? rows.reduce((s, t) => s + f(t), 0) : null;
+  const wsNames = [...new Set(doneIn.map((t) => t.workspace))];
+  const workspaceSpend: WorkspaceSpend[] = wsNames.map((workspace) => {
+    const done = doneIn.filter((t) => t.workspace === workspace);
+    const rep = done.filter((t) => t.tokensIn != null);
+    const priced = done.filter((t) => t.costUsd != null);
+    const tokensIn = sumOr(rep, (t) => t.tokensIn ?? 0);
+    const tokensOut = sumOr(rep, (t) => t.tokensOut ?? 0);
+    const cost = sumOr(priced, (t) => t.costUsd ?? 0);
     return {
-      name, ws: ws0,
-      claims: done.length + claimsInProg + releases,
-      done: done.length,
-      firstPass: done.length ? pct(fp, done.length) : null,
-      medWork: median(done.map((t) => t.workMin)),
-      releases,
-      tokens: rep.length ? rep.reduce((s, t) => s + (t.tokensIn ?? 0) + (t.tokensOut ?? 0), 0) : null,
-      cost: rep.length ? rep.reduce((s, t) => s + (t.costUsd ?? 0), 0) : null,
-      branch,
+      workspace, done: done.length, reported: rep.length,
+      tokensIn, tokensOut, tokens: tokensIn == null ? null : tokensIn + (tokensOut ?? 0),
+      cost, costReported: priced.length, costPerTask: cost == null ? null : cost / priced.length,
     };
-  }).sort((a, b) => b.done - a.done || b.claims - a.claims);
+  }).sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1) || (b.tokens ?? -1) - (a.tokens ?? -1));
+
+  // Most expensive first; tasks with tokens but no price next, unreported last.
+  const taskSpend: TaskSpend[] = doneIn.map((t) => ({
+    key: t.key, title: t.title ?? '', workspace: t.workspace, doneAt: t.doneAt!,
+    tokensIn: t.tokensIn, tokensOut: t.tokensOut,
+    tokens: t.tokensIn == null ? null : t.tokensIn + (t.tokensOut ?? 0),
+    cost: t.costUsd,
+  })).sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1) || (b.tokens ?? -1) - (a.tokens ?? -1));
 
   // "Why tasks fail": every supervisor failure occurrence in range/workspace, by reason.
   // Tolerate a payload without `failures` (a stale server build that predates this field).
@@ -229,5 +232,118 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     .sort((a, b) => b.count - a.count);
   const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
 
-  return { hasData: N > 0, ...(data.intake ? { intake: data.intake } : {}), kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workers, failures };
+  return { hasData: N > 0, ...(data.intake ? { intake: data.intake } : {}), kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workspaceSpend, taskSpend, failures };
+}
+
+export function fmtUsd(n: number): string {
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ---------------------------------------------------------------- spend panel
+
+export type Provider = 'Anthropic' | 'OpenAI' | 'Other';
+export type SpendSplit = 'provider' | 'workspace';
+export type SpendMetric = 'cost' | 'tokens';
+const PROVIDERS: Provider[] = ['Anthropic', 'OpenAI', 'Other'];
+
+/** Validated (CVD + contrast) against the dark panel surface. Fixed per provider, never by rank. */
+export const PROVIDER_COLORS: Record<Provider, string> = { Anthropic: '#9085e9', OpenAI: '#199e70', Other: '#c98500' };
+/** Validated dark categorical order for the workspace split: assigned in order, never cycled. */
+export const SERIES_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+const FOLDED = 'Other';
+const FOLDED_COLOR = 'var(--ink-3)';
+const MAX_NAMED = 7; // the 8th slot and beyond fold into Other
+
+export function providerOf(model: string | null): Provider {
+  if (!model) return 'Other';
+  if (/claude|anthropic/i.test(model)) return 'Anthropic';
+  if (/gpt|codex|openai/i.test(model)) return 'OpenAI';
+  return 'Other';
+}
+
+/** The current UTC month first, then the `n - 1` before it, as YYYY-MM. */
+export function recentMonths(now: number, n: number): string[] {
+  const d = new Date(now);
+  return Array.from({ length: n }, (_, i) =>
+    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
+}
+
+export function monthLabel(month: string): string {
+  return new Date(`${month}-01T00:00:00.000Z`).toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+/** 0..max in 4-5 round steps (1, 1.5, 2, 2.5, 5 x 10^k); [0] when there is nothing to scale. */
+export function niceTicks(max: number): number[] {
+  if (max <= 0) return [0];
+  const raw = max / 4;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const step = ([1, 1.5, 2, 2.5, 5, 10].find((f) => raw / pow <= f) ?? 10) * pow;
+  const count = Math.ceil(max / step - 1e-9);
+  return Array.from({ length: count + 1 }, (_, i) => Number((i * step).toFixed(10)));
+}
+
+export interface SpendSeries { key: string; color: string; value: number; }
+export interface SpendDay { date: string; values: Record<string, number>; total: number; }
+export interface SpendView {
+  total: number; series: SpendSeries[]; days: SpendDay[];
+  ticks: number[]; max: number; unpricedTokens: number;
+}
+
+/**
+ * Group one month of spend rows into the stacked series the panel draws. Provider series keep a
+ * fixed order and color; workspace series follow the board's workspace order (unknown names after,
+ * alphabetically), the first seven named and the rest folded into Other. Series with nothing in the
+ * chosen metric are dropped. Unpriced tokens never count as $0: they ride along as their own total.
+ */
+export function computeSpend(month: SpendMonth, split: SpendSplit, metric: SpendMetric, workspaceOrder: string[]): SpendView {
+  const valueOf = (r: SpendRow) => (metric === 'cost' ? r.costUsd : r.tokens);
+  const rawKey = (r: SpendRow) => (split === 'provider' ? providerOf(r.model) : r.workspace);
+
+  const totals = new Map<string, number>();
+  for (const r of month.rows) totals.set(rawKey(r), (totals.get(rawKey(r)) ?? 0) + valueOf(r));
+  const present = [...totals].filter(([, v]) => v > 0).map(([k]) => k);
+
+  let ordered: string[];
+  const colorOf = new Map<string, string>();
+  const keyOf = new Map<string, string>(); // raw key -> drawn series key (folding)
+  if (split === 'provider') {
+    ordered = PROVIDERS.filter((p) => present.includes(p));
+    for (const p of ordered) { colorOf.set(p, PROVIDER_COLORS[p as Provider]); keyOf.set(p, p); }
+  } else {
+    const rank = (w: string) => { const i = workspaceOrder.indexOf(w); return i === -1 ? Infinity : i; };
+    const byBoard = present.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+    const named = byBoard.length > MAX_NAMED + 1 ? byBoard.slice(0, MAX_NAMED) : byBoard;
+    named.forEach((w, i) => { colorOf.set(w, SERIES_COLORS[i]!); keyOf.set(w, w); });
+    ordered = [...named];
+    if (named.length < byBoard.length) {
+      for (const w of byBoard.slice(named.length)) keyOf.set(w, FOLDED);
+      colorOf.set(FOLDED, FOLDED_COLOR);
+      ordered.push(FOLDED);
+    }
+  }
+
+  const [y, m] = month.month.split('-').map(Number) as [number, number];
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const days: SpendDay[] = Array.from({ length: daysInMonth }, (_, i) => ({
+    date: `${month.month}-${String(i + 1).padStart(2, '0')}`, values: {}, total: 0,
+  }));
+  const series = new Map<string, number>();
+  let unpricedTokens = 0;
+  for (const r of month.rows) {
+    unpricedTokens += r.unpricedTokens;
+    const key = keyOf.get(rawKey(r));
+    const v = valueOf(r);
+    if (key === undefined || v <= 0) continue;
+    const day = days[Number(r.date.slice(8, 10)) - 1];
+    if (!day) continue;
+    day.values[key] = (day.values[key] ?? 0) + v;
+    day.total += v;
+    series.set(key, (series.get(key) ?? 0) + v);
+  }
+  const ticks = niceTicks(Math.max(0, ...days.map((d) => d.total)));
+  return {
+    total: [...series.values()].reduce((a, b) => a + b, 0),
+    series: ordered.map((key) => ({ key, color: colorOf.get(key)!, value: series.get(key) ?? 0 })),
+    days, ticks, max: ticks.at(-1) || 1, unpricedTokens,
+  };
 }

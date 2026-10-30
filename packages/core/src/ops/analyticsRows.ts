@@ -11,6 +11,7 @@ import { parseIntakeComment, parseIntakeClaimComment, intakeOverrideRevision } f
 
 export interface AnalyticsTaskRow extends TaskMetricsView {
   key: string;
+  title: string;
   workspace: string;
   status: Status;
   worker: string | null; // claimed_by of the last/current claim; null = unlabeled
@@ -37,8 +38,8 @@ export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRe
  */
 export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData {
   const rows = db.prepare(
-    'SELECT task.id, task.key, task.status, task.claimed_by, task.branch, w.name AS workspace FROM task JOIN workspace w ON w.id = task.workspace_id ORDER BY task.id'
-  ).all() as Array<{ id: number; key: string; status: Status; claimed_by: string | null; branch: string | null; workspace: string }>;
+    'SELECT task.id, task.key, task.title, task.status, task.claimed_by, task.branch, w.name AS workspace FROM task JOIN workspace w ON w.id = task.workspace_id ORDER BY task.id'
+  ).all() as Array<{ id: number; key: string; title: string; status: Status; claimed_by: string | null; branch: string | null; workspace: string }>;
 
   const ts = now();
   const tasks: AnalyticsTaskRow[] = [];
@@ -72,7 +73,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
     tasks.push({
       ...derived,
       ...tokenAggregateFor(db, r.id),
-      key: r.key, workspace: r.workspace, status: r.status, worker: r.claimed_by, branch: r.branch,
+      key: r.key, title: r.title, workspace: r.workspace, status: r.status, worker: r.claimed_by, branch: r.branch,
       stageTokens: stageTokensFor(db, r.id),
       aiReviewFindings: findingsAtApproval(steps),
     });

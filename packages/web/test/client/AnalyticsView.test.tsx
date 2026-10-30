@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AnalyticsView } from '../../client/src/views/AnalyticsView.js';
-import type { AnalyticsData, AnalyticsTaskRow } from '../../client/src/metrics.js';
+import { monthLabel, recentMonths, type AnalyticsData, type AnalyticsTaskRow, type SpendMonth } from '../../client/src/metrics.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
     getAnalytics: vi.fn(),
-    getTokenTrend: vi.fn(),
+    getSpend: vi.fn(),
     listWorkspaces: vi.fn().mockResolvedValue([]),
   },
   eventsUrl: () => '/events',
@@ -17,7 +17,7 @@ async function getApiMock() {
   const mod = await import('../../client/src/api.js');
   return mod.api as unknown as {
     getAnalytics: ReturnType<typeof vi.fn>;
-    getTokenTrend: ReturnType<typeof vi.fn>;
+    getSpend: ReturnType<typeof vi.fn>;
     listWorkspaces: ReturnType<typeof vi.fn>;
   };
 }
@@ -26,7 +26,7 @@ let versionBump: (() => void) | undefined;
 beforeEach(async () => {
   vi.resetAllMocks();
   const mocked = await getApiMock();
-  mocked.getTokenTrend.mockResolvedValue([]);
+  mocked.getSpend.mockResolvedValue(spend(0));
   mocked.listWorkspaces.mockResolvedValue([]);
   versionBump = undefined;
   globalThis.EventSource = vi.fn().mockImplementation(() => ({
@@ -45,8 +45,18 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const trend = (tokensIn: number, tokensOut: number, date = '2026-08-10') =>
-  [{ date, tokensIn, tokensOut }];
+const MONTHS = recentMonths(Date.now(), 3);
+/** One month of spend: an Anthropic row in alpha and (optionally) a partly unpriced OpenAI row in beta. */
+function spend(anthropic: number, openai = 0, month = MONTHS[0]!): SpendMonth {
+  return {
+    month, dataUpTo: anthropic || openai ? `${month}-02T10:00:00.000Z` : null,
+    rows: [
+      ...(anthropic ? [{ date: `${month}-02`, workspace: 'alpha', model: 'claude-opus-5-5', costUsd: anthropic, tokens: 1000, unpricedTokens: 0 }] : []),
+      ...(openai ? [{ date: `${month}-02`, workspace: 'beta', model: 'gpt-6.1-sol', costUsd: openai, tokens: 500, unpricedTokens: 200 }] : []),
+    ],
+  };
+}
+const headline = (panel: HTMLElement) => panel.querySelector('.an-spend-total')?.textContent;
 
 const workspace = (id: number, name: string) => ({
   id, name, repoPath: `C:/Git/${name}`, policy: null, verifyCommand: null, hasPat: false,
@@ -57,7 +67,7 @@ let seq = 0;
 function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
   seq += 1;
   return {
-    key: `AF-${seq}`, workspace: 'default', status: 'done', doneAt: new Date(Date.now() - 3600000).toISOString(),
+    key: `AF-${seq}`, title: `Task ${seq}`, workspace: 'default', status: 'done', doneAt: new Date(Date.now() - 3600000).toISOString(),
     queueMin: 20, workMin: 40, reviewMin: 60, blockedMin: 0, deliveringMin: 0,
     rounds: 0, reopened: false, claimCount: 1, worker: 'worker-1', branch: `feature/AF-${seq}-t`,
     stageTokens: { implementation: 12000 },
@@ -68,154 +78,246 @@ function doneRow(over: Partial<AnalyticsTaskRow> = {}): AnalyticsTaskRow {
 }
 
 describe('AnalyticsView', () => {
-  it('renders the 30-day input/output chart even when there are no completed tasks', async () => {
+  it('lists each task with its tokens and cost and opens it on click', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [
+        doneRow({ key: 'AF-7', title: 'Add search', workspace: 'alpha', tokensIn: 40000, tokensOut: 2000, costUsd: 1.25 }),
+        doneRow({ key: 'AF-8', title: 'Fix scroll', workspace: 'beta', tokensIn: null, tokensOut: null, costUsd: null, model: null }),
+      ],
+      stranded: [], failures: [],
+    } satisfies AnalyticsData);
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} onOpen={onOpen} />);
+
+    const panel = await screen.findByRole('region', { name: 'Spend by task' });
+    const rows = within(panel).getAllByRole('row').slice(1);
+    expect(within(rows[0]!).getByText('AF-7')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('Add search')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('40k')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('42k')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('$1.25')).toBeInTheDocument();
+    expect(within(rows[1]!).getAllByText('n/a')).toHaveLength(4);
+
+    await user.click(rows[1]!);
+    expect(onOpen).toHaveBeenCalledWith('AF-8');
+  });
+
+  it('caps the task spend table and reveals the rest on demand', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: Array.from({ length: 30 }, (_, i) => doneRow({ costUsd: i + 1 })),
+      stranded: [], failures: [],
+    } satisfies AnalyticsData);
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    const panel = await screen.findByRole('region', { name: 'Spend by task' });
+    expect(within(panel).getAllByRole('row')).toHaveLength(21); // header + 20
+    expect(within(panel).getByText('$30.00')).toBeInTheDocument(); // most expensive first
+    await user.click(within(panel).getByRole('button', { name: 'Show all 30 tasks' }));
+    expect(within(panel).getAllByRole('row')).toHaveLength(31);
+  });
+
+  it('shows tokens and cost per workspace', async () => {
+    const mocked = await getApiMock();
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [
+        doneRow({ workspace: 'alpha', tokensIn: 40000, tokensOut: 2000, costUsd: 1.25 }),
+        doneRow({ workspace: 'alpha', tokensIn: 10000, tokensOut: 1000, costUsd: 0.75 }),
+        doneRow({ workspace: 'beta', tokensIn: null, tokensOut: null, costUsd: null, model: null }),
+      ],
+      stranded: [], failures: [],
+    } satisfies AnalyticsData);
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    const panel = await screen.findByRole('region', { name: 'Spend by workspace' });
+    const alpha = within(panel).getByRole('row', { name: /alpha/ });
+    expect(within(alpha).getByText('50k')).toBeInTheDocument();
+    expect(within(alpha).getByText('3k')).toBeInTheDocument();
+    expect(within(alpha).getByText('$2.00')).toBeInTheDocument();
+    expect(within(alpha).getByText('$1.00')).toBeInTheDocument();
+    const beta = within(panel).getByRole('row', { name: /beta/ });
+    expect(within(beta).getAllByText('n/a')).toHaveLength(5);
+    expect(within(panel).getByText('$2.00 total')).toBeInTheDocument();
+  });
+
+  it('renders the monthly spend panel even when there are no completed tasks', async () => {
     const mocked = await getApiMock();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
-    mocked.getTokenTrend.mockResolvedValue(trend(1200, 300));
+    mocked.getSpend.mockResolvedValue(spend(2, 0.25));
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
 
     expect(await screen.findByText('No completed tasks in this range')).toBeInTheDocument();
-    const panel = screen.getByRole('region', { name: 'Token spend' });
-    expect(within(panel).getByText('daily · last 30 days UTC')).toBeInTheDocument();
-    expect(within(panel).getByText('Input')).toBeInTheDocument();
-    expect(within(panel).getByText('Output')).toBeInTheDocument();
-    expect(within(panel).getByTitle('2026-08-10 · input 1,200 · output 300')).toBeInTheDocument();
-    expect(within(panel).getByText('1.2k input · 300 output')).toBeInTheDocument();
+    const panel = screen.getByRole('region', { name: 'Spend' });
+    expect(within(panel).getByText(`Total spend, all workspaces, ${monthLabel(MONTHS[0]!)}`)).toBeInTheDocument();
+    await waitFor(() => expect(headline(panel)).toBe('$2.25'));
+    const legend = within(panel.querySelector<HTMLElement>('.an-spend-legend')!);
+    expect(legend.getByText('Anthropic')).toBeInTheDocument();
+    expect(legend.getByText('$2.00')).toBeInTheDocument();
+    expect(legend.getByText('OpenAI')).toBeInTheDocument();
+    expect(legend.getByText('$0.25')).toBeInTheDocument();
+    expect(within(panel).getByText(/200 tokens have no price/)).toBeInTheDocument();
+    expect(within(panel).getByTitle(`${MONTHS[0]}-02 · Anthropic $2.00 · OpenAI $0.25`)).toBeInTheDocument();
+    expect(mocked.getSpend).toHaveBeenCalledWith(MONTHS[0], undefined);
   });
 
-  it('uses an empty UI sentinel while passing selected workspace names, including literal all', async () => {
+  it('fetches the selected month and workspace, passing literal all through', async () => {
     const mocked = await getApiMock();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
-    mocked.getTokenTrend.mockResolvedValue([]);
-    mocked.listWorkspaces.mockResolvedValue([
-      workspace(1, 'alpha'),
-      workspace(2, 'all'),
-    ]);
+    mocked.listWorkspaces.mockResolvedValue([workspace(1, 'alpha'), workspace(2, 'all')]);
     const user = userEvent.setup();
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
-    const select = await screen.findByRole('combobox', { name: 'Token spend workspace' });
+    const select = await screen.findByRole('combobox', { name: 'Spend workspace' });
 
     expect(select).toHaveValue('');
-    expect(mocked.getTokenTrend).toHaveBeenNthCalledWith(1, undefined);
+    expect(mocked.getSpend).toHaveBeenNthCalledWith(1, MONTHS[0], undefined);
 
     await user.selectOptions(select, 'alpha');
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenLastCalledWith('alpha'));
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenLastCalledWith(MONTHS[0], 'alpha'));
+
+    await user.click(screen.getByRole('button', { name: monthLabel(MONTHS[1]!) }));
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenLastCalledWith(MONTHS[1], 'alpha'));
 
     await user.selectOptions(select, 'all');
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenLastCalledWith('all'));
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenLastCalledWith(MONTHS[1], 'all'));
 
     await user.selectOptions(select, '');
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenLastCalledWith(undefined));
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenLastCalledWith(MONTHS[1], undefined));
   });
 
-  it('ignores stale results and stale rejections after the chart workspace changes', async () => {
+  it('switches between cost and tokens and between provider and workspace splits without refetching', async () => {
     const mocked = await getApiMock();
-    const first = deferred<Array<{ date: string; tokensIn: number; tokensOut: number }>>();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
-    mocked.listWorkspaces.mockResolvedValue([workspace(1, 'alpha')]);
-    mocked.getTokenTrend
-      .mockReturnValueOnce(first.promise)
-      .mockResolvedValueOnce(trend(2200, 400));
+    mocked.getSpend.mockResolvedValue(spend(2, 0.25));
     const user = userEvent.setup();
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'Token spend workspace' }), 'alpha');
-    const panel = screen.getByRole('region', { name: 'Token spend' });
-    expect(await within(panel).findByText('2.2k input · 400 output')).toBeInTheDocument();
+    const panel = screen.getByRole('region', { name: 'Spend' });
+    await waitFor(() => expect(headline(panel)).toBe('$2.25'));
 
-    await act(async () => { first.resolve(trend(100, 10)); });
-    expect(within(panel).getByText('2.2k input · 400 output')).toBeInTheDocument();
-    expect(within(panel).queryByText('100 input · 10 output')).not.toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Tokens' }));
+    expect(headline(panel)).toBe('1.5k');
+    expect(within(panel).getByText(`Total tokens, all workspaces, ${monthLabel(MONTHS[0]!)}`)).toBeInTheDocument();
 
-    const staleFailure = deferred<Array<{ date: string; tokensIn: number; tokensOut: number }>>();
-    mocked.getTokenTrend
+    await user.click(within(panel).getByRole('button', { name: 'By workspace' }));
+    expect(within(panel).getAllByText('alpha').length).toBeGreaterThanOrEqual(1);
+    expect(within(panel).getAllByText('beta').length).toBeGreaterThanOrEqual(1);
+    expect(mocked.getSpend).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores stale results and stale rejections after the selection changes', async () => {
+    const mocked = await getApiMock();
+    const first = deferred<SpendMonth>();
+    mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
+    mocked.listWorkspaces.mockResolvedValue([workspace(1, 'alpha')]);
+    mocked.getSpend
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(spend(2200));
+    const user = userEvent.setup();
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Spend workspace' }), 'alpha');
+    const panel = screen.getByRole('region', { name: 'Spend' });
+    await waitFor(() => expect(headline(panel)).toBe('$2,200.00'));
+
+    await act(async () => { first.resolve(spend(100)); });
+    expect(headline(panel)).toBe('$2,200.00');
+
+    const staleFailure = deferred<SpendMonth>();
+    mocked.getSpend
       .mockReturnValueOnce(staleFailure.promise)
-      .mockResolvedValueOnce(trend(3300, 500));
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Token spend workspace' }), '');
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Token spend workspace' }), 'alpha');
-    expect(await within(panel).findByText('3.3k input · 500 output')).toBeInTheDocument();
+      .mockResolvedValueOnce(spend(3300));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Spend workspace' }), '');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Spend workspace' }), 'alpha');
+    await waitFor(() => expect(headline(panel)).toBe('$3,300.00'));
 
     await act(async () => { staleFailure.reject(new Error('stale selection failed')); });
     expect(within(panel).queryByText(/stale selection failed/i)).not.toBeInTheDocument();
-    expect(within(panel).getByText('3.3k input · 500 output')).toBeInTheDocument();
+    expect(headline(panel)).toBe('$3,300.00');
   });
 
-  it('surfaces the current chart rejection with its workspace and retries it', async () => {
+  it('surfaces the current rejection with its selection and retries it', async () => {
     const mocked = await getApiMock();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
     mocked.listWorkspaces.mockResolvedValue([workspace(1, 'alpha')]);
-    mocked.getTokenTrend
-      .mockResolvedValueOnce(trend(700, 70))
-      .mockRejectedValueOnce(new Error('trend unavailable'))
-      .mockResolvedValueOnce(trend(900, 90));
+    mocked.getSpend
+      .mockResolvedValueOnce(spend(700))
+      .mockRejectedValueOnce(new Error('spend unavailable'))
+      .mockResolvedValueOnce(spend(900));
     const user = userEvent.setup();
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
-    expect(await screen.findByText('700 input · 70 output')).toBeInTheDocument();
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'Token spend workspace' }), 'alpha');
+    const panel = screen.getByRole('region', { name: 'Spend' });
+    await waitFor(() => expect(headline(panel)).toBe('$700.00'));
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Spend workspace' }), 'alpha');
 
-    const panel = screen.getByRole('region', { name: 'Token spend' });
-    expect(await within(panel).findByText("Couldn't load token spend for alpha")).toBeInTheDocument();
-    expect(within(panel).getByText('trend unavailable')).toBeInTheDocument();
-    expect(within(panel).queryByText('700 input · 70 output')).not.toBeInTheDocument();
+    expect(await within(panel).findByText(`Couldn't load spend for alpha, ${monthLabel(MONTHS[0]!)}`)).toBeInTheDocument();
+    expect(within(panel).getByText('spend unavailable')).toBeInTheDocument();
+    expect(headline(panel)).toBeUndefined();
 
     await user.click(within(panel).getByRole('button', { name: 'Retry' }));
-    expect(await within(panel).findByText('900 input · 90 output')).toBeInTheDocument();
+    await waitFor(() => expect(headline(panel)).toBe('$900.00'));
   });
 
   it('coalesces repeated stream bumps into exactly one same-selection follow-up', async () => {
     const mocked = await getApiMock();
-    const initial = deferred<Array<{ date: string; tokensIn: number; tokensOut: number }>>();
-    const followUp = deferred<Array<{ date: string; tokensIn: number; tokensOut: number }>>();
+    const initial = deferred<SpendMonth>();
+    const followUp = deferred<SpendMonth>();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
-    mocked.getTokenTrend.mockReturnValueOnce(initial.promise).mockReturnValueOnce(followUp.promise);
+    mocked.getSpend.mockReturnValueOnce(initial.promise).mockReturnValueOnce(followUp.promise);
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       versionBump?.();
       versionBump?.();
       versionBump?.();
     });
-    expect(mocked.getTokenTrend).toHaveBeenCalledTimes(1);
+    expect(mocked.getSpend).toHaveBeenCalledTimes(1);
 
-    await act(async () => { initial.resolve(trend(100, 20)); });
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText('100 input · 20 output')).toBeInTheDocument();
+    const panel = screen.getByRole('region', { name: 'Spend' });
+    await act(async () => { initial.resolve(spend(100)); });
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(headline(panel)).toBe('$100.00'));
 
-    await act(async () => { followUp.resolve(trend(200, 40)); });
-    expect(await screen.findByText('200 input · 40 output')).toBeInTheDocument();
-    expect(mocked.getTokenTrend).toHaveBeenCalledTimes(2);
+    await act(async () => { followUp.resolve(spend(200)); });
+    await waitFor(() => expect(headline(panel)).toBe('$200.00'));
+    expect(mocked.getSpend).toHaveBeenCalledTimes(2);
   });
 
   it('shows a current rejection while still running the one coalesced poll follow-up', async () => {
     const mocked = await getApiMock();
-    const initial = deferred<Array<{ date: string; tokensIn: number; tokensOut: number }>>();
-    const followUp = deferred<Array<{ date: string; tokensIn: number; tokensOut: number }>>();
+    const initial = deferred<SpendMonth>();
+    const followUp = deferred<SpendMonth>();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });
-    mocked.getTokenTrend.mockReturnValueOnce(initial.promise).mockReturnValueOnce(followUp.promise);
+    mocked.getSpend.mockReturnValueOnce(initial.promise).mockReturnValueOnce(followUp.promise);
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenCalledTimes(1));
     await act(async () => {
       versionBump?.();
       versionBump?.();
     });
 
-    await act(async () => { initial.reject(new Error('temporary trend failure')); });
-    const panel = screen.getByRole('region', { name: 'Token spend' });
-    expect(await within(panel).findByText('temporary trend failure')).toBeInTheDocument();
-    await waitFor(() => expect(mocked.getTokenTrend).toHaveBeenCalledTimes(2));
+    await act(async () => { initial.reject(new Error('temporary spend failure')); });
+    const panel = screen.getByRole('region', { name: 'Spend' });
+    expect(await within(panel).findByText('temporary spend failure')).toBeInTheDocument();
+    await waitFor(() => expect(mocked.getSpend).toHaveBeenCalledTimes(2));
 
-    await act(async () => { followUp.resolve(trend(400, 80)); });
-    expect(await within(panel).findByText('400 input · 80 output')).toBeInTheDocument();
-    expect(within(panel).queryByText('temporary trend failure')).not.toBeInTheDocument();
+    await act(async () => { followUp.resolve(spend(400)); });
+    await waitFor(() => expect(headline(panel)).toBe('$400.00'));
+    expect(within(panel).queryByText('temporary spend failure')).not.toBeInTheDocument();
   });
 
-  it('renders KPIs, the coverage banner, and the workers table from live rows', async () => {
+  it('renders KPIs, the coverage banner, and the task spend table from live rows', async () => {
     const mocked = await getApiMock();
     const data: AnalyticsData = {
       tasks: [doneRow(), doneRow({ tokensIn: null, tokensOut: null, costUsd: null, model: null })],
@@ -229,7 +331,8 @@ describe('AnalyticsView', () => {
     expect(await screen.findByText('Tasks done')).toBeInTheDocument();
     expect(screen.getByText('Where time goes')).toBeInTheDocument();
     expect(screen.getByText('1 of 2')).toBeInTheDocument(); // coverage banner
-    expect(screen.getByText('worker-1')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Spend by task' })).getAllByRole('row')).toHaveLength(3); // header + 2 tasks
+    expect(screen.queryByText('Workers')).not.toBeInTheDocument();
     // stage row + dominant caption both name the review stage
     expect(screen.getAllByText('Review wait').length).toBeGreaterThanOrEqual(1);
   });
@@ -272,7 +375,7 @@ describe('AnalyticsView', () => {
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
 
-    // KPI big value + workers-table cells all read n/a
+    // KPI big value + task-table cells all read n/a
     expect((await screen.findAllByText('n/a')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('0 of 1 reported')).toBeInTheDocument();
   });
@@ -309,7 +412,7 @@ describe('AnalyticsView', () => {
     await user.click(screen.getByRole('button', { name: 'Workspace' }));
     expect(screen.getByText('Tokens by workspace')).toBeInTheDocument();
     expect(screen.queryByText('claude-fable-5')).not.toBeInTheDocument();
-    expect(screen.getAllByText('alpha').length).toBeGreaterThanOrEqual(1); // workspace bar (also appears in the workers table)
+    expect(screen.getAllByText('alpha').length).toBeGreaterThanOrEqual(1); // workspace bar (also appears in the spend tables)
     expect(screen.getAllByText('beta').length).toBeGreaterThanOrEqual(1);
     // coverage note persists across both modes
     expect(screen.getByText('2 of 2')).toBeInTheDocument();
@@ -320,7 +423,7 @@ describe('AnalyticsView', () => {
     expect(screen.getByText('claude-fable-5')).toBeInTheDocument();
   });
 
-  it('shows the worker branch (feature/ stripped) and a per-branch tokens grouping', async () => {
+  it('shows a per-branch tokens grouping with feature/ stripped', async () => {
     const mocked = await getApiMock();
     mocked.getAnalytics.mockResolvedValue({
       tasks: [
@@ -334,13 +437,13 @@ describe('AnalyticsView', () => {
 
     render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
 
-    // BRANCH column in the workers table shows the branch with feature/ stripped
-    expect(await screen.findByText('AF-100-add-search')).toBeInTheDocument();
+    await screen.findByText('Tasks done');
 
     // the tokens panel gains a Branch grouping that bars tokens per branch
     await user.click(screen.getByRole('button', { name: 'Branch' }));
     expect(screen.getByText('Tokens by branch')).toBeInTheDocument();
-    expect(screen.getAllByText('AF-101-fix-scroll').length).toBeGreaterThanOrEqual(1); // workers table + bar
+    expect(screen.getByText('AF-100-add-search')).toBeInTheDocument();
+    expect(screen.getByText('AF-101-fix-scroll')).toBeInTheDocument();
   });
 
   it('groups token usage by stage when the Stage toggle is selected', async () => {

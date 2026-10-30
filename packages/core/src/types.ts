@@ -367,6 +367,7 @@ export interface Task {
   // list rows: the identity of an in-review task's current submission (what a review-closing drag
   // approves); null for historical tasks and outside in_review. TaskDetail carries the full summary.
   submission?: { id: number; headSha: string | null } | null;
+  costUsd?: number | null; // list rows: summed reported cost; null when nothing priced was reported
   createdAt: string; updatedAt: string;
 }
 export interface Activity {

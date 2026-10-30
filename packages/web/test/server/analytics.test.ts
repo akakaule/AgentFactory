@@ -44,9 +44,10 @@ describe('GET /api/analytics', () => {
   });
 });
 
-describe('GET /api/analytics/token-trend', () => {
+describe('GET /api/analytics/spend', () => {
   let core: ReturnType<typeof openCore>;
   let app: ReturnType<typeof buildApp>;
+  const month = new Date().toISOString().slice(0, 7);
 
   beforeEach(() => {
     core = openCore(':memory:');
@@ -56,28 +57,37 @@ describe('GET /api/analytics/token-trend', () => {
     const defaultTask = core.createTask({ title: 'Default', spec: 'S', acceptanceCriteria: 'A' });
     const otherTask = core.createTask({ title: 'Other', spec: 'S', acceptanceCriteria: 'A', workspace: 'other' });
     const allTask = core.createTask({ title: 'All', spec: 'S', acceptanceCriteria: 'A', workspace: 'all' });
-    core.addTaskMetrics(defaultTask.key, { tokensIn: 10, tokensOut: 1 });
-    core.addTaskMetrics(otherTask.key, { tokensIn: 20, tokensOut: 2 });
-    core.addTaskMetrics(allTask.key, { tokensIn: 40, tokensOut: 4 });
+    core.addTaskMetrics(defaultTask.key, { model: 'claude-opus-5-5', tokensIn: 10, tokensOut: 1, costUsd: 1 });
+    core.addTaskMetrics(otherTask.key, { model: 'gpt-6.1-sol', tokensIn: 20, tokensOut: 2 });
+    core.addTaskMetrics(allTask.key, { model: 'claude-opus-5-5', tokensIn: 40, tokensOut: 4, costUsd: 4 });
   });
 
-  const totals = (points: Array<{ tokensIn: number; tokensOut: number }>) => points.reduce(
-    (sum, point) => ({ tokensIn: sum.tokensIn + point.tokensIn, tokensOut: sum.tokensOut + point.tokensOut }),
-    { tokensIn: 0, tokensOut: 0 },
-  );
+  type Spend = { month: string; dataUpTo: string | null; rows: Array<{ workspace: string; costUsd: number; tokens: number; unpricedTokens: number }> };
+  const get = async (qs = '') => (await app.request('/api/analytics/spend' + qs)).json() as Promise<Spend>;
+  const sum = (s: Spend, f: 'costUsd' | 'tokens' | 'unpricedTokens') => s.rows.reduce((t, r) => t + r[f], 0);
 
-  it('aggregates when absent and treats default, other, and literal all as real workspace filters', async () => {
-    const aggregate = await (await app.request('/api/analytics/token-trend')).json() as Array<{ date: string; tokensIn: number; tokensOut: number }>;
-    const defaultOnly = await (await app.request('/api/analytics/token-trend?workspace=default')).json() as Array<{ date: string; tokensIn: number; tokensOut: number }>;
-    const otherOnly = await (await app.request('/api/analytics/token-trend?workspace=other')).json() as Array<{ date: string; tokensIn: number; tokensOut: number }>;
-    const allOnly = await (await app.request('/api/analytics/token-trend?workspace=all')).json() as Array<{ date: string; tokensIn: number; tokensOut: number }>;
+  it('defaults to the current month across workspaces', async () => {
+    const all = await get();
+    expect(all.month).toBe(month);
+    expect(all.dataUpTo).not.toBeNull();
+    expect(sum(all, 'costUsd')).toBe(5);
+    expect(sum(all, 'tokens')).toBe(77);
+    expect(sum(all, 'unpricedTokens')).toBe(22);
+  });
 
-    expect(aggregate).toHaveLength(30);
-    expect(aggregate.every((point) => Object.keys(point).sort().join(',') === 'date,tokensIn,tokensOut')).toBe(true);
-    expect(totals(aggregate)).toEqual({ tokensIn: 70, tokensOut: 7 });
-    expect(totals(defaultOnly)).toEqual({ tokensIn: 10, tokensOut: 1 });
-    expect(totals(otherOnly)).toEqual({ tokensIn: 20, tokensOut: 2 });
-    expect(totals(allOnly)).toEqual({ tokensIn: 40, tokensOut: 4 });
+  it('treats default, other, and literal all as real workspace filters', async () => {
+    expect(sum(await get('?month=' + month + '&workspace=default'), 'costUsd')).toBe(1);
+    expect(sum(await get('?month=' + month + '&workspace=other'), 'tokens')).toBe(22);
+    expect(sum(await get('?month=' + month + '&workspace=all'), 'costUsd')).toBe(4);
+  });
+
+  it('returns an empty month for a month without usage', async () => {
+    expect(await get('?month=2001-01')).toEqual({ month: '2001-01', dataUpTo: null, rows: [] });
+  });
+
+  it('rejects a malformed month with 400', async () => {
+    expect((await app.request('/api/analytics/spend?month=2026-13')).status).toBe(400);
+    expect((await app.request('/api/analytics/spend?month=oct')).status).toBe(400);
   });
 });
 

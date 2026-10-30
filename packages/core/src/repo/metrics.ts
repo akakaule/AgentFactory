@@ -22,6 +22,16 @@ export function tokenAggregateFor(db: DB, taskId: number): TokenAggregate {
   return { model: m?.model ?? null, tokensIn: r.ti, tokensOut: r.tout, costUsd: r.cost };
 }
 
+/** Summed reported cost per task; a task with no priced report is absent (unreported, never zero). */
+export function costByTaskIds(db: DB, ids: number[]): Map<number, number> {
+  if (ids.length === 0) return new Map();
+  const rows = db.prepare(
+    `SELECT task_id, SUM(cost_usd) AS cost FROM task_metric
+     WHERE cost_usd IS NOT NULL AND task_id IN (${ids.map(() => '?').join(',')}) GROUP BY task_id`,
+  ).all(...ids) as Array<{ task_id: number; cost: number }>;
+  return new Map(rows.map((r) => [r.task_id, r.cost]));
+}
+
 /** Per-stage token totals (tokens_in+out) for a task; the 'unknown' bucket holds reports
  *  that predate any session (legacy / never claimed through the board). */
 export type StageTokens = Record<string, number>;

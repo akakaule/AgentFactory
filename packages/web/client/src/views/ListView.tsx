@@ -28,6 +28,7 @@ export function ListView({ tasks, multiWs, onOpen }: Props) {
               {multiWs && <th style={{ width: 110 }}>Workspace</th>}
               <th style={{ width: 130 }}>Status</th>
               <th style={{ width: 130 }}>Owner</th>
+              <th className="r" style={{ width: 80 }}>Cost</th>
               <th style={{ width: 90 }}>Updated</th>
             </tr>
           </thead>
@@ -54,6 +55,7 @@ export function ListView({ tasks, multiWs, onOpen }: Props) {
                   </span>
                 </td>
                 <td className="k">{t.claimedAt ? (t.claimedBy ?? 'agent') : 'you'}</td>
+                <td className="k r cost" style={t.costUsd == null ? { color: 'var(--ink-3)' } : undefined}>{t.costUsd == null ? '—' : '$' + t.costUsd.toFixed(2)}</td>
                 <td className="k" style={{ color: 'var(--ink-3)' }}>{shortTime(t.updatedAt)}</td>
               </tr>
             ))}
