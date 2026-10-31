@@ -130,6 +130,7 @@ export const api = {
   getModelPrices: () => req<{ prices: ModelPrices }>('/api/model-prices'),
   // the WHOLE table: a save replaces it
   setModelPrices: (prices: ModelPrices) => req<{ prices: ModelPrices }>('/api/model-prices', { method: 'PUT', body: JSON.stringify(prices) }),
+  estimatePastCosts: () => req<{ rows: number; usd: number }>('/api/model-prices/estimate-past', { method: 'POST' }),
   updateWorkspace: (name: string, b: {
     repoPath?: string; policy?: string | null; verifyCommand?: string | null; pat?: string | null; promptOverrides?: Record<string, string>; adoSync?: AdoSyncSettings | null;
     baseBranch?: string | null; requiredChecks?: string[] | null; ciMode?: CiMode | null; createPullRequests?: boolean | null;

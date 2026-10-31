@@ -20,6 +20,21 @@ describe('model-prices REST API', () => {
     expect(await res.json()).toEqual({ prices: DEFAULT_MODEL_PRICES });
   });
 
+  it('POST /estimate-past prices past unpriced usage from the saved table, humans only', async () => {
+    const task = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    core.addTaskMetrics(task.key, { model: 'gpt-6-sol', tokensIn: 1_000_000, tokensOut: 100_000, reportedBy: 'otel:codex' });
+    await put(app, { 'gpt-6-sol': { input: 2, cachedInput: 0.2, output: 10 } });
+
+    const res = await app.request('/api/model-prices/estimate-past', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rows: 1, usd: 1.38 });
+    expect(core.getTask(task.key).metrics).toMatchObject({ costUsd: 1.38, costEstimated: true });
+
+    const tokenApp = buildApp(core, { auth: { mode: 'token' } });
+    const service = core.createApiToken({ label: 'worker', isService: true }).token;
+    expect((await tokenApp.request('/api/model-prices/estimate-past', { method: 'POST', headers: { authorization: `Bearer ${service}` } })).status).toBe(403);
+  });
+
   it('PUT replaces the whole table', async () => {
     const prices = { 'gpt-6-astra': { input: 1, cachedInput: 0.1, output: 5 } };
     const res = await put(app, prices);

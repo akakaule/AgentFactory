@@ -7,6 +7,14 @@ const stageLabel = (stage: Usage['stage']) => stage === 'description' ? 'Spec'
 const exactTokens = (value: number | null) => value === null ? 'n/a' : value.toLocaleString('en-US');
 const sumTokens = (values: Array<number | null>) => values.every(v => v === null)
   ? null : values.reduce<number>((total, v) => total + (v ?? 0), 0);
+const ESTIMATE_NOTE = 'Estimated: priced after the fact from Agents › Prices, assuming 90% of input was cached.';
+/** `$1.23`, `≈$1.23` when (part of) it was estimated, `n/a` when nothing was priced. */
+const money = (value: number | null | undefined, estimated = false) =>
+  value == null ? 'n/a' : `${estimated ? '≈' : ''}$${value.toFixed(2)}`;
+const costOf = (group: Usage[]) => ({
+  value: sumTokens(group.map(row => row.costUsd ?? null)),
+  estimated: group.some(row => row.costEstimated),
+});
 
 function TokenBreakdown({ rows }: { rows: Usage[] }) {
   const stages = [...new Set(rows.map(row => row.stage))];
@@ -20,7 +28,7 @@ function TokenBreakdown({ rows }: { rows: Usage[] }) {
       <summary>Token breakdown</summary>
       <div className="af-token-table-scroll" role="region" aria-label="Token breakdown" tabIndex={0}>
         <table aria-label="Token usage by stage, agent and model">
-          <thead><tr><th scope="col">Stage</th><th scope="col">Agent</th><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Total</th></tr></thead>
+          <thead><tr><th scope="col">Stage</th><th scope="col">Agent</th><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Total</th><th scope="col">Cost</th></tr></thead>
           {stages.map(stage => {
             const group = rows.filter(row => row.stage === stage);
             return <tbody key={stage ?? 'unknown'}>
@@ -30,15 +38,18 @@ function TokenBreakdown({ rows }: { rows: Usage[] }) {
                 <th scope="row" className="af-token-model">{row.model ?? 'Unknown'}</th>
                 <td>{exactTokens(row.tokensIn)}</td><td>{exactTokens(row.tokensOut)}</td>
                 <td>{exactTokens(sumTokens([row.tokensIn, row.tokensOut]))}</td>
+                <td title={row.costEstimated ? ESTIMATE_NOTE : undefined}>{money(row.costUsd, row.costEstimated)}</td>
               </tr>)}
               {group.length > 1 && <tr className="af-token-subtotal">
                 <th scope="row" colSpan={3}>{stageLabel(stage)} subtotal</th>
                 {totals(group).map((value, i) => <td key={i}>{exactTokens(value)}</td>)}
+                <td>{money(costOf(group).value, costOf(group).estimated)}</td>
               </tr>}
             </tbody>;
           })}
           <tfoot><tr><th scope="row" colSpan={3}>All stages</th>
             {totals(rows).map((value, i) => <td key={i}>{exactTokens(value)}</td>)}
+            <td>{money(costOf(rows).value, costOf(rows).estimated)}</td>
           </tr></tfoot>
         </table>
       </div>
@@ -83,10 +94,25 @@ export function TaskMetrics({ metrics }: { metrics: TaskMetricsView }) {
         {hasTokens
           ? <span className="af-mchip"><b>{fmtNum(metrics.tokensIn)}</b> in / <b>{fmtNum(metrics.tokensOut)}</b> out</span>
           : <span className="af-mchip na">tokens n/a</span>}
-        {metrics.costUsd != null
-          ? <span className="af-mchip">${metrics.costUsd.toFixed(2)}{metrics.model && <> · <b>{metrics.model}</b></>}</span>
-          : <span className="af-mchip na">cost n/a · not reported</span>}
+        {metrics.costUsd == null
+          ? <span className="af-mchip na">cost n/a · not reported</span>
+          : metrics.costByModel && metrics.costByModel.length > 1
+            ? null
+            : <span className="af-mchip" title={metrics.costEstimated ? ESTIMATE_NOTE : undefined}>
+                {money(metrics.costUsd, metrics.costEstimated)}
+                {(metrics.costByModel?.[0]?.model ?? metrics.model) && <> · <b>{metrics.costByModel?.[0]?.model ?? metrics.model}</b></>}
+              </span>}
       </div>
+      {metrics.costUsd != null && metrics.costByModel && metrics.costByModel.length > 1 && (
+        <div className="af-mchips" role="group" aria-label="Cost by model">
+          <span className="af-mchip" title={metrics.costEstimated ? ESTIMATE_NOTE : undefined}>{money(metrics.costUsd, metrics.costEstimated)}</span>
+          {metrics.costByModel.map((c) => (
+            <span key={c.model ?? 'unknown'} className="af-mchip" title={c.estimated ? ESTIMATE_NOTE : undefined}>
+              <b>{c.model ?? 'unknown model'}</b> {money(c.costUsd, c.estimated)}
+            </span>
+          ))}
+        </div>
+      )}
       {!!metrics.tokenBreakdown?.length && <TokenBreakdown rows={metrics.tokenBreakdown} />}
       {hasTokens && !metrics.tokenBreakdown?.length && <div className="af-mnone">Token breakdown unavailable for these reports.</div>}
     </div>

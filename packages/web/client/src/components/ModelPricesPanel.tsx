@@ -43,6 +43,8 @@ export function ModelPricesPanel({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  const [estimated, setEstimated] = useState<string | null>(null);
 
   const load = (prices: ModelPrices) => { setLoaded(prices); setRows(toRows(prices)); };
   useEffect(() => { api.getModelPrices().then((v) => load(v.prices)).catch((e: Error) => setErr(e.message)); }, []);
@@ -61,6 +63,17 @@ export function ModelPricesPanel({ onClose }: { onClose: () => void }) {
       .then((v) => { load(v.prices); setSaved(true); })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setSaving(false));
+  };
+
+  const estimatePast = () => {
+    setEstimating(true);
+    setErr(null);
+    api.estimatePastCosts()
+      .then((r) => setEstimated(r.rows === 0
+        ? 'No past usage left to price with these models.'
+        : `Priced ${r.rows} past usage rows: about $${r.usd.toFixed(2)}, estimated at 90% cached input.`))
+      .catch((e: Error) => setErr(e.message))
+      .finally(() => setEstimating(false));
   };
 
   return (
@@ -93,7 +106,14 @@ export function ModelPricesPanel({ onClose }: { onClose: () => void }) {
         </table>
         {rows.length === 0 && <p className="af-mcard-hint">No prices: Codex rows show no cost.</p>}
         {invalid && <div className="af-err" role="alert">{invalid}</div>}
-        <div><button type="button" className="af-mini" onClick={() => edit([...rows, { id: '', isNew: true, input: '', cachedInput: '', output: '' }])}>+ Add model</button></div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="af-mini" onClick={() => edit([...rows, { id: '', isNew: true, input: '', cachedInput: '', output: '' }])}>+ Add model</button>
+          <button type="button" className="af-mini" disabled={estimating || unsaved} onClick={estimatePast}
+            title={unsaved ? 'Save the prices first' : 'Price usage recorded before these models had a price (estimated, assuming 90% of input was cached)'}>
+            {estimating ? 'Pricing…' : 'Price past usage'}
+          </button>
+          {estimated && <span className="af-mcard-hint" role="status">{estimated}</span>}
+        </div>
       </section>
       {err && <div className="af-err" style={{ marginTop: '8px' }}>{err}</div>}
       <footer className="af-models-foot">
@@ -104,8 +124,9 @@ export function ModelPricesPanel({ onClose }: { onClose: () => void }) {
         </button>
       </footer>
       <p className="af-mcard-hint">
-        Prices Codex usage as each event arrives (Claude reports its own cost); not retroactive. Use the standard API
-        rates: fast mode and very long prompts bill higher, so those rows are estimates.
+        Prices Codex usage as each event arrives (Claude reports its own cost). Price past usage fills in older
+        unpriced rows as an estimate (90% cached input), marked ≈. Use the standard API rates: fast mode and very
+        long prompts bill higher, so those rows are estimates.
       </p>
     </div>
   );

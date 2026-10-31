@@ -1,25 +1,36 @@
 import type { DB } from '../db.js';
-import { STAGE_ORDER, type Stage, type TaskTokenUsage } from '../types.js';
+import { STAGE_ORDER, type Stage, type TaskModelCost, type TaskTokenUsage } from '../types.js';
 
 export interface TokenAggregate {
   model: string | null;
   tokensIn: number | null;
   tokensOut: number | null;
   costUsd: number | null;
+  costEstimated: boolean;
 }
 
-const NONE: TokenAggregate = { model: null, tokensIn: null, tokensOut: null, costUsd: null };
+const NONE: TokenAggregate = { model: null, tokensIn: null, tokensOut: null, costUsd: null, costEstimated: false };
 
 /** SUM tokens/cost across all reports for a task; latest non-null model wins. */
 export function tokenAggregateFor(db: DB, taskId: number): TokenAggregate {
   const r = db.prepare(
-    'SELECT COUNT(*) n, SUM(tokens_in) ti, SUM(tokens_out) tout, SUM(cost_usd) cost FROM task_metric WHERE task_id = ?'
-  ).get(taskId) as { n: number; ti: number | null; tout: number | null; cost: number | null };
+    'SELECT COUNT(*) n, SUM(tokens_in) ti, SUM(tokens_out) tout, SUM(cost_usd) cost, MAX(cost_estimated) est FROM task_metric WHERE task_id = ?'
+  ).get(taskId) as { n: number; ti: number | null; tout: number | null; cost: number | null; est: number | null };
   if (!r.n) return NONE;
   const m = db.prepare(
     'SELECT model FROM task_metric WHERE task_id = ? AND model IS NOT NULL ORDER BY id DESC LIMIT 1'
   ).get(taskId) as { model: string } | undefined;
-  return { model: m?.model ?? null, tokensIn: r.ti, tokensOut: r.tout, costUsd: r.cost };
+  return { model: m?.model ?? null, tokensIn: r.ti, tokensOut: r.tout, costUsd: r.cost, costEstimated: r.est === 1 };
+}
+
+/** A task's priced cost per model (null model = reports that named none), most expensive first.
+ *  Models whose reports carried no cost are left out — unpriced, never $0. */
+export function costByModelFor(db: DB, taskId: number): TaskModelCost[] {
+  const rows = db.prepare(
+    `SELECT model, SUM(cost_usd) cost, MAX(cost_estimated) est FROM task_metric
+     WHERE task_id = ? AND cost_usd IS NOT NULL GROUP BY model ORDER BY cost DESC, model`,
+  ).all(taskId) as Array<{ model: string | null; cost: number; est: number }>;
+  return rows.map((r) => ({ model: r.model, costUsd: r.cost, estimated: r.est === 1 }));
 }
 
 /** Summed reported cost per task; a task with no priced report is absent (unreported, never zero). */
@@ -57,10 +68,10 @@ export function stageTokensFor(db: DB, taskId: number): StageTokens {
  * The reporter is the only engine evidence; model names alone do not identify a CLI. */
 export function tokenBreakdownFor(db: DB, taskId: number): TaskTokenUsage[] {
   const metrics = db.prepare(
-    `SELECT model, reported_by, tokens_in, tokens_out, created_at FROM task_metric
+    `SELECT model, reported_by, tokens_in, tokens_out, cost_usd, cost_estimated, created_at FROM task_metric
      WHERE task_id = ? AND (tokens_in IS NOT NULL OR tokens_out IS NOT NULL)
      ORDER BY created_at, id`,
-  ).all(taskId) as Array<{ model: string | null; reported_by: string | null; tokens_in: number | null; tokens_out: number | null; created_at: string }>;
+  ).all(taskId) as Array<{ model: string | null; reported_by: string | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; cost_estimated: number; created_at: string }>;
   if (!metrics.length) return [];
   const sessions = db.prepare(
     'SELECT stage, started_at FROM agent_session WHERE task_id = ? ORDER BY started_at, id',
@@ -73,11 +84,15 @@ export function tokenBreakdownFor(db: DB, taskId: number): TaskTokenUsage[] {
     while (nextSession < sessions.length && sessions[nextSession]!.started_at <= m.created_at) {
       stage = sessions[nextSession++]!.stage;
     }
-    const agent = m.reported_by === 'otel:codex' ? 'codex' : m.reported_by === 'otel:claude' ? 'claude' : null;
+    // the OTLP receiver records Claude Code as 'otel:claude-code'; 'otel:claude' is the older label
+    const agent = m.reported_by === 'otel:codex' ? 'codex'
+      : m.reported_by === 'otel:claude-code' || m.reported_by === 'otel:claude' ? 'claude' : null;
     const key = JSON.stringify([stage, agent, m.model]);
-    const row = out.get(key) ?? { stage, agent, model: m.model, tokensIn: null, tokensOut: null };
+    const row = out.get(key) ?? { stage, agent, model: m.model, tokensIn: null, tokensOut: null, costUsd: null, costEstimated: false };
     row.tokensIn = sum(row.tokensIn, m.tokens_in);
     row.tokensOut = sum(row.tokensOut, m.tokens_out);
+    row.costUsd = sum(row.costUsd, m.cost_usd);
+    if (m.cost_usd !== null && m.cost_estimated === 1) row.costEstimated = true;
     out.set(key, row);
   }
   const order = (s: Stage | null) => s === null ? STAGE_ORDER.length : STAGE_ORDER.indexOf(s);

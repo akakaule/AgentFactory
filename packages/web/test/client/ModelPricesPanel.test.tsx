@@ -4,10 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { ModelPricesPanel } from '../../client/src/components/ModelPricesPanel.js';
 
 vi.mock('../../client/src/api.js', () => ({
-  api: { getModelPrices: vi.fn(), setModelPrices: vi.fn() },
+  api: { getModelPrices: vi.fn(), setModelPrices: vi.fn(), estimatePastCosts: vi.fn() },
 }));
 import { api } from '../../client/src/api.js';
-const mocked = api as unknown as Record<'getModelPrices' | 'setModelPrices', ReturnType<typeof vi.fn>>;
+const mocked = api as unknown as Record<'getModelPrices' | 'setModelPrices' | 'estimatePastCosts', ReturnType<typeof vi.fn>>;
 
 const SOL = { 'gpt-6.1-sol': { input: 2, cachedInput: 0.1, output: 10 } };
 
@@ -16,6 +16,21 @@ describe('Agents › Prices tab', () => {
     vi.clearAllMocks();
     mocked.getModelPrices.mockResolvedValue({ prices: SOL });
     mocked.setModelPrices.mockImplementation(async (prices: unknown) => ({ prices }));
+    mocked.estimatePastCosts.mockResolvedValue({ rows: 12, usd: 3.4 });
+  });
+
+  it('prices past usage from the saved table as an estimate', async () => {
+    render(<ModelPricesPanel onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Price past usage' }));
+    expect(mocked.estimatePastCosts).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/Priced 12 past usage rows: about \$3\.40/)).toBeInTheDocument();
+  });
+
+  it('asks to save first while there are unsaved changes', async () => {
+    render(<ModelPricesPanel onClose={() => {}} />);
+    const cached = await screen.findByLabelText('gpt-6.1-sol cached input');
+    await userEvent.type(cached, '5');
+    expect(screen.getByRole('button', { name: 'Price past usage' })).toBeDisabled();
   });
 
   it('shows the stored prices and saves an edit as the whole table', async () => {

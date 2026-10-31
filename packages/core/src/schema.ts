@@ -535,3 +535,9 @@ CREATE INDEX IF NOT EXISTS idx_task_verification_execution ON task_verification(
 export const MIGRATION_34_SQL = `
 ALTER TABLE workspace ADD COLUMN create_pull_requests INTEGER CHECK (create_pull_requests IS NULL OR create_pull_requests IN (0,1));
 `;
+
+// Migration #35 — task_metric.cost_estimated: 1 when the cost was filled in after the fact from the
+// board's price table (estimatePastCosts) rather than reported with the usage. Guarded in migrate.ts.
+export const MIGRATION_35_SQL = `
+ALTER TABLE task_metric ADD COLUMN cost_estimated INTEGER NOT NULL DEFAULT 0 CHECK (cost_estimated IN (0,1));
+`;
