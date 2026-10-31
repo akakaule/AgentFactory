@@ -160,6 +160,40 @@ describe('buildReviewPrompt', () => {
   });
 });
 
+describe('buildReviewPrompt evidence', () => {
+  const impl = (evidence: TaskDetail['evidence']) => buildReviewPrompt({
+    task: detail(evidence === undefined ? {} : { evidence }), engine: 'codex', branch: 'feature/x',
+    diff: { baseRef: 'main', diff: 'D', commits: 1 },
+  });
+
+  it('lists one labelled line per evidence item', () => {
+    const p = impl([
+      { source: 'runner', state: 'passed', headSha: 'abc1234def5678', at: 't', label: 'npm test' },
+      { source: 'reported', state: 'unverified', headSha: null, at: 't', label: 'all green' },
+      { source: 'provider', state: 'passed', headSha: 'abc1234def5678', at: 't', label: 'build' },
+    ]);
+    const lines = p.split('\n');
+    expect(lines).toContain('Runner · passed · abc1234');
+    expect(lines).toContain('Reported · unverified');
+    expect(lines).toContain('Provider · passed · build');
+  });
+
+  it('says so when no evidence is recorded', () => {
+    expect(impl([]).split('\n')).toContain('Evidence: none recorded');
+  });
+
+  it('marks reported evidence as a claim and stale evidence as an older commit', () => {
+    const p = impl([]);
+    expect(p).toContain("Reported evidence is the worker's claim, not proof.");
+    expect(p).toContain('Stale evidence covers an older commit');
+  });
+
+  it('falls back to the label for a runner item without a commit', () => {
+    const p = impl([{ source: 'runner', state: 'errored', headSha: null, at: 't', label: 'npm test' }]);
+    expect(p.split('\n')).toContain('Runner · errored · npm test');
+  });
+});
+
 describe('truncateDiff', () => {
   it('truncates past the limit and flags the cut', () => {
     const out = truncateDiff('x'.repeat(100), 10);

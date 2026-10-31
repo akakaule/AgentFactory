@@ -529,7 +529,12 @@ export interface TaskTokenUsage {
   model: string | null;
   tokensIn: number | null;
   tokensOut: number | null;
+  costUsd: number | null;   // null = no priced report in this row
+  costEstimated: boolean;   // part of costUsd was estimated after the fact (estimatePastCosts)
 }
+
+/** One model's share of a task's cost. */
+export interface TaskModelCost { model: string | null; costUsd: number; estimated: boolean; }
 
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
@@ -538,6 +543,8 @@ export interface TaskMetricsView {
   model: string | null; tokensIn: number | null; tokensOut: number | null; costUsd: number | null;
   /** Task detail only; omitted by older servers and analytics summaries. */
   tokenBreakdown?: TaskTokenUsage[];
+  costByModel?: TaskModelCost[]; // priced cost per model, most expensive first
+  costEstimated?: boolean;       // part of costUsd was estimated after the fact
 }
 
 export interface TaskDetail extends Task {

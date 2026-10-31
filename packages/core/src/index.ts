@@ -55,6 +55,7 @@ export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrRevie
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
 export { spendByDay, type SpendRow, type SpendMonth } from './ops/spendByDay.js';
+export { estimatePastCosts, PAST_COST_CACHED_SHARE } from './ops/estimatePastCosts.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
 export { recordVerification, latestVerification } from './ops/verification.js';
 export { verificationEvidence, type EvidenceSource } from './verificationEvidence.js';
@@ -153,6 +154,7 @@ import { recordIntakeAssessment, beginIntakeAssessment, intakeHistory, overrideI
 import { getEngineSettings, setEngineSettings } from './engineSettings.js';
 import { getAgentModels, setAgentModels, getAgentModelDefaults, reportAgentModelDefaults } from './agentModels.js';
 import { getModelPrices, setModelPrices } from './modelPrices.js';
+import { estimatePastCosts } from './ops/estimatePastCosts.js';
 import { recordFailureTriageFeedback, failureTriageHistory, getFailureTriageSource } from './ops/failureTriage.js';
 import { nowIso } from './time.js';
 import type { ExpectedRevision, SubmissionSummary } from './types.js';
@@ -271,6 +273,8 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     /** Latest OTel usage rows (newest first) — the live Telemetry feed restores these on a restart. */
     recentTokenMetrics: (limit: number) => recentTokenMetrics(db, limit),
     setModelPrices: (prices: unknown) => setModelPrices(db, prices),
+    /** Price usage recorded before its model had a price, as an estimate (see ops/estimatePastCosts.ts). */
+    estimatePastCosts: () => estimatePastCosts(db, getModelPrices(db)),
     getKv: (key: string) => getKv(db, key),
     setKv: (key: string, value: string) => setKv(db, key, value),
     captureNotifications: (input: CaptureNotificationsInput) => captureNotifications(db, input),

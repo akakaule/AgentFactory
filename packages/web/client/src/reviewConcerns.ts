@@ -25,9 +25,22 @@ export function revisionLines(task: TaskDetailView): { line: string | null; stal
   };
 }
 
+/** What the verification evidence (AF-171) leaves open: a runner run for an older commit, or no
+ *  runner run at all on an implementation task whose workspace names a verify command. Older servers
+ *  that serve no evidence raise nothing. */
+export function evidenceConcerns(task: TaskDetailView): { stale: string | null; missing: string | null } {
+  const evidence = task.evidence;
+  if (!evidence) return { stale: null, missing: null };
+  const runner = evidence.filter((e) => e.source === 'runner');
+  return {
+    stale: runner.some((e) => e.state === 'stale') ? 'Verification is for an older commit' : null,
+    missing: runner.length === 0 && task.stage === 'implementation' && task.verifyCommand ? 'No runner verification' : null,
+  };
+}
+
 /**
  * Everything that still stands between the task and done, in a fixed order: the revision lines,
- * must-fix issues, undecided your-call issues, unmet criteria, the active failure note, blocked, and
+ * stale or missing runner verification, must-fix issues, undecided your-call issues, unmet criteria, the active failure note, blocked, and
  * an unmerged PR. `decisions` are the reviewer's current choices (defaults when omitted). [] = nothing.
  */
 export function remainingConcerns(task: TaskDetailView, decisions?: ReviewDecisions): string[] {
@@ -39,10 +52,13 @@ export function remainingConcerns(task: TaskDetailView, decisions?: ReviewDecisi
     ? brief.issues.filter((i) => i.group === 'call' && chosen[i.id] === undefined).length : 0;
   const notMet = (brief?.criteria ?? []).filter((r) => r.status === 'not_met').map(criterionLabel);
   const delivery = task.delivery ?? null;
+  const evidence = evidenceConcerns(task);
   return [
     revision.stale,
     revision.unknown,
     revision.review,
+    evidence.stale,
+    evidence.missing,
     must > 0 ? `${must} must-fix ${must === 1 ? 'issue' : 'issues'}` : null,
     undecided > 0 ? `${undecided} ${undecided === 1 ? 'issue needs' : 'issues need'} your decision` : null,
     notMet.length > 0 ? `Criteria not met: ${notMet.join(', ')}` : null,
