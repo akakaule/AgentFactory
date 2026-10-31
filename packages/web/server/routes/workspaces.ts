@@ -86,6 +86,10 @@ export function workspaceRoutes(core: Core, opts: {
   // Read-only setup diagnosis (repo path + case, origin, base ref, git/node, verify executable, PAT
   // presence, host check access). Human-only: it exercises the stored credential against the host.
   // The PAT is passed to core only as a request header — the response never carries it.
+  // Probe the workspace's managed git credential now (the board's Check now / after a PAT save).
+  // Human-only like diagnose; the response carries the derived health, never the credential.
+  r.post('/:name/credential-check', rejectService, async (c) => c.json({ credential: await core.checkCredential(c.req.param('name')) }));
+
   r.get('/:name/diagnose', rejectService, async (c) => {
     const name = c.req.param('name');
     const workspace = core.listWorkspaces().find((w) => w.name === name);

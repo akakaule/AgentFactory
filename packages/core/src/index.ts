@@ -36,6 +36,8 @@ export { isPrFeedbackMarker, parsePrFeedbackComment, buildPrFeedbackComment, isF
 export { addPrFeedback, type AddPrFeedbackInput } from './ops/addPrFeedback.js';
 export { applyFeedbackFix } from './ops/applyFeedbackFix.js';
 export { resolveGitAuth, gitAuthConfigPairs, bareHttpUrl, type GitAuth } from './gitAuth.js';
+export { listCredentialHealth, recordCredentialCheck, EXPIRY_WARN_DAYS, type CredentialCheck, type CredentialHealthView, type CredentialState, type CredentialStatus } from './credentialHealth.js';
+export { probeCredential, parseGithubExpiry } from './probeCredential.js';
 export { perWorkspaceEnvVar, BASE_ENV_VAR } from './patEnv.js';
 export { AGENT_PROMPT_KEYS, getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt, getWorkspacePromptOverrides, isAgentPromptKey, type AgentPromptKey, type AgentPrompts } from './agentPrompts.js';
 export { getDelivery, beginDelivery, recordDeliveryCheck, recordDeliveryCheckFailure, completeDelivery, failDelivery, awaitingPostMergeChecks, POST_MERGE_CHECK_PUBLICATION_MS, type DeliveryFailureReason, type DeliveryCheckFailureInput } from './ops/delivery.js';
@@ -118,6 +120,8 @@ import { resolveOriginUrl } from './remote.js';
 import { observeRevision, issueRevisionReadTicket, type RevisionObservationInput } from './ops/observeRevision.js';
 import { remoteBranchHead, type RemoteHead } from './git.js';
 import { resolveGitAuth } from './gitAuth.js';
+import { listCredentialHealth, recordCredentialCheck, type CredentialCheck, type CredentialHealthView } from './credentialHealth.js';
+import { probeCredential } from './probeCredential.js';
 import { getWorkspacePat } from './repo/workspaces.js';
 import { getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt } from './agentPrompts.js';
 import type { AgentPromptKey } from './agentPrompts.js';
@@ -163,6 +167,8 @@ export interface CoreOptions {
   autoFence?: boolean | undefined;
   /** Injectable approve-time head observation (tests pass a fake; production runs `git ls-remote`). */
   resolveRemoteHead?: ((repoPath: string, branch: string, auth: GitAuth | null) => Promise<RemoteHead>) | undefined;
+  /** Injectable credential probe (tests pass a fake; production runs `git ls-remote` — probeCredential.ts). */
+  probeCredential?: ((auth: GitAuth) => Promise<CredentialCheck>) | undefined;
 }
 
 /** Bind every op to a single DB handle — the surface the mcp/web adapters consume. */
@@ -216,6 +222,19 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     /** The git auth (http.extraheader against a bare origin) for a workspace, or null — used by
      *  the dispatcher (worker git env) and the MCP submit-verify. Resolves DB PAT → env → null. */
     resolveGitAuth: (workspace: string) => resolveGitAuth(db, workspace, { env: process.env, resolveOrigin }),
+    /** Recorded git-credential health per workspace (the board banner + the implementation claim hold). */
+    listCredentialHealth: () => listCredentialHealth(db),
+    /** Probe a workspace's managed git credential now and record the result; null when it has none
+     *  (ambient/ssh auth). A PAT replaced while the probe ran keeps its fresh, unchecked state. */
+    checkCredential: async (workspace: string): Promise<CredentialHealthView | null> => {
+      getWorkspace(db, workspace); // NotFoundError for an unknown workspace
+      const auth = resolveGitAuth(db, workspace, { env: process.env, resolveOrigin });
+      if (!auth) return null;
+      const check = await (opts.probeCredential ?? probeCredential)(auth);
+      if (resolveGitAuth(db, workspace, { env: process.env, resolveOrigin })?.configValue !== auth.configValue) return null;
+      recordCredentialCheck(db, workspace, check);
+      return listCredentialHealth(db).find((v) => v.workspace === workspace) ?? null;
+    },
     /** The raw stored PAT for a workspace, or null (watcher REST credential). Secret — never serialize. */
     getWorkspacePat: (workspace: string) => getWorkspacePat(db, workspace),
     /** Global default agent system prompts (app_kv) and the effective (override → global) resolver. */

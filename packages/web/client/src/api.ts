@@ -1,4 +1,4 @@
-import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices, CiMode, WorkspaceDiagnosis } from './types.js';
+import type { Task, TaskDetail, TaskDetailView, Activity, Status, Stage, Workspace, Attachment, AgentSessionView, SupervisorView, TelemetryEvent, TranscriptResponse, AgentPrompts, EngineSettings, IntakeSettings, FailureTriageFeedbackInput, FailureTriageHistoryPage, AdoSyncSettings, AgentModels, AgentModelsView, ModelPrices, CiMode, WorkspaceDiagnosis, CredentialHealthView } from './types.js';
 import type { AnalyticsData, SpendMonth } from './metrics.js';
 
 export interface TaskDiff {
@@ -137,6 +137,9 @@ export const api = {
     req<Workspace>(`/api/workspaces/${name}`, { method: 'PATCH', body: JSON.stringify(b) }),
   // read-only setup diagnosis (human-only); never carries the PAT, only whether one is set
   diagnoseWorkspace: (name: string) => req<WorkspaceDiagnosis>(`/api/workspaces/${name}/diagnose`),
+  getCredentialHealth: () => req<CredentialHealthView[]>('/api/credential-health'),
+  checkCredential: (name: string) =>
+    req<{ credential: CredentialHealthView | null }>(`/api/workspaces/${encodeURIComponent(name)}/credential-check`, { method: 'POST' }),
   updateTask: (key: string, b: { title?: string; spec?: string; acceptanceCriteria?: string; workspace?: string }) => req<Task>(`/api/tasks/${key}`, { method: 'PATCH', body: JSON.stringify(b) }),
   addTaskDependency: (dependentKey: string, dependencyKey: string) =>
     req<TaskDetail>(`/api/tasks/${encodeURIComponent(dependentKey)}/dependencies/${encodeURIComponent(dependencyKey)}`, { method: 'PUT' }),

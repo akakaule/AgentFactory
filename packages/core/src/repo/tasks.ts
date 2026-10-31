@@ -16,6 +16,7 @@ import { parseFailureComment, summarizeFailure, type ParsedFailure } from '../fa
 import { classifyFailureNote, parseFailureTriageFeedbackComment, summarizeFailureTriage } from '../failureTriage.js';
 import { deliveryByTaskIds } from './delivery.js';
 import { tokenAggregateFor, tokenBreakdownFor, costByTaskIds } from './metrics.js';
+import { failingCredentialWorkspaces } from '../credentialHealth.js';
 import { nowIso } from '../time.js';
 import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 import { getKv } from './kv.js';
@@ -153,6 +154,18 @@ export function intakeHeldTaskIds(db: DB, now: string = nowIso(), workspaceId?: 
   ) as unknown as TaskRow[];
   const holds = intakeHoldsByRows(db, rows, intakeByTaskIds(db, rows), now);
   return rows.filter((r) => holds.get(r.id)).map((r) => r.id);
+}
+
+/** Queued implementation work in workspaces whose git credential is failing: it would only fail at
+ *  fetch/push and block, so it stays unclaimed until a credential check passes again. */
+export function credentialHeldTaskIds(db: DB, workspaceId?: number): number[] {
+  const failing = failingCredentialWorkspaces(db);
+  if (failing.size === 0) return [];
+  const rows = (workspaceId === undefined
+    ? db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage = 'implementation' AND task.archived_at IS NULL`).all()
+    : db.prepare(`${SELECT_TASK} WHERE task.status = 'queued' AND task.stage = 'implementation' AND task.archived_at IS NULL AND task.workspace_id = ?`).all(workspaceId)
+  ) as unknown as TaskRow[];
+  return rows.filter((r) => failing.has(r.workspace_name)).map((r) => r.id);
 }
 
 /** Stages a pending hold applies to: implementation always, the spec stage while skip-spec is on. */
@@ -404,11 +417,13 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
   const intakeSettings = storedIntakeSettings(db);
   const costs = costByTaskIds(db, ids);
+  const failingCredentials = failingCredentialWorkspaces(db);
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
     reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null,
     queueGate: queueGateFor(r, intakes.get(r.id) ?? null, intakeSettings),
-    submission: r.status === 'in_review' ? submissionRef(db, r) : null, costUsd: costs.get(r.id) ?? null }));
+    submission: r.status === 'in_review' ? submissionRef(db, r) : null, costUsd: costs.get(r.id) ?? null,
+    credentialHold: r.status === 'queued' && r.stage === 'implementation' && failingCredentials.has(r.workspace_name) }));
 }
 
 /** The current submission's identity for a list row (see Task.submission). */
