@@ -47,7 +47,10 @@ export function registerTaskGit(server: McpServer, core: McpCore, opts: ServerOp
       if (!/^AF-\d+$/.test(task.key) || !branch?.startsWith(`feature/${task.key}-`) ||
           !/^(?!.*\.\.)(?!.*@\{)[\w./-]+$/.test(branch)) throw new Error('Invalid task branch.');
       if (!isAbsolute(task.repoPath)) throw new Error('Task repository must be absolute.');
-      const repo = realpathSync(task.repoPath);
+      // .native returns the filesystem's own casing (C:\Git\Repo for a workspace stored as c:\git\repo):
+      // Vite/vitest key modules by path string, so a verify run from a differently cased cwd loads
+      // vitest twice and every test file fails at collection.
+      const repo = realpathSync.native(task.repoPath);
       const parent = join(repo, '.worktrees');
       const worktree = join(parent, task.key);
       for (const path of [parent, worktree]) {
