@@ -17,5 +17,8 @@ export function modelPriceRoutes(core: Core) {
     return c.json({ prices: core.setModelPrices(body) });
   });
 
+  // Human-only. Prices past usage that arrived before its model had a price, as an estimate.
+  r.post('/estimate-past', rejectService, (c) => c.json(core.estimatePastCosts()));
+
   return r;
 }
