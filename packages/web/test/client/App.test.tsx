@@ -40,6 +40,8 @@ vi.mock('../../client/src/api.js', () => ({
     getAgentModels: vi.fn().mockResolvedValue({ settings: { global: {}, workspaces: {} }, defaults: {}, catalog: [] }),
     getAnalytics: vi.fn().mockResolvedValue({ tasks: [], stranded: [] }),
     getSpend: vi.fn().mockResolvedValue({ month: '2026-10', dataUpTo: null, rows: [] }),
+    getCredentialHealth: vi.fn().mockResolvedValue([]),
+    checkCredential: vi.fn().mockResolvedValue({ credential: null }),
     whoami: vi.fn().mockResolvedValue({ kind: 'user', userId: 1 }),
   },
   eventsUrl: () => '/events',
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listWorkspaces).mockResolvedValue([ws(1, 'default', '.')]);
   vi.mocked(api.getSpend).mockResolvedValue({ month: '2026-10', dataUpTo: null, rows: [] });
+  vi.mocked(api.getCredentialHealth).mockResolvedValue([]);
   // Set up no-op EventSource for App (uses useTasks → useEventStream)
   globalThis.EventSource = vi.fn().mockImplementation(() => ({
     addEventListener: vi.fn(),

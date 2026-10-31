@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspacesModal } from '../../client/src/components/WorkspacesModal.js';
-import type { Workspace } from '../../client/src/types.js';
+import type { CredentialHealthView, Workspace } from '../../client/src/types.js';
 
 vi.mock('../../client/src/api.js', () => ({
   api: {
@@ -10,6 +10,7 @@ vi.mock('../../client/src/api.js', () => ({
     createWorkspace: vi.fn().mockResolvedValue({}),
     getAgentModels: vi.fn().mockResolvedValue({ settings: { global: {}, workspaces: {} }, defaults: {}, catalog: [] }),
     setAgentModels: vi.fn(),
+    checkCredential: vi.fn().mockResolvedValue({ credential: null }),
   },
 }));
 import { api } from '../../client/src/api.js';
@@ -158,5 +159,36 @@ describe('WorkspacesModal — Azure DevOps work-item import', () => {
     await user.type(screen.getByPlaceholderText('Paste a personal access token'), 'tok');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect((api.updateWorkspace as ReturnType<typeof vi.fn>).mock.calls[0]![1]).not.toHaveProperty('adoSync');
+  });
+});
+
+describe('WorkspacesModal — credential health', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const health = (over: Partial<CredentialHealthView>): CredentialHealthView => ({
+    workspace: 'repo-a', state: 'ok', status: 'ok', checkedAt: new Date(Date.now() - 180_000).toISOString(), failingSince: null,
+    error: null, expiresAt: null, expiresInDays: null, ...over,
+  });
+
+  it.each([
+    [health({}), /works · checked 3m ago/],
+    [health({ state: 'expiring', expiresAt: '2026-11-04T12:00:00.000Z', expiresInDays: 5 }), /works · expires in 5d/],
+    [health({ state: 'failing', status: 'failing', failingSince: '2026-10-30T13:50:00.000Z', error: 'fatal: Authentication failed' }), /rejected since/],
+    [health({ state: 'unreachable', status: 'unreachable', error: 'timed out' }), /couldn't check/],
+  ])('badges the PAT with its last check (%#)', (credential, text) => {
+    render(<WorkspacesModal workspaces={[ws({ hasPat: true })]} credentials={[credential]} onCreated={noop} onClose={noop} />);
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
+  it('checks the credential on demand and right after a new PAT is saved', async () => {
+    const onCheck = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<WorkspacesModal workspaces={[ws({ hasPat: true })]} credentials={[]} onCredentialCheck={onCheck} onCreated={noop} onClose={noop} />);
+
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+    expect(onCheck).toHaveBeenLastCalledWith('repo-a');
+
+    await user.type(screen.getByPlaceholderText('Enter a new PAT to replace the stored one'), 'fresh-pat');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await vi.waitFor(() => expect(onCheck).toHaveBeenCalledTimes(2));
   });
 });

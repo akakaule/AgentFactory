@@ -17,6 +17,11 @@ describe('IntakeChip', () => {
     expect(screen.getByText("Can't queue").getAttribute('title')).toBe('Task Intelligence blocks queueing: the requested outcome is unclear');
   });
 
+  it('shows work held by a failing workspace PAT', () => {
+    render(<IntakeChip task={task({ workspace: 'kl-dis', credentialHold: true })} />);
+    expect(screen.getByText('PAT failing').getAttribute('title')).toMatch(/kl-dis git credential is failing/);
+  });
+
   it('shows nothing for a task that is neither held nor flagged', () => {
     const { container } = render(<IntakeChip task={task({})} />);
     expect(container.textContent).toBe('');

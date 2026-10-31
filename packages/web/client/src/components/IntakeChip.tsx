@@ -2,6 +2,10 @@ import type { Task } from '../types.js';
 import { queueBlockMessage } from '../queueGate.js';
 
 export function IntakeChip({ task }: { task: Task }) {
+  // credential hold: the workspace's PAT is failing, so queued implementation work isn't claimed
+  if (task.credentialHold) {
+    return <span className="af-intake-chip af-cred-chip" title={`Held: the ${task.workspace} git credential is failing. Update the PAT in Workspaces.`}>PAT failing</span>;
+  }
   // intake pending hold: queued implementation work the dispatcher won't claim until the current
   // revision (e.g. a spec the description stage just wrote) is assessed, or the hold runs out
   if (task.intakeHold) {
