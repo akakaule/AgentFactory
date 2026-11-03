@@ -4,6 +4,7 @@ import { transaction } from '../transaction.js';
 import { updateWorkspaceSchema, parse } from '../validate.js';
 import { requireWorkspaceByName, updateWorkspaceFields, toWorkspace } from '../repo/workspaces.js';
 import { nowIso } from '../time.js';
+import { clearCredentialHealth } from '../credentialHealth.js';
 
 /**
  * Patch a workspace's engineering-discipline fields (policy / verify command). null clears a
@@ -14,6 +15,8 @@ export function updateWorkspace(db: DB, name: string, input: UpdateWorkspaceInpu
   return transaction(db, () => {
     const row = requireWorkspaceByName(db, name);
     updateWorkspaceFields(db, row.id, fields, now());
+    // a new (or cleared) PAT voids the old credential verdict and any hold it caused
+    if (fields.pat !== undefined) clearCredentialHealth(db, name);
     return toWorkspace(requireWorkspaceByName(db, name));
   });
 }

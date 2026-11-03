@@ -957,6 +957,17 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 }
 
 .af-attention { margin: 12px 0; font-size: 13px; overflow-wrap: anywhere; }
+.af-cred-alerts { display: flex; flex-direction: column; gap: 6px; padding: 8px 20px 0; }
+.af-cred-alert { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; color: var(--ink); border: 1px solid; }
+.af-cred-alert.failing { border-color: color-mix(in srgb, var(--st-blocked) 50%, var(--line)); background: color-mix(in srgb, var(--st-blocked) 10%, var(--card)); }
+.af-cred-alert.expiring { border-color: color-mix(in srgb, var(--active) 45%, var(--line)); background: color-mix(in srgb, var(--active) 9%, var(--card)); }
+.af-cred-alert .grow { flex: 1; }
+.af-cred-badge { font-size: 11.5px; font-weight: 600; }
+.af-cred-badge.ok { color: var(--green); }
+.af-cred-badge.expiring { color: var(--active-2); }
+.af-cred-badge.failing { color: var(--st-blocked); }
+.af-cred-badge.unreachable { color: var(--ink-3); }
+.af-intake-chip.af-cred-chip { color: var(--st-blocked); border-color: color-mix(in srgb, var(--st-blocked) 35%, var(--line-soft)); }
 .af-attention-item { padding: 12px; margin: 6px 0; border: 1px solid currentColor; border-radius: 8px; }
 .af-attention-delivery { margin-top: 6px; opacity: .8; }
 .af-attention-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

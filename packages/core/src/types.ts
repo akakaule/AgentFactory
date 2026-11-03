@@ -377,6 +377,7 @@ export interface Task {
   // approves); null for historical tasks and outside in_review. TaskDetail carries the full summary.
   submission?: { id: number; headSha: string | null } | null;
   costUsd?: number | null; // list rows: summed reported cost; null when nothing priced was reported
+  credentialHold?: boolean; // list rows: queued implementation work held because the workspace's git credential is failing
   createdAt: string; updatedAt: string;
 }
 export interface Activity {
