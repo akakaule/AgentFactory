@@ -12,12 +12,12 @@ export function registerListTasks(server: McpServer, core: McpCore, opts: Server
     {
       title: 'List tasks',
       description:
-        'List all tasks on the board, optionally filtered by status and/or workspace. When workspace is omitted, the server\'s pinned workspace (AGENTFACTORY_WORKSPACE) applies if configured, otherwise all workspaces are listed. Returns an array of task summaries.',
-      inputSchema: { status: StatusEnum.optional(), workspace: z.string().min(1).optional() },
+        'List all tasks on the board, optionally filtered by status and/or workspace. When workspace is omitted, the server\'s pinned workspace (AGENTFACTORY_WORKSPACE) applies if configured, otherwise all workspaces are listed. Archived tasks are hidden; pass `archived: true` to list only the archived ones. Returns an array of task summaries.',
+      inputSchema: { status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.boolean().optional() },
     },
-    async ({ status, workspace }) => {
+    async ({ status, workspace, archived }) => {
       try {
-        const tasks = (await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace }))
+        const tasks = (await core.listTasks({ status, workspace: workspace ?? opts.defaultWorkspace, archived }))
           .map((task) => ({ ...forAgent(task), aiReview: verdictOnly(task.aiReview) }));
         return { content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }] };
       } catch (err) {

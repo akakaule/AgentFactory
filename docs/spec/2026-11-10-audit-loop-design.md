@@ -24,7 +24,7 @@ The loop is generic. Everything specific to one repository (its areas, its rules
 - No new orchestrator. The board, dispatcher, reviewer and watcher already own claiming, retries, worktrees, cost metrics, review and PR delivery. The auditor only files tasks.
 - No automatic queueing. `create_task` files into **Backlog**, and a person queues each task. That is the main noise filter and it stays.
 - No whole-repo sweeps. Every run covers one area and one lens.
-- No core, MCP or schema change in phase 1. Phase 2 (section 11) is a separate spec.
+- No core or schema change in phase 1. The only MCP change is the `archived` argument on `list_tasks` (section 8). Phase 2 (section 11) is a separate spec.
 - Nothing in the audited repository. A repository does not need to know AgentFactory exists. It may hold its own audit profile, but the profile must not mention the board.
 
 ## 3. Roles and models
@@ -145,14 +145,14 @@ Required when the task enters at `implementation`:
 
 ## 8. Dedup and the ledger
 
-Before filing, the auditor calls `list_tasks` for the workspace and reads each `[audit:` task's fingerprint.
+Before filing, the auditor calls `list_tasks` for the workspace twice, once as is and once with `archived: true`, and reads each `[audit:` task's fingerprint. Archived tasks are done or cancelled, so they count for dedup but not for the WIP cap.
 
 - **Open task with the same fingerprint** (backlog, queued, in progress, in review, delivering, blocked): skip.
 - **Cancelled task with the same fingerprint:** a person declined it, so skip. Cancelling is the rejection ledger and no separate file is needed. Exception: the code at that location changed after the cancellation date (`git log --since`). Then the finding may be filed again, with a note that links the old task.
 - **Done task with the same fingerprint:** the fix was merged. File again only if the regression test from that task no longer exists or no longer covers the case. That would be a regression.
 - **Same file and symbol under a different lens:** file it, and link the other task in the spec.
 
-`list_tasks` hides archived tasks (`listRows` filters `archived_at IS NULL`, and the MCP tool has no `archived` argument). **Do not archive cancelled or done audit tasks** while phase 1 runs, or the ledger forgets them. Phase 2's fingerprint column removes this constraint.
+`list_tasks` hides archived tasks by default. This spec adds its `archived` argument, which core and the board's `GET /api/tasks` already supported, so archiving an audit task does not remove it from the ledger.
 
 ## 9. Limits
 
@@ -194,7 +194,7 @@ Once the finding format has held steady for a few weeks, move the runner into a 
 - A heartbeat on the Live view's health strip, instead of a timer nobody watches.
 - Model and effort from the Models tab, as a `scout` role.
 - The profile, rotation and caps per workspace on the board, instead of a file on the machine.
-- An `externalRef` (fingerprint) column on tasks with a unique index per workspace. That replaces the title-and-spec convention in section 8 and survives archiving.
+- An `externalRef` (fingerprint) column on tasks with a unique index per workspace. That replaces the title-and-spec convention in section 8.
 - Audit metrics per lens: filed, queued, merged, cancelled, not reproduced, and cost per merged fix.
 
 This needs its own spec. It is listed here only so phase 1 makes no choice that blocks it: the fingerprint format, the title prefix and the profile sections all carry over.

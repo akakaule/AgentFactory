@@ -30,8 +30,8 @@ Read the profile. Take from it the area's source and test paths, the **Rules** d
 
 ## 2. Check the gate
 
-1. Call `list_tasks` for the workspace. Collect every task whose title starts with `[audit:`, with its status and the `Fingerprint:` line of its spec (`get_task` if the listing omits the spec).
-2. Count the open audit tasks: backlog, queued, in_progress, in_review, delivering and blocked. **If the count reaches the WIP cap, stop.** Report "WIP cap reached (n open)" and file nothing.
+1. Call `list_tasks` for the workspace, then again with `archived: true`. From both, collect every task whose title starts with `[audit:`, with its status, whether it is archived, and the `Fingerprint:` line of its spec (`get_task` if the listing omits the spec).
+2. Count the open audit tasks: backlog, queued, in_progress, in_review, delivering and blocked. Archived tasks are never open. **If the count reaches the WIP cap, stop.** Report "WIP cap reached (n open)" and file nothing.
 3. Record the base branch and `git rev-parse --short HEAD`. Every finding cites this commit.
 
 ## 3. Load the rules

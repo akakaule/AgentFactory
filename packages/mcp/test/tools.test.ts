@@ -52,6 +52,21 @@ describe('list_tasks', () => {
     const tasks = JSON.parse(textOf(res));
     expect(tasks.map((t: any) => t.key)).toEqual([t.key]);
   });
+
+  it('lists archived tasks only when archived is true', async () => {
+    const { client, core } = await makeClient();
+    const active = core.createTask(makeTaskInput('Active'));
+    const archived = core.createTask(makeTaskInput('Archived'));
+    core.updateStatus(archived.key, 'cancelled', 'human');
+    core.archiveTask(archived.key);
+
+    const keysOf = async (args: Record<string, unknown>) =>
+      (JSON.parse(textOf(await client.callTool({ name: 'list_tasks', arguments: args }))) as { key: string }[]).map((t) => t.key);
+    expect(await keysOf({})).toEqual([active.key]);
+    expect(await keysOf({ archived: false })).toEqual([active.key]);
+    expect(await keysOf({ archived: true })).toEqual([archived.key]);
+    expect(await keysOf({ archived: true, status: 'cancelled' })).toEqual([archived.key]);
+  });
 });
 
 // ---------------------------------------------------------------------------
