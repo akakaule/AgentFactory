@@ -4,6 +4,7 @@
 
 #app {
   height: 100vh;
+  height: 100dvh; /* iOS Safari tab: 100vh includes the area under the collapsing toolbar */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -24,7 +25,14 @@
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, #16223A, #131D31);
   position: relative; z-index: 30;
+  /* The installed PWA draws under the iOS status bar (viewport-fit=cover +
+     black-translucent), so reserve the notch/status-bar insets; env() is 0 elsewhere. */
+  height: calc(58px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
 }
+.af-hdr-act { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .af-brand { display: flex; align-items: center; gap: 11px; }
 .af-mark { width: 30px; height: 30px; flex: none; }
 .af-title { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: var(--ink); margin: 0; }
@@ -107,6 +115,29 @@
 .af-mini.go { background: var(--accent); border-color: var(--accent); color: #fff; }
 a.af-mini { display: inline-flex; align-items: center; text-decoration: none; }
 .af-mini.danger { color: var(--st-blocked); border-color: color-mix(in srgb, var(--st-blocked) 40%, var(--line)); }
+
+/* Narrower desktops / tablets / landscape phones: the full header needs ~1500px, so its
+   labels fold away in steps (titles keep them discoverable) instead of overflowing. */
+@media (max-width: 1560px) {
+  .af-title .dim { display: none; }
+  .af-hdr-act .lbl { display: none; }
+  .af-hdr-act { width: 30px; padding: 0; justify-content: center; }
+}
+@media (max-width: 1280px) {
+  .af-views .lbl { display: none; }
+  .af-views button { padding: 0 9px; }
+  .af-search input { width: 160px; }
+  .af-search input:focus { width: 200px; }
+}
+@media (max-width: 1080px) {
+  .af-header { gap: 10px; }
+  .af-hdr-new .lbl { display: none; }
+  .af-hdr-new { width: 34px; padding: 0; justify-content: center; }
+}
+@media (max-width: 960px) {
+  .af-title { display: none; }
+  .af-search input, .af-search input:focus { width: 140px; }
+}
 
 /* Bottom tab navigation — mobile only (the responsive block below reveals it; the
    header view-switcher hides there). Rendered always so it needs no JS media query. */
@@ -287,6 +318,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-scrim { position: fixed; inset: 0; background: rgba(8,12,22,0.5); z-index: 50; animation: af-rise .15s; }
 .af-drawer {
   position: fixed; top: 0; right: 0; bottom: 0; width: 460px; max-width: 92vw; z-index: 51;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
   background: #131D31; border-left: 1px solid var(--line); display: flex; flex-direction: column;
   box-shadow: -24px 0 60px rgba(0,0,0,0.45); animation: af-slidein .22s cubic-bezier(.2,.7,.2,1);
 }
@@ -375,6 +407,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-overlay {
   position: fixed; inset: 0; background: rgba(8,12,22,0.55); z-index: 60;
   display: flex; align-items: center; justify-content: center; animation: af-rise .15s;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 .af-modal {
   background: #131D31; border: 1px solid var(--line); border-radius: 14px;
@@ -903,13 +936,34 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 
 /* ============================== MOBILE (≤768px) ============================== */
 @media (max-width: 768px) {
-  /* Header wraps to two rows: brand + workspace + New on row 1, search full-width on
-     row 2. The 4 views move to the bottom tab bar; the live ticker is dropped. */
-  .af-header { height: auto; flex-wrap: wrap; padding: 8px 12px; gap: 10px; row-gap: 8px; }
-  .af-sep, .af-views, .af-ticker, .af-title .dim { display: none; }
-  .af-btn-primary { order: 1; }
-  .af-search { order: 2; flex-basis: 100%; }
-  .af-search input, .af-search input:focus { width: 100%; }
+  /* Header is two compact rows: brand + icon-only actions (Agents, Task Intelligence,
+     New task) on row 1, workspace filter + search on row 2. .af-sep is repurposed as the
+     row break. The views move to the bottom tab bar; the live ticker is dropped. */
+  .af-header {
+    height: auto; flex-wrap: wrap; gap: 8px; row-gap: 0;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+             10px max(12px, env(safe-area-inset-left, 0px));
+  }
+  .af-views, .af-ticker, .af-spacer, .af-title .dim { display: none; }
+  .af-brand { order: 0; min-width: 0; gap: 9px; }
+  .af-mark { width: 28px; height: 28px; }
+  .af-title { display: block; font-size: 17px; white-space: nowrap; }
+  .af-hdr-act, .af-hdr-new { order: 1; }
+  .af-hdr-act:first-of-type { margin-left: auto; }
+  .af-hdr-act .lbl, .af-hdr-new .lbl { display: none; }
+  .af-hdr-act, .af-hdr-new { width: 40px; height: 40px; padding: 0; justify-content: center; flex: none; }
+  .af-hdr-act svg { width: 18px; height: 18px; }
+  .af-hdr-new svg { width: 19px; height: 19px; }
+  .af-sep { display: block; order: 2; flex-basis: 100%; width: auto; height: 10px; background: none; }
+  .af-ws { order: 3; flex: none; min-width: 0; }
+  .af-ws-btn { height: 40px; max-width: 46vw; }
+  .af-ws-name { overflow: hidden; text-overflow: ellipsis; }
+  .af-ws-repo { display: none; }
+  .af-search { order: 4; flex: 1; min-width: 0; }
+  .af-search input, .af-search input:focus { width: 100%; height: 40px; }
+
+  /* Full-screen sheets fill the safe-area-padded overlay instead of the raw viewport */
+  .af-rv-overlay.center { padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
 
   /* Board → one-column-at-a-time horizontal carousel with scroll snapping (drag-drop
      doesn't work on touch — moves happen via the drawer's status buttons instead). */
@@ -944,10 +998,10 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   .af-dep-open .af-wsbadge, .af-dep-candidate .af-wsbadge { display: none; }
 
   /* Diff modal full-screen; collapse the two line-number columns to just the new one */
-  .af-diffmodal { width: 100vw; height: 100vh; max-width: none; border-radius: 0; }
-  .af-vizmodal { width: 100vw; height: 100vh; max-width: none; border-radius: 0; }
-  .af-detail-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
-  .af-ws-modal { width: 100vw; max-height: 100vh; border-radius: 0; }
+  .af-diffmodal { width: 100%; height: 100%; max-width: none; border-radius: 0; }
+  .af-vizmodal { width: 100%; height: 100%; max-width: none; border-radius: 0; }
+  .af-detail-modal { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
+  .af-ws-modal { width: 100%; max-height: 100%; border-radius: 0; }
   .af-diff-line { grid-template-columns: 30px 1fr; }
   .af-diff-line .ln:first-child { display: none; }
 
@@ -1110,7 +1164,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-rv-raw { margin: 0; }
 
 /* overlays: the evidence panel (side) and the send-back / approve dialogs (center) */
-.af-rv-overlay { position: fixed; inset: 0; z-index: 70; display: flex; background: rgba(5,10,20,0.6); }
+.af-rv-overlay { position: fixed; inset: 0; z-index: 70; display: flex; background: rgba(5,10,20,0.6); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 .af-rv-overlay.side { justify-content: flex-end; }
 .af-rv-overlay.center { justify-content: center; align-items: flex-start; padding: 48px 16px; overflow-y: auto; }
 .af-rv-dialog { display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); color: var(--ink); outline: none; }

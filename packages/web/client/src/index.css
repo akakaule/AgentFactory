@@ -53,6 +53,14 @@ body {
 button { font-family: inherit; cursor: pointer; font-size: 0.875rem; }
 input, textarea, select { font-family: inherit; font-size: 0.875rem; }
 
+/* iOS Safari zooms the page in when an input under 16px is focused, and the installed
+   PWA stays zoomed afterwards (content cut off on the right). Touch devices get 16px. */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { overscroll-behavior: none; }
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #2A3A57; border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: #34466A; background-clip: padding-box; }

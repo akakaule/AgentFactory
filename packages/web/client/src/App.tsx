@@ -152,12 +152,12 @@ export function App() {
         </div>
         <span className="af-sep"></span>
         <div className="af-views">
-          <button className={view === 'board' ? 'on' : ''} onClick={() => switchView('board')}>{I.board({})}Board</button>
-          <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}List</button>
-          <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}Archive</button>
-          <button className={view === 'analytics' ? 'on' : ''} onClick={() => switchView('analytics')}>{I.chart({})}Analytics</button>
-          <button className={view === 'live' ? 'on' : ''} onClick={() => switchView('live')}>{I.bot({})}Live</button>
-          <button className={view === 'telemetry' ? 'on' : ''} onClick={() => switchView('telemetry')}>{I.clock({})}Telemetry</button>
+          <button className={view === 'board' ? 'on' : ''} title="Board" onClick={() => switchView('board')}>{I.board({})}<span className="lbl">Board</span></button>
+          <button className={view === 'list' ? 'on' : ''} title="List" onClick={() => switchView('list')}>{I.list({})}<span className="lbl">List</span></button>
+          <button className={view === 'archive' ? 'on' : ''} title="Archive" onClick={() => switchView('archive')}>{I.folder({})}<span className="lbl">Archive</span></button>
+          <button className={view === 'analytics' ? 'on' : ''} title="Analytics" onClick={() => switchView('analytics')}>{I.chart({})}<span className="lbl">Analytics</span></button>
+          <button className={view === 'live' ? 'on' : ''} title="Live" onClick={() => switchView('live')}>{I.bot({})}<span className="lbl">Live</span></button>
+          <button className={view === 'telemetry' ? 'on' : ''} title="Telemetry" onClick={() => switchView('telemetry')}>{I.clock({})}<span className="lbl">Telemetry</span></button>
         </div>
         <WorkspaceSwitcher
           workspaces={workspaces}
@@ -167,11 +167,11 @@ export function App() {
           onNewWorkspace={() => { setEditWorkspace(null); setManagingWorkspaces(true); }}
           onEditWorkspace={(name) => { setEditWorkspace(name); setManagingWorkspaces(true); }}
         />
-        <button className="af-mini" title="Configure agent models and system prompts" onClick={() => setManagingPrompts(true)}>
-          {I.bot({ width: 14, height: 14 })} Agents
+        <button className="af-mini af-hdr-act" title="Configure agent models and system prompts" aria-label="Agents" onClick={() => setManagingPrompts(true)}>
+          {I.bot({ width: 14, height: 14 })}<span className="lbl">Agents</span>
         </button>
-        <button className="af-mini" title="Configure task intelligence" onClick={() => setManagingIntake(true)}>
-          Task Intelligence
+        <button className="af-mini af-hdr-act" title="Configure task intelligence" aria-label="Task Intelligence" onClick={() => setManagingIntake(true)}>
+          {I.spark({ width: 14, height: 14 })}<span className="lbl">Task Intelligence</span>
         </button>
         {taskChrome && (
           <label className="af-search">
@@ -189,8 +189,8 @@ export function App() {
         )}
 
         {taskChrome && (
-          <button className="af-btn-primary" onClick={() => setCreating(true)}>
-            {I.plus({ width: 15, height: 15 })}New task
+          <button className="af-btn-primary af-hdr-new" aria-label="New task" onClick={() => setCreating(true)}>
+            {I.plus({ width: 15, height: 15 })}<span className="lbl">New task</span>
           </button>
         )}
       </header>
