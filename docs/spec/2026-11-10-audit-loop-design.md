@@ -178,10 +178,11 @@ The runner:
 - warns when the checkout has uncommitted changes, because findings would reflect them;
 - uses `AGENTFACTORY_MCP_CONFIG`, or `~/.config/agentfactory/mcp-<workspace>.json`: an MCP config whose server is named `agentfactory` and is pinned to the workspace (`AGENTFACTORY_WORKSPACE`, plus `AGENTFACTORY_DB` or `AGENTFACTORY_BOARD_URL` and `AGENTFACTORY_TOKEN`);
 - feeds the command file to `claude -p`, so the audited repository needs no copy of it;
+- appends the absolute paths of this spec and the profile format to the prompt, and passes AgentFactory's `docs/` (and the profile's directory, when it is outside the repository) as `--add-dir`, because the auditor runs in the audited repository and cannot otherwise read them;
 - allows read-only tools, read-only `git`, the Bash patterns in `AUDIT_BASH_ALLOW` for the profile's build and test commands (default `dotnet build`, `dotnet test`, `npm test`, `npm run`), and the three MCP tools;
 - writes the JSON result to `AUDIT_LOG_DIR` (default `~/.config/agentfactory/logs`) and prints the report and its cost.
 
-To run `/audit` interactively from the audited repository, link the command into `~/.claude/commands/` and pass the profile path as the first argument.
+To run `/audit` interactively from the audited repository, link the command into `~/.claude/commands/`, start `claude` with `--add-dir <AgentFactory checkout>/docs`, and pass the profile path as the first argument.
 
 Not part of phase 1:
 

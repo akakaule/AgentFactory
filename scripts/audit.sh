@@ -31,6 +31,11 @@ workspace="${positional[0]}" area="${positional[1]}" lens="${positional[2]}"
 
 af_root="$(cd "$(dirname "$0")/.." && pwd)"
 command_file="$af_root/.claude/commands/audit.md"
+spec_file="$af_root/docs/spec/2026-11-10-audit-loop-design.md"
+profile_format="$af_root/docs/audit-profile.md"
+for f in "$command_file" "$spec_file" "$profile_format"; do
+  [[ -f "$f" ]] || { echo "missing $f; run the runner from an AgentFactory checkout" >&2; exit 1; }
+done
 repo="$(cd "${repo:-.}" && git rev-parse --show-toplevel)"
 
 if [[ -z "$profile" ]]; then
@@ -56,6 +61,14 @@ placeholder='$ARGUMENTS'
 args="$profile $workspace $area $lens${dry:+ $dry}"
 body="$(awk 'NR == 1 && /^---$/ { fm = 1; next } fm && /^---$/ { fm = 0; next } !fm' "$command_file")"
 prompt="${body//"$placeholder"/"$args"}"
+# The auditor runs in the audited repository, so name the AgentFactory documents it needs by
+# absolute path; --add-dir below lets it read them.
+prompt+="
+
+## Reference documents
+
+- Spec: \`$spec_file\`
+- Profile format: \`$profile_format\`"
 
 allowed=(Read Grep Glob Agent
   "Bash(git log:*)" "Bash(git show:*)" "Bash(git blame:*)" "Bash(git rev-parse:*)"
@@ -63,8 +76,8 @@ allowed=(Read Grep Glob Agent
 IFS=',' read -r -a bash_allow <<< "${AUDIT_BASH_ALLOW:-dotnet build:*,dotnet test:*,npm test:*,npm run:*}"
 for pattern in "${bash_allow[@]}"; do allowed+=("Bash($pattern)"); done
 
-extra_dirs=()
-[[ "$profile" == "$repo"/* ]] || extra_dirs=(--add-dir "$(dirname "$profile")")
+extra_dirs=(--add-dir "$af_root/docs")
+[[ "$profile" == "$repo"/* ]] || extra_dirs+=(--add-dir "$(dirname "$profile")")
 
 log="$logs/audit-$(date +%F-%H%M)-$workspace-$area-$lens.json"
 claude -p "$prompt" \
