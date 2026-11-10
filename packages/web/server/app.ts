@@ -15,6 +15,7 @@ import { supervisorRoutes } from './routes/supervisors.js';
 import { otelRoutes } from './routes/otel.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { attentionRoutes } from './routes/attention.js';
+import { credentialRoutes } from './routes/credentials.js';
 import { intakeRoutes } from './routes/intake.js';
 import { authRoutes } from './routes/auth.js';
 import { authMiddleware, type AuthConfig } from './auth.js';
@@ -62,6 +63,7 @@ export function buildApp(core: Core, opts: { sseIntervalMs?: number; auth?: Auth
   app.route('/api/supervisors', supervisorRoutes(core));
   app.route('/api/telemetry', telemetryRoutes(telemetry)); // live OTel feed (read side)
   app.route('/api/attention', attentionRoutes(core));
+  app.route('/api/credential-health', credentialRoutes(core));
   app.route('/api/intake', intakeRoutes(core));
   app.route('/api/intake-settings', intakeRoutes(core));
   app.route('/v1', otelRoutes(core, telemetry)); // OTLP/HTTP logs receiver → task_metric + live feed (POST /v1/logs)

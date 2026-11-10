@@ -13,7 +13,7 @@ import { reconcileMergedDelivery } from './delivery.js';
 import { getIntakeSettings } from './intakeSettings.js';
 import { buildIntakeClaimComment, intakeRevision } from '../intake.js';
 import { intakeEnabledFor } from '../intakeSettings.js';
-import { intakeForTask, intakeHeldTaskIds } from '../repo/tasks.js';
+import { intakeForTask, intakeHeldTaskIds, credentialHeldTaskIds } from '../repo/tasks.js';
 
 export interface ClaimOptions {
   workspace?: string | undefined;
@@ -61,7 +61,10 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     const claimant: Claimant = { label: opts.claimedBy ?? null, now: now() };
     // Intake pending hold: implementation work whose current revision is not yet assessed waits
     // (bounded by maxHoldMinutes) — the same unclaimable-while-queued shape as unmet dependencies.
-    const held = intakeHeldTaskIds(db, claimant.now, workspaceId);
+    const intakeHeld = intakeHeldTaskIds(db, claimant.now, workspaceId);
+    // Credential hold: implementation work in a workspace whose PAT is failing would only block.
+    const credentialHeld = credentialHeldTaskIds(db, workspaceId);
+    const held = [...intakeHeld, ...credentialHeld];
     let row: ReturnType<typeof oldestQueuedRow>;
     if (reservedExecution) {
       // Re-checked at claim time with queue selection's own rules: a dependency added (or a
@@ -74,8 +77,10 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
           (opts.claimedBy !== undefined && reservedExecution.owner !== null &&
             reservedExecution.owner !== opts.claimedBy && !opts.claimedBy.startsWith(`${reservedExecution.owner}-a`)))
         throw new InvalidTransitionError(`execution ${opts.executionId} is not claimable`);
-      if (held.includes(reservedTask.id))
+      if (intakeHeld.includes(reservedTask.id))
         throw new InvalidTransitionError(`${reservedTask.key} is held until intake assesses its current revision`);
+      if (credentialHeld.includes(reservedTask.id))
+        throw new InvalidTransitionError(`${reservedTask.key} is held: the ${reservedTask.workspace_name} git credential is failing`);
       // The reserved task's delivery merged while it waited: reconciliation completes the task,
       // so there is nothing left to claim and the reservation is void. (Reconciliation retires the
       // task's current fence; this one is settled explicitly in case it is not the latest.)

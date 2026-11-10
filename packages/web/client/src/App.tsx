@@ -13,6 +13,8 @@ import { TelemetryView } from './views/TelemetryView.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
+import { CredentialAlerts } from './components/CredentialAlerts.js';
+import { useCredentialHealth } from './useCredentialHealth.js';
 import { AgentPromptsModal } from './components/AgentPromptsModal.js';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher.js';
 import { TokenGate, USER_TOKEN_HINT } from './components/TokenGate.js';
@@ -65,6 +67,7 @@ export function App() {
   const [query, setQuery] = useState('');
   const [lastWorkspace, setLastWorkspace] = useState('default');
   const { workspaces, refetch: refetchWorkspaces } = useWorkspaces();
+  const credentials = useCredentialHealth();
   const { tasks, refetch } = useTasks(); // all tasks; filtering is client-side
   const ticker = useChangeTicker(tasks);
 
@@ -195,6 +198,12 @@ export function App() {
         )}
       </header>
 
+      <CredentialAlerts
+        health={credentials.health}
+        onCheck={credentials.check}
+        onUpdatePat={(name) => { setEditWorkspace(name); setManagingWorkspaces(true); }}
+      />
+
       {view === 'board' && (
         <BoardView
           tasks={visible}
@@ -260,6 +269,8 @@ export function App() {
           focusWorkspace={editWorkspace}
           onCreated={refetchWorkspaces}
           onClose={() => { setManagingWorkspaces(false); setEditWorkspace(null); }}
+          credentials={credentials.health}
+          onCredentialCheck={credentials.check}
         />
       )}
       {managingIntake && <IntakeSettingsPanel workspaces={workspaces} onSaved={refetch} onClose={() => setManagingIntake(false)} />}

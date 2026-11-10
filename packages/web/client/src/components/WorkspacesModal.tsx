@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AgentModelsView, Workspace, WorkspaceModelLayer } from '../types.js';
+import type { AgentModelsView, CredentialHealthView, Workspace, WorkspaceModelLayer } from '../types.js';
+import { timeAgo } from '../time.js';
 import { api } from '../api.js';
 import { wsColor } from '../wsColor.js';
 import { AGENT_PROMPT_FIELDS } from '../agentPromptMeta.js';
@@ -12,14 +13,33 @@ interface Props {
   focusWorkspace?: string | null; // edit mode: show only this workspace (falls back to the full list if unknown)
   onCreated: () => void;
   onClose: () => void;
+  credentials?: CredentialHealthView[]; // last recorded git-credential check per workspace
+  onCredentialCheck?: (workspace: string) => Promise<void>; // probe now and refresh `credentials`
+}
+
+/** The PAT's last check: works / expiring / rejected / couldn't check (with the detail as the title). */
+function CredentialBadge({ credential }: { credential: CredentialHealthView | undefined }) {
+  if (!credential) return null;
+  const [cls, text] =
+    credential.state === 'ok' ? ['ok', `works · checked ${timeAgo(credential.checkedAt)}`]
+    : credential.state === 'expiring' ? ['expiring', `works · expires in ${credential.expiresInDays}d`]
+    : credential.state === 'failing' ? ['failing', `rejected since ${new Date(credential.failingSince ?? credential.checkedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`]
+    : ['unreachable', `couldn't check · ${timeAgo(credential.checkedAt)}`];
+  return <span className={`af-cred-badge ${cls}`} title={credential.error ?? undefined}>{text}</span>;
 }
 
 /** One workspace row with inline editing of its repo path, engineering-discipline fields, PAT, and
  *  agent model overrides (`models` = the board's model settings, loaded once by the modal). */
-function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
+function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved, credential, onCheck }: {
   workspace: Workspace; dot: string; onSaved: () => void;
   models: AgentModelsView | null; onModelsSaved: (v: AgentModelsView) => void;
+  credential: CredentialHealthView | undefined; onCheck: (workspace: string) => Promise<void>;
 }) {
+  const [checking, setChecking] = useState(false);
+  const check = () => {
+    setChecking(true);
+    return onCheck(workspace.name).catch((e: Error) => setErr(e.message)).finally(() => setChecking(false));
+  };
   const [repoPath, setRepoPath] = useState(workspace.repoPath);
   const [policy, setPolicy] = useState(workspace.policy ?? '');
   const [verifyCommand, setVerifyCommand] = useState(workspace.verifyCommand ?? '');
@@ -84,6 +104,8 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
     saveModels
       .then(() => api.updateWorkspace(workspace.name, body))
       .then(() => {
+        // a new PAT gets checked right away, so the badge says whether the host accepts it
+        if (body.pat !== undefined) void check();
         setPat('');
         // the row stays mounted after a save: the saved profile is the new comparison baseline, so a
         // later edit (e.g. clearing a value just saved) still produces its patch
@@ -141,7 +163,8 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
           Git PAT (used for push/verify; falls back to env if unset) —{' '}
           <span style={{ color: workspace.hasPat ? 'var(--ok, #16a34a)' : 'var(--ink-3)' }}>
             {workspace.hasPat ? 'set ✓' : 'not set'}
-          </span>
+          </span>{' '}
+          <CredentialBadge credential={credential} />
         </label>
         <div style={{ display: 'flex', gap: '8px' }}>
           <input
@@ -152,6 +175,9 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
             autoComplete="off"
             style={{ flex: 1, padding: '6px 10px' }}
           />
+          <button className="af-mini" onClick={() => void check()} disabled={checking} title="Test the workspace's git credential against the host now">
+            {checking ? 'Checking…' : 'Check now'}
+          </button>
           {workspace.hasPat && (
             <button className="af-mini danger" onClick={handleClearPat} disabled={saving} title="Remove the stored PAT (fall back to env vars)">
               Clear
@@ -192,7 +218,8 @@ function WorkspaceItem({ workspace, dot, onSaved, models, onModelsSaved }: {
   );
 }
 
-export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose }: Props) {
+export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose, credentials = [], onCredentialCheck }: Props) {
+  const checkCredential = onCredentialCheck ?? ((ws: string) => api.checkCredential(ws).then(() => undefined));
   const [name, setName] = useState('');
   const [repoPath, setRepoPath] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -231,7 +258,8 @@ export function WorkspacesModal({ workspaces, focusWorkspace, onCreated, onClose
 
         <div style={{ margin: '12px 0' }}>
           {shown.map((w) => (
-            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} models={models} onModelsSaved={setModels} />
+            <WorkspaceItem key={w.id} workspace={w} dot={wsColor(workspaces, w.name)} onSaved={onCreated} models={models} onModelsSaved={setModels}
+              credential={credentials.find((c) => c.workspace === w.name)} onCheck={checkCredential} />
           ))}
         </div>
 
