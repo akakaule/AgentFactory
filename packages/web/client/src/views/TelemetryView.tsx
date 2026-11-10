@@ -78,35 +78,37 @@ export function TelemetryView({ onOpen }: { onOpen: (key: string) => void }) {
         </div>
 
         <div className="an-panel span">
-          <table className="an-table af-tel-table">
-            <thead>
-              <tr>
-                <th>Time</th><th>Task</th><th>Workspace</th><th>Worker</th><th>Agent</th><th>Model</th>
-                <th className="r">In</th><th className="r">Cached</th><th className="r">Out</th><th className="r">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((e) => {
-                const ag = AGENT_META[e.agent];
-                return (
-                  <tr key={e.seq}>
-                    <td className="dim" title={e.at}>{shortTime(e.at, nowDate)}</td>
-                    <td>{e.taskKey
-                      ? <button className="af-tel-key mono" onClick={() => onOpen(e.taskKey!)}>{e.taskKey}</button>
-                      : <span className="dim" title="arrived without a task key">unattributed</span>}</td>
-                    <td>{e.workspace ? <span className="af-wsbadge">{e.workspace}</span> : <span className="dim">–</span>}</td>
-                    <td className="mono dim">{e.worker ?? '–'}</td>
-                    <td><span className={'af-tel-agent ' + ag.cls}><span className="d"></span>{ag.label}</span></td>
-                    <td className="mono dim">{e.model ?? '–'}</td>
-                    <td className="r mono">{fmtTokens(e.tokensIn)}</td>
-                    <td className="r mono dim" title="cache-hit tokens, included in In">{e.tokensCached == null ? '–' : fmtTokens(e.tokensCached)}</td>
-                    <td className="r mono">{fmtTokens(e.tokensOut)}</td>
-                    <td className="r mono">{fmtCost(e.costUsd)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="an-tablewrap">
+            <table className="an-table af-tel-table">
+              <thead>
+                <tr>
+                  <th>Time</th><th>Task</th><th>Workspace</th><th>Worker</th><th>Agent</th><th>Model</th>
+                  <th className="r">In</th><th className="r">Cached</th><th className="r">Out</th><th className="r">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((e) => {
+                  const ag = AGENT_META[e.agent];
+                  return (
+                    <tr key={e.seq}>
+                      <td className="dim" title={e.at}>{shortTime(e.at, nowDate)}</td>
+                      <td>{e.taskKey
+                        ? <button className="af-tel-key mono" onClick={() => onOpen(e.taskKey!)}>{e.taskKey}</button>
+                        : <span className="dim" title="arrived without a task key">unattributed</span>}</td>
+                      <td>{e.workspace ? <span className="af-wsbadge">{e.workspace}</span> : <span className="dim">–</span>}</td>
+                      <td className="mono dim">{e.worker ?? '–'}</td>
+                      <td><span className={'af-tel-agent ' + ag.cls}><span className="d"></span>{ag.label}</span></td>
+                      <td className="mono dim">{e.model ?? '–'}</td>
+                      <td className="r mono">{fmtTokens(e.tokensIn)}</td>
+                      <td className="r mono dim" title="cache-hit tokens, included in In">{e.tokensCached == null ? '–' : fmtTokens(e.tokensCached)}</td>
+                      <td className="r mono">{fmtTokens(e.tokensOut)}</td>
+                      <td className="r mono">{fmtCost(e.costUsd)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

@@ -234,55 +234,59 @@ export function AnalyticsView({ ws, rangeDays, onRange, onOpen }: Props) {
                 <span className="right">${a.workspaceSpend.reduce((s, w) => s + (w.cost ?? 0), 0).toFixed(2)} total</span>
               )}
             </div>
-            <table className="an-table">
-              <thead>
-                <tr>
-                  <th>Workspace</th><th className="r">Done</th><th className="r">Reported</th><th className="r">Input</th>
-                  <th className="r">Output</th><th className="r">Tokens</th><th className="r">Cost</th><th className="r">Cost / task</th>
-                </tr>
-              </thead>
-              <tbody>
-                {a.workspaceSpend.map((w) => (
-                  <tr key={w.workspace}>
-                    <td><span className="an-wk"><span className="dot" style={{ background: wsColor(workspaces, w.workspace) }}></span><span className="mono">{w.workspace}</span></span></td>
-                    <td className="r mono">{w.done}</td>
-                    <td className="r mono dim">{w.reported} / {w.done}</td>
-                    <td className="r mono">{w.tokensIn == null ? <span className="dim">n/a</span> : fmtNum(w.tokensIn)}</td>
-                    <td className="r mono">{w.tokensOut == null ? <span className="dim">n/a</span> : fmtNum(w.tokensOut)}</td>
-                    <td className="r mono">{w.tokens == null ? <span className="dim">n/a</span> : fmtNum(w.tokens)}</td>
-                    <td className="r mono">{w.cost == null ? <span className="dim">n/a</span> : '$' + w.cost.toFixed(2)}</td>
-                    <td className="r mono">{w.costPerTask == null ? <span className="dim">n/a</span> : '$' + w.costPerTask.toFixed(2)}</td>
+            <div className="an-tablewrap">
+              <table className="an-table">
+                <thead>
+                  <tr>
+                    <th>Workspace</th><th className="r">Done</th><th className="r">Reported</th><th className="r">Input</th>
+                    <th className="r">Output</th><th className="r">Tokens</th><th className="r">Cost</th><th className="r">Cost / task</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {a.workspaceSpend.map((w) => (
+                    <tr key={w.workspace}>
+                      <td><span className="an-wk"><span className="dot" style={{ background: wsColor(workspaces, w.workspace) }}></span><span className="mono">{w.workspace}</span></span></td>
+                      <td className="r mono">{w.done}</td>
+                      <td className="r mono dim">{w.reported} / {w.done}</td>
+                      <td className="r mono">{w.tokensIn == null ? <span className="dim">n/a</span> : fmtNum(w.tokensIn)}</td>
+                      <td className="r mono">{w.tokensOut == null ? <span className="dim">n/a</span> : fmtNum(w.tokensOut)}</td>
+                      <td className="r mono">{w.tokens == null ? <span className="dim">n/a</span> : fmtNum(w.tokens)}</td>
+                      <td className="r mono">{w.cost == null ? <span className="dim">n/a</span> : '$' + w.cost.toFixed(2)}</td>
+                      <td className="r mono">{w.costPerTask == null ? <span className="dim">n/a</span> : '$' + w.costPerTask.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="an-caption">Cost / task averages over tasks that reported a cost. Unreported usage shows <b>n/a</b>, never zero.</div>
           </section>
 
           {/* Spend by task */}
           <section className="an-panel span" aria-label="Spend by task">
             <div className="an-ph"><h3>Spend by task</h3><small>· done tasks, {rangeLabel}</small><span className="right">{a.taskSpend.length} tasks</span></div>
-            <table className="an-table">
-              <thead>
-                <tr>
-                  <th>Task</th><th>Title</th><th>Workspace</th><th className="r">Input</th>
-                  <th className="r">Output</th><th className="r">Tokens</th><th className="r">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(showAllTasks ? a.taskSpend : a.taskSpend.slice(0, TASK_ROWS)).map((t) => (
-                  <tr key={t.key} className="an-row-link" onClick={() => onOpen?.(t.key)}>
-                    <td className="mono">{t.key}</td>
-                    <td><span className="an-title" title={t.title}>{t.title}</span></td>
-                    <td><span className="an-wk"><span className="dot" style={{ background: wsColor(workspaces, t.workspace) }}></span><span className="mono dim">{t.workspace}</span></span></td>
-                    <td className="r mono">{t.tokensIn == null ? <span className="dim">n/a</span> : fmtNum(t.tokensIn)}</td>
-                    <td className="r mono">{t.tokensOut == null ? <span className="dim">n/a</span> : fmtNum(t.tokensOut)}</td>
-                    <td className="r mono">{t.tokens == null ? <span className="dim">n/a</span> : fmtNum(t.tokens)}</td>
-                    <td className="r mono">{t.cost == null ? <span className="dim">n/a</span> : '$' + t.cost.toFixed(2)}</td>
+            <div className="an-tablewrap">
+              <table className="an-table">
+                <thead>
+                  <tr>
+                    <th>Task</th><th>Title</th><th>Workspace</th><th className="r">Input</th>
+                    <th className="r">Output</th><th className="r">Tokens</th><th className="r">Cost</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(showAllTasks ? a.taskSpend : a.taskSpend.slice(0, TASK_ROWS)).map((t) => (
+                    <tr key={t.key} className="an-row-link" onClick={() => onOpen?.(t.key)}>
+                      <td className="mono">{t.key}</td>
+                      <td><span className="an-title" title={t.title}>{t.title}</span></td>
+                      <td><span className="an-wk"><span className="dot" style={{ background: wsColor(workspaces, t.workspace) }}></span><span className="mono dim">{t.workspace}</span></span></td>
+                      <td className="r mono">{t.tokensIn == null ? <span className="dim">n/a</span> : fmtNum(t.tokensIn)}</td>
+                      <td className="r mono">{t.tokensOut == null ? <span className="dim">n/a</span> : fmtNum(t.tokensOut)}</td>
+                      <td className="r mono">{t.tokens == null ? <span className="dim">n/a</span> : fmtNum(t.tokens)}</td>
+                      <td className="r mono">{t.cost == null ? <span className="dim">n/a</span> : '$' + t.cost.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {!showAllTasks && a.taskSpend.length > TASK_ROWS && (
               <button className="an-more" onClick={() => setShowAllTasks(true)}>Show all {a.taskSpend.length} tasks</button>
             )}

@@ -35,8 +35,8 @@ export function ListView({ tasks, multiWs, onOpen }: Props) {
           <tbody>
             {rows.map((t) => (
               <tr key={t.key} onClick={() => onOpen(t.key)}>
-                <td className="k">{t.key}</td>
-                <td className="ti">
+                <td className="k c-key">{t.key}</td>
+                <td className="ti c-title">
                   {t.title}
                   {(t.status === 'backlog' || t.status === 'queued') && t.unmetDependencyCount > 0 && (
                     <span
@@ -47,16 +47,16 @@ export function ListView({ tasks, multiWs, onOpen }: Props) {
                     </span>
                   )}
                 </td>
-                {multiWs && <td className="k">{t.workspace}</td>}
-                <td>
+                {multiWs && <td className="k c-ws">{t.workspace}</td>}
+                <td className="c-status">
                   <span className="st" style={{ color: STATUS_COLORS[t.status] }}>
                     <span className="dot" style={{ background: STATUS_COLORS[t.status] }}></span>
                     {STATUS_LABELS[t.status]}
                   </span>
                 </td>
-                <td className="k">{t.claimedAt ? (t.claimedBy ?? 'agent') : 'you'}</td>
-                <td className="k r cost" style={t.costUsd == null ? { color: 'var(--ink-3)' } : undefined}>{t.costUsd == null ? '—' : '$' + t.costUsd.toFixed(2)}</td>
-                <td className="k" style={{ color: 'var(--ink-3)' }}>{shortTime(t.updatedAt)}</td>
+                <td className="k c-owner">{t.claimedAt ? (t.claimedBy ?? 'agent') : 'you'}</td>
+                <td className="k r cost c-cost" style={t.costUsd == null ? { color: 'var(--ink-3)' } : undefined}>{t.costUsd == null ? '—' : '$' + t.costUsd.toFixed(2)}</td>
+                <td className="k c-time" style={{ color: 'var(--ink-3)' }}>{shortTime(t.updatedAt)}</td>
               </tr>
             ))}
           </tbody>

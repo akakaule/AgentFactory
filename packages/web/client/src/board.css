@@ -860,6 +860,9 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .an-spend-error span { color: var(--ink-3); }
 .an-spend-error button { margin-top: 3px; }
 
+/* Wide tables scroll inside their panel instead of dragging the whole view sideways */
+.an-tablewrap { min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.an-tablewrap .an-table th, .an-tablewrap .an-table td.r, .an-tablewrap .an-table td.mono { white-space: nowrap; }
 .an-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .an-table th { font-family: "Space Grotesk", sans-serif; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); text-align: left; font-weight: 600; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 .an-table td { padding: 9px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ink); vertical-align: middle; }
@@ -1006,8 +1009,32 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   .af-diff-line .ln:first-child { display: none; }
 
   /* List view: tighter padding, let a wide table scroll horizontally rather than overflow */
-  .af-list { overflow-x: auto; }
-  .af-list-inner { padding: 12px; }
+  /* List / Archive: each row becomes a stacked card (key · status · time, then the full
+     title, then workspace · owner · cost) instead of a table wider than the phone. */
+  .af-list-inner { padding: 8px 12px 24px; }
+  .lst, .lst tbody { display: block; }
+  .lst thead { display: none; }
+  .lst tr {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+    grid-template-areas: "key status time" "title title title" "ws owner cost";
+    column-gap: 12px; row-gap: 6px; padding: 12px 4px; border-bottom: 1px solid var(--line-soft);
+  }
+  .lst td { padding: 0; border: 0; min-width: 0; }
+  .lst tbody tr:hover td { background: none; }
+  .lst tbody tr:active { background: var(--card); }
+  .lst .c-key { grid-area: key; }
+  .lst .c-status { grid-area: status; }
+  .lst .c-time { grid-area: time; text-align: right; }
+  .lst .c-title { grid-area: title; font-size: 15px; line-height: 1.35; }
+  .lst .c-ws { grid-area: ws; }
+  .lst .c-owner { grid-area: owner; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lst .c-cost { grid-area: cost; }
+
+  /* Analytics / Telemetry: phone gutters, two KPI tiles per row, panels never widen the page */
+  .an-wrap { padding: 14px 12px 32px; gap: 12px; }
+  .an-panel { min-width: 0; padding: 14px 12px 14px; }
+  .an-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .an-title { max-width: 55vw; }
 }
 
 .af-attention { margin: 12px 0; font-size: 13px; overflow-wrap: anywhere; }

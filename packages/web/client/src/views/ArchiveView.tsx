@@ -43,16 +43,16 @@ export function ArchiveView({ wsFilter, query, multiWs, onOpen }: Props) {
           <tbody>
             {rows.map((t) => (
               <tr key={t.key} onClick={() => onOpen(t.key)}>
-                <td className="k">{t.key}</td>
-                <td className="ti">{t.title}</td>
-                {multiWs && <td className="k">{t.workspace}</td>}
-                <td>
+                <td className="k c-key">{t.key}</td>
+                <td className="ti c-title">{t.title}</td>
+                {multiWs && <td className="k c-ws">{t.workspace}</td>}
+                <td className="c-status">
                   <span className="st" style={{ color: STATUS_COLORS[t.status] }}>
                     <span className="dot" style={{ background: STATUS_COLORS[t.status] }}></span>
                     {STATUS_LABELS[t.status]}
                   </span>
                 </td>
-                <td className="k" style={{ color: 'var(--ink-3)' }}>{t.archivedAt ? shortTime(t.archivedAt) : '—'}</td>
+                <td className="k c-time" style={{ color: 'var(--ink-3)' }}>{t.archivedAt ? shortTime(t.archivedAt) : '—'}</td>
               </tr>
             ))}
           </tbody>
