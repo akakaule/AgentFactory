@@ -164,7 +164,7 @@ describe('claim protocol payload', () => {
     expect(payload.branchCreated).toBeUndefined();
 
     expect(payload.protocol).toBeTruthy();
-    expect(payload.protocol.version).toBe(10);
+    expect(payload.protocol.version).toBe(11);
     expect(payload.protocol.stage).toBe('implementation');
     expect(payload.protocol.branch).toBe(branch);
     expect(payload.protocol.worktree).toMatch(new RegExp(`[\\\\/]\\.worktrees[\\\\/]${t.key}$`));
@@ -587,6 +587,35 @@ describe('update_status', () => {
 
     const blocked = core.getTask(t.key).activity.find((a) => a.type === 'status_change' && a.toStatus === 'blocked');
     expect(blocked!.body).toBe('needs a DB password');
+  });
+
+  it('v11: a decision rides the block note and surfaces as the task block', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask(); // in_progress
+    const decision = { question: 'Which?', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', detail: 'slower' }], recommended: 'a' };
+
+    const res = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'blocked', note: 'spec is ambiguous', decision } });
+
+    expect(res.isError).toBeFalsy();
+    const task = core.getTask(t.key);
+    expect(task.block?.reason).toBe('spec is ambiguous');
+    expect(task.block?.decision).toEqual(decision);
+  });
+
+  it('v11: refuses a decision on any move but blocked, and an invalid decision', async () => {
+    const { client, core } = await makeClient();
+    const t = core.createTask(makeTaskInput('Task'));
+    core.updateStatus(t.key, 'queued', 'human');
+    core.claimNextTask(); // in_progress
+    const decision = { question: 'Which?', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
+
+    const wrongStatus = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'in_progress', decision } });
+    expect(wrongStatus.isError).toBe(true);
+    const oneOption = await client.callTool({ name: 'update_status', arguments: { key: t.key, status: 'blocked', decision: { ...decision, options: [decision.options[0]] } } });
+    expect(oneOption.isError).toBe(true);
+    expect(core.getTask(t.key).status).toBe('in_progress');
   });
 
   it('returns isError when agent tries in_review -> done', async () => {

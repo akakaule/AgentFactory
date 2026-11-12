@@ -1,5 +1,6 @@
 import type { DB } from '../db.js';
-import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeQueueGate, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary } from '../types.js';
+import type { Task, TaskDetail, Status, Stage, TaskKind, UpdateTaskInput, AiReviewSummary, FailureSummary, IntakeQueueGate, IntakeSummary, Activity, FailureTriageFeedback, FailureTriageSummary, SubmissionSummary, BlockSummary } from '../types.js';
+import { parseBlockNote } from '../decision.js';
 import { RECENT_ACTIVITY_LIMIT } from '../types.js';
 import { recentActivity, activitySteps, criteriaClaimsFor, verifyReportsFor, latestAiReviewComments, latestFailureNotePairs, latestResultIds, latestRestartMarkerIds, intakeMarkerActivities, intakeMarkerActivitiesByTaskIds, failureTriageFeedbackActivities, type FailureNoteRow } from './activity.js';
 import { linksFor } from './links.js';
@@ -297,6 +298,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
     failureTriage: triage.get(r.id) ?? null,
     delivery,
     intake,
+    block: blockByRows(db, [r]).get(r.id) ?? null,
     queueGate: queueGateFor(r, intake, storedIntakeSettings(db)),
     intakeHold: intakeHoldsByRows(db, [r], new Map([[r.id, intake]]), nowIso()).get(r.id) ?? null,
     hasVisualization: viz !== null,
@@ -406,11 +408,27 @@ export function listRows(db: DB, opts: { status?: Status | undefined; workspaceI
   const holds = intakeHoldsByRows(db, rows, intakes, nowIso());
   const intakeSettings = storedIntakeSettings(db);
   const costs = costByTaskIds(db, ids);
+  const blocks = blockByRows(db, rows);
   // the brief (every issue with full evidence) is built for the cards that show it: tasks in review
   return rows.map((r) => ({ ...toTask(r), aiReview: reviews.get(r.id) ?? null,
-    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null,
+    reviewBrief: r.status === 'in_review' ? buildReviewBrief(reviews.get(r.id) ?? null, r.acceptance_criteria, r.stage) : null, failure: failures.get(r.id) ?? null, failureTriage: triage.get(r.id) ?? null, delivery: deliveries.get(r.id) ?? null, intake: intakes.get(r.id) ?? null, intakeHold: holds.get(r.id) ?? null, block: blocks.get(r.id) ?? null,
     queueGate: queueGateFor(r, intakes.get(r.id) ?? null, intakeSettings),
     submission: r.status === 'in_review' ? submissionRef(db, r) : null, costUsd: costs.get(r.id) ?? null }));
+}
+
+/** Block reason + decision per blocked task, from its latest move to blocked (see Task.block). */
+export function blockByRows(db: DB, rows: TaskRow[]): Map<number, BlockSummary> {
+  const out = new Map<number, BlockSummary>();
+  const ids = rows.filter((r) => r.status === 'blocked').map((r) => r.id);
+  if (!ids.length) return out;
+  const found = db.prepare(
+    `SELECT a.task_id AS taskId, a.body AS body, a.created_at AS at FROM activity a
+     JOIN (SELECT task_id, MAX(id) AS mid FROM activity
+           WHERE type = 'status_change' AND to_status = 'blocked' AND task_id IN (${ids.map(() => '?').join(',')})
+           GROUP BY task_id) l ON l.mid = a.id`,
+  ).all(...ids) as unknown as Array<{ taskId: number; body: string; at: string }>;
+  for (const f of found) out.set(f.taskId, { ...parseBlockNote(f.body), at: f.at });
+  return out;
 }
 
 /** The current submission's identity for a list row (see Task.submission). */

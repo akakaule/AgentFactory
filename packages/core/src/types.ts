@@ -1,3 +1,4 @@
+import type { DecisionRequest } from './decision.js';
 import type { AgentPrompts } from './agentPrompts.js';
 import type { ReviewConsensus } from './reviewConsensus.js';
 import type { AdoSyncSettings, AdoSyncSettingsInput } from './adoSync.js';
@@ -358,6 +359,10 @@ export interface DeliverySummary {
   repairExhausted?: boolean;           // derived on task reads: the repair budget is spent and its repair_exhausted note posted (until Restart task)
 }
 
+/** Why a blocked task is blocked: the reason the agent gave when it blocked, and the structured
+ *  question (decision/v1) it asked, if any. Derived from the latest move to blocked. */
+export interface BlockSummary { reason: string | null; decision: DecisionRequest | null; at: string; }
+
 export interface Task {
   id: number; key: string; title: string; spec: string; acceptanceCriteria: string;
   status: Status; stage: Stage; kind: TaskKind; resultSummary: string | null; seq: number;
@@ -371,6 +376,7 @@ export interface Task {
   delivery: DeliverySummary | null; // watcher-observed PR/pipeline state (migration #18); null when never in delivery
   intake?: IntakeSummary | null; // derived from intake/v1 markers; hidden when intake is off or not opted in
   queueGate?: IntakeQueueGate | null; // derived for backlog/cancelled tasks: whether Task Intelligence lets them be queued
+  block?: BlockSummary | null; // derived for blocked tasks: the agent's block reason and, when it asked one, its decision/v1 question
   intakeHold?: { until: string } | null; // derived: queued implementation work waiting (≤ maxHoldMinutes) for its revision's intake assessment; unclaimable meanwhile
   failureTriage?: FailureTriageSummary | null; // derived likely cause of the current failure; null when none / archived / done
   // list rows: the identity of an in-review task's current submission (what a review-closing drag

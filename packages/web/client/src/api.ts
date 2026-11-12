@@ -161,5 +161,7 @@ export const api = {
   approve: (key: string, reason?: string, revision?: ApproveRevision) =>
     req<TaskDetail>(`/api/tasks/${key}/approve`, body({ ...(reason ? { reason } : {}), ...(revision ?? {}) })),
   markPrReviewed: (key: string, review: string) => req<TaskDetail>(`/api/tasks/${key}/pr-reviewed`, body({ review })),
+  // answer a blocked task's question: a decision/v1 option id and/or free text; re-queues it
+  answerBlock: (key: string, b: { optionId?: string; answer?: string }) => req<TaskDetail>(`/api/tasks/${key}/answer`, body(b)),
   requestChanges: (key: string, feedback: string) => req<TaskDetail>(`/api/tasks/${key}/request-changes`, body({ feedback })),
 };

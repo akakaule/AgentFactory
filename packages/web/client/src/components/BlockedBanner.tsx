@@ -1,4 +1,5 @@
-import type { Activity } from '../types.js';
+import type { Activity, BlockSummary } from '../types.js';
+import { AnswerForm } from './AnswerForm.js';
 import { shortTime } from '../time.js';
 import { I } from '../icons.js';
 import { NextAction } from './NextAction.js';
@@ -16,7 +17,9 @@ export function blockReason(activity: Activity[]): { text: string | null; at: st
     const a = byId[i]!;
     if (a.type === 'status_change' && a.toStatus === 'blocked') {
       at = a.createdAt;
-      if (a.body.trim()) return { text: a.body.trim(), at };
+      // a decision/v1 marker line is data for the answer form, not part of the reason
+      const reason = a.body.replace(/(?:^|\n)decision\/v1 \{.*\}\s*$/s, '').trim();
+      if (reason) return { text: reason, at };
       break; // found the block, but it carried no reason — try a comment instead
     }
   }
@@ -30,8 +33,15 @@ export function blockReason(activity: Activity[]): { text: string | null; at: st
 }
 
 /** Drawer banner that puts the block reason (and the unblock action) front-and-center for a blocked task. */
-export function BlockedBanner({ activity, onUnblock, next = null }: { activity: Activity[]; onUnblock: () => void; next?: string | null }) {
-  const { text, at } = blockReason(activity);
+export function BlockedBanner({ activity, onUnblock, next = null, taskKey, block, onAnswered }: {
+  activity: Activity[]; onUnblock: () => void; next?: string | null;
+  /** With the task's derived block, the banner shows the agent's question and an answer form. */
+  taskKey?: string; block?: BlockSummary | null | undefined; onAnswered?: () => void;
+}) {
+  const derived = blockReason(activity);
+  const text = block?.reason ?? derived.text;
+  const at = block?.at ?? derived.at;
+  const decision = block?.decision ?? null;
   return (
     <div className="af-blockbanner">
       <div className="af-blockbanner-head">
@@ -42,7 +52,9 @@ export function BlockedBanner({ activity, onUnblock, next = null }: { activity: 
       <div className={'af-blockbanner-detail' + (text ? '' : ' muted')}>
         {text ?? "No reason given — the agent didn't say why."}
       </div>
+      {decision && <div className="af-blockbanner-detail"><strong>{decision.question}</strong></div>}
       <NextAction sentence={next} />
+      {taskKey && onAnswered && <AnswerForm taskKey={taskKey} block={block} onDone={onAnswered} />}
       <button className="af-mini" onClick={onUnblock}>Unblock → Queued</button>
     </div>
   );

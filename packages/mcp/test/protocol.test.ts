@@ -59,7 +59,7 @@ describe('buildProtocol path hygiene', () => {
 describe('buildProtocol stage shapes', () => {
   it('description stage: no branch, no worktree, no git commands, doc-submit finish', () => {
     const p = buildProtocol({ stage: 'description', repoPath: 'c:\\Git\\App', key: 'AF-2' });
-    expect(p.version).toBe(10);
+    expect(p.version).toBe(11);
     expect(p.stage).toBe('description');
     expect(p.setup).toEqual([]);
     expect('branch' in p).toBe(false);
@@ -73,7 +73,7 @@ describe('buildProtocol stage shapes', () => {
 
   it('plan stage: read-only repo reference (forward slashes), plan-submit finish', () => {
     const p = buildProtocol({ stage: 'plan', repoPath: 'c:\\Git\\App', key: 'AF-3' });
-    expect(p.version).toBe(10);
+    expect(p.version).toBe(11);
     expect(p.stage).toBe('plan');
     expect(p.setup).toEqual([]);
     const finish = p.finish.join('\n');
@@ -95,7 +95,7 @@ describe('buildProtocol stage shapes', () => {
       stage: 'implementation', repoPath: 'c:/Git/App', key: 'AF-4',
       branch: 'feature/AF-4-w', branchCreated: true,
     });
-    expect(p.version).toBe(10);
+    expect(p.version).toBe(11);
     expect(p.stage).toBe('implementation');
     expect(p.branch).toBe('feature/AF-4-w');
     expect(p.worktree).toBe('c:/Git/App/.worktrees/AF-4');
@@ -254,9 +254,17 @@ describe('buildProtocol v10 managed-git verify', () => {
     branch: 'feature/AF-9-v', branchCreated: true, managedGit, verifyCommand: 'npm test',
   });
 
-  it('PROTOCOL_VERSION is 10', () => {
-    expect(PROTOCOL_VERSION).toBe(10);
-    expect(impl(true).version).toBe(10);
+  it('PROTOCOL_VERSION is 11', () => {
+    expect(PROTOCOL_VERSION).toBe(11);
+    expect(impl(true).version).toBe(11);
+  });
+
+  it('v11: every stage tells the worker how to ask a human decision', () => {
+    for (const p of [impl(true), buildProtocol({ stage: 'description', repoPath: 'c:/Git/App', key: 'AF-9' }), buildProtocol({ stage: 'plan', repoPath: 'c:/Git/App', key: 'AF-9' })]) {
+      expect(p.blocked).toMatch(/update_status/);
+      expect(p.blocked).toMatch(/decision/);
+      expect(p.blocked).toMatch(/feedback/);
+    }
   });
 
   it('managed git calls task_git verify before task_git push', () => {

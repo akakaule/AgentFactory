@@ -339,6 +339,9 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
       {task.status === 'blocked' && (
         <BlockedBanner
           activity={task.activity}
+          taskKey={task.key}
+          block={task.block}
+          onAnswered={afterMutation}
           next={nextAction(task)}
           onUnblock={() => api.setStatus(task.key, 'queued').then(afterMutation).catch(() => {})}
         />

@@ -41,6 +41,41 @@ describe('tasks REST API', () => {
     expect(core.getTask(t.key).status).toBe('backlog');
   });
 
+  describe('POST /answer', () => {
+    const decision = { question: 'Which?', options: [{ id: 'a', label: 'Option A' }, { id: 'b', label: 'Option B' }], recommended: 'a' };
+    const blocked = () => {
+      const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+      core.updateStatus(t.key, 'queued', 'human');
+      core.claimNextTask();
+      core.updateStatus(t.key, 'blocked', 'agent', null, `stuck
+decision/v1 ${JSON.stringify(decision)}`);
+      return t.key;
+    };
+
+    it('records the picked option as feedback and re-queues the task', async () => {
+      const key = blocked();
+      const res = await post(app, `/api/tasks/${key}/answer`, { optionId: 'b', answer: 'and add a test' });
+      expect(res.status).toBe(200);
+      const task = core.getTask(key);
+      expect(task.status).toBe('queued');
+      expect(task.activity.find((a) => a.type === 'feedback')!.body).toContain('Chosen: Option B');
+    });
+
+    it('400 on an unknown option or an empty answer; 409 once the task is not blocked', async () => {
+      const key = blocked();
+      expect((await post(app, `/api/tasks/${key}/answer`, { optionId: 'z' })).status).toBe(400);
+      expect((await post(app, `/api/tasks/${key}/answer`, {})).status).toBe(400);
+      expect((await post(app, `/api/tasks/${key}/answer`, { optionId: 'a' })).status).toBe(200);
+      expect((await post(app, `/api/tasks/${key}/answer`, { optionId: 'a' })).status).toBe(409);
+    });
+
+    it('list rows carry the block decision for the Needs-you view', async () => {
+      const key = blocked();
+      const rows = await (await app.request('/api/tasks')).json() as Array<{ key: string; block: { reason: string; decision: unknown } | null }>;
+      expect(rows.find((r) => r.key === key)!.block).toMatchObject({ reason: 'stuck', decision });
+    });
+  });
+
   describe('delivering-feedback loop', () => {
     it('POST pr-feedback then apply-feedback pulls the task back to queued', async () => {
       const c = openCore(':memory:', { resolveOrigin: () => 'https://github.com/o/r' });

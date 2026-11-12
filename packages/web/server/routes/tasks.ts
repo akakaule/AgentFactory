@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { validated } from '../validate.js';
 import type { Core } from '../types.js';
 import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetricsInput } from '@agentfactory/core';
-import { createBody, updateBody, commentBody, statusBody, feedbackBody, approveBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
+import { createBody, updateBody, commentBody, statusBody, feedbackBody, answerBody, approveBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef, revisionDiff, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
 import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
@@ -236,6 +236,12 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
 
   r.post('/:key/request-changes', rejectService, validated('json', feedbackBody), (c) =>
     c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
+
+  // Answer a blocked task's question (decision/v1 option and/or free text): binding feedback + unblock.
+  r.post('/:key/answer', rejectService, validated('json', answerBody), (c) => {
+    const { optionId, answer } = c.req.valid('json');
+    return c.json(core.answerBlock(c.req.param('key'), { optionId, answer, actorUserId: actorUserIdOf(c) }));
+  });
 
   // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
   r.post('/:key/pr-reviewed', rejectService, validated('json', prReviewedBody), (c) =>

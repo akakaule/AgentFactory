@@ -8,10 +8,15 @@
  * gets a branch and worktree.
  */
 export type Protocol =
-  | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[] }
-  | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[] };
+  | { version: number; stage: 'description' | 'plan'; setup: string[]; finish: string[]; blocked: string }
+  | { version: number; stage: 'implementation'; branch: string; worktree: string; setup: string[]; finish: string[]; blocked: string };
 
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
+
+/** v11: how to stop for a human decision. The question's options render on the board's Needs-you
+ *  view; the human's answer comes back as a `feedback` activity on the reclaim. */
+export const BLOCKED_PROTOCOL =
+  'If you cannot continue without a human decision (an ambiguous requirement, a trade-off the spec does not settle), do not guess: call update_status with { status: "blocked", note: one-line reason, decision: { question, options: 2-4 concrete choices as { id, label, detail }, recommended: the id you would pick } }, then exit. Use `decision` only for a real choice; for a missing permission or credential pass just the note. On a reclaim, a `feedback` activity that answers your question is binding: follow it.';
 
 export type ProtocolInput =
   | { stage: 'description'; repoPath: string; key: string }
@@ -67,6 +72,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
         'Do NOT touch the repository — no branch, no worktree, no code changes.',
         'Call submit_result with { summary, claimAt: the claimedAt value from this claim, spec, acceptanceCriteria }.',
       ],
+      blocked: BLOCKED_PROTOCOL,
     };
   }
   if (input.stage === 'plan') {
@@ -81,6 +87,7 @@ export function buildProtocol(input: ProtocolInput): Protocol {
         'Do NOT create a branch or worktree, and make no commits.',
         'Call submit_result with { summary, claimAt: the claimedAt value from this claim, plan }.',
       ],
+      blocked: BLOCKED_PROTOCOL,
     };
   }
   const { stage, repoPath, key, branch, branchCreated } = input;
@@ -156,5 +163,6 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       input.managedGit ? 'Return to the repository root, then call task_git with { action: "cleanup" } to remove the published task worktree.' : `git worktree remove ${wt} && git worktree prune`,
       `Call submit_result with ${submitWith.slice(0, -1).join(', ')} and ${submitWith.at(-1)!}. Do not open a pull request: the board opens it after the implementation review is approved.`,
     ],
+    blocked: BLOCKED_PROTOCOL,
   };
 }

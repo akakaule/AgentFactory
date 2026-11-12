@@ -56,6 +56,8 @@ export const statusBody = z.object({
   headSha: FullSha.nullable().optional(),
 });
 export const feedbackBody = z.object({ feedback: z.string().min(1) });
+/** Answer a blocked task: a decision/v1 option id, free text, or both (core requires one). */
+export const answerBody = z.object({ optionId: z.string().min(1).max(20).optional(), answer: z.string().max(4000).optional() });
 // Approve: the human's reason for approving over must-fix issues or open decisions (core decides
 // when one is required). Blank normalizes to absent so core's message, not zod's, explains it.
 export const approveBody = z.object({

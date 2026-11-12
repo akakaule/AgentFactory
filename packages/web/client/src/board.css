@@ -1260,3 +1260,65 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
   .af-rv-overlay.center { padding: 0; }
   .af-rv-overlay.center .af-rv-dialog { min-height: 100%; border-radius: 0; }
 }
+
+/* ============================== NEEDS YOU ============================== */
+/* Every task waiting on the human, with the decision it needs (views/NeedsYouView.tsx). */
+.af-ny-badge { margin-left: 6px; min-width: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--active); color: #0F172A; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.af-tabbar .af-ny-badge { margin-left: 4px; }
+.af-ny { flex: 1; overflow-y: auto; }
+.af-ny-banner { max-width: 1240px; margin: 16px auto 0; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--st-blocked) 45%, var(--line)); background: color-mix(in srgb, var(--st-blocked) 10%, var(--bg)); }
+.af-ny-layout { max-width: 1240px; margin: 0 auto; padding: 18px 24px 40px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.af-ny-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.af-ny-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.af-ny-head h2, .af-ny-side h2 { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 22px; }
+.af-ny-side h2 { font-size: 17px; }
+.af-ny-sub, .af-ny-dim { color: var(--ink-2); font-size: 12.5px; }
+.af-ny-foot { margin: 4px 0 0; color: var(--ink-3); font-size: 12.5px; }
+.af-ny-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card); padding: 15px 17px; display: flex; flex-direction: column; gap: 10px; }
+.af-ny-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.af-ny-grow { flex: 1; }
+.af-ny-key { border: none; background: none; padding: 0; color: var(--accent-2); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.af-ny-chip { border-radius: var(--r-pill); padding: 2px 10px; font-size: 12px; font-weight: 600; }
+.af-ny-chip.q { color: #FCA5A5; background: color-mix(in srgb, var(--st-blocked) 16%, transparent); }
+.af-ny-chip.r { color: #C4B5FD; background: color-mix(in srgb, var(--st-review) 16%, transparent); }
+.af-ny-chip.a { color: #FCD34D; background: color-mix(in srgb, var(--active) 16%, transparent); }
+.af-ny-chip.d { color: #5EEAD4; background: color-mix(in srgb, var(--st-delivering) 16%, transparent); }
+.af-ny-chip.s { color: #93C5FD; background: color-mix(in srgb, var(--st-queued) 16%, transparent); }
+.af-ny-title { margin: 0; font-family: "Space Grotesk", sans-serif; font-size: 16px; font-weight: 600; line-height: 1.4; }
+.af-ny-text-p { margin: 0; color: #CBD5E1; line-height: 1.5; }
+.af-ny-text-p.muted { color: var(--ink-3); }
+.af-ny-err-text { color: #FCA5A5; font-size: 12.5px; }
+.af-ny-facts { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12.5px; }
+.af-ny-fact { padding: 4px 10px; border-radius: var(--r-chip); background: var(--panel); color: #CBD5E1; }
+.af-ny-fact.good { color: #86EFAC; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.af-ny-fact.mono { font-family: "IBM Plex Mono", monospace; }
+.af-ny-answer { display: flex; flex-direction: column; gap: 8px; }
+.af-ny-options { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.af-ny-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.af-ny-option { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; min-height: 44px; box-sizing: border-box; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.af-ny-option.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.af-ny-option input { margin: 3px 0 0; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.af-ny-option > span { display: flex; flex-direction: column; gap: 2px; }
+.af-ny-option-label { font-weight: 500; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.af-ny-option-detail { color: var(--ink-2); font-size: 12.5px; }
+.af-ny-rec { font-size: 11px; font-weight: 600; color: var(--accent-2); }
+.af-ny-text { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-deep); color: var(--ink); }
+.af-ny-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.af-ny-actions a.af-btn-primary { text-decoration: none; }
+.af-ny-error { color: #FCA5A5; font-size: 12.5px; }
+.af-ny-side { flex: 1 1 280px; min-width: 0; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
+.af-ny-ws { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.af-ny-ws-head { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; }
+.af-ny-ws-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.af-ny-ws-row { display: flex; gap: 10px; align-items: flex-start; text-align: left; border: none; background: none; color: var(--ink); padding: 6px 0; font-size: 13px; }
+.af-ny-ws-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.af-ny-state { flex: none; font-size: 12px; white-space: nowrap; }
+.af-ny-state.you { color: var(--active-2); } .af-ny-state.run { color: var(--active); } .af-ny-state.rev { color: var(--st-review); }
+.af-ny-state.del { color: var(--st-delivering); } .af-ny-state.q { color: var(--st-queued); }
+@media (max-width: 720px) {
+  .af-ny-layout { padding: 12px 16px 24px; }
+  .af-ny-side { max-width: none; }
+  .af-ny-banner { margin: 12px 16px 0; }
+}

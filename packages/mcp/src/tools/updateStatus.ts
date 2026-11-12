@@ -5,6 +5,7 @@ import { AgentStatusEnum, taskKey } from '../schemas.js';
 import { toToolError } from '../errors.js';
 import type { ServerOptions } from '../server.js';
 import { forAgent } from '../content.js';
+import { decisionRequestSchema, formatBlockNote } from '@agentfactory/core';
 
 export function registerUpdateStatus(server: McpServer, core: McpCore, opts: ServerOptions = {}): void {
   server.registerTool(
@@ -17,9 +18,10 @@ export function registerUpdateStatus(server: McpServer, core: McpCore, opts: Ser
         key: taskKey,
         status: AgentStatusEnum,
         note: z.string().optional().describe('One-line reason for the status change; required in spirit when moving to "blocked" — surfaced to the human as the block reason.'),
+        decision: decisionRequestSchema.optional().describe('Only with status "blocked", when you need a human to choose: { question, options: 2-4 of { id (short lowercase slug), label, detail? }, recommended?: an option id }. The board shows the options; the answer returns as a binding feedback activity on the reclaim.'),
       },
     },
-    async ({ key, status, note }) => {
+    async ({ key, status, note, decision }) => {
       try {
         // A 'delivering' task is owned by the watcher supervisor — an agent must not touch it
         // (its edges into/out of delivery exist in core only for the watcher, which drives core
@@ -38,8 +40,14 @@ export function registerUpdateStatus(server: McpServer, core: McpCore, opts: Ser
             content: [{ type: 'text' as const, text: 'this task was cancelled by a human — stop working on it; only a human can reopen it from the board' }],
           };
         }
+        if (decision && status !== 'blocked') {
+          return {
+            isError: true as const,
+            content: [{ type: 'text' as const, text: '`decision` is only for moving a task to "blocked"' }],
+          };
+        }
         const executionId = opts.executionContext?.get() ?? opts.executionId;
-        const task = await core.updateStatus(key, status, 'agent', null, note, executionId);
+        const task = await core.updateStatus(key, status, 'agent', null, decision ? formatBlockNote(note, decision) : note, executionId);
         return { content: [{ type: 'text', text: JSON.stringify(forAgent(task), null, 2) }] };
       } catch (err) {
         return toToolError(err);

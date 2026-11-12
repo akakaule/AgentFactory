@@ -10,6 +10,8 @@ import { ArchiveView } from './views/ArchiveView.js';
 import { AnalyticsView } from './views/AnalyticsView.js';
 import { LiveView } from './views/LiveView.js';
 import { TelemetryView } from './views/TelemetryView.js';
+import { NeedsYouView } from './views/NeedsYouView.js';
+import { needsYou } from './needsYou.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TaskForm } from './components/TaskForm.js';
 import { WorkspacesModal } from './components/WorkspacesModal.js';
@@ -20,7 +22,7 @@ import { IntakeSettingsPanel } from './components/IntakeSettingsPanel.js';
 import { queueBlockMessage } from './queueGate.js';
 import { Mark, I } from './icons.js';
 
-type View = 'board' | 'list' | 'archive' | 'analytics' | 'live' | 'telemetry';
+type View = 'needs' | 'board' | 'list' | 'archive' | 'analytics' | 'live' | 'telemetry';
 
 /** ticker line derived from real board changes between SSE refetches */
 function useChangeTicker(tasks: Task[]): string | null {
@@ -87,6 +89,10 @@ export function App() {
   const multiWs = workspaces.length >= 2;
   const showBadges = multiWs && wsFilter === 'all'; // badge only in the all-workspaces view
 
+  // the nav badge: everything waiting on the human in the current workspace filter
+  const needCount = useMemo(() => needsYou(tasks.filter((t) => wsFilter === 'all' || t.workspace === wsFilter)).length, [tasks, wsFilter]);
+  const needBadge = needCount > 0 ? <span className="af-ny-badge" aria-label={`${needCount} waiting`}>{needCount}</span> : null;
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: tasks.length };
     for (const w of workspaces) c[w.name] = tasks.filter((t) => t.workspace === w.name).length;
@@ -152,6 +158,7 @@ export function App() {
         </div>
         <span className="af-sep"></span>
         <div className="af-views">
+          <button className={view === 'needs' ? 'on' : ''} title="Needs you" onClick={() => switchView('needs')}>{I.person({})}<span className="lbl">Needs you</span>{needBadge}</button>
           <button className={view === 'board' ? 'on' : ''} title="Board" onClick={() => switchView('board')}>{I.board({})}<span className="lbl">Board</span></button>
           <button className={view === 'list' ? 'on' : ''} title="List" onClick={() => switchView('list')}>{I.list({})}<span className="lbl">List</span></button>
           <button className={view === 'archive' ? 'on' : ''} title="Archive" onClick={() => switchView('archive')}>{I.folder({})}<span className="lbl">Archive</span></button>
@@ -207,6 +214,7 @@ export function App() {
             api.archiveDone(wsFilter !== 'all' ? { workspace: wsFilter } : {}).then(refetch).catch(() => {})}
         />
       )}
+      {view === 'needs' && <NeedsYouView tasks={tasks.filter((t) => wsFilter === 'all' || t.workspace === wsFilter)} multiWs={multiWs} onOpen={openTask} onChanged={refetch} />}
       {view === 'list' && <ListView tasks={visible} multiWs={multiWs} onOpen={openTask} />}
       {view === 'archive' && <ArchiveView wsFilter={wsFilter} query={query} multiWs={multiWs} onOpen={openTask} />}
       {view === 'analytics' && <AnalyticsView ws={wsFilter} rangeDays={rangeDays} onRange={setRangeDays} onOpen={openTask} />}
@@ -215,6 +223,7 @@ export function App() {
 
       {/* Bottom tab bar — shown only on phones (CSS); the header switcher hides there */}
       <nav className="af-tabbar" aria-label="Views">
+        <button className={view === 'needs' ? 'on' : ''} onClick={() => switchView('needs')}>{I.person({})}<span>Needs you{needBadge}</span></button>
         <button className={view === 'board' ? 'on' : ''} onClick={() => switchView('board')}>{I.board({})}<span>Board</span></button>
         <button className={view === 'list' ? 'on' : ''} onClick={() => switchView('list')}>{I.list({})}<span>List</span></button>
         <button className={view === 'archive' ? 'on' : ''} onClick={() => switchView('archive')}>{I.folder({})}<span>Archive</span></button>

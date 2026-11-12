@@ -52,6 +52,8 @@ export { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReser
 export { reviewApprove } from './ops/reviewApprove.js';
 export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrReviewed.js';
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
+export { answerBlock, type AnswerBlockInput } from './ops/answerBlock.js';
+export { DECISION_MARKER, decisionRequestSchema, formatBlockNote, parseBlockNote, type DecisionOption, type DecisionRequest } from './decision.js';
 export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
 export { spendByDay, type SpendRow, type SpendMonth } from './ops/spendByDay.js';
 export { estimatePastCosts, PAST_COST_CACHED_SHARE } from './ops/estimatePastCosts.js';
@@ -125,6 +127,7 @@ import { getGlobalPrompts, setGlobalPrompts, resolveAgentPrompt } from './agentP
 import type { AgentPromptKey } from './agentPrompts.js';
 import { reviewPrReviewed } from './ops/reviewPrReviewed.js';
 import { reviewRequestChanges } from './ops/reviewRequestChanges.js';
+import { answerBlock, type AnswerBlockInput } from './ops/answerBlock.js';
 import { analyticsRows } from './ops/analyticsRows.js';
 import { spendByDay } from './ops/spendByDay.js';
 import { addTaskMetrics } from './ops/addTaskMetrics.js';
@@ -309,6 +312,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     failDelivery: (key: string, input: { reason: DeliveryFailureReason; detail: string; body?: string | undefined; expectedStateChangedAt?: string | undefined }) => failDelivery(db, key, input),
     reviewPrReviewed: (key: string, input: { review?: string | undefined; actorUserId?: number | null }) => reviewPrReviewed(db, key, input),
     reviewRequestChanges: (key: string, input: { feedback: string; actorUserId?: number | null }) => reviewRequestChanges(db, key, input),
+    answerBlock: (key: string, input: AnswerBlockInput) => answerBlock(db, key, input),
     analyticsRows: () => analyticsRows(db),
     spendByDay: (opts: { month?: string | undefined; workspace?: string | undefined } = {}) => spendByDay(db, opts),
     addTaskMetrics: (key: string, input: AddTaskMetricsInput) => addTaskMetrics(db, key, fenced(key, input)),
