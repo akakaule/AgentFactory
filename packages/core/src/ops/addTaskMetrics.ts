@@ -22,6 +22,7 @@ export function addTaskMetrics(db: DB, key: string, input: AddTaskMetricsInput, 
       tokensOut: m.tokensOut ?? null,
       costUsd: m.costUsd ?? null,
       reportedBy: m.reportedBy ?? null,
+      role: m.role ?? null,
       createdAt: now(),
     });
     return toDetail(db, findRowByKey(db, key)!);

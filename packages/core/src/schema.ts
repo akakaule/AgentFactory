@@ -541,3 +541,10 @@ ALTER TABLE workspace ADD COLUMN create_pull_requests INTEGER CHECK (create_pull
 export const MIGRATION_35_SQL = `
 ALTER TABLE task_metric ADD COLUMN cost_estimated INTEGER NOT NULL DEFAULT 0 CHECK (cost_estimated IN (0,1));
 `;
+
+// Migration #36 — task_metric.role: which supervisor session reported the usage (dispatcher worker,
+// reviewer review / visualization / PR-feedback evaluation). NULL = unattributed, which is every row
+// recorded before this migration — nothing reliable to backfill from. Guarded in migrate.ts.
+export const MIGRATION_36_SQL = `
+ALTER TABLE task_metric ADD COLUMN role TEXT CHECK (role IS NULL OR role IN ('worker','review','visualization','feedback'));
+`;

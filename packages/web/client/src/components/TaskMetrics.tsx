@@ -4,6 +4,10 @@ import { fmtDur, fmtNum } from '../metrics.js';
 type Usage = NonNullable<TaskMetricsView['tokenBreakdown']>[number];
 const stageLabel = (stage: Usage['stage']) => stage === 'description' ? 'Spec'
   : stage === 'plan' ? 'Plan' : stage === 'implementation' ? 'Implementation' : 'Unknown';
+type Role = NonNullable<TaskMetricsView['costByRole']>[number]['role'];
+/** Older servers send no role: those rows read as Unknown, like a report that recorded none. */
+const roleLabel = (role: Role | undefined) => role === 'worker' ? 'Worker' : role === 'review' ? 'Review'
+  : role === 'visualization' ? 'Visualization' : role === 'feedback' ? 'PR feedback' : 'Unknown';
 const exactTokens = (value: number | null) => value === null ? 'n/a' : value.toLocaleString('en-US');
 const sumTokens = (values: Array<number | null>) => values.every(v => v === null)
   ? null : values.reduce<number>((total, v) => total + (v ?? 0), 0);
@@ -27,13 +31,14 @@ function TokenBreakdown({ rows }: { rows: Usage[] }) {
     <details className="af-token-breakdown">
       <summary>Token breakdown</summary>
       <div className="af-token-table-scroll" role="region" aria-label="Token breakdown" tabIndex={0}>
-        <table aria-label="Token usage by stage, agent and model">
-          <thead><tr><th scope="col">Stage</th><th scope="col">Agent</th><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Total</th><th scope="col">Cost</th></tr></thead>
+        <table aria-label="Token usage by stage, activity, agent and model">
+          <thead><tr><th scope="col">Stage</th><th scope="col">Activity</th><th scope="col">Agent</th><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Total</th><th scope="col">Cost</th></tr></thead>
           {stages.map(stage => {
             const group = rows.filter(row => row.stage === stage);
             return <tbody key={stage ?? 'unknown'}>
-              {group.map(row => <tr key={JSON.stringify([row.agent, row.model])}>
+              {group.map(row => <tr key={JSON.stringify([row.role, row.agent, row.model])}>
                 <td>{stageLabel(stage)}</td>
+                <td>{roleLabel(row.role)}</td>
                 <td>{row.agent === 'codex' ? 'Codex' : row.agent === 'claude' ? 'Claude' : 'Unknown'}</td>
                 <th scope="row" className="af-token-model">{row.model ?? 'Unknown'}</th>
                 <td>{exactTokens(row.tokensIn)}</td><td>{exactTokens(row.tokensOut)}</td>
@@ -41,19 +46,19 @@ function TokenBreakdown({ rows }: { rows: Usage[] }) {
                 <td title={row.costEstimated ? ESTIMATE_NOTE : undefined}>{money(row.costUsd, row.costEstimated)}</td>
               </tr>)}
               {group.length > 1 && <tr className="af-token-subtotal">
-                <th scope="row" colSpan={3}>{stageLabel(stage)} subtotal</th>
+                <th scope="row" colSpan={4}>{stageLabel(stage)} subtotal</th>
                 {totals(group).map((value, i) => <td key={i}>{exactTokens(value)}</td>)}
                 <td>{money(costOf(group).value, costOf(group).estimated)}</td>
               </tr>}
             </tbody>;
           })}
-          <tfoot><tr><th scope="row" colSpan={3}>All stages</th>
+          <tfoot><tr><th scope="row" colSpan={4}>All stages</th>
             {totals(rows).map((value, i) => <td key={i}>{exactTokens(value)}</td>)}
             <td>{money(costOf(rows).value, costOf(rows).estimated)}</td>
           </tr></tfoot>
         </table>
       </div>
-      <p>Reported usage across all attempts. Stages are inferred from work-session timing. Unknown means attribution was not recorded; n/a means no count was reported. Totals sum the available counts. Review and visualization usage is included where reported, without a separate activity split.</p>
+      <p>Reported usage across all attempts. Stages are inferred from work-session timing. Unknown means attribution was not recorded; n/a means no count was reported. Totals sum the available counts. Activity is the session that used the tokens (worker, review, visualization or PR feedback); Unknown for usage recorded before it was tracked.</p>
     </details>
   );
 }
@@ -109,6 +114,15 @@ export function TaskMetrics({ metrics }: { metrics: TaskMetricsView }) {
           {metrics.costByModel.map((c) => (
             <span key={c.model ?? 'unknown'} className="af-mchip" title={c.estimated ? ESTIMATE_NOTE : undefined}>
               <b>{c.model ?? 'unknown model'}</b> {money(c.costUsd, c.estimated)}
+            </span>
+          ))}
+        </div>
+      )}
+      {metrics.costUsd != null && metrics.costByRole && metrics.costByRole.length > 1 && (
+        <div className="af-mchips" role="group" aria-label="Cost by activity">
+          {metrics.costByRole.map((c) => (
+            <span key={c.role ?? 'unattributed'} className="af-mchip" title={c.estimated ? ESTIMATE_NOTE : undefined}>
+              <b>{c.role === null ? 'Unattributed' : roleLabel(c.role)}</b> {money(c.costUsd, c.estimated)}
             </span>
           ))}
         </div>

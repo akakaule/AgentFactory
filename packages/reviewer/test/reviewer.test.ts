@@ -265,6 +265,7 @@ describe('otel token capture', () => {
     expect(override).toContain('otel.exporter={otlp-http={endpoint="http://localhost:8787/v1/logs"');
     expect(override).toContain(`X-Task-Key="${key}"`);
     expect(override).toContain('Authorization="Bearer svc"');
+    expect(override).toContain('X-AF-Role="review"');
     expect(env['AF_TASK_KEY']).toBe(key);
     expect(env['AF_OTEL_TOKEN']).toBe('svc');
     expect(env['OTEL_RESOURCE_ATTRIBUTES']).toBeUndefined(); // codex gets -c config, not the OTLP env
@@ -283,6 +284,7 @@ describe('otel token capture', () => {
     expect(env['OTEL_EXPORTER_OTLP_HEADERS']).toContain('Bearer svc');
     expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain(`task.key=${key}`);
     expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain('af.worker=');
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain('af.role=review');
     expect(env['AF_TASK_KEY']).toBeUndefined(); // claude reads the env, not config.toml
   });
 

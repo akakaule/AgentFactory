@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { priceUsage } from '@agentfactory/core';
+import { priceUsage, AGENT_ROLES, type AgentRole } from '@agentfactory/core';
 import type { Core } from '../types.js';
 import type { TelemetryStore } from '../telemetry.js';
 
@@ -97,6 +97,9 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
       const resourceKey = asStr(attrOf(rl.resource?.attributes, 'task.key'));
       const workspace = c.req.header('x-af-workspace')?.trim() || asStr(attrOf(rl.resource?.attributes, 'af.workspace')) || null;
       const worker = c.req.header('x-af-worker')?.trim() || asStr(attrOf(rl.resource?.attributes, 'af.worker')) || null;
+      // The session's role (worker / review / visualization / feedback); anything else is left unattributed.
+      const rawRole = c.req.header('x-af-role')?.trim() || asStr(attrOf(rl.resource?.attributes, 'af.role'));
+      const role = (AGENT_ROLES as readonly string[]).includes(rawRole ?? '') ? rawRole as AgentRole : null;
       for (const sl of rl.scopeLogs ?? []) {
         for (const rec of sl.logRecords ?? []) {
           const hit = extract(rec);
@@ -114,6 +117,7 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
             taskKey: key,
             workspace,
             worker,
+            role,
             agent: hit.source,
             model: hit.model ?? null,
             tokensIn: hit.tokensIn,
@@ -122,11 +126,12 @@ export function otelRoutes(core: Core, telemetry?: TelemetryStore): Hono {
             costUsd: hit.costUsd ?? null,
           });
 
-          const input: { model?: string; tokensIn: number; tokensOut: number; costUsd?: number; reportedBy: string } = {
+          const input: { model?: string; tokensIn: number; tokensOut: number; costUsd?: number; reportedBy: string; role?: AgentRole } = {
             tokensIn: hit.tokensIn, tokensOut: hit.tokensOut, reportedBy: `otel:${hit.source}`,
           };
           if (hit.model !== undefined) input.model = hit.model;
           if (hit.costUsd !== undefined) input.costUsd = hit.costUsd;
+          if (role) input.role = role;
           try {
             // This authenticated ingest is the board's own token source, not an agent claimant:
             // it rides the task's current execution so a live worker's usage still lands.

@@ -25,33 +25,50 @@ describe('TaskMetrics', () => {
     expect(estimated.getAttribute('title')).toMatch(/estimated/i);
   });
 
+  it('splits the cost per activity (worker, review, visualization) next to the total', () => {
+    render(<TaskMetrics metrics={{ ...base, tokensIn: 100, tokensOut: 10, costUsd: 4.45, costByRole: [
+      { role: 'worker', costUsd: 3, estimated: false },
+      { role: 'review', costUsd: 1.25, estimated: true },
+      { role: null, costUsd: 0.2, estimated: false },
+    ] }} />);
+    const costs = screen.getByRole('group', { name: 'Cost by activity' });
+    expect(within(costs).getByText('Worker').parentElement!.textContent).toBe('Worker $3.00');
+    expect(within(costs).getByText('Review').parentElement!.textContent).toBe('Review ≈$1.25');
+    expect(within(costs).getByText('Unattributed').parentElement!.textContent).toBe('Unattributed $0.20');
+  });
+
+  it('shows no activity split when all cost is one activity', () => {
+    render(<TaskMetrics metrics={{ ...base, tokensIn: 100, tokensOut: 10, costUsd: 3, costByRole: [{ role: 'worker', costUsd: 3, estimated: false }] }} />);
+    expect(screen.queryByRole('group', { name: 'Cost by activity' })).not.toBeInTheDocument();
+  });
+
   it('marks estimated cost in the token breakdown', () => {
     render(<TaskMetrics metrics={{ ...base, tokensIn: 100, tokensOut: 10, tokenBreakdown: [
-      { stage: 'implementation', agent: 'codex', model: 'gpt-6-sol', tokensIn: 100, tokensOut: 10, costUsd: 1.88, costEstimated: true },
+      { stage: 'implementation', role: 'review', agent: 'codex', model: 'gpt-6-sol', tokensIn: 100, tokensOut: 10, costUsd: 1.88, costEstimated: true },
     ] }} />);
     fireEvent.click(screen.getByText('Token breakdown'));
-    expect(screen.getByRole('row', { name: 'Implementation Codex gpt-6-sol 100 10 110 ≈$1.88' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Implementation Review Codex gpt-6-sol 100 10 110 ≈$1.88' })).toBeInTheDocument();
   });
 
   it('expands usage by stage, agent and model with exact counts and reconciled totals', () => {
     render(<TaskMetrics metrics={{ ...base, tokensIn: 1200, tokensOut: 30, tokenBreakdown: [
-      { stage: 'plan', agent: 'claude', model: 'claude-test', tokensIn: 200, tokensOut: 10, costUsd: 0.5, costEstimated: false },
-      { stage: 'implementation', agent: 'codex', model: 'gpt-test', tokensIn: 1000, tokensOut: 20, costUsd: null, costEstimated: false },
+      { stage: 'plan', role: 'worker', agent: 'claude', model: 'claude-test', tokensIn: 200, tokensOut: 10, costUsd: 0.5, costEstimated: false },
+      { stage: 'implementation', role: 'visualization', agent: 'codex', model: 'gpt-test', tokensIn: 1000, tokensOut: 20, costUsd: null, costEstimated: false },
     ] }} />);
     fireEvent.click(screen.getByText('Token breakdown'));
-    const table = screen.getByRole('table', { name: 'Token usage by stage, agent and model' });
-    expect(within(table).getByRole('row', { name: 'Plan Claude claude-test 200 10 210 $0.50' })).toBeInTheDocument();
-    expect(within(table).getByRole('row', { name: 'Implementation Codex gpt-test 1,000 20 1,020 n/a' })).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Token usage by stage, activity, agent and model' });
+    expect(within(table).getByRole('row', { name: 'Plan Worker Claude claude-test 200 10 210 $0.50' })).toBeInTheDocument();
+    expect(within(table).getByRole('row', { name: 'Implementation Visualization Codex gpt-test 1,000 20 1,020 n/a' })).toBeInTheDocument();
     expect(within(table).getByRole('row', { name: 'All stages 1,200 30 1,230 $0.50' })).toBeInTheDocument();
     expect(screen.getByText(/Stages are inferred/)).toBeInTheDocument();
   });
 
   it('shows unknown attribution and output-only usage even when never claimed', () => {
     render(<TaskMetrics metrics={{ ...base, claimCount: 0, tokensOut: 0, tokenBreakdown: [
-      { stage: null, agent: null, model: null, tokensIn: null, tokensOut: 0, costUsd: null, costEstimated: false },
+      { stage: null, role: null, agent: null, model: null, tokensIn: null, tokensOut: 0, costUsd: null, costEstimated: false },
     ] }} />);
     fireEvent.click(screen.getByText('Token breakdown'));
-    expect(screen.getByRole('row', { name: 'Unknown Unknown Unknown n/a 0 0 n/a' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'Unknown Unknown Unknown Unknown n/a 0 0 n/a' })).toBeInTheDocument();
     expect(screen.queryByText(/hasn't been worked/)).not.toBeInTheDocument();
   });
 

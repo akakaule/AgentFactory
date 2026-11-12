@@ -521,9 +521,16 @@ export interface SupervisorView {
   staleSeconds: number;      // seconds since the last heartbeat
 }
 
-/** Recorded usage grouped by inferred pipeline stage, reported agent engine, and model. */
+/** Which supervisor session a usage report came from: a dispatcher worker, or a reviewer's
+ *  review, change-visualization or PR-feedback evaluation. Null on a report = unattributed
+ *  (recorded before migration #36, or by a caller that does not say). */
+export const AGENT_ROLES = ['worker', 'review', 'visualization', 'feedback'] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
+/** Recorded usage grouped by inferred pipeline stage, session role, reported agent engine, and model. */
 export interface TaskTokenUsage {
   stage: Stage | null;
+  role: AgentRole | null;
   agent: 'codex' | 'claude' | null;
   model: string | null;
   tokensIn: number | null;
@@ -535,6 +542,9 @@ export interface TaskTokenUsage {
 /** One model's share of a task's cost. */
 export interface TaskModelCost { model: string | null; costUsd: number; estimated: boolean; }
 
+/** One session role's share of a task's cost (null = unattributed reports). */
+export interface TaskRoleCost { role: AgentRole | null; costUsd: number; estimated: boolean; }
+
 /** Per-task metrics: stage walk over the activity log + worker-reported token aggregate. */
 export interface TaskMetricsView {
   queueMin: number; workMin: number; reviewMin: number; blockedMin: number; deliveringMin: number;
@@ -543,6 +553,7 @@ export interface TaskMetricsView {
   /** Task detail only; omitted by older servers and analytics summaries. */
   tokenBreakdown?: TaskTokenUsage[];
   costByModel?: TaskModelCost[]; // priced cost per model, most expensive first
+  costByRole?: TaskRoleCost[];   // priced cost per session role, in AGENT_ROLES order, unattributed last
   costEstimated?: boolean;       // part of costUsd was estimated after the fact
 }
 
@@ -656,6 +667,7 @@ export interface RecordVerificationInput {
 }
 export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;
+  role?: AgentRole;
 }
 export interface AddCommentInput { actor: Actor; body: string; actorUserId?: number | null; executionId?: string | undefined; }
 export interface AddAttachmentInput { filename: string; mime: string; dataBase64: string; }

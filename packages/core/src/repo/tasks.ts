@@ -15,7 +15,7 @@ import { buildReviewBrief } from '../reviewBrief.js';
 import { parseFailureComment, summarizeFailure, type ParsedFailure } from '../failure.js';
 import { classifyFailureNote, parseFailureTriageFeedbackComment, summarizeFailureTriage } from '../failureTriage.js';
 import { deliveryByTaskIds } from './delivery.js';
-import { tokenAggregateFor, tokenBreakdownFor, costByTaskIds, costByModelFor } from './metrics.js';
+import { tokenAggregateFor, tokenBreakdownFor, costByTaskIds, costByModelFor, costByRoleFor } from './metrics.js';
 import { nowIso } from '../time.js';
 import { dependenciesFor, dependentsFor } from './taskDependencies.js';
 import { getKv } from './kv.js';
@@ -324,6 +324,7 @@ export function toDetail(db: DB, r: TaskRow): TaskDetail {
       ...tokenAggregateFor(db, r.id),
       tokenBreakdown: tokenBreakdownFor(db, r.id),
       costByModel: costByModelFor(db, r.id),
+      costByRole: costByRoleFor(db, r.id),
     },
   };
 }

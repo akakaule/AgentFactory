@@ -66,7 +66,7 @@ export function registerSubmitResult(server: McpServer, core: McpCore, opts: Ser
         let task = await core.submitResult(key, input);
         let metricsNote = '';
         if (metrics && Object.keys(metrics).length > 0) {
-          const input: AddTaskMetricsInput & { executionId?: string } = {};       // explicit build for exactOptionalPropertyTypes
+          const input: AddTaskMetricsInput & { executionId?: string } = { role: 'worker' }; // the submitting agent is the worker
           if (executionId !== undefined) input.executionId = executionId;
           if (metrics.model !== undefined) input.model = metrics.model;
           if (metrics.tokensIn !== undefined) input.tokensIn = metrics.tokensIn;

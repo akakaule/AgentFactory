@@ -40,14 +40,14 @@ describe('Codex worker adapter', () => {
       mcp: { command: 'C:\\Program Files\\node.exe', args: ['C:\\repo\\mcp.js'] },
       mcpEnv: { AGENTFACTORY_TOKEN: 'secret-token', AGENTFACTORY_TASK_KEY: 'AF-1' },
       permissionMode: 'acceptEdits', codexArgs: ['--model', 'gpt-5.6-luna'],
-      otel: { endpoint: 'http://board:8787', taskKey: 'AF-1', token: 'secret-otel' },
+      otel: { endpoint: 'http://board:8787', taskKey: 'AF-1', workspace: 'ws', worker: 'ws#AF-1-a1', role: 'worker', token: 'secret-otel' },
     });
     expect(args).toContain('workspace-write');
     expect(args).toContain('approval_policy="never"');
     expect(args).toContain('mcp_servers.agentfactory.default_tools_approval_mode="approve"');
     expect(args).toContain('mcp_servers.agentfactory.command="C:\\\\Program Files\\\\node.exe"');
     expect(args.join(' ')).not.toContain('secret-token');
-    expect(args).toContain('otel.exporter={otlp-http={endpoint="http://board:8787/v1/logs",protocol="json",headers={X-Task-Key="AF-1",Authorization="Bearer secret-otel"}}}');
+    expect(args).toContain('otel.exporter={otlp-http={endpoint="http://board:8787/v1/logs",protocol="json",headers={X-Task-Key="AF-1",X-AF-Worker="ws#AF-1-a1",X-AF-Workspace="ws",X-AF-Role="worker",Authorization="Bearer secret-otel"}}}');
     expect(args.at(-1)).toBe('-');
   });
 

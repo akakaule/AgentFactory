@@ -39,7 +39,7 @@ describe('resolveEngineCommand', () => {
 describe('buildEngineArgs', () => {
   it('attributes Codex review phase sessions through OTLP headers', () => {
     const args = buildEngineArgs({ engine: 'codex', outputFile: 'out', otel: { endpoint: 'http://board', taskKey: 'AF-1',
-      worker: 'ws#AF-1-r1-2-codex-cross-examination', workspace: 'ws' } });
+      worker: 'ws#AF-1-r1-2-codex-cross-examination', workspace: 'ws', role: 'review' } });
     expect(args.join(' ')).toContain('X-AF-Worker="ws#AF-1-r1-2-codex-cross-examination"');
     expect(args.join(' ')).toContain('X-AF-Workspace="ws"');
   });
@@ -63,12 +63,12 @@ describe('buildEngineArgs', () => {
   it('codex: otel opts inject a full otlp-http exporter override via -c (endpoint gains /v1/logs, literal task key)', () => {
     const args = buildEngineArgs({
       engine: 'codex', outputFile: '/logs/x.out',
-      otel: { endpoint: 'http://localhost:8787/', taskKey: 'AF-7', token: 'svc' },
+      otel: { endpoint: 'http://localhost:8787/', taskKey: 'AF-7', workspace: 'ws', worker: 'ws#AF-7-r', role: 'review', token: 'svc' },
     });
     const i = args.indexOf('-c');
     expect(i).toBeGreaterThan(-1);
     expect(args[i + 1]).toBe(
-      'otel.exporter={otlp-http={endpoint="http://localhost:8787/v1/logs",protocol="json",headers={X-Task-Key="AF-7",Authorization="Bearer svc"}}}',
+      'otel.exporter={otlp-http={endpoint="http://localhost:8787/v1/logs",protocol="json",headers={X-Task-Key="AF-7",X-AF-Worker="ws#AF-7-r",X-AF-Workspace="ws",X-AF-Role="review",Authorization="Bearer svc"}}}',
     );
     expect(args.at(-1)).toBe('-'); // stdin marker stays last
   });
@@ -76,16 +76,16 @@ describe('buildEngineArgs', () => {
   it('codex: otel without a token omits the Authorization header', () => {
     const args = buildEngineArgs({
       engine: 'codex', outputFile: '/logs/x.out',
-      otel: { endpoint: 'http://localhost:8787', taskKey: 'AF-7' },
+      otel: { endpoint: 'http://localhost:8787', taskKey: 'AF-7', workspace: 'ws', worker: 'ws#AF-7-r', role: 'visualization' },
     });
     const override = args[args.indexOf('-c') + 1]!;
-    expect(override).toContain('headers={X-Task-Key="AF-7"}');
+    expect(override).toContain('headers={X-Task-Key="AF-7",X-AF-Worker="ws#AF-7-r",X-AF-Workspace="ws",X-AF-Role="visualization"}');
     expect(override).not.toContain('Authorization');
   });
 
   it('claude: otel opts are ignored (claude reads OTLP from the environment)', () => {
     expect(
-      buildEngineArgs({ engine: 'claude', outputFile: '', otel: { endpoint: 'http://x', taskKey: 'AF-7' } }),
+      buildEngineArgs({ engine: 'claude', outputFile: '', otel: { endpoint: 'http://x', taskKey: 'AF-7', workspace: 'ws', worker: 'ws#AF-7-r', role: 'review' } }),
     ).toEqual(['-p', '--output-format', 'text', '--permission-mode', 'plan', '--strict-mcp-config']);
   });
 

@@ -32,9 +32,41 @@ describe('task cost split', () => {
     addTaskMetrics(db, task.key, { model: 'gpt-6-sol', tokensIn: 30, tokensOut: 3, reportedBy: 'otel:codex' });
 
     expect(getTask(db, task.key).metrics.tokenBreakdown).toEqual([
-      { stage: null, agent: 'claude', model: 'claude-opus-5-5', tokensIn: 100, tokensOut: 10, costUsd: 3, costEstimated: false },
-      { stage: null, agent: 'codex', model: 'gpt-6-sol', tokensIn: 30, tokensOut: 3, costUsd: null, costEstimated: false },
+      { stage: null, role: null, agent: 'claude', model: 'claude-opus-5-5', tokensIn: 100, tokensOut: 10, costUsd: 3, costEstimated: false },
+      { stage: null, role: null, agent: 'codex', model: 'gpt-6-sol', tokensIn: 30, tokensOut: 3, costUsd: null, costEstimated: false },
     ]);
+  });
+
+  it('splits the cost per role (worker, review, visualization, feedback), unattributed reports as null', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    addTaskMetrics(db, task.key, { model: 'claude-opus-5-5', tokensIn: 100, tokensOut: 10, costUsd: 3, reportedBy: 'otel:claude-code', role: 'worker' });
+    addTaskMetrics(db, task.key, { model: 'gpt-6.1-sol', tokensIn: 40, tokensOut: 4, costUsd: 0.5, reportedBy: 'otel:codex', role: 'review' });
+    addTaskMetrics(db, task.key, { model: 'claude-opus-5-5', tokensIn: 40, tokensOut: 4, costUsd: 0.75, reportedBy: 'otel:claude-code', role: 'review' });
+    addTaskMetrics(db, task.key, { model: 'gpt-6.1-sol', tokensIn: 20, tokensOut: 2, costUsd: 0.2, reportedBy: 'otel:codex', role: 'visualization' });
+    addTaskMetrics(db, task.key, { model: 'claude-opus-5-5', tokensIn: 5, tokensOut: 1, costUsd: 0.1, reportedBy: 'otel:claude-code' });
+
+    const m = getTask(db, task.key).metrics;
+    expect(m.costByRole).toEqual([
+      { role: 'worker', costUsd: 3, estimated: false },
+      { role: 'review', costUsd: 1.25, estimated: false },
+      { role: 'visualization', costUsd: 0.2, estimated: false },
+      { role: null, costUsd: 0.1, estimated: false },
+    ]);
+    // within a stage: worker → review → visualization → feedback → unattributed
+    expect(m.tokenBreakdown?.map((r) => [r.role, r.agent, r.model])).toEqual([
+      ['worker', 'claude', 'claude-opus-5-5'],
+      ['review', 'claude', 'claude-opus-5-5'],
+      ['review', 'codex', 'gpt-6.1-sol'],
+      ['visualization', 'codex', 'gpt-6.1-sol'],
+      [null, 'claude', 'claude-opus-5-5'],
+    ]);
+  });
+
+  it('rejects an unknown role', () => {
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    expect(() => addTaskMetrics(db, task.key, { tokensIn: 1, role: 'intern' as never })).toThrow();
   });
 });
 

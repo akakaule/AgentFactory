@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError, NotFoundError } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, ReviewRevision, AgentModels, ModelProfile } from '@agentfactory/core';
-import { formatReviewRevision } from '@agentfactory/core';
+import { formatReviewRevision, claudeOtelEnv, type AgentRole, type OtelSession } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, resolveReviewers } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
@@ -18,6 +18,8 @@ import type { BranchDiff } from '@agentfactory/core';
  *  feedback-eval/v1), or the authoring of a task's HTML change-visualization (`visualize` →
  *  attachVisualization, no comment). */
 type ReviewMode = 'review' | 'feedback-eval' | 'visualize';
+/** The role each session's token usage is saved under. */
+const OTEL_ROLE: Record<ReviewMode, AgentRole> = { review: 'review', 'feedback-eval': 'feedback', visualize: 'visualization' };
 
 /** Live state for one spawned review session. */
 interface ReviewSession {
@@ -473,18 +475,13 @@ export class Reviewer {
    * into config.toml headers) — the AF_TASK_KEY/AF_OTEL_TOKEN env vars remain as session
    * markers only.
    */
-  private applyOtel(env: NodeJS.ProcessEnv, engine: ReviewEngine, key: string, workspace: string, label: string): void {
+  private applyOtel(env: NodeJS.ProcessEnv, engine: ReviewEngine, session: OtelSession): void {
     const otel = this.config.otel;
     if (!otel) return;
     if (engine === 'claude') {
-      env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
-      env['OTEL_LOGS_EXPORTER'] = 'otlp';
-      env['OTEL_EXPORTER_OTLP_PROTOCOL'] = 'http/json';
-      env['OTEL_EXPORTER_OTLP_ENDPOINT'] = otel.endpoint;
-      if (otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${otel.token}`;
-      env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
+      Object.assign(env, claudeOtelEnv(otel, session));
     } else {
-      env['AF_TASK_KEY'] = key;
+      env['AF_TASK_KEY'] = session.taskKey;
       if (otel.token) env['AF_OTEL_TOKEN'] = otel.token;
     }
   }
@@ -764,15 +761,16 @@ export class Reviewer {
     const outputFile = engine === 'codex' ? `${fileBase}.out` : null;
     if (outputFile) this.deps.clearOutput(outputFile);
     const logWriter = this.deps.openLog(`${fileBase}.log`);
+    const otelSession: OtelSession = { taskKey: key, workspace, worker: label, role: OTEL_ROLE[mode] };
     const args = buildEngineArgs({
       engine,
       model,
       reasoningEffort: opts.reasoningEffort,
       outputFile: outputFile ?? '',
-      otel: this.config.otel ? { endpoint: this.config.otel.endpoint, taskKey: key, token: this.config.otel.token, worker: label, workspace } : undefined,
+      otel: this.config.otel ? { ...this.config.otel, ...otelSession } : undefined,
     });
     const env: NodeJS.ProcessEnv = { ...(this.deps.baseEnv ?? {}) };
-    if (this.config.otel) this.applyOtel(env, engine, key, workspace, label);
+    if (this.config.otel) this.applyOtel(env, engine, otelSession);
 
     const child = this.deps.spawn({ command: this.resolveCommand(engine), args, cwd: this.deps.logDir, env, stdin: prompt });
     const session: ReviewSession = {

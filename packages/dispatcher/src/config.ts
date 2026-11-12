@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
+import { boardSchema, otelConfigSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
 
 /** Permission modes the dispatcher passes through to `claude --permission-mode`. `auto` lets
  *  Claude's classifier approve routine commands (npm ci / build / test) a headless session
@@ -102,13 +102,7 @@ export const baseConfigSchema = z.object({
    * key — so usage is captured for interactive/streamed runs too. Its presence also disables
    * the dispatcher's stdout metric parse (OTel then owns the tokens, avoiding double-counting).
    */
-  otel: z
-    .object({
-      endpoint: z.string().min(1),
-      token: z.string().min(1).optional(),
-    })
-    .strict()
-    .optional(),
+  otel: otelConfigSchema.optional(),
 }).strict();
 
 /** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be

@@ -1,4 +1,4 @@
-import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS, claudeOtelEnv } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings, AgentModels, ModelProfile, ReportedRoles } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, modelProfileArgs, profileFromArgs } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
@@ -716,16 +716,10 @@ export class Dispatcher {
       ...(this.deps.baseEnv ?? {}),
       ...mcpEnv,
     };
-    if (this.config.otel && engine === 'claude') {
-      // Export token usage over OTLP (captured even for streamed/interactive turns), tagged
-      // with the task key so the receiver attributes it to this task.
-      env['CLAUDE_CODE_ENABLE_TELEMETRY'] = '1';
-      env['OTEL_LOGS_EXPORTER'] = 'otlp';
-      env['OTEL_EXPORTER_OTLP_PROTOCOL'] = 'http/json';
-      env['OTEL_EXPORTER_OTLP_ENDPOINT'] = this.config.otel.endpoint;
-      if (this.config.otel.token) env['OTEL_EXPORTER_OTLP_HEADERS'] = `Authorization=Bearer ${this.config.otel.token}`;
-      env['OTEL_RESOURCE_ATTRIBUTES'] = `task.key=${key},af.workspace=${workspace},af.worker=${label}`;
-    }
+    // Export token usage over OTLP (captured even for streamed/interactive turns), tagged with the
+    // task/workspace/worker so the receiver attributes it — same wiring as the reviewer's spawns.
+    const otelSession = { taskKey: key, workspace, worker: label, role: 'worker' as const };
+    if (this.config.otel && engine === 'claude') Object.assign(env, claudeOtelEnv(this.config.otel, otelSession));
     // Git auth for the worker's push/fetch: the board resolves this workspace's PAT (stored, else
     // env) and hands git an http.extraheader (+ a url.insteadOf rewrite that strips any stale
     // credential embedded in the on-disk origin URL) via GIT_CONFIG_* — so the worker authenticates
@@ -757,7 +751,7 @@ export class Dispatcher {
     const args = engine === 'codex' ? buildCodexArgs({
       mcp: this.deps.mcp, mcpEnv, permissionMode: this.config.codexPermissionMode ?? this.config.permissionMode,
       codexArgs: [...(this.config.codexArgs ?? []), ...stageArgs],
-      otel: this.config.otel ? { ...this.config.otel, taskKey: key } : undefined,
+      otel: this.config.otel ? { ...this.config.otel, ...otelSession } : undefined,
       shellEnvKeys,
     }) : buildSpawnArgs({
       prompt: this.prompt,
@@ -1002,7 +996,7 @@ export class Dispatcher {
   }
 
   private async recordMetrics(key: string, label: string, m: ParsedMetrics, executionId: string | null): Promise<void> {
-    const input: AddTaskMetricsInput & { executionId?: string } = { reportedBy: label };
+    const input: AddTaskMetricsInput & { executionId?: string } = { reportedBy: label, role: 'worker' };
     if (executionId) input.executionId = executionId;
     if (m.model !== undefined) input.model = m.model;
     if (m.tokensIn !== undefined) input.tokensIn = m.tokensIn;
