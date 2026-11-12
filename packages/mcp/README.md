@@ -8,7 +8,7 @@ This package implements the [Model Context Protocol](https://modelcontextprotoco
 
 | Tool | Description |
 |---|---|
-| `list_tasks` | List tasks, optionally filtered by status and/or workspace |
+| `list_tasks` | List tasks, optionally filtered by status and/or workspace. Archived tasks are hidden unless `archived: true`, which lists only those |
 | `get_next_task` | Claim and return the next available task (status: `queued`), optionally scoped to a workspace |
 | `get_task` | Get a single task by key |
 | `add_comment` | Add a comment to a task |
