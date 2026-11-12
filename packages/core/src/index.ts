@@ -45,6 +45,7 @@ export { submitResult } from './ops/submitResult.js';
 export { updateStatus } from './ops/updateStatus.js';
 export { releaseClaim } from './ops/releaseClaim.js';
 export { createHttpCore, assertBoardCapabilities, type HttpCore, type HttpCoreOptions, type BoardIdentity } from './httpCore.js';
+export { otelConfigSchema, claudeOtelEnv, codexOtelOverride, type OtelConfig, type OtelSession } from './otel.js';
 export { boardSchema, repoPathOverridesSchema, xorDbBoard, resolveBoardToken, assertAbsoluteOverrides, DEFAULT_TOKEN_ENV, type BoardConfig } from './boardConfig.js';
 export { restartTask } from './ops/restartTask.js';
 export { reserveRetry, settleRetry, reconcileRetry, reconcileAbandonedRetryReservations, recordRetryFailure, getRetryBudget, resetRetryBudget, type ReserveRetryInput, type SettleRetryInput, type ReconcileRetryInput, type RecordRetryFailureInput } from './ops/retry.js';

@@ -656,6 +656,27 @@ describe('otel token capture', () => {
     expect(env['OTEL_EXPORTER_OTLP_ENDPOINT']).toBe('http://localhost:8787');
     expect(env['OTEL_EXPORTER_OTLP_HEADERS']).toContain('Bearer svc');
     expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain('task.key=');
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toContain('af.role=worker');
+  });
+
+  it('codex worker: the exporter override carries task, worker and workspace like the reviewer', async () => {
+    const core = makeCore();
+    const key = seedQueued(core, 'ws', 'Otel codex');
+    const { spawn, calls } = makeFakeSpawn();
+    const d = new Dispatcher(
+      makeConfig({ stageEngines: { implementation: 'codex' }, otel: { endpoint: 'http://localhost:8787', token: 'svc' } }),
+      makeDeps(core, spawn),
+    );
+
+    await d.tick();
+    const { args, env } = calls[0]!.req;
+    const override = args.find((a) => a.startsWith('otel.exporter='));
+    expect(override).toContain(`X-Task-Key="${key}"`);
+    expect(override).toContain(`X-AF-Worker="${workerLabel(env)}"`);
+    expect(override).toContain('X-AF-Workspace="ws"');
+    expect(override).toContain('X-AF-Role="worker"');
+    expect(override).toContain('Authorization="Bearer svc"');
+    expect(env['OTEL_RESOURCE_ATTRIBUTES']).toBeUndefined(); // codex gets -c config, not the OTLP env
   });
 
   it('with otel configured, a session exit does NOT write task_metric (OTel owns it)', async () => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { boardSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
+import { boardSchema, otelConfigSchema, repoPathOverridesSchema, xorDbBoard } from '@agentfactory/core';
 
 /**
  * The review engines the supervisor can drive. Codex is the default — an independent
@@ -79,21 +79,11 @@ export const baseConfigSchema = z.object({
     .strict()
     .default({}),
   /**
-   * Optional OpenTelemetry export. When set, each spawned review binds its token usage to the
-   * task so usage lands attributed (not "unattributed") in the live Telemetry feed + per-task
-   * rollup. Wiring is per engine: the `claude` engine gets the OTLP env vars + a `task.key`
-   * resource attribute (like the dispatcher); the `codex` engine gets a per-spawn
-   * `-c otel.exporter=...` override carrying the endpoint (`<endpoint>/v1/logs`) and a literal
-   * `X-Task-Key` header — no `[otel]` block in `~/.codex/config.toml` is needed (codex uses a
-   * configured endpoint verbatim and does not interpolate env vars into header values).
+   * Optional OpenTelemetry export. When set, each spawned review (and visualization) exports its
+   * token usage to the board's `/v1/logs`, attributed to the task — the same wiring as the
+   * dispatcher's workers (`claudeOtelEnv` / `codexOtelOverride` in core).
    */
-  otel: z
-    .object({
-      endpoint: z.string().min(1),
-      token: z.string().min(1).optional(),
-    })
-    .strict()
-    .optional(),
+  otel: otelConfigSchema.optional(),
 });
 
 /** The base schema plus the db/board XOR. Kept separate because ZodEffects cannot be

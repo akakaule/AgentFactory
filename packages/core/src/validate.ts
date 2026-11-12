@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from './errors.js';
-import { ATTACHMENT_MIMES, CI_MODES, VERIFICATION_STATUSES } from './types.js';
+import { AGENT_ROLES, ATTACHMENT_MIMES, CI_MODES, VERIFICATION_STATUSES } from './types.js';
 import { AGENT_PROMPT_KEYS } from './agentPrompts.js';
 import { adoSyncSettingsSchema } from './adoSync.js';
 import { isSafeRef } from './git.js';
@@ -118,6 +118,7 @@ export const taskMetricsSchema = z
     tokensOut: z.number().int().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
     reportedBy: nonEmpty.optional(),
+    role: z.enum(AGENT_ROLES).optional(),
   })
   .refine(
     (o) => o.model !== undefined || o.tokensIn !== undefined || o.tokensOut !== undefined || o.costUsd !== undefined,

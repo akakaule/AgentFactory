@@ -55,6 +55,20 @@ describe('auto-visualization', () => {
     expect(calls.length).toBe(2);
   });
 
+  it('saves the visualization session usage under the visualization role, the review under review', async () => {
+    const core = makeCore();
+    seedInReview(core, 'ws', 'Ship it', 'implementation');
+    const { spawn, calls } = makeFakeSpawn();
+    const r = new Reviewer(vizConfig({ otel: { endpoint: 'http://localhost:8787' } }), makeDeps(core, spawn, { readOutput: byPath(sampleHtml()), console: makeFakeConsole() }));
+
+    await r.tick();
+    await calls[0]!.child.exit(0);
+    await r.tick();
+    const role = (i: number) => calls[i]!.req.args.find((a) => a.startsWith('otel.exporter='))?.match(/X-AF-Role="([^"]+)"/)?.[1];
+    expect(role(0)).toBe('visualization');
+    expect(role(1)).toBe('review');
+  });
+
   it('doc stages get no visualization — the review runs immediately', async () => {
     const core = makeCore();
     seedInReview(core, 'ws', 'Plan it', 'plan');

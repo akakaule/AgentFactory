@@ -9,7 +9,7 @@
  * split — so restored events carry `worker: null` and `tokensCached: null`. Like the aggregate,
  * the receiver only pushes task-attributed events here — unattributed usage (no task key) is dropped.
  */
-import type { RecentTokenMetric } from '@agentfactory/core';
+import type { AgentRole, RecentTokenMetric } from '@agentfactory/core';
 
 export interface TelemetryEvent {
   /** Monotonic id — a stable key for the client and the natural newest-first sort. */
@@ -22,6 +22,9 @@ export interface TelemetryEvent {
   workspace: string | null;
   /** From the `af.worker` resource attribute (the dispatcher stamps it), else null. */
   worker: string | null;
+  /** From `af.role` / `X-AF-Role` (worker, review, visualization, feedback), else null. Restored
+   *  events keep it: task_metric saves the role. */
+  role: AgentRole | null;
   /** Which CLI emitted it, inferred from the event name. */
   agent: 'claude-code' | 'codex';
   model: string | null;
@@ -67,6 +70,7 @@ export function seedFromMetrics(store: TelemetryStore, rows: RecentTokenMetric[]
       taskKey: r.taskKey,
       workspace: r.workspace,
       worker: null,
+      role: r.role,
       agent: r.reportedBy === 'otel:codex' ? 'codex' : 'claude-code',
       model: r.model,
       tokensIn: r.tokensIn ?? 0,

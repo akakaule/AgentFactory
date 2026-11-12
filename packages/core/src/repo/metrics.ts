@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import { STAGE_ORDER, type Stage, type TaskModelCost, type TaskTokenUsage } from '../types.js';
+import { AGENT_ROLES, STAGE_ORDER, type AgentRole, type Stage, type TaskModelCost, type TaskRoleCost, type TaskTokenUsage } from '../types.js';
 
 export interface TokenAggregate {
   model: string | null;
@@ -31,6 +31,20 @@ export function costByModelFor(db: DB, taskId: number): TaskModelCost[] {
      WHERE task_id = ? AND cost_usd IS NOT NULL GROUP BY model ORDER BY cost DESC, model`,
   ).all(taskId) as Array<{ model: string | null; cost: number; est: number }>;
   return rows.map((r) => ({ model: r.model, costUsd: r.cost, estimated: r.est === 1 }));
+}
+
+const roleOrder = (r: AgentRole | null): number => r === null ? AGENT_ROLES.length : AGENT_ROLES.indexOf(r);
+
+/** A task's priced cost per session role, in AGENT_ROLES order with unattributed (null) last.
+ *  Roles whose reports carried no cost are left out — unpriced, never $0. */
+export function costByRoleFor(db: DB, taskId: number): TaskRoleCost[] {
+  const rows = db.prepare(
+    `SELECT role, SUM(cost_usd) cost, MAX(cost_estimated) est FROM task_metric
+     WHERE task_id = ? AND cost_usd IS NOT NULL GROUP BY role`,
+  ).all(taskId) as Array<{ role: AgentRole | null; cost: number; est: number }>;
+  return rows
+    .map((r) => ({ role: r.role, costUsd: r.cost, estimated: r.est === 1 }))
+    .sort((a, b) => roleOrder(a.role) - roleOrder(b.role));
 }
 
 /** Summed reported cost per task; a task with no priced report is absent (unreported, never zero). */
@@ -68,10 +82,10 @@ export function stageTokensFor(db: DB, taskId: number): StageTokens {
  * The reporter is the only engine evidence; model names alone do not identify a CLI. */
 export function tokenBreakdownFor(db: DB, taskId: number): TaskTokenUsage[] {
   const metrics = db.prepare(
-    `SELECT model, reported_by, tokens_in, tokens_out, cost_usd, cost_estimated, created_at FROM task_metric
+    `SELECT model, reported_by, role, tokens_in, tokens_out, cost_usd, cost_estimated, created_at FROM task_metric
      WHERE task_id = ? AND (tokens_in IS NOT NULL OR tokens_out IS NOT NULL)
      ORDER BY created_at, id`,
-  ).all(taskId) as Array<{ model: string | null; reported_by: string | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; cost_estimated: number; created_at: string }>;
+  ).all(taskId) as Array<{ model: string | null; reported_by: string | null; role: AgentRole | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; cost_estimated: number; created_at: string }>;
   if (!metrics.length) return [];
   const sessions = db.prepare(
     'SELECT stage, started_at FROM agent_session WHERE task_id = ? ORDER BY started_at, id',
@@ -87,8 +101,8 @@ export function tokenBreakdownFor(db: DB, taskId: number): TaskTokenUsage[] {
     // the OTLP receiver records Claude Code as 'otel:claude-code'; 'otel:claude' is the older label
     const agent = m.reported_by === 'otel:codex' ? 'codex'
       : m.reported_by === 'otel:claude-code' || m.reported_by === 'otel:claude' ? 'claude' : null;
-    const key = JSON.stringify([stage, agent, m.model]);
-    const row = out.get(key) ?? { stage, agent, model: m.model, tokensIn: null, tokensOut: null, costUsd: null, costEstimated: false };
+    const key = JSON.stringify([stage, m.role, agent, m.model]);
+    const row = out.get(key) ?? { stage, role: m.role, agent, model: m.model, tokensIn: null, tokensOut: null, costUsd: null, costEstimated: false };
     row.tokensIn = sum(row.tokensIn, m.tokens_in);
     row.tokensOut = sum(row.tokensOut, m.tokens_out);
     row.costUsd = sum(row.costUsd, m.cost_usd);
@@ -97,13 +111,14 @@ export function tokenBreakdownFor(db: DB, taskId: number): TaskTokenUsage[] {
   }
   const order = (s: Stage | null) => s === null ? STAGE_ORDER.length : STAGE_ORDER.indexOf(s);
   return [...out.values()].sort((a, b) => order(a.stage) - order(b.stage)
+    || roleOrder(a.role) - roleOrder(b.role)
     || (a.agent ?? 'unknown').localeCompare(b.agent ?? 'unknown')
     || (a.model ?? 'unknown').localeCompare(b.model ?? 'unknown'));
 }
 
 /** One OTel-reported usage row with its task key and workspace name. */
 export interface RecentTokenMetric {
-  taskKey: string; workspace: string | null; reportedBy: 'otel:claude-code' | 'otel:codex'; model: string | null;
+  taskKey: string; workspace: string | null; reportedBy: 'otel:claude-code' | 'otel:codex'; role: AgentRole | null; model: string | null;
   tokensIn: number | null; tokensOut: number | null; costUsd: number | null; createdAt: string;
 }
 
@@ -111,7 +126,7 @@ export interface RecentTokenMetric {
  *  board restart. Agent/self-reported rows are left out: they never reach the live feed either. */
 export function recentTokenMetrics(db: DB, limit: number): RecentTokenMetric[] {
   return db.prepare(
-    `SELECT t.key AS taskKey, w.name AS workspace, m.reported_by AS reportedBy, m.model, m.tokens_in AS tokensIn,
+    `SELECT t.key AS taskKey, w.name AS workspace, m.reported_by AS reportedBy, m.role, m.model, m.tokens_in AS tokensIn,
             m.tokens_out AS tokensOut, m.cost_usd AS costUsd, m.created_at AS createdAt
      FROM task_metric m JOIN task t ON t.id = m.task_id LEFT JOIN workspace w ON w.id = t.workspace_id
      WHERE m.reported_by IN ('otel:claude-code', 'otel:codex')
@@ -121,10 +136,10 @@ export function recentTokenMetrics(db: DB, limit: number): RecentTokenMetric[] {
 
 export interface MetricInsert {
   taskId: number; model: string | null; tokensIn: number | null; tokensOut: number | null;
-  costUsd: number | null; reportedBy: string | null; createdAt: string;
+  costUsd: number | null; reportedBy: string | null; role: AgentRole | null; createdAt: string;
 }
 export function insertMetric(db: DB, m: MetricInsert): void {
   db.prepare(
-    'INSERT INTO task_metric(task_id, model, tokens_in, tokens_out, cost_usd, reported_by, created_at) VALUES (?,?,?,?,?,?,?)'
-  ).run(m.taskId, m.model, m.tokensIn, m.tokensOut, m.costUsd, m.reportedBy, m.createdAt);
+    'INSERT INTO task_metric(task_id, model, tokens_in, tokens_out, cost_usd, reported_by, role, created_at) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(m.taskId, m.model, m.tokensIn, m.tokensOut, m.costUsd, m.reportedBy, m.role, m.createdAt);
 }

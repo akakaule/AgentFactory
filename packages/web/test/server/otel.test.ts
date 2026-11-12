@@ -69,6 +69,22 @@ describe('POST /v1/logs — OTLP token ingest', () => {
     const payload = await (await app.request('/api/telemetry')).json() as Array<{ worker: string; workspace: string }>;
     expect(payload[0]).toMatchObject({ worker: 'ws#AF-1-r1-2-codex-cross-examination', workspace: 'ws' });
   });
+  it('records the session role from the af.role attribute (Claude) or the X-AF-Role header (Codex); an unknown role is dropped', async () => {
+    const core = openCore(':memory:'); const app = buildApp(core);
+    const t = core.createTask({ title: 'T', spec: 'S', acceptanceCriteria: 'A' });
+    const claude = claudeBody(t.key);
+    claude.resourceLogs[0]!.resource.attributes!.push({ key: 'af.role', value: { stringValue: 'worker' } });
+    await postLogs(app, claude);
+    await postLogs(app, codexBody(), { 'x-task-key': t.key, 'x-af-role': 'review' });
+    await postLogs(app, codexBody(), { 'x-task-key': t.key, 'x-af-role': 'intern' });
+
+    const roles = ((await (await app.request(`/api/tasks/${t.key}`)).json()) as { metrics: { tokenBreakdown: Array<{ role: string | null; tokensIn: number }> } })
+      .metrics.tokenBreakdown.map((r) => [r.role, r.tokensIn]);
+    expect(roles).toEqual([['worker', 1050], ['review', 1200], [null, 1200]]);
+    expect((await (await app.request('/api/telemetry')).json() as Array<{ role: string | null }>).map((e) => e.role).sort())
+      .toEqual(['review', 'worker', null].sort());
+  });
+
   it('Claude api_request + task.key resource attr → summed tokens (incl cache) on task_metric', async () => {
     const core = openCore(':memory:');
     const app = buildApp(core);

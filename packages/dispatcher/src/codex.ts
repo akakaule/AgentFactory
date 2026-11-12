@@ -1,4 +1,5 @@
 import { dirname, join } from 'node:path';
+import { codexOtelOverride, type OtelConfig, type OtelSession } from '@agentfactory/core';
 import type { PermissionMode } from './config.js';
 import type { McpServerSpec } from './types.js';
 import type { ParsedMetrics } from './metrics.js';
@@ -36,7 +37,7 @@ const CORE_SHELL_ENV = [
 
 export function buildCodexArgs(opts: {
   mcp: McpServerSpec; mcpEnv: Record<string, string>; permissionMode: PermissionMode;
-  codexArgs: string[]; otel?: { endpoint: string; taskKey: string; token?: string | undefined } | undefined;
+  codexArgs: string[]; otel?: (OtelConfig & OtelSession) | undefined;
   shellEnvKeys?: string[];
 }): string[] {
   const config = (value: string): string[] => ['-c', value];
@@ -61,7 +62,7 @@ export function buildCodexArgs(opts: {
     // Equivalent to Claude's --allowedTools mcp__agentfactory: these board tools
     // are the explicitly authorized worker protocol, not arbitrary external MCP.
     ...config('mcp_servers.agentfactory.default_tools_approval_mode="approve"'),
-    ...(opts.otel ? config(`otel.exporter={otlp-http={endpoint=${str(`${opts.otel.endpoint.replace(/\/+$/, '')}/v1/logs`)},protocol="json",headers={X-Task-Key=${str(opts.otel.taskKey)}${opts.otel.token ? `,Authorization=${str(`Bearer ${opts.otel.token}`)}` : ''}}}}`) : []),
+    ...(opts.otel ? config(codexOtelOverride(opts.otel, opts.otel)) : []),
     ...opts.codexArgs, '-',
   ];
 }
