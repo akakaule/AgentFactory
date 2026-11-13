@@ -86,7 +86,7 @@ describe('delegate tokens', () => {
     for (const r of rows) expect(r.actor_delegate).toBe('Claude Code');
   });
 
-  it('migrating from head #36 keeps tokens working with delegate false and activity reading null (AC9)', () => {
+  it('migrating from head #37 keeps tokens working with delegate false and activity reading null (AC9)', () => {
     const db = openDb(':memory:');
     runMigrations(db);
     const head = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -96,17 +96,17 @@ describe('delegate tokens', () => {
     core.addComment(t.key, { actor: 'human', body: 'hi', actorUserId: u.id });
     db.exec('ALTER TABLE api_token DROP COLUMN delegate');
     db.exec('ALTER TABLE activity DROP COLUMN actor_delegate');
-    db.exec('PRAGMA user_version = 36');
-    expect(head).toBe(37); // exactly one migration added on top of #36
+    db.exec('PRAGMA user_version = 37');
+    expect(head).toBe(38); // exactly one migration added on top of #37
 
-    // tokens as a #36 build wrote them (no delegate column)
+    // tokens as a #37 build wrote them (no delegate column)
     const ins = db.prepare('INSERT INTO api_token(token_hash, user_id, label, is_service, is_supervisor, created_at) VALUES (?,?,?,?,?,?)');
     ins.run(hashToken('raw-user'), u.id, 'phone', 0, 0, 'x');
     ins.run(hashToken('raw-svc'), null, 'bridge', 1, 0, 'x');
     ins.run(hashToken('raw-sup'), null, 'dispatcher', 1, 1, 'x');
 
     runMigrations(db);
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 37 });
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 38 });
     const rows = db.prepare('SELECT label, user_id, is_service, is_supervisor, delegate FROM api_token ORDER BY id').all();
     expect(rows).toEqual([
       { label: 'phone', user_id: u.id, is_service: 0, is_supervisor: 0, delegate: 0 },

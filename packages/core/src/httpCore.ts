@@ -219,6 +219,8 @@ export function createHttpCore(baseUrl: string, token: string, opts: HttpCoreOpt
       if (o.status) q.set('status', o.status);
       if (o.workspace) q.set('workspace', o.workspace);
       if (o.archived !== undefined) q.set('archived', String(o.archived));
+      // an older board ignores it and returns every task; the watcher filters again either way
+      if (o.delivery) q.set('delivery', 'true');
       const qs = q.toString();
       return (await req('GET', `/api/tasks${qs ? `?${qs}` : ''}`)) as never;
     },

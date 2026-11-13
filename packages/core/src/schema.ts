@@ -549,14 +549,24 @@ export const MIGRATION_36_SQL = `
 ALTER TABLE task_metric ADD COLUMN role TEXT CHECK (role IS NULL OR role IN ('worker','review','visualization','feedback'));
 `;
 
-// Migration #37 — delegate tokens (AF-202). api_token.delegate (0/1) marks a user-bound token an
+// Migration #37 — indexes for getVersion()'s MAX() reads. It runs once per second per open board
+// tab; without an index led by the column SQLite reads the whole table (task_metric gains a row per
+// API request — ~90 ms per call at 300k rows, ~0.2 ms with these).
+export const MIGRATION_37_SQL = `
+CREATE INDEX IF NOT EXISTS idx_metric_created ON task_metric(created_at);
+CREATE INDEX IF NOT EXISTS idx_attention_first_seen ON attention_occurrence(first_seen_at);
+CREATE INDEX IF NOT EXISTS idx_attention_resolved ON attention_occurrence(resolved_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_updated ON notification_outbox(updated_at);
+`;
+
+// Migration #38 — delegate tokens (AF-202). api_token.delegate (0/1) marks a user-bound token an
 // agent uses on that user's behalf; activity.actor_delegate records the delegate's label on each
 // row such a token writes (NULL for everything else, including every row before this migration).
 // The delegate invariant (user-bound, never service/supervisor) is enforced in createApiToken.
 // Guarded in migrate.ts.
-export const MIGRATION_37_TOKEN_SQL = `
+export const MIGRATION_38_TOKEN_SQL = `
 ALTER TABLE api_token ADD COLUMN delegate INTEGER NOT NULL DEFAULT 0 CHECK (delegate IN (0,1));
 `;
-export const MIGRATION_37_ACTIVITY_SQL = `
+export const MIGRATION_38_ACTIVITY_SQL = `
 ALTER TABLE activity ADD COLUMN actor_delegate TEXT;
 `;

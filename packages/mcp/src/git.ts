@@ -18,22 +18,28 @@ const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*@\{)[^\x00-\x20\x7f:?*[\\^~]+$/;
 
 /** Run a git read. `ok:false` = git ran but exited non-zero (stderr is the reason, with any
  *  Authorization value redacted); throws GitError only if git is absent. */
-async function runGit(repoPath: string, args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+async function runGit(repoPath: string, args: string[], timeoutMs?: number): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
     const { stdout } = await execFileAsync('git', args, {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+      // never wait on a terminal or Git Credential Manager prompt: a headless worker can't answer it
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+      ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
     });
     return { ok: true, stdout, stderr: '' };
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: string };
+    const e = err as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
     // existsSync(repoPath) ran before any spawn, so ENOENT can only mean the binary.
     if (e.code === 'ENOENT') throw new GitError('git executable not found');
+    if (timeoutMs !== undefined && e.killed) return { ok: false, stdout: '', stderr: `fatal: git timed out after ${Math.round(timeoutMs / 1000)}s` };
     return { ok: false, stdout: '', stderr: redact(e.stderr ?? '') };
   }
 }
+
+/** The submit check's network read gives up on a hung origin instead of hanging submit_result. */
+const REMOTE_TIMEOUT_MS = 30_000;
 
 function redact(text: string): string {
   return text.replace(/Basic [A-Za-z0-9+/=]+/g, 'Basic <redacted>').replace(/https?:\/\/[^/@\s]+@/g, 'https://<redacted>@').trim();
@@ -137,7 +143,7 @@ function skip(reason: string): SubmitGuardResult {
  * is a configured-but-unreachable remote — failing open there would silently re-create
  * the very incident this guards against.
  */
-export async function checkSubmission(opts: { repoPath: string; branch: string | null; key: string; auth?: GitAuth | null }): Promise<SubmitGuardResult> {
+export async function checkSubmission(opts: { repoPath: string; branch: string | null; key: string; auth?: GitAuth | null; remoteTimeoutMs?: number }): Promise<SubmitGuardResult> {
   const { repoPath, branch, key, auth } = opts;
 
   if (branch === null) return skip(`${key} has no branch (claimed before the protocol existed)`);
@@ -173,7 +179,7 @@ export async function checkSubmission(opts: { repoPath: string; branch: string |
     // the verify. Without one, fall back to `origin` and whatever ambient credential git resolves.
     const target = auth ? auth.remoteUrl : 'origin';
     const authArgs = auth ? authConfigArgs(auth) : [];
-    const ls = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', target, branch]);
+    const ls = await runGit(repoPath, [...authArgs, 'ls-remote', '--heads', '--end-of-options', target, branch], opts.remoteTimeoutMs ?? REMOTE_TIMEOUT_MS);
     if (!ls.ok) {
       // configured but unreachable — fail closed; the push needed this same network moments ago.
       // Carry git's own reason so an auth failure (401/400) is distinguishable from an outage.

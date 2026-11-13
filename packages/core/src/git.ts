@@ -49,6 +49,8 @@ interface RunGitOptions {
 /** Network git calls on a request path must never wait on a human: no terminal or GCM prompts. */
 const NON_INTERACTIVE_ENV = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 const REMOTE_HEAD_TIMEOUT_MS = 15_000;
+/** A fetch moves objects, so it gets longer than ls-remote — but never forever. */
+const FETCH_TIMEOUT_MS = 120_000;
 
 async function runGit(repoPath: string, args: string[], opts: RunGitOptions = {}): Promise<{ ok: boolean; stdout: string; timedOut?: boolean }> {
   try {
@@ -95,11 +97,15 @@ export async function resolveBaseRef(repoPath: string): Promise<string> {
  * against itself and report a clean review. Qualifying makes such a ref a (non-existent) branch
  * name, so the fetch fails loudly rather than reviewing the wrong thing.
  */
-export async function fetchRemoteRef(repoPath: string, ref: string): Promise<void> {
+export async function fetchRemoteRef(repoPath: string, ref: string, opts: { timeoutMs?: number } = {}): Promise<void> {
   if (!SAFE_REF.test(ref)) throw new ValidationError(`invalid branch ref: ${ref}`);
   if (!existsSync(repoPath)) throw new GitError(`repository path does not exist: ${repoPath}`);
   const src = ref.startsWith('refs/') ? ref : `refs/heads/${ref}`;
-  const r = await runGit(repoPath, ['fetch', '--quiet', 'origin', `+${src}:refs/remotes/origin/${ref}`]);
+  // A network call on the reviewer's tick and the board's diff route: it never waits on a credential
+  // prompt and gives up on a hung origin, so one stalled remote can't freeze reviewing or a request.
+  const r = await runGit(repoPath, ['fetch', '--quiet', 'origin', `+${src}:refs/remotes/origin/${ref}`],
+    { timeoutMs: opts.timeoutMs ?? FETCH_TIMEOUT_MS, env: NON_INTERACTIVE_ENV });
+  if (r.timedOut) throw new GitError(`git fetch timed out for origin ${ref}`);
   if (!r.ok) throw new GitError(`git fetch failed for origin ${ref}`);
 }
 

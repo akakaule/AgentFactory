@@ -391,11 +391,22 @@ export function setArchived(db: DB, id: number, archivedAt: string | null, ts: s
   // bumping updated_at moves getVersion(), so SSE-driven clients refetch on (un)archive
   db.prepare('UPDATE task SET archived_at = ?, updated_at = ? WHERE id = ?').run(archivedAt, ts, id);
 }
-export function listRows(db: DB, opts: { status?: Status | undefined; workspaceId?: number | undefined; archived?: boolean | undefined } = {}): Task[] {
+export function listRows(db: DB, opts: { status?: Status | undefined; workspaceId?: number | undefined; archived?: boolean | undefined; deliverySince?: string | undefined; doneSince?: string | undefined } = {}): Task[] {
   // archived rows are opt-in: every default listing (board, queue, MCP list_tasks) hides them
   const where: string[] = [opts.archived ? 'task.archived_at IS NOT NULL' : 'task.archived_at IS NULL'];
   const vals: (string | number)[] = [];
   if (opts.status) { where.push('task.status = ?'); vals.push(opts.status); }
+  // the watcher's candidates (see listTasks): delivering, or a delivery row on a task it can still act on
+  if (opts.deliverySince !== undefined) {
+    where.push(`(task.status = 'delivering' OR EXISTS (SELECT 1 FROM task_delivery d WHERE d.task_id = task.id AND (
+      task.status IN ('queued', 'in_progress', 'blocked', 'in_review')
+      OR (task.status = 'done' AND d.pr_state = 'merged' AND (d.checks_state = 'pending' OR d.state_changed_at >= ?)))))`);
+    vals.push(opts.deliverySince);
+  }
+  if (opts.doneSince !== undefined) {
+    where.push(`(task.status != 'done' OR task.updated_at >= ? OR EXISTS (SELECT 1 FROM attention_occurrence a WHERE a.task_key = task.key AND a.resolved_at IS NULL))`);
+    vals.push(opts.doneSince);
+  }
   if (opts.workspaceId !== undefined) { where.push('task.workspace_id = ?'); vals.push(opts.workspaceId); }
   const sql = `${SELECT_TASK}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY task.seq ASC`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

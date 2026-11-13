@@ -202,7 +202,7 @@ export function createCore(db: DB, opts: CoreOptions = {}) {
     archiveTask: (key: string) => archiveTask(db, key),
     unarchiveTask: (key: string) => unarchiveTask(db, key),
     archiveDoneTasks: (opts: { workspace?: string | undefined } = {}) => archiveDoneTasks(db, opts),
-    listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined; archived?: boolean | undefined } = {}) => listTasks(db, opts),
+    listTasks: (opts: { status?: Status | undefined; workspace?: string | undefined; archived?: boolean | undefined; delivery?: boolean | undefined; doneSince?: string | undefined } = {}) => listTasks(db, opts),
     getTask: (key: string) => getTask(db, key),
     addTaskDependency: (dependentKey: string, dependencyKey: string) => addTaskDependency(db, dependentKey, dependencyKey),
     removeTaskDependency: (dependentKey: string, dependencyKey: string) => removeTaskDependency(db, dependentKey, dependencyKey),
