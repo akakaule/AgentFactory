@@ -70,7 +70,7 @@ export const approveBody = z.object({
 export const prReviewedBody = z.object({ review: z.string().optional() });
 // A human's PR-review comment forwarded onto a delivering task for critical evaluation.
 export const prFeedbackBody = z.object({ feedback: z.string().min(1), author: z.string().optional(), url: z.string().optional() });
-export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional() });
+export const listQuery = z.object({ status: StatusEnum.optional(), workspace: z.string().min(1).optional(), archived: z.enum(['true', 'false']).optional(), delivery: z.enum(['true', 'false']).optional() });
 export const archiveAllBody = z.object({ workspace: z.string().min(1).optional() });
 export const attentionSnoozeBody = z.object({ until: z.string().min(1) });
 export const intakeOverrideBody = z.object({ expectedRevision: z.string().min(1), reason: z.string().optional() });

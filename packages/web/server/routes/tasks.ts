@@ -46,8 +46,8 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
   };
 
   r.get('/', validated('query', listQuery), (c) => {
-    const { status, workspace, archived } = c.req.valid('query');
-    return c.json(core.listTasks({ status, workspace, archived: archived === 'true' ? true : undefined }));
+    const { status, workspace, archived, delivery } = c.req.valid('query');
+    return c.json(core.listTasks({ status, workspace, archived: archived === 'true' ? true : undefined, delivery: delivery === 'true' ? true : undefined }));
   });
 
   // registered before the /:key routes so the static segment is never read as a task key.

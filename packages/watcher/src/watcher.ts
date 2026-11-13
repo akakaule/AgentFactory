@@ -102,7 +102,8 @@ export class Watcher {
     });
     const servedSet = new Set(served);
     const mine = (t: Task): boolean => servedSet.has(t.workspace);
-    const tasks = (await core.listTasks()).filter(t => mine(t) && !t.archivedAt &&
+    // `delivery: true` pre-filters in SQL so done tasks long past their merge aren't loaded each poll
+    const tasks = (await core.listTasks({ delivery: true })).filter(t => mine(t) && !t.archivedAt &&
       (t.status === 'delivering' || (t.delivery && ['queued', 'in_progress', 'blocked', 'in_review'].includes(t.status)) ||
         (t.status === 'done' && this.awaitingPostMergeChecks(t.delivery))));
     try {

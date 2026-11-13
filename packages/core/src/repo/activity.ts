@@ -28,9 +28,10 @@ export function latestAiReviewComments(db: DB, taskIds: number[]): Map<number, {
   const rows = db.prepare(
     `SELECT a.task_id AS taskId, a.id AS id, a.body AS body FROM activity a
      JOIN (SELECT task_id, MAX(id) AS mid FROM activity
-           WHERE type = 'comment' AND (lower(ltrim(body)) LIKE 'ai-review/v1%' OR lower(ltrim(body)) LIKE 'ai-review/v2%')
-           GROUP BY task_id) m ON a.id = m.mid
-     WHERE a.task_id IN (${placeholders})`
+           WHERE task_id IN (${placeholders}) AND type = 'comment' AND (lower(ltrim(body)) LIKE 'ai-review/v1%' OR lower(ltrim(body)) LIKE 'ai-review/v2%')
+           GROUP BY task_id) m ON a.id = m.mid`
+    // the task filter sits INSIDE the subquery: outside it, the MAX() ran over every comment in the
+    // whole activity history (archived tasks included) on every listing
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ).all(...taskIds) as Array<{ taskId: number; id: number; body: string }>;
   for (const r of rows) out.set(r.taskId, { id: r.id, body: r.body });
@@ -50,9 +51,8 @@ export function latestFailureComments(db: DB, taskIds: number[]): Map<number, { 
   const rows = db.prepare(
     `SELECT a.task_id AS taskId, a.id AS id, a.body AS body, a.created_at AS createdAt FROM activity a
      JOIN (SELECT task_id, MAX(id) AS mid FROM activity
-           WHERE type = 'comment' AND lower(body) LIKE 'failure/v1%'
-           GROUP BY task_id) m ON a.id = m.mid
-     WHERE a.task_id IN (${placeholders})`
+           WHERE task_id IN (${placeholders}) AND type = 'comment' AND lower(body) LIKE 'failure/v1%'
+           GROUP BY task_id) m ON a.id = m.mid`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ).all(...taskIds) as Array<{ taskId: number; id: number; body: string; createdAt: string }>;
   for (const r of rows) out.set(r.taskId, { id: r.id, body: r.body, createdAt: r.createdAt });

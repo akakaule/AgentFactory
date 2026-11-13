@@ -15,6 +15,9 @@ import type { ActivityFeedRow, AttentionReason, CaptureNotificationsInput, Notif
  */
 
 export type NotifyEvent = NotificationEventType;
+/** How long a finished task stays in the notifier's scan (see durableTick). */
+const DONE_SETTLE_MS = 24 * 60 * 60_000;
+
 export const ALL_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'failed', 'skip_listed', 'supervisor_down', 'queue_empty', 'blocked', 'setup_needed', 'delivery_wait', 'delivery_stalled'];
 /** Sensible default: the "needs a human" events, without the noisier transient-failure / queue-empty ones. */
 export const DEFAULT_NOTIFY_EVENTS: readonly NotifyEvent[] = ['in_review', 'skip_listed', 'supervisor_down', 'blocked', 'setup_needed', 'delivery_stalled'];
@@ -34,7 +37,9 @@ export interface NotifierCore {
   getKv(key: string): string | null;
   setKv(key: string, value: string): void;
   listSupervisors(): SupervisorView[];
-  listTasks(opts?: { status?: Status | undefined }): Task[];
+  listTasks(opts?: { status?: Status | undefined; doneSince?: string | undefined }): Task[];
+  /** Resolves a task an activity row names that the scoped listing left out (a long-done one). */
+  getTask?(key: string): Task;
   captureNotifications?: (input: CaptureNotificationsInput) => void | Promise<void>;
   listNotificationOutbox?: (now?: string, limit?: number) => NotificationOutboxEntry[] | Promise<NotificationOutboxEntry[]>;
   settleNotificationOutbox?: (id: number, input: { ok: boolean; now?: string; retryAt?: string; error?: string }) => boolean | Promise<boolean>;
@@ -240,8 +245,23 @@ export class Notifier {
     // Task state is read BEFORE activity: a transition another process commits between the two reads
     // then arrives as a row whose task still shows its old state (the row closes the old episode, and
     // the next tick observes the new state once) — never as a state whose entry row a later tick replays.
-    const tasks = this.deps.core.listTasks();
+    // Done tasks drop out once settled: finished more than a day ago with no open alert. The day
+    // covers the tick that resolves a finishing task's alerts even across a notifier outage; an
+    // alert still open keeps its task listed until it is resolved.
+    const tasks = this.deps.core.listTasks({ doneSince: new Date(Date.now() - DONE_SETTLE_MS).toISOString() });
     const current = this.taskOccurrences(tasks);
+    const outside = new Map<string, Task | undefined>();
+    const taskFor = (key: string): Task | undefined => {
+      const listed = tasks.find(t => t.key === key);
+      if (listed || !this.deps.core.getTask) return listed;
+      if (!outside.has(key)) {
+        let found: Task | undefined;
+        // archived tasks were never listed; a deleted one is simply gone
+        try { const t = this.deps.core.getTask(key); found = t.archivedAt ? undefined : t; } catch { found = undefined; }
+        outside.set(key, found);
+      }
+      return outside.get(key);
+    };
     // Drain the activity backlog (one bounded capture per page) before observing current state, so a
     // state's entry row can't be consumed after its alert went out (more than a page of downtime activity).
     for (;;) {
@@ -250,7 +270,7 @@ export class Notifier {
       const occurrences: CaptureNotificationsInput['occurrences'] = [];
       const episodeStarts = new Set<string>();
       for (const row of rows) {
-        const task = tasks.find(t => t.key === row.taskKey);
+        const task = taskFor(row.taskKey);
         if (task && row.type === 'status_change' && row.toStatus) {
           for (const eventType of STATUS_EPISODES[row.toStatus] ?? []) episodeStarts.add(`task:${task.key}:${eventType}`);
         }
