@@ -56,7 +56,7 @@ export function registerTaskGit(server: McpServer, core: McpCore, opts: ServerOp
       for (const path of [parent, worktree]) {
         if (existsSync(path) && !samePath(realpathSync(path), path)) throw new Error('Task worktree path must not traverse a symlink or junction.');
       }
-      const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
       // Inherited Git routing must never redirect an operation away from the claimed repo.
       for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key];
       // The verify command gets the worker's environment, not the broker's managed credential.

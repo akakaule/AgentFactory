@@ -116,6 +116,25 @@ describe('checkSubmission — origin variants', GIT_SUITE, () => {
     expect(res.message).toContain('does not appear to be a git repository');
   });
 
+  it('fails closed with a timeout when origin accepts the connection but never answers', async () => {
+    const { createServer } = await import('node:net');
+    const sockets: import('node:net').Socket[] = [];
+    const server = createServer((s) => { sockets.push(s); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const repo = initRepo();
+      git(repo, 'remote', 'add', 'origin', `http://127.0.0.1:${(server.address() as { port: number }).port}/repo.git`);
+      const started = Date.now();
+      const res = await checkSubmission({ repoPath: repo, branch: BRANCH, key: KEY, remoteTimeoutMs: 1500 });
+      expect(res.ok).toBe(false);
+      expect(res.message).toContain('timed out');
+      expect(Date.now() - started).toBeLessThan(15_000);
+    } finally {
+      for (const s of sockets) s.destroy();
+      server.close();
+    }
+  });
+
   it('resets an inherited extraheader before adding the resolved PAT (no duplicate Authorization)', () => {
     // The dispatcher injects the workspace PAT into the worker env as GIT_CONFIG_* http.<url>.extraheader;
     // the MCP server inherits it. Adding a second value makes git send two Authorization headers and

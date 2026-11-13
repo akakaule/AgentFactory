@@ -3,6 +3,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { openCore, createHttpCore, branchDiff, fetchRemoteRef, revisionDiff, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
+import { installCrashGuard } from './crashGuard.js';
 import { loadConfig } from './config.js';
 import { Reviewer } from './reviewer.js';
 import { resolveEngineCommand, pickFromWhich } from './engine.js';
@@ -77,6 +78,9 @@ const realSpawn: SpawnFn = ({ command, args, cwd, env, stdin }) => {
   // The review prompt is fed on STDIN (diffs exceed command-line limits); end() sends EOF
   // so codex's `-` / claude's `-p` know the prompt is complete.
   if (stdin !== undefined) {
+    // an engine that exits before reading its prompt raises EPIPE here; its exit is handled elsewhere,
+    // and an unhandled stream error would crash the reviewer
+    child.stdin?.on('error', () => { /* exit/error handles an engine closing stdin early */ });
     child.stdin?.write(stdin);
     child.stdin?.end();
   }
@@ -85,6 +89,8 @@ const realSpawn: SpawnFn = ({ command, args, cwd, env, stdin }) => {
 
 const openLog = (path: string): LogWriter => {
   const stream = createWriteStream(path, { flags: 'a' });
+  // a session log that can't be written (disk full, path removed) must not crash the supervisor
+  stream.on('error', (err) => console.error(`[reviewer] log ${path}: ${err.message}`));
   return { write: (chunk) => void stream.write(chunk), end: () => stream.end() };
 };
 
@@ -151,3 +157,4 @@ const shutdown = (signal: string): void => {
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+installCrashGuard('reviewer', () => reviewer.stop());

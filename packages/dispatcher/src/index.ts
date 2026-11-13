@@ -6,6 +6,7 @@ import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { openCore, createHttpCore, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
+import { installCrashGuard } from './crashGuard.js';
 import { loadConfig } from './config.js';
 import { Dispatcher } from './dispatcher.js';
 import { resolveClaudeCommand, pickFromWhich } from './claude.js';
@@ -93,11 +94,17 @@ const realSpawn: SpawnFn = ({ command, args, cwd, env, stdin }) => {
     // with a hand-quoted command line and verbatim args. The argv here is quote-free
     // (prompt) and file paths only — the MCP JSON went to a file — so this survives intact.
     const line = [command, ...args].map(winQuote).join(' ');
-    return spawn(process.env['ComSpec'] ?? 'cmd.exe', ['/d', '/s', '/c', line], {
+    const shim = spawn(process.env['ComSpec'] ?? 'cmd.exe', ['/d', '/s', '/c', line], {
       cwd,
       env,
       windowsVerbatimArguments: true,
     });
+    // cmd.exe passes its stdin through, so the prompt reaches the CLI on this path too
+    if (stdin !== undefined) {
+      shim.stdin.on('error', () => { /* exit/error handles a CLI closing stdin early */ });
+      shim.stdin.end(stdin);
+    }
+    return shim;
   }
   // POSIX, or a Windows .exe — spawn directly; Node applies correct argument quoting.
   const child = spawn(command, args, { cwd, env });
@@ -110,6 +117,8 @@ const realSpawn: SpawnFn = ({ command, args, cwd, env, stdin }) => {
 
 const openLog = (path: string): LogWriter => {
   const stream = createWriteStream(path, { flags: 'a' });
+  // a session log that can't be written (disk full, path removed) must not crash the supervisor
+  stream.on('error', (err) => console.error(`[dispatcher] log ${path}: ${err.message}`));
   return { write: (chunk) => void stream.write(chunk), end: () => stream.end() };
 };
 
@@ -230,3 +239,4 @@ const shutdown = (signal: string): void => {
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+installCrashGuard('dispatcher', () => dispatcher.stop());
