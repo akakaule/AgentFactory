@@ -8,9 +8,10 @@ import { NotFoundError, InvalidTransitionError, ValidationError } from '../error
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 
-export function reviewRequestChanges(db: DB, key: string, input: { feedback: string; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
+export function reviewRequestChanges(db: DB, key: string, input: { feedback: string; actorUserId?: number | null; actorDelegate?: string | null }, now: () => string = nowIso): TaskDetail {
   const { feedback } = parse(feedbackSchema, { feedback: input.feedback });
   const actorUserId = input.actorUserId ?? null;
+  const actorDelegate = input.actorDelegate ?? null;
   return transaction(db, () => {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
@@ -22,8 +23,8 @@ export function reviewRequestChanges(db: DB, key: string, input: { feedback: str
     const ts = now();
     advanceRetryBudget(db, row.id, `dispatcher:${row.stage}`, ts, 'requested changes');
     setStatus(db, row.id, 'queued', ts);
-    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: feedback, createdAt: ts, actorUserId });
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'in_review', toStatus: 'queued', createdAt: ts, actorUserId });
+    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: feedback, createdAt: ts, actorUserId, actorDelegate });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'in_review', toStatus: 'queued', createdAt: ts, actorUserId, actorDelegate });
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

@@ -108,7 +108,7 @@ describe('failure triage in the failure banner', () => {
   it('shows a human label with its provenance and what the rules said', () => {
     render(banner(rules({
       classifier: 'human', category: 'infrastructure', label: 'Service or resource outage', suggestion: 'Check the reported service availability or resource limit.',
-      human: { activityId: 30, sourceActivityId: 12, action: 'correct', category: 'infrastructure', shownCategory: 'access', classifier: 'rules', rulesVersion: 'failure-triage-rules/v1', note: null, actorUserId: 1, actorName: 'Operator', at: '2026-09-25T10:05:00.000Z' },
+      human: { activityId: 30, sourceActivityId: 12, action: 'correct', category: 'infrastructure', shownCategory: 'access', classifier: 'rules', rulesVersion: 'failure-triage-rules/v1', note: null, actorUserId: 1, actorName: 'Operator', actorDelegate: null, at: '2026-09-25T10:05:00.000Z' },
     })));
     expect(screen.getByText('Human corrected · Operator')).toBeInTheDocument();
     expect(screen.getByText('Rules said')).toBeInTheDocument();
@@ -153,7 +153,7 @@ describe('failure banner source log', () => {
 
   it('falls back to recent activity when there is no triage (done/archived tasks)', async () => {
     const user = userEvent.setup();
-    const activity = [{ id: 3, taskId: 1, type: 'comment', actor: 'agent', fromStatus: null, toStatus: null, body: 'failure/v1 — old log body', createdAt: '2026-09-25T09:00:00.000Z', actorUserId: null, actorName: null }] as Activity[];
+    const activity = [{ id: 3, taskId: 1, type: 'comment', actor: 'agent', fromStatus: null, toStatus: null, body: 'failure/v1 — old log body', createdAt: '2026-09-25T09:00:00.000Z', actorUserId: null, actorName: null, actorDelegate: null }] as Activity[];
     render(banner(null, vi.fn(), activity));
     expect(screen.queryByText('Likely cause')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Show source log/ }));

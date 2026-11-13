@@ -8,7 +8,7 @@ import { buildPrFeedbackComment } from '../prFeedback.js';
 import { nowIso } from '../time.js';
 import { advanceRetryBudget } from '../repo/retry.js';
 
-export interface AddPrFeedbackInput { feedback: string; author?: string | null; url?: string | null; actorUserId?: number | null }
+export interface AddPrFeedbackInput { feedback: string; author?: string | null; url?: string | null; actorUserId?: number | null; actorDelegate?: string | null }
 
 /**
  * Attach a human's PR-review comment to a DELIVERING task as a `pr-feedback/v1` marker — the trigger
@@ -25,7 +25,7 @@ export function addPrFeedback(db: DB, key: string, input: AddPrFeedbackInput, no
     const ts = now();
     advanceRetryBudget(db, row.id, 'reviewer:feedback-eval', ts, 'new delivery feedback');
     const body = buildPrFeedbackComment({ feedback, author: input.author ?? undefined, url: input.url ?? undefined });
-    appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', body, createdAt: ts, actorUserId: input.actorUserId ?? null });
+    appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', body, createdAt: ts, actorUserId: input.actorUserId ?? null, actorDelegate: input.actorDelegate ?? null });
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

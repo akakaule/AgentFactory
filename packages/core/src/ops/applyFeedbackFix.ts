@@ -36,7 +36,7 @@ function composeFixFeedback(fb: ParsedPrFeedback, ev: ParsedFeedbackEval | null)
  * composed `feedback` activity (PR comment + the evaluator's suggested change) so the reclaimed
  * worker knows what to do, then setStatus('queued') (which clears the claimant) + a status_change.
  */
-export function applyFeedbackFix(db: DB, key: string, actorUserId: number | null = null, now: () => string = nowIso): TaskDetail {
+export function applyFeedbackFix(db: DB, key: string, actorUserId: number | null = null, now: () => string = nowIso, actorDelegate: string | null = null): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   if (row.status !== 'delivering') throw new ValidationError(`apply feedback requires a delivering task (got ${row.status})`);
@@ -55,8 +55,8 @@ export function applyFeedbackFix(db: DB, key: string, actorUserId: number | null
     clearDelivery(db, row.id); // feedback creates a new implementation revision, not a repair of the old approval
     assertTransition('delivering', 'queued', 'human');
     setStatus(db, row.id, 'queued', ts);
-    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: composeFixFeedback(feedback, evalv), createdAt: ts, actorUserId });
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'delivering', toStatus: 'queued', createdAt: ts, actorUserId });
+    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body: composeFixFeedback(feedback, evalv), createdAt: ts, actorUserId, actorDelegate });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor: 'human', fromStatus: 'delivering', toStatus: 'queued', createdAt: ts, actorUserId, actorDelegate });
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

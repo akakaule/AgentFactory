@@ -45,7 +45,7 @@ export function addComment(
         throw new InvalidTransitionError(`review names submission #${revision.submissionId}, which is not the current submission of ${key}`);
     }
     const ts = now();
-    appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null });
+    appendActivity(db, { taskId: row.id, type: 'comment', actor: input.actor, body, createdAt: ts, actorUserId: input.actorUserId ?? null, actorDelegate: input.actorDelegate ?? null });
     touch(db, row.id, ts);
     const comment = recentActivity(db, row.id, 1)[0]!; // capture before the hook appends more rows
     // Auto-approve policy: a clean ai-review/v1 verdict on an in-review doc stage advances

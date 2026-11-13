@@ -13,6 +13,7 @@ import { CopyButton } from './CopyButton.js';
 import { queueBlockMessage } from '../queueGate.js';
 import { composePrReview } from '../composePrReview.js';
 import { parseCriteriaClaims } from '../criteriaClaims.js';
+import { activityActor } from '../actor.js';
 import { LiveSection } from './LiveSection.js';
 import { TranscriptSection } from './TranscriptSection.js';
 import { VisualizationFrame } from './VisualizationModal.js';
@@ -88,8 +89,8 @@ function WorkerSummary({ text }: { text: string }) {
 }
 
 function ActivityItem({ entry }: { entry: Activity }) {
-  // prefer the attributed human name (Phase 1 actor_user_id); fall back to the machine axis
-  const who = entry.actorName ?? (entry.actor === 'agent' ? 'agent' : 'you');
+  // prefer the attributed human name (Phase 1 actor_user_id, plus any delegate); fall back to the machine axis
+  const who = activityActor(entry);
   return (
     <div className="af-tl-i">
       <span className={'af-tl-dot ' + entry.actor}>{entry.actor === 'agent' ? I.bot({}) : I.person({})}</span>

@@ -8,11 +8,21 @@ function activities(rows: Array<[Status | null, Status, string?]>): Activity[] {
   return rows.map(([fromStatus, toStatus, body], i) => ({
     id: i + 1, taskId: 1, type: 'status_change' as const, actor: 'agent' as Actor,
     fromStatus, toStatus, body: body ?? '', createdAt: '2026-06-28T10:00:00.000Z',
-    actorUserId: null, actorName: null,
+    actorUserId: null, actorName: null, actorDelegate: null,
   }));
 }
 
 describe('trailSteps', () => {
+  it('names a delegate next to the user, and the user alone on their own rows (AF-202)', () => {
+    const [created, viaAgent, own] = activities([[null, 'backlog'], ['backlog', 'queued'], ['queued', 'cancelled']]);
+    const steps = trailSteps([
+      created!,
+      { ...viaAgent!, actor: 'human', actorUserId: 2, actorName: 'Alvin', actorDelegate: 'Claude Code' },
+      { ...own!, actor: 'human', actorUserId: 2, actorName: 'Alvin', actorDelegate: null },
+    ], 'cancelled', 'implementation');
+    expect(steps.map((s) => s.who)).toEqual(['agent', 'Alvin (via Claude Code)', 'Alvin']);
+  });
+
   it('returns a single current step when there is no activity', () => {
     const steps = trailSteps([], 'queued', 'plan');
     expect(steps).toHaveLength(1);

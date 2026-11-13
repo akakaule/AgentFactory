@@ -102,7 +102,7 @@ const backlogTask: DependencyAwareTaskDetail = {
       body: '',
       createdAt: '2024-01-01T00:00:00Z',
       actorUserId: null,
-      actorName: null,
+      actorName: null, actorDelegate: null,
     },
     {
       id: 2,
@@ -114,7 +114,7 @@ const backlogTask: DependencyAwareTaskDetail = {
       body: 'A comment here',
       createdAt: '2024-01-01T00:00:00Z',
       actorUserId: null,
-      actorName: null,
+      actorName: null, actorDelegate: null,
     },
   ],
   links: [
@@ -503,9 +503,9 @@ describe('DetailPanel', () => {
       key: 'AF-17',
       status: 'blocked',
       activity: [
-        { id: 1, taskId: 1, type: 'status_change', actor: 'human', fromStatus: 'backlog', toStatus: 'queued', body: '', createdAt: '2024-01-01T00:00:00Z', actorUserId: null, actorName: null },
-        { id: 2, taskId: 1, type: 'status_change', actor: 'agent', fromStatus: 'queued', toStatus: 'in_progress', body: '', createdAt: '2024-01-01T00:01:00Z', actorUserId: null, actorName: null },
-        { id: 3, taskId: 1, type: 'status_change', actor: 'agent', fromStatus: 'in_progress', toStatus: 'blocked', body: 'needs a DB password', createdAt: '2024-01-01T00:02:00Z', actorUserId: null, actorName: null },
+        { id: 1, taskId: 1, type: 'status_change', actor: 'human', fromStatus: 'backlog', toStatus: 'queued', body: '', createdAt: '2024-01-01T00:00:00Z', actorUserId: null, actorName: null, actorDelegate: null },
+        { id: 2, taskId: 1, type: 'status_change', actor: 'agent', fromStatus: 'queued', toStatus: 'in_progress', body: '', createdAt: '2024-01-01T00:01:00Z', actorUserId: null, actorName: null, actorDelegate: null },
+        { id: 3, taskId: 1, type: 'status_change', actor: 'agent', fromStatus: 'in_progress', toStatus: 'blocked', body: 'needs a DB password', createdAt: '2024-01-01T00:02:00Z', actorUserId: null, actorName: null, actorDelegate: null },
       ],
     };
     mocked.getTask.mockResolvedValue(blockedTask);
@@ -520,6 +520,23 @@ describe('DetailPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Unblock → Queued' }));
     expect(mocked.setStatus).toHaveBeenCalledWith('AF-17', 'queued');
+  });
+
+  // AF-202: a delegate token's rows read "<user> (via <label>)"; the user's own rows stay bare.
+  it('names the delegate next to the user on activity rows', async () => {
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      key: 'AF-18',
+      activity: [
+        { id: 1, taskId: 1, type: 'comment', actor: 'human', fromStatus: null, toStatus: null, body: 'from the agent', createdAt: '2024-01-01T00:00:00Z', actorUserId: 2, actorName: 'Alvin', actorDelegate: 'Claude Code' },
+        { id: 2, taskId: 1, type: 'comment', actor: 'human', fromStatus: null, toStatus: null, body: 'from Alvin', createdAt: '2024-01-01T00:01:00Z', actorUserId: 2, actorName: 'Alvin', actorDelegate: null },
+      ],
+    });
+    const { container } = render(<DetailPanel taskKey="AF-18" onClose={vi.fn()} onChanged={vi.fn()} />);
+    await screen.findByText('from Alvin');
+    const who = [...container.querySelectorAll('.af-tl-line .who')].map((el) => el.textContent);
+    expect(who).toEqual(['Alvin (via Claude Code)', 'Alvin']);
   });
 
   // AF-181: outside review the drawer renders the same next-action line in the status's own

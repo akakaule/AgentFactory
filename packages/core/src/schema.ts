@@ -558,3 +558,15 @@ CREATE INDEX IF NOT EXISTS idx_attention_first_seen ON attention_occurrence(firs
 CREATE INDEX IF NOT EXISTS idx_attention_resolved ON attention_occurrence(resolved_at);
 CREATE INDEX IF NOT EXISTS idx_outbox_updated ON notification_outbox(updated_at);
 `;
+
+// Migration #38 — delegate tokens (AF-202). api_token.delegate (0/1) marks a user-bound token an
+// agent uses on that user's behalf; activity.actor_delegate records the delegate's label on each
+// row such a token writes (NULL for everything else, including every row before this migration).
+// The delegate invariant (user-bound, never service/supervisor) is enforced in createApiToken.
+// Guarded in migrate.ts.
+export const MIGRATION_38_TOKEN_SQL = `
+ALTER TABLE api_token ADD COLUMN delegate INTEGER NOT NULL DEFAULT 0 CHECK (delegate IN (0,1));
+`;
+export const MIGRATION_38_ACTIVITY_SQL = `
+ALTER TABLE activity ADD COLUMN actor_delegate TEXT;
+`;

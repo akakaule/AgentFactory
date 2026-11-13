@@ -128,13 +128,13 @@ export function intakeHistory(db: DB, key: string): Activity[] {
   const ids = new Set(intakeMarkerActivities(db, row.id).map((a) => a.id));
   const rows = db.prepare(
     `SELECT a.id, a.task_id, a.type, a.actor, a.from_status, a.to_status, a.body, a.created_at,
-            a.actor_user_id, u.display_name AS actor_name
+            a.actor_user_id, u.display_name AS actor_name, a.actor_delegate
        FROM activity a LEFT JOIN app_user u ON u.id = a.actor_user_id
       WHERE a.task_id = ? AND a.id IN (${[...ids].map(() => '?').join(',') || 'NULL'} ) ORDER BY a.id ASC`,
   ).all(row.id, ...ids) as Array<{
-    id: number; task_id: number; type: Activity['type']; actor: Activity['actor']; from_status: Activity['fromStatus']; to_status: Activity['toStatus']; body: string; created_at: string; actor_user_id: number | null; actor_name: string | null;
+    id: number; task_id: number; type: Activity['type']; actor: Activity['actor']; from_status: Activity['fromStatus']; to_status: Activity['toStatus']; body: string; created_at: string; actor_user_id: number | null; actor_name: string | null; actor_delegate: string | null;
   }>;
-  return rows.map((a) => ({ id: a.id, taskId: a.task_id, type: a.type, actor: a.actor, fromStatus: a.from_status, toStatus: a.to_status, body: a.body, createdAt: a.created_at, actorUserId: a.actor_user_id, actorName: a.actor_name }));
+  return rows.map((a) => ({ id: a.id, taskId: a.task_id, type: a.type, actor: a.actor, fromStatus: a.from_status, toStatus: a.to_status, body: a.body, createdAt: a.created_at, actorUserId: a.actor_user_id, actorName: a.actor_name, actorDelegate: a.actor_delegate }));
 }
 
 function expectedCurrentPolicy(db: DB, key: string, expectedRevision: string) {
@@ -146,7 +146,7 @@ function expectedCurrentPolicy(db: DB, key: string, expectedRevision: string) {
   return { row, revision, summary };
 }
 
-export function overrideIntake(db: DB, key: string, input: { expectedRevision: string; reason?: string | undefined; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
+export function overrideIntake(db: DB, key: string, input: { expectedRevision: string; reason?: string | undefined; actorUserId?: number | null; actorDelegate?: string | null }, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const { row, revision, summary } = expectedCurrentPolicy(db, key, input.expectedRevision);
     const policy = summary.policy;
@@ -155,14 +155,14 @@ export function overrideIntake(db: DB, key: string, input: { expectedRevision: s
     // under 'block' an acknowledgment can't unblock queueing, so don't let one look like it does
     if (settings.queueGate === 'block' && (row.status === 'backlog' || row.status === 'cancelled')) throw new InvalidTransitionError('flagged tasks cannot be acknowledged while Task Intelligence blocks queueing them; edit the task instead');
     const reason = input.reason?.trim() || null;
-    appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, body: buildIntakeOverrideComment({ sourceRevision: revision, policy, reason, settings }), createdAt: now() });
+    appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, actorDelegate: input.actorDelegate ?? null, body: buildIntakeOverrideComment({ sourceRevision: revision, policy, reason, settings }), createdAt: now() });
     const ts = now();
     db.prepare('UPDATE task SET updated_at = ? WHERE id = ?').run(ts, row.id);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }
 
-export function queueWithIntakeAcknowledgment(db: DB, key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null }, now: () => string = nowIso): TaskDetail {
+export function queueWithIntakeAcknowledgment(db: DB, key: string, input: { expectedRevision?: string | undefined; reason?: string | undefined; actorUserId?: number | null; actorDelegate?: string | null }, now: () => string = nowIso): TaskDetail {
   return transaction(db, () => {
     const row = requireTask(db, key);
     // Reopening a cancelled task queues it just like a backlog one, so it passes the same gate.
@@ -175,9 +175,9 @@ export function queueWithIntakeAcknowledgment(db: DB, key: string, input: { expe
       if (!input.expectedRevision) throw new InvalidTransitionError('intake acknowledgment is required');
       const expected = expectedCurrentPolicy(db, key, input.expectedRevision);
       const ts = now();
-      appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, body: buildIntakeOverrideComment({ sourceRevision: expected.revision, policy: expected.summary.policy!, reason: input.reason?.trim() || null, settings }), createdAt: ts });
+      appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, actorDelegate: input.actorDelegate ?? null, body: buildIntakeOverrideComment({ sourceRevision: expected.revision, policy: expected.summary.policy!, reason: input.reason?.trim() || null, settings }), createdAt: ts });
     }
-    return updateStatusWithinTransaction(db, key, 'queued', 'human', now, input.actorUserId ?? null);
+    return updateStatusWithinTransaction(db, key, 'queued', 'human', now, input.actorUserId ?? null, undefined, undefined, undefined, null, input.actorDelegate ?? null);
   });
 }
 

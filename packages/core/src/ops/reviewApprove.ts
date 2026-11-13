@@ -27,6 +27,7 @@ export function reviewApprove(
   resolveOrigin: (repoPath: string) => string | null = resolveOriginUrl,
   overrideReason: string | null = null,
   expected: ExpectedRevision | null = null,
+  actorDelegate: string | null = null,
 ): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
@@ -42,9 +43,9 @@ export function reviewApprove(
       throw new InvalidTransitionError(`task changed while resolving its delivery: ${key}`);
     const ts = now();
     const approved = assertApprovableRevision(db, current, expected, true);
-    auditUnknownFreshness(db, current, approved, ts, actorUserId);
+    auditUnknownFreshness(db, current, approved, ts, actorUserId, actorDelegate);
     applyApproval(db, current, 'human', ts, undefined, actorUserId, delivery, overrideReason,
-      approved ? { submissionId: approved.id, headSha: approved.headSha } : null);
+      approved ? { submissionId: approved.id, headSha: approved.headSha } : null, actorDelegate);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }
