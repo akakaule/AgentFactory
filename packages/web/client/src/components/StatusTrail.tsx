@@ -1,6 +1,7 @@
 import type { Activity, Status, Stage } from '../types.js';
 import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, STAGE_COLORS } from '../status.js';
 import { shortTime } from '../time.js';
+import { activityActor } from '../actor.js';
 
 export interface TrailStep {
   status: Status;
@@ -39,7 +40,7 @@ export function trailSteps(activity: Activity[], current: Status, currentStage: 
       stage,
       at: a.createdAt,
       note: a.body,
-      who: a.actorName ?? (a.actor === 'agent' ? 'agent' : 'you'),
+      who: activityActor(a),
     };
   });
 }

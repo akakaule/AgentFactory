@@ -5,7 +5,7 @@ import { NotFoundError, ValidationError, type UpdateTaskInput, type AddTaskMetri
 import { createBody, updateBody, commentBody, statusBody, feedbackBody, answerBody, approveBody, prReviewedBody, prFeedbackBody, listQuery, metricsBody, attachmentBody, archiveAllBody, intakeOverrideBody, failureTriageFeedbackBody, failureTriageHistoryQuery, activityIdParam } from '../schemas.js';
 import { branchDiff } from '../git.js';
 import { refFromLabel, fetchRemoteRef, revisionDiff, parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type TaskDetail } from '@agentfactory/core';
-import { actorUserIdOf, actorOf, rejectService } from '../auth.js';
+import { actorUserIdOf, actorDelegateOf, actorOf, rejectService } from '../auth.js';
 
 // Generous ceiling for an attached visualization (self-contained HTML compresses well; a real one
 // is tens of KB). Bounds a runaway/abusive upload without rejecting a legitimately rich page.
@@ -59,7 +59,7 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
   r.get('/:key/intake/history', (c) => c.json(core.intakeHistory(c.req.param('key'))));
   r.post('/:key/intake/override', rejectService, validated('json', intakeOverrideBody), (c) => {
     const b = c.req.valid('json');
-    return c.json(core.overrideIntake(c.req.param('key'), { expectedRevision: b.expectedRevision, ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c) }));
+    return c.json(core.overrideIntake(c.req.param('key'), { expectedRevision: b.expectedRevision, ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c) }));
   });
 
   // Advisory failure triage (human-only; the label itself rides Task.failureTriage). Feedback
@@ -73,7 +73,7 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     return c.json(core.recordFailureTriageFeedback(c.req.param('key'), {
       sourceActivityId: b.sourceActivityId, action: b.action, shownCategory: b.shownCategory,
       ...(b.category !== undefined ? { category: b.category } : {}), ...(b.note !== undefined ? { note: b.note } : {}),
-      actorUserId: actorUserIdOf(c),
+      actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c),
     }));
   });
 
@@ -184,7 +184,7 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
   r.post('/:key/comment', validated('json', commentBody), (c) =>
     // actorOf, not a hardcoded 'human': a producer bridge's service token commenting here must
     // not masquerade as a human in the activity log (the agent surface is the preferred route).
-    c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c) }), 201));
+    c.json(core.addComment(c.req.param('key'), { actor: actorOf(c), body: c.req.valid('json').body, actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c) }), 201));
 
   r.post('/:key/status', rejectService, validated('json', statusBody), async (c) => {
     const b = c.req.valid('json');
@@ -195,11 +195,11 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     if (b.status === 'queued' && (from === 'backlog' || from === 'cancelled')) {
       return c.json(core.queueWithIntakeAcknowledgment(c.req.param('key'), {
         ...(b.expectedRevision !== undefined ? { expectedRevision: b.expectedRevision } : {}),
-        ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c),
+        ...(b.reason !== undefined ? { reason: b.reason } : {}), actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c),
       }));
     }
     const expected = b.submissionId === undefined ? null : { submissionId: b.submissionId, headSha: b.headSha };
-    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note, undefined, expected));
+    return c.json(core.updateStatus(c.req.param('key'), b.status, 'human', actorUserIdOf(c), b.note, undefined, expected, actorDelegateOf(c)));
   });
 
   r.post('/:key/metrics', validated('json', metricsBody), (c) => {
@@ -222,7 +222,7 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
 
   // Restart a current skip-listed dispatcher/reviewer task without changing its lifecycle status.
   // The restart/v1 marker clears the derived failure and resets the owning supervisor's budget.
-  r.post('/:key/restart', rejectService, (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c))));
+  r.post('/:key/restart', rejectService, (c) => c.json(core.restartTask(c.req.param('key'), actorUserIdOf(c), actorDelegateOf(c))));
 
   // a reason is required (core enforces it) when approving over must-fix issues or open decisions
   // The git adapter refreshes the branch head first, so a push made after the review reads stale
@@ -231,28 +231,28 @@ export function taskRoutes(core: Core, opts: TaskRouteOptions = {}) {
     const key = c.req.param('key');
     const { reason, submissionId, headSha } = c.req.valid('json');
     await core.refreshRevision(key);
-    return c.json(core.reviewApprove(key, actorUserIdOf(c), reason ?? null, submissionId === undefined ? null : { submissionId, headSha }));
+    return c.json(core.reviewApprove(key, actorUserIdOf(c), reason ?? null, submissionId === undefined ? null : { submissionId, headSha }, actorDelegateOf(c)));
   });
 
   r.post('/:key/request-changes', rejectService, validated('json', feedbackBody), (c) =>
-    c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c) })));
+    c.json(core.reviewRequestChanges(c.req.param('key'), { feedback: c.req.valid('json').feedback, actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c) })));
 
   // Answer a blocked task's question (decision/v1 option and/or free text): binding feedback + unblock.
   r.post('/:key/answer', rejectService, validated('json', answerBody), (c) => {
     const { optionId, answer } = c.req.valid('json');
-    return c.json(core.answerBlock(c.req.param('key'), { optionId, answer, actorUserId: actorUserIdOf(c) }));
+    return c.json(core.answerBlock(c.req.param('key'), { optionId, answer, actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c) }));
   });
 
   // "Mark reviewed" for a pr-review: capture the review body (for the ado-bridge to post to the PR) and close.
   r.post('/:key/pr-reviewed', rejectService, validated('json', prReviewedBody), (c) =>
-    c.json(core.reviewPrReviewed(c.req.param('key'), { review: c.req.valid('json').review, actorUserId: actorUserIdOf(c) })));
+    c.json(core.reviewPrReviewed(c.req.param('key'), { review: c.req.valid('json').review, actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c) })));
 
   // Delivering-feedback loop: forward a PR-review comment for evaluation, and apply a warranted verdict.
   r.post('/:key/pr-feedback', rejectService, validated('json', prFeedbackBody), (c) => {
     const b = c.req.valid('json');
-    return c.json(core.addPrFeedback(c.req.param('key'), { feedback: b.feedback, author: b.author ?? null, url: b.url ?? null, actorUserId: actorUserIdOf(c) }), 201);
+    return c.json(core.addPrFeedback(c.req.param('key'), { feedback: b.feedback, author: b.author ?? null, url: b.url ?? null, actorUserId: actorUserIdOf(c), actorDelegate: actorDelegateOf(c) }), 201);
   });
-  r.post('/:key/apply-feedback', rejectService, (c) => c.json(core.applyFeedbackFix(c.req.param('key'), actorUserIdOf(c))));
+  r.post('/:key/apply-feedback', rejectService, (c) => c.json(core.applyFeedbackFix(c.req.param('key'), actorUserIdOf(c), actorDelegateOf(c))));
 
   return r;
 }

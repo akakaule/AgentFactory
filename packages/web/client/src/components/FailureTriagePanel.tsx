@@ -3,12 +3,13 @@ import type { FailureSummary, FailureTriageCategory, FailureTriageHistoryPage, F
 import { api } from '../api.js';
 import { timeAgo } from '../time.js';
 import { FAILURE_TRIAGE_OPTIONS, failureTriageLabel } from '../failureTriageMeta.js';
+import { withDelegate } from '../actor.js';
 
 interface CorrectionForm { sourceActivityId: number; shownCategory: FailureTriageCategory; category: FailureTriageCategory; note: string; }
 
 function attribution(triage: FailureTriageSummary): string {
   const h = triage.human;
-  if (h) return `${h.action === 'confirm' ? 'Human confirmed' : 'Human corrected'}${h.actorName ? ` · ${h.actorName}` : ''}`;
+  if (h) return `${h.action === 'confirm' ? 'Human confirmed' : 'Human corrected'}${h.actorName ? ` · ${withDelegate(h.actorName, h.actorDelegate)}` : ''}`;
   if (triage.evidenceActivityId === null) return 'no usable log';
   return triage.rules.ruleId ? `rule ${triage.rules.ruleId}` : 'no rule matched';
 }
@@ -106,7 +107,7 @@ export function FailureTriagePanel({ taskKey, triage, failure, onChanged }: {
               {timeAgo(item.at)} · {item.reason} · rules: {failureTriageLabel(item.rules.category)}
               {item.feedback.map((f) => (
                 <span key={f.activityId} className="af-triage-feedback">
-                  {' '}· {f.action === 'confirm' ? 'confirmed' : 'corrected to'} {failureTriageLabel(f.category)}{f.actorName ? ` by ${f.actorName}` : ''}{f.note ? ` — ${f.note}` : ''}
+                  {' '}· {f.action === 'confirm' ? 'confirmed' : 'corrected to'} {failureTriageLabel(f.category)}{f.actorName ? ` by ${withDelegate(f.actorName, f.actorDelegate)}` : ''}{f.note ? ` — ${f.note}` : ''}
                 </span>
               ))}
             </li>

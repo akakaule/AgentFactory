@@ -14,9 +14,9 @@ import { latestPrLinkUrl } from '../repo/links.js';
 import { advanceRetryBudget, settleRetry } from '../repo/retry.js';
 import { approvalNeedsReason, assertApprovableRevision, auditUnknownFreshness } from './approval.js';
 
-export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string, expected: ExpectedRevision | null = null): TaskDetail {
+export function updateStatus(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, executionId?: string, expected: ExpectedRevision | null = null, actorDelegate: string | null = null): TaskDetail {
   const requestedFrom = findRowByKey(db, key)?.status;
-  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom, executionId, expected));
+  return transaction(db, () => updateStatusWithinTransaction(db, key, status, actor, now, actorUserId, note, requestedFrom, executionId, expected, actorDelegate));
 }
 
 /**
@@ -27,7 +27,7 @@ export function updateStatus(db: DB, key: string, status: Status, actor: Actor, 
  * replacement submission or another head is refused, exactly as on the approve action. It is
  * required whenever the review has a tracked submission (only historical tasks may omit it).
  */
-export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status, executionId?: string, expected: ExpectedRevision | null = null): TaskDetail {
+export function updateStatusWithinTransaction(db: DB, key: string, status: Status, actor: Actor, now: () => string = nowIso, actorUserId: number | null = null, note?: string, requestedFrom?: Status, executionId?: string, expected: ExpectedRevision | null = null, actorDelegate: string | null = null): TaskDetail {
     const row = findRowByKey(db, key);
     if (!row) throw new NotFoundError(`task not found: ${key}`);
     if (actor === 'agent') assertExecutionOwnership(db, row.id, key, executionId, { requireRunning: true });
@@ -81,11 +81,11 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     if (approved && surviving)
       upsertDelivery(db, row.id, { provider: surviving.provider, branch: row.branch ?? surviving.branch, prUrl: latestPrLinkUrl(db, row.id),
         submissionId: approved.id, approvedHeadSha: approved.headSha }, ts);
-    auditUnknownFreshness(db, row, approved, ts, actorUserId);
+    auditUnknownFreshness(db, row, approved, ts, actorUserId, actorDelegate);
     const approvedNote = approved ? `approved submission #${approved.id} at ${approved.headSha ? approved.headSha.slice(0, 7) : 'an unknown revision'}` : '';
     // `note` rides in the status_change body — e.g. an agent's reason when moving to `blocked`.
     // The drawer surfaces it as the focused block reason; empty when omitted (legacy behavior).
-    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, body: [note?.trim() || '', approvedNote].filter(Boolean).join('; '), createdAt: ts, actorUserId });
+    appendActivity(db, { taskId: row.id, type: 'status_change', actor, fromStatus: row.status, toStatus: status, body: [note?.trim() || '', approvedNote].filter(Boolean).join('; '), createdAt: ts, actorUserId, actorDelegate });
     // Releasing a stranded claim (in_progress → queued by a human) abandons the worker — end its
     // orphaned live session so it clears from the Live view immediately, even if the dispatcher
     // that would normally reap it is down. Idempotent (the dispatcher's reap also calls this).

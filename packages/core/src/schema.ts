@@ -548,3 +548,15 @@ ALTER TABLE task_metric ADD COLUMN cost_estimated INTEGER NOT NULL DEFAULT 0 CHE
 export const MIGRATION_36_SQL = `
 ALTER TABLE task_metric ADD COLUMN role TEXT CHECK (role IS NULL OR role IN ('worker','review','visualization','feedback'));
 `;
+
+// Migration #37 — delegate tokens (AF-202). api_token.delegate (0/1) marks a user-bound token an
+// agent uses on that user's behalf; activity.actor_delegate records the delegate's label on each
+// row such a token writes (NULL for everything else, including every row before this migration).
+// The delegate invariant (user-bound, never service/supervisor) is enforced in createApiToken.
+// Guarded in migrate.ts.
+export const MIGRATION_37_TOKEN_SQL = `
+ALTER TABLE api_token ADD COLUMN delegate INTEGER NOT NULL DEFAULT 0 CHECK (delegate IN (0,1));
+`;
+export const MIGRATION_37_ACTIVITY_SQL = `
+ALTER TABLE activity ADD COLUMN actor_delegate TEXT;
+`;

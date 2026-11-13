@@ -7,12 +7,13 @@ export interface AppendActivity {
   taskId: number; type: ActivityType; actor: Actor;
   fromStatus?: Status | null; toStatus?: Status | null; body?: string; createdAt: string;
   actorUserId?: number | null; // the human behind a 'human' action; omitted/null for agent/system
+  actorDelegate?: string | null; // the delegate token's label when an agent acted for that human (AF-202)
 }
 export function appendActivity(db: DB, a: AppendActivity): void {
   db.prepare(
-    `INSERT INTO activity(task_id,type,actor,from_status,to_status,body,created_at,actor_user_id)
-     VALUES (?,?,?,?,?,?,?,?)`
-  ).run(a.taskId, a.type, a.actor, a.fromStatus ?? null, a.toStatus ?? null, a.body ?? '', a.createdAt, a.actorUserId ?? null);
+    `INSERT INTO activity(task_id,type,actor,from_status,to_status,body,created_at,actor_user_id,actor_delegate)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  ).run(a.taskId, a.type, a.actor, a.fromStatus ?? null, a.toStatus ?? null, a.body ?? '', a.createdAt, a.actorUserId ?? null, a.actorDelegate ?? null);
 }
 
 /**
@@ -118,19 +119,19 @@ export function failureTriageFeedbackActivities(db: DB, taskIds: number[]): Map<
   const placeholders = taskIds.map(() => '?').join(',');
   const rows = db.prepare(
     `SELECT a.id, a.task_id, a.type, a.actor, a.from_status, a.to_status, a.body, a.created_at,
-            a.actor_user_id, u.display_name AS actor_name
+            a.actor_user_id, u.display_name AS actor_name, a.actor_delegate
        FROM activity a LEFT JOIN app_user u ON u.id = a.actor_user_id
       WHERE a.task_id IN (${placeholders}) AND a.type = 'comment' AND lower(ltrim(a.body)) LIKE 'failure-triage-feedback/v1%'
       ORDER BY a.id DESC`,
   ).all(...taskIds) as Array<{
     id: number; task_id: number; type: ActivityType; actor: Actor;
     from_status: Status | null; to_status: Status | null; body: string; created_at: string;
-    actor_user_id: number | null; actor_name: string | null;
+    actor_user_id: number | null; actor_name: string | null; actor_delegate: string | null;
   }>;
   for (const r of rows) {
     const activity: Activity = {
       id: r.id, taskId: r.task_id, type: r.type, actor: r.actor, fromStatus: r.from_status, toStatus: r.to_status,
-      body: r.body, createdAt: r.created_at, actorUserId: r.actor_user_id, actorName: r.actor_name,
+      body: r.body, createdAt: r.created_at, actorUserId: r.actor_user_id, actorName: r.actor_name, actorDelegate: r.actor_delegate,
     };
     out.set(r.task_id, [...(out.get(r.task_id) ?? []), activity]);
   }
@@ -141,18 +142,18 @@ export function failureTriageFeedbackActivities(db: DB, taskIds: number[]): Map<
 export function activityOfTask(db: DB, taskId: number, activityId: number): Activity | null {
   const r = db.prepare(
     `SELECT a.id, a.task_id, a.type, a.actor, a.from_status, a.to_status, a.body, a.created_at,
-            a.actor_user_id, u.display_name AS actor_name
+            a.actor_user_id, u.display_name AS actor_name, a.actor_delegate
        FROM activity a LEFT JOIN app_user u ON u.id = a.actor_user_id
       WHERE a.task_id = ? AND a.id = ?`,
   ).get(taskId, activityId) as {
     id: number; task_id: number; type: ActivityType; actor: Actor;
     from_status: Status | null; to_status: Status | null; body: string; created_at: string;
-    actor_user_id: number | null; actor_name: string | null;
+    actor_user_id: number | null; actor_name: string | null; actor_delegate: string | null;
   } | undefined;
   if (!r) return null;
   return {
     id: r.id, taskId: r.task_id, type: r.type, actor: r.actor, fromStatus: r.from_status, toStatus: r.to_status,
-    body: r.body, createdAt: r.created_at, actorUserId: r.actor_user_id, actorName: r.actor_name,
+    body: r.body, createdAt: r.created_at, actorUserId: r.actor_user_id, actorName: r.actor_name, actorDelegate: r.actor_delegate,
   };
 }
 
@@ -278,7 +279,8 @@ export function latestActivityId(db: DB): number {
 export function activitySince(db: DB, sinceId: number, limit = 200): ActivityFeedRow[] {
   return db.prepare(
     `SELECT a.id AS id, t.key AS taskKey, t.title AS taskTitle, w.name AS workspace,
-            a.type AS type, a.actor AS actor, a.to_status AS toStatus, a.body AS body, a.created_at AS createdAt
+            a.type AS type, a.actor AS actor, a.to_status AS toStatus, a.body AS body, a.created_at AS createdAt,
+            a.actor_delegate AS actorDelegate
        FROM activity a JOIN task t ON t.id = a.task_id JOIN workspace w ON w.id = t.workspace_id
       WHERE a.id > ? ORDER BY a.id ASC LIMIT ?`,
   ).all(sinceId, limit) as unknown as ActivityFeedRow[];
@@ -287,7 +289,7 @@ export function activitySince(db: DB, sinceId: number, limit = 200): ActivityFee
 export function recentActivity(db: DB, taskId: number, limit: number): Activity[] {
   const rows = db.prepare(
     `SELECT a.id, a.task_id, a.type, a.actor, a.from_status, a.to_status, a.body, a.created_at,
-            a.actor_user_id, u.display_name AS actor_name
+            a.actor_user_id, u.display_name AS actor_name, a.actor_delegate
      FROM activity a LEFT JOIN app_user u ON u.id = a.actor_user_id
      WHERE a.task_id = ?
        AND NOT (lower(ltrim(a.body)) LIKE 'intake/v1%' OR lower(ltrim(a.body)) LIKE 'intake-override/v1%' OR lower(ltrim(a.body)) LIKE 'intake-claim/v1%')
@@ -296,11 +298,11 @@ export function recentActivity(db: DB, taskId: number, limit: number): Activity[
   ).all(taskId, limit) as Array<{
     id: number; task_id: number; type: ActivityType; actor: Actor;
     from_status: Status | null; to_status: Status | null; body: string; created_at: string;
-    actor_user_id: number | null; actor_name: string | null;
+    actor_user_id: number | null; actor_name: string | null; actor_delegate: string | null;
   }>;
   return rows.reverse().map(r => ({
     id: r.id, taskId: r.task_id, type: r.type, actor: r.actor,
     fromStatus: r.from_status, toStatus: r.to_status, body: r.body, createdAt: r.created_at,
-    actorUserId: r.actor_user_id, actorName: r.actor_name,
+    actorUserId: r.actor_user_id, actorName: r.actor_name, actorDelegate: r.actor_delegate,
   }));
 }

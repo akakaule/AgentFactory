@@ -251,7 +251,7 @@ export interface FailureTriageFeedback {
   activityId: number; sourceActivityId: number;
   action: 'confirm' | 'correct'; category: FailureTriageCategory;
   shownCategory: FailureTriageCategory; classifier: 'rules' | 'human'; rulesVersion: string | null;
-  note: string | null; actorUserId: number | null; actorName: string | null; at: string;
+  note: string | null; actorUserId: number | null; actorName: string | null; actorDelegate: string | null; at: string;
 }
 export interface FailureTriageSummary {
   sourceActivityId: number;          // the current failure/v1 note (the episode identity)
@@ -390,6 +390,7 @@ export interface Activity {
   fromStatus: Status | null; toStatus: Status | null; body: string; createdAt: string;
   actorUserId: number | null; // the human user behind a 'human' action; null for agent/system/legacy
   actorName: string | null;   // joined app_user.display_name for actorUserId; null when unattributed
+  actorDelegate: string | null; // delegate token label when an agent acted for actorUserId (AF-202); null otherwise
 }
 export interface Link { id: number; taskId: number; kind: LinkKind; label: string; url: string; }
 
@@ -397,6 +398,7 @@ export interface Link { id: number; taskId: number; kind: LinkKind; label: strin
 export interface ActivityFeedRow {
   id: number; taskKey: string; taskTitle: string; workspace: string;
   type: ActivityType; actor: Actor; toStatus: Status | null; body: string; createdAt: string;
+  actorDelegate: string | null;
 }
 
 export type NotificationEventType = 'in_review' | 'failed' | 'skip_listed' | 'supervisor_down' | 'queue_empty' | 'blocked' | 'setup_needed' | 'delivery_wait' | 'delivery_stalled';
@@ -675,7 +677,7 @@ export interface AddTaskMetricsInput {
   model?: string; tokensIn?: number; tokensOut?: number; costUsd?: number; reportedBy?: string; executionId?: string;
   role?: AgentRole;
 }
-export interface AddCommentInput { actor: Actor; body: string; actorUserId?: number | null; executionId?: string | undefined; }
+export interface AddCommentInput { actor: Actor; body: string; actorUserId?: number | null; actorDelegate?: string | null; executionId?: string | undefined; }
 export interface AddAttachmentInput { filename: string; mime: string; dataBase64: string; }
 
 export const ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;

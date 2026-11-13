@@ -17,7 +17,7 @@ import { resetRetryBudget as resetRetryBudgetRow, deliveryExhaustionReported, bu
  * Dispatcher failures remain `queued`; reviewer failures remain `in_review` (or `delivering` for
  * feedback evaluation); a spent delivery repair budget remains `queued` or `delivering`. Restart is status-preserving and only accepts a current skip-listed state.
  */
-export function restartTask(db: DB, key: string, actorUserId: number | null = null, now: () => string = nowIso): TaskDetail {
+export function restartTask(db: DB, key: string, actorUserId: number | null = null, now: () => string = nowIso, actorDelegate: string | null = null): TaskDetail {
   const row = findRowByKey(db, key);
   if (!row) throw new NotFoundError(`task not found: ${key}`);
   const current = toDetail(db, row);
@@ -48,6 +48,7 @@ export function restartTask(db: DB, key: string, actorUserId: number | null = nu
       body: buildRestartComment('operator restarted — attempt budget reset; the supervisor will retry'),
       createdAt: ts,
       actorUserId,
+      actorDelegate,
     });
     if (exhaustedDelivery) {
       resetRetryBudgetRow(db, row.id, 'delivery', budgetByTask(db, row.id, 'delivery')?.maxAttempts ?? 2, ts, 'operator restart');

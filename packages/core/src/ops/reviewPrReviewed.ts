@@ -23,7 +23,7 @@ export const PR_REVIEW_FEEDBACK_MARKER = 'pr-review-feedback/v1';
 export function reviewPrReviewed(
   db: DB,
   key: string,
-  input: { review?: string | undefined; actorUserId?: number | null } = {},
+  input: { review?: string | undefined; actorUserId?: number | null; actorDelegate?: string | null } = {},
   now: () => string = nowIso,
 ): TaskDetail {
   const row = findRowByKey(db, key);
@@ -31,12 +31,13 @@ export function reviewPrReviewed(
   if (row.status !== 'in_review') throw new InvalidTransitionError(`mark reviewed requires in_review (got ${row.status})`);
   const review = input.review?.trim() ?? '';
   const actorUserId = input.actorUserId ?? null;
+  const actorDelegate = input.actorDelegate ?? null;
   return transaction(db, () => {
     const ts = now();
     if (review && row.kind === 'pr-review') {
-      appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', body: `${PR_REVIEW_FEEDBACK_MARKER}\n${review}`, createdAt: ts, actorUserId });
+      appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', body: `${PR_REVIEW_FEEDBACK_MARKER}\n${review}`, createdAt: ts, actorUserId, actorDelegate });
     }
-    applyApproval(db, row, 'human', ts, undefined, actorUserId);
+    applyApproval(db, row, 'human', ts, undefined, actorUserId, null, null, null, actorDelegate);
     return toDetail(db, findRowByKey(db, key)!);
   });
 }

@@ -13,6 +13,7 @@ export interface AnswerBlockInput {
   /** Free text: the whole answer, or what to add to the picked option. */
   answer?: string | undefined;
   actorUserId?: number | null;
+  actorDelegate?: string | null;
 }
 
 /**
@@ -44,7 +45,7 @@ export function answerBlock(db: DB, key: string, input: AnswerBlockInput, now: (
       'Treat this answer as binding and continue the task.',
     ].filter(Boolean).join('\n');
     const ts = now();
-    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body, createdAt: ts, actorUserId: input.actorUserId ?? null });
-    return updateStatusWithinTransaction(db, key, 'queued', 'human', () => ts, input.actorUserId ?? null, chosen ? `answered: ${chosen}` : 'answered');
+    appendActivity(db, { taskId: row.id, type: 'feedback', actor: 'human', body, createdAt: ts, actorUserId: input.actorUserId ?? null, actorDelegate: input.actorDelegate ?? null });
+    return updateStatusWithinTransaction(db, key, 'queued', 'human', () => ts, input.actorUserId ?? null, chosen ? `answered: ${chosen}` : 'answered', undefined, undefined, null, input.actorDelegate ?? null);
   });
 }

@@ -90,7 +90,7 @@ const feedbackSchema = z.object({
  * failure never inherits it (feedback binds the exact source activity id).
  */
 export function recordFailureTriageFeedback(
-  db: DB, key: string, input: FailureTriageFeedbackInput & { actorUserId?: number | null }, now: () => string = nowIso,
+  db: DB, key: string, input: FailureTriageFeedbackInput & { actorUserId?: number | null; actorDelegate?: string | null }, now: () => string = nowIso,
 ): TaskDetail {
   const b = parse(feedbackSchema, input);
   const note = b.note?.trim() || null;
@@ -105,7 +105,7 @@ export function recordFailureTriageFeedback(
     const shown = summarizeFailureTriage(b.sourceActivityId, classified.classification, human);
     if (shown.category !== b.shownCategory) throw new InvalidTransitionError('the failure triage label changed; refresh and try again');
     appendActivity(db, {
-      taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, createdAt: now(),
+      taskId: row.id, type: 'comment', actor: 'human', actorUserId: input.actorUserId ?? null, actorDelegate: input.actorDelegate ?? null, createdAt: now(),
       body: buildFailureTriageFeedbackComment({
         sourceActivityId: b.sourceActivityId, action: b.action,
         category: b.action === 'confirm' ? shown.category : b.category!,

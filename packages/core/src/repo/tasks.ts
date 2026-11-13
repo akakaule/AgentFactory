@@ -208,7 +208,7 @@ function currentFailureEvents(db: DB, ids: number[]): Map<number, CurrentFailure
 export function feedbackFromActivity(a: Activity): FailureTriageFeedback | null {
   const record = parseFailureTriageFeedbackComment(a.body);
   if (!record) return null;
-  return { ...record, activityId: a.id, actorUserId: a.actorUserId, actorName: a.actorName, at: a.createdAt };
+  return { ...record, activityId: a.id, actorUserId: a.actorUserId, actorName: a.actorName, actorDelegate: a.actorDelegate, at: a.createdAt };
 }
 
 /**

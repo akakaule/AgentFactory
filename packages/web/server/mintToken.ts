@@ -1,4 +1,5 @@
 import { openCore } from '@agentfactory/core';
+import { runMintToken } from './mintTokenCli.js';
 
 /**
  * Mint an API bearer token. The raw token prints once to stdout (JSON) — store it now,
@@ -7,27 +8,12 @@ import { openCore } from '@agentfactory/core';
  *   npm run token -- --label "Alvin's phone" --email alvin@example.com --name "Alvin"
  *   npm run token -- --label "ado-bridge" --service
  *   npm run token -- --label "dispatcher-remote" --service --supervisor   (release-claim/delivery/PAT ops)
+ *   npm run token -- --label "Claude Code" --email alvin@example.com --delegate
+ *     (an agent acting for that user: passes the human routes as the user, never the agent
+ *      routes, and the activity log reads "Alvin (via Claude Code)")
  */
-function arg(flag: string): string | undefined {
-  const i = process.argv.indexOf(flag);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-const has = (flag: string): boolean => process.argv.includes(flag);
-
 const dbPath = process.env['AGENTFACTORY_DB'] ?? './agentfactory.db';
-const label = arg('--label') ?? 'cli token';
-const email = arg('--email');
-const name = arg('--name');
-const isService = has('--service') || has('--supervisor'); // supervisor implies service
-const isSupervisor = has('--supervisor');
-
-const core = openCore(dbPath);
-let userId: number | null = null;
-if (email) {
-  const user = core.createUser({ email, displayName: name ?? email });
-  userId = user.id;
-}
-const minted = core.createApiToken({ label, userId, isService, isSupervisor });
-
-console.log(JSON.stringify({ id: minted.id, label, userId, isService, isSupervisor, token: minted.token }, null, 2));
-console.error('\nStore this token now — only its hash is kept, it will not be shown again.');
+process.exitCode = runMintToken(process.argv.slice(2), () => openCore(dbPath), {
+  out: (line) => console.log(line),
+  err: (line) => console.error(line),
+});

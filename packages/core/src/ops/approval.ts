@@ -55,10 +55,10 @@ export function assertApprovableRevision(db: DB, row: TaskRow, expected: Expecte
  * (A submission that never recorded a head — an older worker, no origin — says so in the approval
  * note instead: 'at an unknown revision'.)
  */
-export function auditUnknownFreshness(db: DB, row: TaskRow, approved: SubmissionSummary | null, ts: string, actorUserId: number | null): void {
+export function auditUnknownFreshness(db: DB, row: TaskRow, approved: SubmissionSummary | null, ts: string, actorUserId: number | null, actorDelegate: string | null = null): void {
   const failed = approved?.stage === 'implementation' ? approved.lastObservation : null;
   if (!approved || !failed?.error) return;
-  appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', createdAt: ts, actorUserId,
+  appendActivity(db, { taskId: row.id, type: 'comment', actor: 'human', createdAt: ts, actorUserId, actorDelegate,
     body: `approved submission #${approved.id} with unknown revision freshness: the ${failed.source} observation at ${failed.observedAt} failed (${failed.error})` });
 }
 
@@ -113,7 +113,7 @@ function openIssuesPhrase(brief: ReviewBrief): string {
  * `revision` is the submission the human approved (reviewApprove's revision gate); it rides the
  * implementation status_change note and the delivery row (approved head vs the PR head seen later).
  */
-export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null, revision: ReviewRevision | null = null): void {
+export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null, revision: ReviewRevision | null = null, actorDelegate: string | null = null): void {
   // Break-glass audit trail: approving while the *current* AI review has open findings
   // logs an override comment. Derived, no schema change; the override-rate KPI reads the
   // same condition from the activity log (findingsAtApproval). Pending/clean ⇒ no override.
@@ -128,7 +128,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     appendActivity(db, {
       taskId: row.id, type: 'comment', actor: 'human',
       body: `override: approved over ${openIssuesPhrase(brief)}${reason === null ? '' : `\n\nReason: ${reason}`}`,
-      createdAt: ts, actorUserId,
+      createdAt: ts, actorUserId, actorDelegate,
     });
   }
   if (row.stage === 'implementation') {
@@ -150,7 +150,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
       taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: to, createdAt: ts,
       body: [delivery ? 'approved — awaiting PR merge; check results remain visible' : '',
         revision ? `approved submission #${revision.submissionId} at ${revision.headSha ? revision.headSha.slice(0, 7) : 'an unknown revision'}` : '']
-        .filter(Boolean).join('; '), actorUserId,
+        .filter(Boolean).join('; '), actorUserId, actorDelegate,
     });
     return;
   }
@@ -160,6 +160,6 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
   setStatus(db, row.id, 'queued', ts); // clears the claimant — the next stage is anyone's claim
   appendActivity(db, {
     taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: 'queued', createdAt: ts,
-    body: `${note ?? 'approved'}; stage ${row.stage} → ${next}`, actorUserId,
+    body: `${note ?? 'approved'}; stage ${row.stage} → ${next}`, actorUserId, actorDelegate,
   });
 }

@@ -8,11 +8,12 @@ export interface AuthConfig { mode: AuthMode; }
 
 /**
  * The authenticated caller. `anon` is local-dev (AUTH_MODE=none) and maps to no user;
- * `service` is a non-user bearer token (e.g. the ado-bridge loops); `user` is a real human.
+ * `service` is a non-user bearer token (e.g. the ado-bridge loops); `user` is a real human —
+ * or an agent acting for one through a delegate token, whose label rides in `delegate` (AF-202).
  * Distinct from core's `Actor` machine axis — this is identity, not human-vs-agent.
  */
 export type Principal =
-  | { kind: 'user'; userId: number; email: string; displayName: string }
+  | { kind: 'user'; userId: number; email: string; displayName: string; delegate: string | null }
   | { kind: 'service'; label: string; supervisor: boolean }
   | { kind: 'anon' };
 
@@ -40,7 +41,7 @@ export function resolvePrincipal(core: Core, config: AuthConfig, c: Context): Pr
   const authed = core.authenticateToken(raw);
   if (!authed) return null;
   if (authed.userId != null) {
-    return { kind: 'user', userId: authed.userId, email: authed.email ?? '', displayName: authed.displayName ?? '' };
+    return { kind: 'user', userId: authed.userId, email: authed.email ?? '', displayName: authed.displayName ?? '', delegate: authed.delegate ? authed.label : null };
   }
   if (authed.isService) return { kind: 'service', label: authed.label, supervisor: authed.isSupervisor };
   return null; // neither a user nor a declared service token — refuse rather than guess
@@ -64,6 +65,13 @@ export function principalOf(c: Context): Principal {
 export function actorUserIdOf(c: Context): number | null {
   const p = principalOf(c);
   return p.kind === 'user' ? p.userId : null;
+}
+
+/** The delegate label behind a request (an agent acting for the user), or null for the user's
+ *  own token, service and anon callers. Recorded next to actorUserIdOf on every activity row. */
+export function actorDelegateOf(c: Context): string | null {
+  const p = principalOf(c);
+  return p.kind === 'user' ? p.delegate : null;
 }
 
 /**
