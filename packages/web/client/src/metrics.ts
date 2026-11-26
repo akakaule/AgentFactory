@@ -14,7 +14,15 @@ export interface AnalyticsTaskRow {
 export interface StrandedRelease { worker: string | null; workspace: string; at: string; }
 export interface FailureEvent { reason: string; workspace: string; at: string; }
 export interface IntakeAnalytics { assessments: number; unavailable: number; unavailableRate: number; latencyP50: number | null; latencyP95: number | null; failuresByKind: Record<string, number>; coverage: { numerator: number; denominator: number }; reassessments: number; overrides: number; authFailuresIncluded: false; }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; intake?: IntakeAnalytics; }
+export type ResultKind = 'merged_pr' | 'approved_spec' | 'review' | 'send_back' | 'delivery_repair' | 'reopen';
+/** One result (or rework event) derived from the activity log; stage is the stage it happened in. */
+export interface ResultEvent { kind: ResultKind; stage: string | null; workspace: string; at: string; }
+/** Priced spend for one UTC day x stage x session role x workspace. */
+export interface CostBucket { day: string; stage: string | null; role: string | null; workspace: string; costUsd: number; }
+export interface AnalyticsData {
+  tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; intake?: IntakeAnalytics;
+  resultCosts?: { spend: CostBucket[]; results: ResultEvent[] }; // optional: a stale server build omits it
+}
 /** GET /api/analytics/spend: one UTC month of reported usage by day x workspace x model. */
 export interface SpendRow { date: string; workspace: string; model: string | null; costUsd: number; tokens: number; unpricedTokens: number; }
 export interface SpendMonth { month: string; dataUpTo: string | null; rows: SpendRow[]; }
@@ -40,7 +48,23 @@ export interface WorkspaceSpend {
   tokensIn: number | null; tokensOut: number | null; tokens: number | null;
   cost: number | null; costReported: number; costPerTask: number | null;
 }
+/** One row of the cost-per-result panel. Cost fields are null when nothing priced was reported. */
+export interface ResultCostRow {
+  kind: 'merged_pr' | 'approved_spec' | 'review';
+  label: string; unit: string; count: number;
+  spend: number | null;       // priced spend attributed to this kind of result, in range
+  perResult: number | null;   // spend / count; null when either is missing
+  sentBack: number | null;    // rework events against this result (null = not applicable)
+  reopened: number | null;    // done tasks reopened (merged PRs only)
+}
+export interface ResultCosts {
+  rows: ResultCostRow[];
+  totalSpend: number;        // all priced spend in range
+  otherSpend: number;        // priced spend outside spec/implementation (legacy plan, pre-session reports)
+  sendBacks: number; repairs: number; reopens: number;
+}
 export interface ComputedAnalytics {
+  resultCosts: ResultCosts | null; // null when the server predates cost per result
   intake?: IntakeAnalytics;
   hasData: boolean;
   kpis: {
@@ -232,7 +256,50 @@ export function computeAnalytics(data: AnalyticsData, ws: string, rangeDays: num
     .sort((a, b) => b.count - a.count);
   const failures = { byReason, total: byReason.reduce((s, r) => s + r.count, 0), max: Math.max(1, ...byReason.map((r) => r.count)) };
 
-  return { hasData: N > 0, ...(data.intake ? { intake: data.intake } : {}), kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workspaceSpend, taskSpend, failures };
+  const resultCosts = data.resultCosts ? computeResultCosts(data.resultCosts, matchWs, cutoff) : null;
+
+  return { hasData: N > 0, resultCosts, ...(data.intake ? { intake: data.intake } : {}), kpis, stages, stageTotal, dominant, throughput, tpMax, tpDays, rounds, tokensByModel, tokMax, tokensByWorkspace, tokWsMax, tokensByBranch, tokBranchMax, tokensByStage, tokStageMax, tokenCoverage, workspaceSpend, taskSpend, failures };
+}
+
+/**
+ * Cost per result: the priced spend behind each kind of output divided by how many of that output
+ * the factory produced in the same workspace/range. Spend includes failed and sent-back attempts,
+ * so rework shows up as a higher cost per result rather than disappearing.
+ *  - merged PR:     all implementation-stage spend (worker, review, visualization, PR feedback)
+ *  - approved spec: all description-stage spend (worker + spec review)
+ *  - AI review:     review-role spend in any stage (also counted inside the two rows above)
+ * Spend buckets are UTC days, so a range boundary is accurate to the day.
+ */
+export function computeResultCosts(
+  data: { spend: CostBucket[]; results: ResultEvent[] }, matchWs: (w: string) => boolean, cutoff: number,
+): ResultCosts {
+  const cutoffDay = Number.isFinite(cutoff) ? new Date(cutoff).toISOString().slice(0, 10) : '';
+  const spend = data.spend.filter((b) => matchWs(b.workspace) && b.day >= cutoffDay);
+  const results = data.results.filter((r) => matchWs(r.workspace) && Date.parse(r.at) >= cutoff);
+  const sum = (bs: CostBucket[]) => bs.reduce((s, b) => s + b.costUsd, 0);
+  const count = (kind: ResultKind, stage?: string) => results.filter((r) => r.kind === kind && (stage === undefined || r.stage === stage)).length;
+
+  const implSpend = spend.filter((b) => b.stage === 'implementation');
+  const specSpend = spend.filter((b) => b.stage === 'description');
+  const reviewSpend = spend.filter((b) => b.role === 'review');
+  const totalSpend = sum(spend);
+  const row = (kind: ResultCostRow['kind'], label: string, unit: string, n: number, bs: CostBucket[], sentBack: number | null, reopened: number | null): ResultCostRow => {
+    const s = bs.length ? sum(bs) : null;
+    return { kind, label, unit, count: n, spend: s, perResult: s != null && n > 0 ? s / n : null, sentBack, reopened };
+  };
+  const repairs = count('delivery_repair');
+  const reopens = count('reopen');
+  const sendBacks = count('send_back');
+  return {
+    rows: [
+      row('merged_pr', 'Merged PR', 'PR', count('merged_pr'), implSpend, count('send_back', 'implementation') + repairs, reopens),
+      row('approved_spec', 'Approved spec', 'spec', count('approved_spec'), specSpend, count('send_back', 'description'), null),
+      row('review', 'AI review', 'review', count('review'), reviewSpend, sendBacks, null),
+    ],
+    totalSpend,
+    otherSpend: totalSpend - sum(implSpend) - sum(specSpend),
+    sendBacks, repairs, reopens,
+  };
 }
 
 export function fmtUsd(n: number): string {

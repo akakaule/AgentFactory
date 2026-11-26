@@ -54,7 +54,8 @@ export { reviewPrReviewed, PR_REVIEW_FEEDBACK_MARKER } from './ops/reviewPrRevie
 export { reviewRequestChanges } from './ops/reviewRequestChanges.js';
 export { answerBlock, type AnswerBlockInput } from './ops/answerBlock.js';
 export { DECISION_MARKER, decisionRequestSchema, formatBlockNote, parseBlockNote, type DecisionOption, type DecisionRequest } from './decision.js';
-export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData } from './ops/analyticsRows.js';
+export { analyticsRows, type AnalyticsTaskRow, type StrandedRelease, type FailureEvent, type AnalyticsData, type ResultCostData } from './ops/analyticsRows.js';
+export { type ResultEvent, type ResultKind, type CostBucket } from './resultCosts.js';
 export { spendByDay, type SpendRow, type SpendMonth } from './ops/spendByDay.js';
 export { estimatePastCosts, PAST_COST_CACHED_SHARE } from './ops/estimatePastCosts.js';
 export { addTaskMetrics } from './ops/addTaskMetrics.js';
