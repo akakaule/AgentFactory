@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeAnalytics, computeSpend, fmtDur, fmtNum, fmtUsd, median, monthLabel, niceTicks, providerOf, recentMonths, shortBranch, PROVIDER_COLORS, SERIES_COLORS, type AnalyticsTaskRow, type AnalyticsData, type SpendMonth, type SpendRow } from '../../client/src/metrics.js';
+import { computeAnalytics, computeResultCosts, computeSpend, fmtDur, fmtNum, fmtUsd, median, monthLabel, niceTicks, providerOf, recentMonths, shortBranch, PROVIDER_COLORS, SERIES_COLORS, type AnalyticsTaskRow, type AnalyticsData, type SpendMonth, type SpendRow } from '../../client/src/metrics.js';
 
 const NOW = Date.parse('2026-06-11T12:00:00.000Z');
 const daysAgo = (d: number) => new Date(NOW - d * 86400000).toISOString();
@@ -374,5 +374,43 @@ describe('spend', () => {
       row({ workspace: 'zeta', costUsd: 1 }), row({ workspace: 'alpha', costUsd: 1 }), row({ workspace: 'known', costUsd: 1 }),
     ]), 'workspace', 'cost', ['known']);
     expect(v.series.map((s) => s.key)).toEqual(['known', 'alpha', 'zeta']);
+  });
+});
+
+describe('computeResultCosts', () => {
+  const all = () => true;
+  const day = (d: number) => daysAgo(d).slice(0, 10);
+  const spend = [
+    { day: day(1), stage: 'implementation', role: 'worker', workspace: 'demo', costUsd: 10 },
+    { day: day(1), stage: 'description', role: 'review', workspace: 'demo', costUsd: 1 },
+    { day: day(1), stage: null, role: null, workspace: 'demo', costUsd: 0.5 },
+    { day: day(20), stage: 'implementation', role: 'worker', workspace: 'demo', costUsd: 100 },
+  ];
+  const results = [
+    { kind: 'merged_pr' as const, stage: 'implementation', workspace: 'demo', at: daysAgo(1) },
+    { kind: 'merged_pr' as const, stage: 'implementation', workspace: 'demo', at: daysAgo(20) },
+    { kind: 'review' as const, stage: 'description', workspace: 'demo', at: daysAgo(1) },
+    { kind: 'send_back' as const, stage: 'description', workspace: 'demo', at: daysAgo(1) },
+  ];
+
+  it('divides in-range spend by in-range results per kind', () => {
+    const rc = computeResultCosts({ spend, results }, all, NOW - 7 * 86400000);
+    const [pr, spec, review] = rc.rows;
+    expect(pr).toMatchObject({ count: 1, spend: 10, perResult: 10, sentBack: 0, reopened: 0 });
+    expect(spec).toMatchObject({ count: 0, spend: 1, perResult: null, sentBack: 1 });
+    expect(review).toMatchObject({ count: 1, spend: 1, perResult: 1, sentBack: 1 });
+    expect(rc.totalSpend).toBe(11.5);
+    expect(rc.otherSpend).toBeCloseTo(0.5);
+  });
+
+  it('covers all time with an infinite cutoff and filters by workspace', () => {
+    expect(computeResultCosts({ spend, results }, all, -Infinity).rows[0]).toMatchObject({ count: 2, spend: 110, perResult: 55 });
+    const none = computeResultCosts({ spend, results }, (w) => w === 'other', -Infinity);
+    expect(none.rows[0]).toMatchObject({ count: 0, spend: null, perResult: null });
+  });
+
+  it('is null in computeAnalytics when the server omits resultCosts', () => {
+    expect(computeAnalytics(data([doneRow()]), 'all', 7, NOW).resultCosts).toBeNull();
+    expect(computeAnalytics({ ...data([doneRow()]), resultCosts: { spend, results } }, 'all', 7, NOW).resultCosts?.rows[0]?.count).toBe(1);
   });
 });

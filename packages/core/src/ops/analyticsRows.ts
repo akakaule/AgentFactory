@@ -8,6 +8,7 @@ import { tokenAggregateFor, stageTokensFor } from '../repo/metrics.js';
 import { nowIso } from '../time.js';
 import { intakeMarkerActivities } from '../repo/activity.js';
 import { parseIntakeComment, parseIntakeClaimComment, intakeOverrideRevision } from '../intake.js';
+import { resultEventsFor, costBucketsFor, type ResultEvent, type CostBucket } from '../resultCosts.js';
 
 export interface AnalyticsTaskRow extends TaskMetricsView {
   key: string;
@@ -30,7 +31,9 @@ export interface IntakeAnalytics {
   failuresByKind: Record<string, number>; coverage: { numerator: number; denominator: number };
   reassessments: number; overrides: number; authFailuresIncluded: false;
 }
-export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; intake: IntakeAnalytics; }
+/** Inputs for the "cost per result" panel: priced spend buckets and the results they bought (src/resultCosts.ts). */
+export interface ResultCostData { spend: CostBucket[]; results: ResultEvent[]; }
+export interface AnalyticsData { tasks: AnalyticsTaskRow[]; stranded: StrandedRelease[]; failures: FailureEvent[]; intake: IntakeAnalytics; resultCosts: ResultCostData; }
 
 /**
  * All-time per-task metric rows + stranded-release events. The client filters
@@ -45,6 +48,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
   const tasks: AnalyticsTaskRow[] = [];
   const stranded: StrandedRelease[] = [];
   const failures: FailureEvent[] = [];
+  const resultCosts: ResultCostData = { spend: [], results: [] };
   let assessments = 0;
   let unavailable = 0;
   let reassessments = 0;
@@ -70,6 +74,8 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
       if (context) { coverageDenominator += 1; if (context.assessmentRevision !== null && context.assessmentRevision === context.sourceRevision) coverageNumerator += 1; }
     }
     const derived = deriveTaskMetrics(steps, ts);
+    resultCosts.results.push(...resultEventsFor(db, r.id, r.workspace, steps));
+    resultCosts.spend.push(...costBucketsFor(db, r.id, r.workspace));
     tasks.push({
       ...derived,
       ...tokenAggregateFor(db, r.id),
@@ -104,7 +110,7 @@ export function analyticsRows(db: DB, now: () => string = nowIso): AnalyticsData
     return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)]!;
   };
   return {
-    tasks, stranded, failures,
+    tasks, stranded, failures, resultCosts,
     intake: {
       assessments, unavailable, unavailableRate: assessments ? unavailable / assessments : 0,
       latencyP50: percentile(latencies, 0.5), latencyP95: percentile(latencies, 0.95), failuresByKind,

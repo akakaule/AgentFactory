@@ -133,3 +133,33 @@ describe('analyticsRows', () => {
     });
   });
 });
+
+describe('analyticsRows resultCosts', () => {
+  it('buckets priced spend by day, stage and role and derives send-backs, reviews and reopens', async () => {
+    const { reviewRequestChanges } = await import('../src/ops/reviewRequestChanges.js');
+    const db = makeTestDb();
+    const task = createTask(db, { title: 'T', spec: 'S', acceptanceCriteria: 'A' }, at(0));
+    updateStatus(db, task.key, 'queued', 'human', at(10));
+    const c1 = claimNextTask(db, { claimedBy: 'w' }, at(30));
+    addTaskMetrics(db, task.key, { costUsd: 2, role: 'worker', executionId: c1!.executionId }, at(40));
+    addTaskMetrics(db, task.key, { tokensIn: 5, executionId: c1!.executionId }, at(41)); // unpriced: left out
+    submitResult(db, task.key, { summary: 'done', executionId: c1!.executionId }, at(60));
+    addComment(db, task.key, { actor: 'human', body: 'ai-review/v1 — 1 finding' }, at(65));
+    addTaskMetrics(db, task.key, { costUsd: 0.5, role: 'review' }, at(66));
+    reviewRequestChanges(db, task.key, { feedback: 'fix it' }, at(70));
+    const c2 = claimNextTask(db, { claimedBy: 'w' }, at(80));
+    addTaskMetrics(db, task.key, { costUsd: 1, role: 'worker', executionId: c2!.executionId }, at(90));
+    submitResult(db, task.key, { summary: 'done', executionId: c2!.executionId }, at(100));
+    reviewApprove(db, task.key, at(150), undefined, () => null, undefined, expectedRevisionOf(getTask(db, task.key)));
+    updateStatus(db, task.key, 'queued', 'human', at(200));
+
+    const { resultCosts } = analyticsRows(db, at(999));
+    expect(resultCosts.spend).toEqual([
+      { day: '2026-06-01', stage: 'implementation', role: 'worker', workspace: 'default', costUsd: 3 },
+      { day: '2026-06-01', stage: 'implementation', role: 'review', workspace: 'default', costUsd: 0.5 },
+    ]);
+    expect(resultCosts.results.map((r) => [r.kind, r.stage])).toEqual([
+      ['review', 'implementation'], ['send_back', 'implementation'], ['reopen', 'implementation'],
+    ]);
+  });
+});

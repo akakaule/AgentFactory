@@ -146,6 +146,43 @@ describe('AnalyticsView', () => {
     expect(within(panel).getByText('$2.00 total')).toBeInTheDocument();
   });
 
+  it('shows cost per merged PR, approved spec and review next to send-backs and reopens', async () => {
+    const mocked = await getApiMock();
+    const now = new Date().toISOString();
+    const day = now.slice(0, 10);
+    const ev = (kind: string, stage: string | null) => ({ kind, stage, workspace: 'alpha', at: now });
+    mocked.getAnalytics.mockResolvedValue({
+      tasks: [doneRow({ workspace: 'alpha' })], stranded: [], failures: [],
+      resultCosts: {
+        spend: [
+          { day, stage: 'implementation', role: 'worker', workspace: 'alpha', costUsd: 30 },
+          { day, stage: 'implementation', role: 'review', workspace: 'alpha', costUsd: 6 },
+          { day, stage: 'description', role: 'worker', workspace: 'alpha', costUsd: 8 },
+        ],
+        results: [
+          ev('merged_pr', 'implementation'), ev('merged_pr', 'implementation'),
+          ev('approved_spec', 'description'),
+          ev('review', 'implementation'), ev('review', 'implementation'), ev('review', 'implementation'),
+          ev('send_back', 'implementation'), ev('delivery_repair', 'implementation'), ev('reopen', 'implementation'),
+        ],
+      },
+    } satisfies AnalyticsData);
+
+    render(<AnalyticsView ws="all" rangeDays={7} onRange={vi.fn()} />);
+
+    const panel = await screen.findByRole('region', { name: 'Cost per result' });
+    const pr = within(panel).getByRole('row', { name: /Merged PR/ });
+    expect(within(pr).getByText('$36.00')).toBeInTheDocument();
+    expect(within(pr).getByText('$18.00')).toBeInTheDocument();
+    expect(pr).toHaveTextContent('2 · 1.0 / result'); // 1 send-back + 1 delivery repair over 2 PRs
+    expect(pr).toHaveTextContent('1 · 0.5 / result');
+    const spec = within(panel).getByRole('row', { name: /Approved spec/ });
+    expect(within(spec).getAllByText('$8.00')).toHaveLength(2);
+    const review = within(panel).getByRole('row', { name: /AI review/ });
+    expect(within(review).getByText('$2.00')).toBeInTheDocument();
+    expect(within(panel).getByText('$44.00 spent')).toBeInTheDocument();
+  });
+
   it('renders the monthly spend panel even when there are no completed tasks', async () => {
     const mocked = await getApiMock();
     mocked.getAnalytics.mockResolvedValue({ tasks: [], stranded: [], failures: [] });

@@ -226,6 +226,51 @@ export function AnalyticsView({ ws, rangeDays, onRange, onOpen }: Props) {
             </div>
           )}
 
+          {/* Cost per result — spend divided by what it bought, next to the rework behind it */}
+          {a.resultCosts && (() => {
+            const rc = a.resultCosts;
+            const usd = (n: number | null) => n == null ? <span className="dim">n/a</span> : '$' + n.toFixed(2);
+            const per = (n: number | null, d: number) => n == null ? <span className="dim">—</span>
+              : <>{n}{d > 0 && <span className="dim"> · {(n / d).toFixed(1)} / result</span>}</>;
+            return (
+              <section className="an-panel span" aria-label="Cost per result">
+                <div className="an-ph">
+                  <h3>Cost per result</h3><small>· priced spend ÷ results, {rangeLabel}</small>
+                  {rc.totalSpend > 0 && <span className="right">${rc.totalSpend.toFixed(2)} spent</span>}
+                </div>
+                <div className="an-tablewrap">
+                  <table className="an-table">
+                    <thead>
+                      <tr>
+                        <th>Result</th><th className="r">Count</th><th className="r">Spend</th><th className="r">Cost / result</th>
+                        <th className="r">Sent back</th><th className="r">Reopened</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rc.rows.map((r) => (
+                        <tr key={r.kind}>
+                          <td>{r.label}</td>
+                          <td className="r mono">{r.count}</td>
+                          <td className="r mono">{usd(r.spend)}</td>
+                          <td className="r mono"><b>{usd(r.perResult)}</b></td>
+                          <td className="r mono">{per(r.sentBack, r.count)}</td>
+                          <td className="r mono">{per(r.reopened, r.count)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="an-caption">
+                  Spend counts every attempt, including ones that were sent back, so rework raises the cost per result instead of hiding.
+                  A merged PR carries all implementation-stage spend (worker, review, visualization, PR feedback) and its send-backs include {rc.repairs} delivery repair{rc.repairs === 1 ? '' : 's'};
+                  an approved spec carries all spec-stage spend; AI review spend is also part of those two rows.
+                  {rc.otherSpend > 0.005 && <> ${rc.otherSpend.toFixed(2)} sat outside both stages (legacy plan stage or reports with no session).</>}
+                  {' '}Unpriced usage is left out, never counted as $0.
+                </div>
+              </section>
+            );
+          })()}
+
           {/* Spend by workspace */}
           <section className="an-panel span" aria-label="Spend by workspace">
             <div className="an-ph">
