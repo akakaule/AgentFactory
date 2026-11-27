@@ -19,12 +19,14 @@ const CHIP: Record<NeedKind, { label: (t: Task) => string; cls: string }> = {
 /**
  * Every task waiting on the human, each with the decision it needs and the options for it.
  * Derived from task state (needsYou.ts): acting on a card moves the task, which drops the card —
- * there is nothing to dismiss. Supervisor outages show as a banner, not as task cards.
+ * there is nothing to dismiss. Supervisor outages show as a banner, not as task cards — only for a
+ * kind with no healthy supervisor anywhere.
  */
 export function NeedsYouView({ tasks, multiWs, onOpen, onChanged }: { tasks: Task[]; multiWs: boolean; onOpen: (key: string) => void; onChanged: () => void }) {
   const items = useMemo(() => needsYou(tasks), [tasks]);
   const supervisors = useSupervisors();
-  const down = supervisors.filter((s) => !s.healthy);
+  // A down supervisor whose kind still runs healthy elsewhere (e.g. moved to another host) is not an outage.
+  const down = supervisors.filter((s) => !s.healthy && !supervisors.some((o) => o.healthy && o.kind === s.kind));
   const oldest = items.reduce<string | null>((o, n) => (o === null || n.since < o ? n.since : o), null);
 
   return (

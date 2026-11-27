@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NeedsYouView } from '../../client/src/views/NeedsYouView.js';
 import type { Task } from '../../client/src/types.js';
@@ -106,5 +106,29 @@ describe('NeedsYouView', () => {
     (await api()).listSupervisors.mockResolvedValueOnce([{ name: 'reviewer', kind: 'reviewer', healthy: false }]);
     render(<NeedsYouView multiWs={false} onOpen={vi.fn()} onChanged={vi.fn()} tasks={[]} />);
     expect(await screen.findByText(/reviewer is offline/)).toBeInTheDocument();
+  });
+
+  it('leaves a down supervisor out of the banner while the same kind runs on another host', async () => {
+    (await api()).listSupervisors.mockResolvedValueOnce([
+      { name: 'dispatcher', kind: 'dispatcher', healthy: false, host: null },
+      { name: 'dispatcher-agentvm01', kind: 'dispatcher', healthy: true, host: 'agentvm01' },
+      { name: 'reviewer', kind: 'reviewer', healthy: false, host: null },
+      { name: 'reviewer-agentvm01', kind: 'reviewer', healthy: true, host: 'agentvm01' },
+      { name: 'watcher', kind: 'watcher', healthy: false, host: null },
+    ]);
+    render(<NeedsYouView multiWs={false} onOpen={vi.fn()} onChanged={vi.fn()} tasks={[]} />);
+    expect(await screen.findByText('watcher is offline.')).toBeInTheDocument();
+    expect(screen.queryByText(/dispatcher|reviewer/)).toBeNull();
+  });
+
+  it('shows no banner when every down supervisor is replaced', async () => {
+    const m = await api();
+    m.listSupervisors.mockResolvedValueOnce([
+      { name: 'dispatcher', kind: 'dispatcher', healthy: false, host: null },
+      { name: 'dispatcher-agentvm01', kind: 'dispatcher', healthy: true, host: 'agentvm01' },
+    ]);
+    render(<NeedsYouView multiWs={false} onOpen={vi.fn()} onChanged={vi.fn()} tasks={[]} />);
+    await act(async () => { await m.listSupervisors.mock.results[0]!.value; });
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });
