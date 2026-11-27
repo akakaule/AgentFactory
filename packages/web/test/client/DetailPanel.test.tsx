@@ -175,6 +175,26 @@ describe('DetailPanel', () => {
     expect(screen.getByText('A comment here')).toBeInTheDocument();
   });
 
+  it('renders a Markdown spec and acceptance criteria as formatted text, not raw markup', async () => {
+    // The drawer lazy-loads the Markdown chunk; load it first so the first transform of
+    // react-markdown under vitest doesn't race findByRole's timeout.
+    await import('../../client/src/components/Markdown.js');
+    const mocked = await getApiMock();
+    mocked.getTask.mockResolvedValue({
+      ...backlogTask,
+      spec: '## Problem\n\n`PostMessageAuditAsync` stores **raw** input.\n\n## Desired behavior\n\n- Keep only `Comment`\n- Stamp the auditor',
+      acceptanceCriteria: '1. A forged body is stored as a `Comment`\n2. A caller without the role gets 403',
+    });
+
+    const { container } = render(<DetailPanel taskKey="AF-10" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Problem' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Desired behavior' })).toBeInTheDocument();
+    expect(screen.queryByText(/## Problem/)).toBeNull();
+    expect(screen.getByText('PostMessageAuditAsync').tagName).toBe('CODE');
+    expect(container.querySelectorAll('.af-md ol > li')).toHaveLength(2);
+  });
+
   it('links to the task from the drawer header and copies its absolute URL', async () => {
     const mocked = await getApiMock();
     mocked.getTask.mockResolvedValue(backlogTask);
