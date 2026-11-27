@@ -665,6 +665,13 @@ describe('watcher tick', () => {
     const sup = core.listSupervisors().find((s) => s.name === 'watcher-test')!;
     expect(sup).toMatchObject({ kind: 'watcher', inFlight: 1, capacity: 0 });
   });
+
+  it('reports the host it runs on with its heartbeat', async () => {
+    const core = makeCore();
+    const w = new Watcher(makeConfig({ name: 'watcher-host' }), { ...makeDeps(core, fakeFetch([])), host: 'agentvm01' });
+    await w.tick();
+    expect(core.listSupervisors().find((s) => s.name === 'watcher-host')?.host).toBe('agentvm01');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { openCore, createHttpCore } from '@agentfactory/core';
+import { openCore, createHttpCore, resolveHost } from '@agentfactory/core';
 import { buildServer } from './server.js';
 import type { McpCore } from './types.js';
 
@@ -23,6 +23,8 @@ if (stage !== undefined && stage !== 'description' && stage !== 'plan' && stage 
 }
 // machine-local clone override for the pinned workspace (#46 remote workers)
 const repoPath = norm(process.env['AGENTFACTORY_REPO_PATH']);
+// where this worker runs, shown on the board (AGENTFACTORY_HOST, set by the dispatcher, else the OS hostname)
+const host = resolveHost();
 
 if (repoPath && !defaultWorkspace) {
   // An unpinned server could claim from ANY workspace and map a foreign task onto this
@@ -51,7 +53,7 @@ if (boardUrl && boardToken) {
   backend = `db: ${dbPath}`;
 }
 
-const server = buildServer(core, { defaultWorkspace, workerLabel, executionId, repoPath, taskKey, stage });
+const server = buildServer(core, { defaultWorkspace, workerLabel, host, executionId, repoPath, taskKey, stage });
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(

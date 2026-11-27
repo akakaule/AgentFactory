@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { buildFailureComment, refFromLabel, resolveServedWorkspaces, isPrFeedbackMarker, isFeedbackEvalMarker, parsePrFeedbackComment, InvalidTransitionError, NotFoundError } from '@agentfactory/core';
 import type { Task, TaskDetail, Stage, RetryReservation, EngineSettings, Execution, ReviewRevision, AgentModels, ModelProfile } from '@agentfactory/core';
-import { formatReviewRevision, claudeOtelEnv, type AgentRole, type OtelSession } from '@agentfactory/core';
+import { formatReviewRevision, claudeOtelEnv, resolveHost, type AgentRole, type OtelSession } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, resolveReviewers } from '@agentfactory/core';
 import type { ReviewerConfig, ReviewEngine, ReasoningEffort, ReviewerProfile } from './config.js';
 import { collectReview, combinedReview, reviewFingerprint, type ReviewRound } from './reviewRound.js';
@@ -315,6 +315,7 @@ export class Reviewer {
         inFlight: this.running.size,
         capacity: this.config.maxConcurrent * served.length,
         pollSeconds: this.config.pollSeconds,
+        host: this.deps.host === undefined ? resolveHost() : this.deps.host,
       });
     } catch {
       /* health is advisory — never let a heartbeat write break the poll loop */

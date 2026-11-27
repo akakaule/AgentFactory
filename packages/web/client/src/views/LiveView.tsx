@@ -56,6 +56,7 @@ export function LiveView({ onOpen }: { onOpen: (key: string) => void }) {
                   <div className="af-live-top">
                     <span className="af-key">{a.key}</span>
                     <span className="af-wsbadge">{a.workspace}</span>
+                    {a.host && <span className="af-wsbadge af-hostbadge" title={`Runs on ${a.host}`}>{a.host}</span>}
                     <span
                       className="af-pill"
                       style={{ color: STAGE_COLORS[a.stage], background: `color-mix(in srgb, ${STAGE_COLORS[a.stage]} 16%, transparent)` }}

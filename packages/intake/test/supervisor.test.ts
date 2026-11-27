@@ -116,6 +116,17 @@ describe('intake supervisor', () => {
     expect(attempts.every((a) => a.state === 'succeeded')).toBe(true);
   });
 
+  it('reports the host it runs on with its heartbeat', async () => {
+    const db = openDb(':memory:');
+    runMigrations(db);
+    const core = createCore(db);
+    const supervisor = new IntakeSupervisor(parseConfig({ db: ':memory:', provider: { name: 'fixture' } }), {
+      core, provider: new FixtureTaskIntakeDecisionProvider(), console: { log() {}, warn() {}, error() {} }, host: 'agentvm01',
+    });
+    await supervisor.tick();
+    expect(core.listSupervisors()[0]?.host).toBe('agentvm01');
+  });
+
   it('assesses a held task (spec written, waiting to be built) without waiting out settleSeconds, and releases it', async () => {
     const { core, config } = setup();
     core.setIntakeSettings({ mode: 'advisory', workspaces: ['default'], settleSeconds: 3600 });

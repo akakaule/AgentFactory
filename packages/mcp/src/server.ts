@@ -14,6 +14,7 @@ import { registerTaskGit } from './tools/taskGit.js';
 export interface ServerOptions {
   defaultWorkspace?: string | undefined;
   workerLabel?: string | undefined; // recorded as claimed_by on every claim
+  host?: string | null | undefined; // the machine this server runs on, recorded on every claim's live session
   executionId?: string | undefined; // stable ownership fence injected by a supervisor
   executionContext?: { get(): string | undefined; set(id: string | undefined): void };
   taskKey?: string | undefined; // dispatched workers may only claim their intended task

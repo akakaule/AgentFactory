@@ -1,4 +1,4 @@
-import { InvalidTransitionError, awaitingPostMergeChecks, effectiveWorkspaceProfile, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type RevisionReadTicket, type Status, type Workspace } from '@agentfactory/core';
+import { InvalidTransitionError, awaitingPostMergeChecks, resolveHost, effectiveWorkspaceProfile, parseRemoteUrl, resolveServedWorkspaces, type RemoteRef, type Task, type DeliveryFailingCheck, type DeliverySummary, type RevisionReadTicket, type Status, type Workspace } from '@agentfactory/core';
 import type { WatcherConfig } from './config.js';
 import type { WatcherDeps } from './types.js';
 import { makeGitHubProvider } from './providers/github.js';
@@ -110,6 +110,7 @@ export class Watcher {
       await core.recordSupervisorHeartbeat({
         name: this.config.name, kind: 'watcher', workspaces: served,
         inFlight: tasks.length, capacity: 0, pollSeconds: this.config.pollSeconds,
+        host: this.deps.host === undefined ? resolveHost() : this.deps.host,
       });
     } catch (err) {
       console.warn('[watcher] heartbeat failed:', err);

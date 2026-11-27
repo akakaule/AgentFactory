@@ -37,6 +37,19 @@ describe('LiveView', () => {
     expect(screen.getByText(/running build/)).toBeInTheDocument();
   });
 
+  it('shows the host each agent runs on, and no host badge when it was not reported', async () => {
+    const mocked = await getApiMock();
+    mocked.listAgents.mockResolvedValue([agent({ host: 'agentvm01' }), agent({ key: 'AF-13', title: 'Other', host: null })]);
+
+    render(<LiveView onOpen={vi.fn()} />);
+
+    expect(await screen.findByText('Other')).toBeInTheDocument();
+    const badge = screen.getByText('agentvm01');
+    expect(badge).toHaveClass('af-hostbadge');
+    expect(badge.getAttribute('title')).toBe('Runs on agentvm01');
+    expect(document.querySelectorAll('.af-hostbadge')).toHaveLength(1);
+  });
+
   it('shows an empty state when nothing is running', async () => {
     const mocked = await getApiMock();
     mocked.listAgents.mockResolvedValue([]);

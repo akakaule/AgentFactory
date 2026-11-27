@@ -107,6 +107,14 @@ describe('poll + spawn', () => {
     expect(calls.length).toBe(0);
   });
 
+  it('reports the host it runs on with its heartbeat', async () => {
+    const core = makeCore();
+    const { spawn } = makeFakeSpawn();
+    const r = new Reviewer(makeConfig({ name: 'reviewer-vm' }), { ...makeDeps(core, spawn, { console: makeFakeConsole() }), host: 'agentvm01' });
+    await r.tick();
+    expect(core.listSupervisors().find((s) => s.name === 'reviewer-vm')?.host).toBe('agentvm01');
+  });
+
   it('a second reviewer racing for the same task spawns nothing and does not skip-list it', async () => {
     const core = makeCore();
     const key = seedInReview(core, 'ws', 'Contended review', 'implementation');

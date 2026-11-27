@@ -29,7 +29,7 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
         // Pending supervisor reservations are adopted by claimNextTask itself.
         opts.executionContext?.set(undefined);
         const claimed = await core.claimNextTask({ workspace: workspace ?? opts.defaultWorkspace, claimedBy: opts.workerLabel,
-          taskKey: opts.taskKey, stage: opts.stage });
+          taskKey: opts.taskKey, stage: opts.stage, host: opts.host });
         if (claimed === null) {
           return {
             content: [

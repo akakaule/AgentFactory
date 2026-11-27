@@ -186,6 +186,7 @@ a.af-mini { display: inline-flex; align-items: center; text-decoration: none; }
 .af-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
 .af-key { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600; color: var(--ink-2); letter-spacing: .02em; }
 .af-wsbadge { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 500; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); }
+.af-hostbadge { color: var(--ink-3); border-style: dashed; }
 .af-card-title { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 14px; line-height: 1.32; color: var(--ink); margin-bottom: 6px; text-wrap: pretty; }
 .af-card-spec { font-size: 12px; line-height: 1.45; color: var(--ink-2); margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .af-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
@@ -673,6 +674,7 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-sup.down .af-sup-dot { background: var(--st-blocked); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-blocked) 22%, transparent); }
 .af-sup-name { font-weight: 600; color: var(--ink-1); }
 .af-sup-meta { color: var(--ink-3); }
+.af-sup-host { font-family: "IBM Plex Mono", monospace; color: var(--ink-3); }
 .af-sup-meta .down { color: var(--st-blocked); font-weight: 600; }
 .af-live-row {
   display: flex; flex-direction: column; width: 100%;

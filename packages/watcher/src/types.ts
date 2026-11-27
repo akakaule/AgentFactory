@@ -37,6 +37,8 @@ export type FetchJson = (
  */
 export interface WatcherDeps {
   core: WatcherCore;
+  /** The machine this supervisor runs on, shown on the board. Default: resolveHost() (AGENTFACTORY_HOST, else the OS hostname). */
+  host?: string | null | undefined;
   fetchJson: FetchJson;
   /** Origin-URL resolver (core's resolveOriginUrl in production; a fake in tests). */
   resolveOrigin: (repoPath: string) => string | null;

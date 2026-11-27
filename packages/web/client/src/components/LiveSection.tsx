@@ -34,6 +34,7 @@ export function LiveSection({ taskKey }: { taskKey: string }) {
         )}
         <div className="af-livebox-meta">
           {alive ? 'live' : `last seen ${timeAgo(a.heartbeatAt)}`}
+          {a.host && <> · on {a.host}</>}
           {(a.tokensIn != null || a.tokensOut != null) && <> · {fmtTokens(a.tokensIn)}↓ {fmtTokens(a.tokensOut)}↑ tokens</>}
         </div>
       </div>

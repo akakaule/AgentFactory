@@ -467,6 +467,7 @@ export interface AgentMilestone { msg: string; at: string; }
 export interface AgentSessionView {
   key: string; title: string; status: Status; workspace: string; stage: Stage;
   label: string | null;            // the claimant/worker label (session identity)
+  host: string | null;             // the machine the worker runs on (null = not reported)
   phase: string | null;            // latest milestone message
   phaseAt: string | null;          // when the latest milestone arrived
   recent: AgentMilestone[];        // small rolling feed (latest last)
@@ -521,6 +522,7 @@ export interface SupervisorView {
   pollSeconds: number | null; // its poll interval (drives the staleness threshold)
   polls: number;             // cumulative poll cycles since it started
   version: string | null;    // optional build/version string
+  host: string | null;       // the machine it runs on (null = not reported)
   startedAt: string;
   lastSeenAt: string;
   healthy: boolean;          // beat within HEALTHY_MISSED_POLLS × pollSeconds (else it's down)

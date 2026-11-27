@@ -15,4 +15,14 @@ describe('dispatched MCP claim', () => {
       expect(core.getTask('AF-2').claimedBy).toBe('plan-worker');
     } finally { await client.close(); }
   });
+
+  it('reports the host the worker runs on with its claim, so the board shows where it runs', async () => {
+    const { core, client } = await makeClient({ workerLabel: 'w1', host: 'agentvm01' });
+    const task = core.createTask({ title: 'T', spec: 's', acceptanceCriteria: 'a' });
+    core.updateStatus(task.key, 'queued', 'human');
+    try {
+      await client.callTool({ name: 'get_next_task', arguments: {} });
+      expect(core.listLiveAgents().find((a) => a.key === task.key)?.host).toBe('agentvm01');
+    } finally { await client.close(); }
+  });
 });

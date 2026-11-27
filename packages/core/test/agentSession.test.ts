@@ -27,6 +27,24 @@ describe('agent_session live tracking', () => {
     expect(live[0]!.phase).toBeNull();
   });
 
+  it('a claim records the host the worker runs on; listLiveAgents surfaces it', () => {
+    const db = makeTestDb();
+    queued(db);
+    claimNextTask(db, { claimedBy: 'worker-1', host: 'agentvm01' });
+    expect(listLiveAgents(db)[0]!.host).toBe('agentvm01');
+  });
+
+  it('the claimed host is sanitized, and absent when the worker does not report one', () => {
+    const db = makeTestDb();
+    const a = queued(db);
+    const b = queued(db);
+    claimNextTask(db, { claimedBy: 'worker-1', taskKey: a.key, host: '<b>vm</b>' });
+    claimNextTask(db, { claimedBy: 'worker-2', taskKey: b.key });
+    const byKey = Object.fromEntries(listLiveAgents(db).map((s) => [s.key, s]));
+    expect(byKey[a.key]!.host).toBe('bvmb');
+    expect(byKey[b.key]!.host).toBeNull();
+  });
+
   it('reportProgress sets the phase, appends to the rolling feed, and records tokens', () => {
     const db = makeTestDb();
     const t = queued(db);

@@ -11,11 +11,14 @@ import type { SupervisorKind } from '../types.js';
 export interface SupervisorRow {
   name: string; kind: SupervisorKind; workspaces: string; in_flight: number; capacity: number;
   poll_seconds: number | null; polls: number; version: string | null; started_at: string; last_seen_at: string;
+  host: string | null;
 }
 
 export interface UpsertSupervisor {
   name: string; kind: SupervisorKind; workspaces: string[];
   inFlight: number; capacity: number; pollSeconds?: number | null; version?: string | null;
+  /** The machine it runs on (src/host.ts). Stored sanitized; a beat without one clears it. */
+  host?: string | null;
 }
 
 /**
@@ -25,13 +28,13 @@ export interface UpsertSupervisor {
  */
 export function upsertSupervisor(db: DB, s: UpsertSupervisor, now: string): void {
   db.prepare(
-    `INSERT INTO supervisor_heartbeat (name, kind, workspaces, in_flight, capacity, poll_seconds, polls, version, started_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+    `INSERT INTO supervisor_heartbeat (name, kind, workspaces, in_flight, capacity, poll_seconds, polls, version, host, started_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
      ON CONFLICT(name) DO UPDATE SET
        kind = excluded.kind, workspaces = excluded.workspaces, in_flight = excluded.in_flight,
        capacity = excluded.capacity, poll_seconds = excluded.poll_seconds, version = excluded.version,
-       polls = supervisor_heartbeat.polls + 1, last_seen_at = excluded.last_seen_at`,
-  ).run(s.name, s.kind, s.workspaces.join(','), s.inFlight, s.capacity, s.pollSeconds ?? null, s.version ?? null, now, now);
+       host = excluded.host, polls = supervisor_heartbeat.polls + 1, last_seen_at = excluded.last_seen_at`,
+  ).run(s.name, s.kind, s.workspaces.join(','), s.inFlight, s.capacity, s.pollSeconds ?? null, s.version ?? null, s.host ?? null, now, now);
 }
 
 export function selectSupervisors(db: DB): SupervisorRow[] {

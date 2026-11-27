@@ -105,6 +105,23 @@ describe('spawn gating', () => {
     expect(env.AGENTFACTORY_REPO_PATH).toBe(local);
   });
 
+  it('reports its host on the heartbeat and hands the same host to its workers', async () => {
+    const core = makeCore();
+    seedQueued(core, 'ws', 'Work');
+    const { spawn, calls } = makeFakeSpawn();
+    const mcpFiles = new Map<string, string>();
+    const d = new Dispatcher(
+      makeConfig({ name: 'dispatcher-vm' }),
+      { ...makeDeps(core, spawn, { console: makeFakeConsole(), writeMcp: (p, c) => void mcpFiles.set(p, c) }), host: 'agentvm01' },
+    );
+
+    await d.tick();
+    expect(core.listSupervisors().find((s) => s.name === 'dispatcher-vm')?.host).toBe('agentvm01');
+    const args = calls[0]!.req.args;
+    const env = JSON.parse(mcpFiles.get(args[args.indexOf('--mcp-config') + 1]!)!).mcpServers.agentfactory.env;
+    expect(env.AGENTFACTORY_HOST).toBe('agentvm01');
+  });
+
   it('board mode without an override warns once and falls back to the board path', async () => {
     const core = makeCore('ws', '/board-machine/ws');
     seedQueued(core, 'ws', 'One');

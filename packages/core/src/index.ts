@@ -28,6 +28,7 @@ export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureCom
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
 export { effectiveWorkspaceProfile, DEFAULT_CI_MODE, type EffectiveWorkspaceProfile, type ProfileSource } from './workspaceProfile.js';
 export { diagnoseWorkspace, defaultDiagnoseProbes, type DiagnoseProbes, type DiagnosticCheck, type DiagnosticId, type DiagnosticStatus, type WorkspaceDiagnosis } from './diagnoseWorkspace.js';
+export { resolveHost, sanitizeHost, MAX_HOST_LENGTH } from './host.js';
 export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';
 export { AGENT_ENGINES, isAgentEngine, resolveEngine, normalizeEngineSettings, defaultEngineSettings, type AgentEngine, type EngineSettings } from './engineSettings.js';
 export { EFFORTS, MODEL_CATALOG, MODEL_ID_PATTERN, MAX_REVIEWERS, emptyAgentModels, normalizeAgentModels, resolveAgentModel, resolveReviewers, modelProfileArgs, profileFromArgs, type Effort, type ModelCatalogEntry, type ModelProfile, type AgentModelStages, type AgentModelLayer, type WorkspaceModelLayer, type AgentModels, type AgentModelRole, type ReportedProfile, type ReportedRoles, type AgentModelDefaultsReport, type AgentModelDefaults } from './agentModels.js';
