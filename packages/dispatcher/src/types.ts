@@ -104,6 +104,8 @@ export interface McpServerSpec {
 /** Everything the supervisor needs from the outside world — all injectable for tests. */
 export interface DispatcherDeps {
   core: DispatcherCore;
+  /** The machine this supervisor runs on, shown on the board. Default: resolveHost() (AGENTFACTORY_HOST, else the OS hostname). */
+  host?: string | null | undefined;
   spawn: SpawnFn;
   /** Resolves the `claude` CLI command (cached after first call). */
   resolveClaude: () => string;

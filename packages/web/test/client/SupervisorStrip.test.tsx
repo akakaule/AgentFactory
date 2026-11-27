@@ -23,6 +23,15 @@ describe('SupervisorStrip', () => {
     expect(screen.getByText(/1\/2 busy/)).toBeInTheDocument();
   });
 
+  it('shows the host a supervisor runs on, and nothing when it did not report one', async () => {
+    await mockSupervisors([sup({ name: 'dispatcher-vm', host: 'agentvm01' }), sup({ name: 'reviewer', kind: 'reviewer', host: null })]);
+    render(<SupervisorStrip />);
+    expect(await screen.findByText('dispatcher-vm')).toBeInTheDocument();
+    expect(screen.getByText('@ agentvm01')).toBeInTheDocument();
+    expect(screen.getAllByText(/^@ /)).toHaveLength(1);
+    expect(screen.getByText('dispatcher-vm').closest('.af-sup')!.getAttribute('title')).toContain('host: agentvm01');
+  });
+
   it('shows a down marker for an unhealthy supervisor', async () => {
     await mockSupervisors([sup({ name: 'reviewer', kind: 'reviewer', healthy: false, staleSeconds: 120 })]);
     render(<SupervisorStrip />);

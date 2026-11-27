@@ -1,4 +1,4 @@
-import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS, claudeOtelEnv } from '@agentfactory/core';
+import { buildFailureComment, InvalidTransitionError, resolveServedWorkspaces, gitAuthConfigPairs, EXECUTION_LEASE_MS, claudeOtelEnv, resolveHost } from '@agentfactory/core';
 import type { AddTaskMetricsInput, Stage, FailureReason, TaskDetail, Task, AgentPromptKey, EngineSettings, AgentModels, ModelProfile, ReportedRoles } from '@agentfactory/core';
 import { resolveEngine, defaultEngineSettings, emptyAgentModels, resolveAgentModel, modelProfileArgs, profileFromArgs } from '@agentfactory/core';
 import type { DispatcherConfig, WorkerEngine } from './config.js';
@@ -92,6 +92,11 @@ export class Dispatcher {
     private readonly config: DispatcherConfig,
     private readonly deps: DispatcherDeps,
   ) {}
+
+  /** Where this dispatcher runs: on its heartbeat, and handed to its workers so their sessions match. */
+  private get host(): string | null {
+    return this.deps.host === undefined ? resolveHost() : this.deps.host;
+  }
 
   private get console(): Pick<Console, 'log' | 'warn' | 'error'> {
     return this.deps.console ?? console;
@@ -270,6 +275,7 @@ export class Dispatcher {
         inFlight: this.running.size,
         capacity: this.config.maxConcurrent * served.length,
         pollSeconds: this.config.pollSeconds,
+        host: this.host,
       });
     } catch {
       /* health is advisory — never let a heartbeat write break the poll loop */
@@ -703,6 +709,8 @@ export class Dispatcher {
       AGENTFACTORY_WORKER: label,
       AGENTFACTORY_TASK_KEY: key,
       AGENTFACTORY_STAGE: stage,
+      // blank = the worker's MCP falls back to its own hostname
+      AGENTFACTORY_HOST: this.host ?? '',
     };
     if (reservation.executionId) mcpEnv['AGENTFACTORY_EXECUTION_ID'] = reservation.executionId;
     const localRepo = this.config.repoPathOverrides?.[workspace];

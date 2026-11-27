@@ -5,7 +5,7 @@ import { AttentionPanel } from './AttentionPanel.js';
 
 /**
  * Health strip for the headless supervisors (dispatcher/reviewer). Answers "is the loop alive?"
- * at a glance: a green/red dot per supervisor with its in-flight/capacity and last-seen. A
+ * at a glance: a green/red dot per supervisor with its host, in-flight/capacity and last-seen. A
  * supervisor that stops beating flips red on its own (derived server-side). Renders a hint when
  * none have ever reported — the common "you forgot to start the dispatcher" case.
  */
@@ -24,10 +24,12 @@ export function SupervisorStrip() {
       {supervisors.map((s) => (
         <div key={s.name} className={'af-sup' + (s.healthy ? '' : ' down')} title={
           `${s.name} (${s.kind}) — ${s.healthy ? 'healthy' : 'not seen in ' + s.staleSeconds + 's'}` +
+          (s.host ? `\nhost: ${s.host}` : '') +
           `\nworkspaces: ${s.workspaces.join(', ') || '—'}\npolls: ${s.polls}`
         }>
           <span className="af-sup-dot"></span>
           <span className="af-sup-name">{s.name}</span>
+          {s.host && <span className="af-sup-host">@ {s.host}</span>}
           <span className="af-sup-meta">
             {s.inFlight}/{s.capacity} busy
             {' · '}

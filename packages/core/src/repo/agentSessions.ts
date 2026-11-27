@@ -20,12 +20,12 @@ function parseRecent(raw: string | null): AgentMilestone[] {
 /** Start a live session for a task (on claim). Defensively ends any dangling live row first. */
 export function startSession(
   db: DB,
-  s: { taskId: number; label: string | null; workspace: string; stage: Stage; now: string },
+  s: { taskId: number; label: string | null; workspace: string; stage: Stage; host?: string | null; now: string },
 ): void {
   db.prepare('UPDATE agent_session SET ended_at = ? WHERE task_id = ? AND ended_at IS NULL').run(s.now, s.taskId);
   db.prepare(
-    'INSERT INTO agent_session(task_id, label, workspace, stage, started_at, heartbeat_at) VALUES (?,?,?,?,?,?)',
-  ).run(s.taskId, s.label, s.workspace, s.stage, s.now, s.now);
+    'INSERT INTO agent_session(task_id, label, workspace, stage, host, started_at, heartbeat_at) VALUES (?,?,?,?,?,?,?)',
+  ).run(s.taskId, s.label, s.workspace, s.stage, s.host ?? null, s.now, s.now);
 }
 
 /** End the live session for a task (submit / exit). Idempotent — no-op if none is live. */
@@ -58,7 +58,7 @@ export function updateProgress(
 }
 
 interface LiveRow {
-  label: string | null; workspace: string; stage: Stage; phase: string | null; phase_at: string | null;
+  label: string | null; host: string | null; workspace: string; stage: Stage; phase: string | null; phase_at: string | null;
   recent: string | null; tokens_in: number | null; tokens_out: number | null;
   metric_in: number | null; metric_out: number | null;
   started_at: string; heartbeat_at: string; key: string; title: string; status: Status;
@@ -69,7 +69,7 @@ interface LiveRow {
  *  so they grow live) and fall back to the session's own report_progress-reported figures. */
 export function listLiveSessions(db: DB): AgentSessionView[] {
   const rows = db.prepare(
-    `SELECT s.label, s.workspace, s.stage, s.phase, s.phase_at, s.recent, s.tokens_in, s.tokens_out,
+    `SELECT s.label, s.host, s.workspace, s.stage, s.phase, s.phase_at, s.recent, s.tokens_in, s.tokens_out,
             m.ti AS metric_in, m.tout AS metric_out,
             s.started_at, s.heartbeat_at, t.key, t.title, t.status
        FROM agent_session s
@@ -81,7 +81,7 @@ export function listLiveSessions(db: DB): AgentSessionView[] {
   ).all() as unknown as LiveRow[];
   return rows.map((r) => ({
     key: r.key, title: r.title, status: r.status, workspace: r.workspace, stage: r.stage,
-    label: r.label, phase: r.phase, phaseAt: r.phase_at,
+    label: r.label, host: r.host ?? null, phase: r.phase, phaseAt: r.phase_at,
     recent: parseRecent(r.recent),
     tokensIn: r.metric_in ?? r.tokens_in, tokensOut: r.metric_out ?? r.tokens_out,
     startedAt: r.started_at, heartbeatAt: r.heartbeat_at,

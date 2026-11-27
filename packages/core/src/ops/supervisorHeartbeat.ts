@@ -3,6 +3,7 @@ import type { SupervisorView } from '../types.js';
 import { transaction } from '../transaction.js';
 import { upsertSupervisor, selectSupervisors, type UpsertSupervisor } from '../repo/supervisors.js';
 import { nowIso } from '../time.js';
+import { sanitizeHost } from '../host.js';
 
 /** A supervisor is healthy if it beat within this many of its own poll intervals. */
 export const HEALTHY_MISSED_POLLS = 3;
@@ -11,7 +12,7 @@ export const DEFAULT_STALE_SECONDS = 90;
 
 /** Record (upsert) a supervisor's heartbeat. Called by the dispatcher/reviewer each poll. */
 export function recordSupervisorHeartbeat(db: DB, input: UpsertSupervisor, now: () => string = nowIso): void {
-  transaction(db, () => upsertSupervisor(db, input, now()));
+  transaction(db, () => upsertSupervisor(db, { ...input, host: sanitizeHost(input.host) }, now()));
 }
 
 /**
@@ -27,7 +28,7 @@ export function listSupervisors(db: DB, now: () => string = nowIso): SupervisorV
     return {
       name: r.name, kind: r.kind, workspaces: r.workspaces ? r.workspaces.split(',') : [],
       inFlight: r.in_flight, capacity: r.capacity, pollSeconds: r.poll_seconds, polls: r.polls,
-      version: r.version, startedAt: r.started_at, lastSeenAt: r.last_seen_at,
+      version: r.version, host: r.host ?? null, startedAt: r.started_at, lastSeenAt: r.last_seen_at,
       healthy: staleMs < thresholdSec * 1000,
       staleSeconds: Math.round(staleMs / 1000),
     };

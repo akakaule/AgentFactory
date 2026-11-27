@@ -558,3 +558,11 @@ CREATE INDEX IF NOT EXISTS idx_attention_first_seen ON attention_occurrence(firs
 CREATE INDEX IF NOT EXISTS idx_attention_resolved ON attention_occurrence(resolved_at);
 CREATE INDEX IF NOT EXISTS idx_outbox_updated ON notification_outbox(updated_at);
 `;
+
+// Migration #38 — where things run. `host` is the machine a supervisor (heartbeat) or a worker
+// session (claim) reports it runs on, now that supervisors can run on other machines in board
+// mode. Display-only and sanitized on write (src/host.ts); NULL = not reported (every row before
+// this migration, or an older supervisor/worker). Both tables stay outside getVersion(). Guarded in
+// migrate.ts so a branch that reorders slots on merge stays safe.
+export const MIGRATION_38_SUPERVISOR_HOST_SQL = `ALTER TABLE supervisor_heartbeat ADD COLUMN host TEXT;`;
+export const MIGRATION_38_SESSION_HOST_SQL = `ALTER TABLE agent_session ADD COLUMN host TEXT;`;

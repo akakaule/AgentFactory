@@ -181,6 +181,17 @@ describe('createHttpCore ⇄ buildApp contract', () => {
     await expect(http.createTask({ title: '', spec: '' } as never)).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it('carries the host over HTTP: a remote heartbeat and a remote claim both land with it', async () => {
+    await http.recordSupervisorHeartbeat({ name: 'remote-d', kind: 'dispatcher', workspaces: ['default'], inFlight: 0, capacity: 1, pollSeconds: 15, host: 'agentvm01' });
+    expect(core.listSupervisors().find((s) => s.name === 'remote-d')?.host).toBe('agentvm01');
+
+    const t = core.createTask({ title: 'Remote work', spec: 'S', acceptanceCriteria: 'A' });
+    core.updateStatus(t.key, 'queued', 'human');
+    await http.claimNextTask({ claimedBy: 'remote-1', host: 'agentvm01' });
+    expect(core.listLiveAgents().find((a) => a.key === t.key)?.host).toBe('agentvm01');
+    expect((await http.listLiveAgents()).find((a) => a.key === t.key)?.host).toBe('agentvm01');
+  });
+
   it('supervisor surface: heartbeat, prompt, git-auth, PAT, release', async () => {
     core.createWorkspace({ name: 'shop', repoPath: '/repo' });
     core.updateWorkspace('shop', { pat: 'sekret' });

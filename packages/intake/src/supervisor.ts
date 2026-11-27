@@ -1,11 +1,11 @@
-import { intakeRevision, type Core, type IntakeAssessmentV1, type Task, type TaskDetail, type TaskIntakeState } from '@agentfactory/core';
+import { intakeRevision, resolveHost, type Core, type IntakeAssessmentV1, type Task, type TaskDetail, type TaskIntakeState } from '@agentfactory/core';
 import type { IntakeConfig } from './config.js';
 import { IntakeProviderError, type TaskIntakeDecisionProvider } from './provider.js';
 
 type Awaitable<T> = T | Promise<T>;
 type AwaitableSlice<T, K extends keyof T> = { [P in K]: T[P] extends (...a: infer A) => infer R ? (...a: A) => Awaitable<Awaited<R>> : T[P] };
 export type IntakeCore = AwaitableSlice<Core, 'listTasks' | 'getTask' | 'listWorkspaces' | 'recordSupervisorHeartbeat' | 'intakeRuntimeSettings' | 'beginIntakeAssessment' | 'recordIntakeAssessment' | 'settleRetry'>;
-export interface IntakeSupervisorDeps { core: IntakeCore; provider: TaskIntakeDecisionProvider; now?: () => number; console?: Pick<Console, 'log' | 'warn' | 'error'>; exit?: (code: number) => void; }
+export interface IntakeSupervisorDeps { core: IntakeCore; provider: TaskIntakeDecisionProvider; host?: string | null | undefined; now?: () => number; console?: Pick<Console, 'log' | 'warn' | 'error'>; exit?: (code: number) => void; }
 
 export class IntakeSupervisor {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -34,7 +34,7 @@ export class IntakeSupervisor {
     // and every minute here delays the worker.
     const candidates = list.filter((task) => task.kind === 'code' && !task.archivedAt && (task.status === 'queued' || task.status === 'backlog' || task.status === 'in_progress') && workspaces.includes(task.workspace) && (task.intake == null || task.intake.state === 'stale') && (task.intakeHold != null || Date.parse(task.updatedAt) <= settleBefore));
     candidates.sort((a, b) => Number(b.intakeHold != null) - Number(a.intakeHold != null) || statusRank(a.status) - statusRank(b.status) || a.updatedAt.localeCompare(b.updatedAt) || a.key.localeCompare(b.key));
-    await this.deps.core.recordSupervisorHeartbeat({ name: this.config.name, kind: 'intake', workspaces, inFlight: 0, capacity: this.config.maxPerTick, pollSeconds: this.config.pollSeconds });
+    await this.deps.core.recordSupervisorHeartbeat({ name: this.config.name, kind: 'intake', workspaces, inFlight: 0, capacity: this.config.maxPerTick, pollSeconds: this.config.pollSeconds, host: this.deps.host === undefined ? resolveHost() : this.deps.host });
     if (settings.mode === 'off' || candidates.length === 0) return;
     for (const task of candidates.slice(0, Math.min(settings.maxPerTick, this.config.maxPerTick))) await this.assess(task.key, settings.maxAttempts);
   }

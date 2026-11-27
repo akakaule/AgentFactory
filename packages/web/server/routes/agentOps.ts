@@ -10,7 +10,9 @@ import { requireService, requireSupervisor, principalOf } from '../auth.js';
 // `.passthrough()` keeps core the authority on any extra fields it knows about.
 const claimBody = z.object({ workspace: z.string().min(1).optional(), claimedBy: z.string().min(1).optional(),
   executionId: z.string().min(1).optional(),
-  taskKey: z.string().min(1).optional(), stage: z.enum(['description', 'plan', 'implementation']).optional() });
+  taskKey: z.string().min(1).optional(), stage: z.enum(['description', 'plan', 'implementation']).optional(),
+  // Display-only; core sanitizes it (src/host.ts), so this bound only refuses abuse.
+  host: z.string().max(200).nullable().optional() });
 const progressBody = z.object({
   executionId: z.string().min(1).optional(),
   message: z.string().min(1).max(500),
@@ -26,6 +28,7 @@ const heartbeatBody = z.object({
   name: z.string().min(1), kind: z.enum(['dispatcher', 'reviewer', 'watcher', 'intake']),
   workspaces: z.array(z.string()), inFlight: z.number().int().nonnegative(), capacity: z.number().int().nonnegative(),
   pollSeconds: z.number().nullable().optional(), version: z.string().nullable().optional(),
+  host: z.string().max(200).nullable().optional(),
 });
 const deliveryBeginBody = z.object({ provider: z.enum(['github', 'azdo']), branch: z.string().min(1), prUrl: z.string().nullable().optional() });
 const deliveryEpisode = z.object({
@@ -117,7 +120,7 @@ export function agentOpsRoutes(core: Core): Hono {
   // ── claim / deliver ────────────────────────────────────────────────────────
   r.post('/claim', validated('json', claimBody), (c) => {
     const b = c.req.valid('json');
-    const claim = core.claimNextTask({ workspace: b.workspace, claimedBy: b.claimedBy, executionId: b.executionId, taskKey: b.taskKey, stage: b.stage });
+    const claim = core.claimNextTask({ workspace: b.workspace, claimedBy: b.claimedBy, executionId: b.executionId, taskKey: b.taskKey, stage: b.stage, host: b.host });
     return c.json(claim); // null = queue empty (the caller's idle signal, not an error)
   });
 

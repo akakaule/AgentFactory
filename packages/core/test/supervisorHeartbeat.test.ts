@@ -16,6 +16,22 @@ describe('supervisor heartbeat', () => {
     });
   });
 
+  it('records the host a supervisor runs on, sanitized, and null when it does not say', () => {
+    const db = makeTestDb();
+    recordSupervisorHeartbeat(db, { name: 'dispatcher-vm', kind: 'dispatcher', workspaces: ['default'], inFlight: 0, capacity: 1, host: 'agent vm01' }, at(0));
+    recordSupervisorHeartbeat(db, { name: 'reviewer', kind: 'reviewer', workspaces: ['default'], inFlight: 0, capacity: 1 }, at(0));
+    const byName = Object.fromEntries(listSupervisors(db, at(1)).map((s) => [s.name, s]));
+    expect(byName['dispatcher-vm']!.host).toBe('agentvm01');
+    expect(byName['reviewer']!.host).toBeNull();
+  });
+
+  it('a later beat updates the host (a supervisor moved to another machine under the same name)', () => {
+    const db = makeTestDb();
+    recordSupervisorHeartbeat(db, { name: 'dispatcher', kind: 'dispatcher', workspaces: ['default'], inFlight: 0, capacity: 1, host: 'laptop' }, at(0));
+    recordSupervisorHeartbeat(db, { name: 'dispatcher', kind: 'dispatcher', workspaces: ['default'], inFlight: 0, capacity: 1, host: 'agentvm01' }, at(15));
+    expect(listSupervisors(db, at(16))[0]!.host).toBe('agentvm01');
+  });
+
   it('upserts by name: increments polls, refreshes live fields, preserves started_at', () => {
     const db = makeTestDb();
     recordSupervisorHeartbeat(db, { name: 'dispatcher', kind: 'dispatcher', workspaces: ['default'], inFlight: 0, capacity: 1, pollSeconds: 15 }, at(0));

@@ -3,6 +3,7 @@ import type { TaskDetail, Stage } from '../types.js';
 import { transaction } from '../transaction.js';
 import { appendActivity } from '../repo/activity.js';
 import { startSession } from '../repo/agentSessions.js';
+import { sanitizeHost } from '../host.js';
 import { oldestQueuedRow, heldClaimRow, toDetail, claimableQueuedRow, reservedByOther, findRowByKey, type Claimant } from '../repo/tasks.js';
 import { requireWorkspaceByName } from '../repo/workspaces.js';
 import { featureBranch } from '../branch.js';
@@ -21,6 +22,8 @@ export interface ClaimOptions {
   executionId?: string | undefined;
   taskKey?: string | undefined;
   stage?: Stage | undefined;
+  /** The machine the claiming worker runs on (src/host.ts); stored sanitized on its live session. */
+  host?: string | null | undefined;
 }
 
 /**
@@ -155,7 +158,7 @@ export function claimNextTask(db: DB, opts: ClaimOptions = {}, now: () => string
     }
     // a claim starts a live agent session (any path: dispatcher-spawned or worker-loop);
     // heartbeats/milestones update it, submit/exit ends it
-    startSession(db, { taskId: row.id, label: claimedBy, workspace: row.workspace_name, stage: row.stage, now: ts });
+    startSession(db, { taskId: row.id, label: claimedBy, workspace: row.workspace_name, stage: row.stage, host: sanitizeHost(opts.host), now: ts });
     const detail = toDetail(db, { ...row, status: 'in_progress', claimed_by: claimedBy, claimed_at: ts, branch, updated_at: ts });
     return { ...detail, branchCreated, executionId: execution.id };
   });
