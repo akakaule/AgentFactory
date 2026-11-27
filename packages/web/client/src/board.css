@@ -337,6 +337,28 @@ a.af-delivery.fail:hover { background: color-mix(in srgb, var(--st-blocked) 24%,
 .af-claimline strong { color: var(--active-2); }
 .af-sl { font-family: "Space Grotesk", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin: 20px 0 8px; }
 .af-d-body { font-size: 13.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Markdown task text. Block spacing comes from margins, not from source newlines. */
+.af-md { white-space: normal; }
+.af-md > :first-child { margin-top: 0; }
+.af-md > :last-child { margin-bottom: 0; }
+.af-md p, .af-md ul, .af-md ol, .af-md pre, .af-md blockquote, .af-md table { margin: 0 0 .75em; }
+.af-md h1, .af-md h2, .af-md h3, .af-md h4, .af-md h5, .af-md h6 { font-family: "Space Grotesk", sans-serif; font-weight: 600; color: var(--ink); line-height: 1.3; margin: 1.1em 0 .45em; }
+.af-md h1 { font-size: 1.3em; }
+.af-md h2 { font-size: 1.15em; }
+.af-md h3, .af-md h4, .af-md h5, .af-md h6 { font-size: 1em; }
+.af-md ul, .af-md ol { padding-left: 1.4em; }
+.af-md li + li { margin-top: .25em; }
+.af-md li > ul, .af-md li > ol { margin: .25em 0 0; }
+.af-md code { font-family: "IBM Plex Mono", monospace; font-size: .88em; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 4px; padding: .05em .35em; }
+.af-md pre { background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+.af-md pre code { background: none; border: 0; padding: 0; font-size: .85em; white-space: pre; }
+.af-md a { color: var(--accent-2); text-decoration: underline; text-underline-offset: 2px; }
+.af-md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--ink-2); }
+.af-md table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
+.af-md th, .af-md td { border: 1px solid var(--line-soft); padding: 4px 8px; text-align: left; vertical-align: top; }
+.af-md th { background: var(--bg-deep); font-weight: 600; }
+.af-md hr { border: 0; border-top: 1px solid var(--line-soft); margin: 1em 0; }
+.af-md input[type="checkbox"] { margin: 0 .4em 0 0; vertical-align: middle; }
 .af-result { font-size: 13px; line-height: 1.6; color: var(--ink); background: var(--bg-deep); border: 1px solid var(--line-soft); border-left: 2px solid var(--active); border-radius: 10px; padding: 13px 15px; white-space: pre-wrap; }
 .af-links { display: flex; flex-direction: column; gap: 6px; }
 .af-link { display: flex; align-items: center; gap: 9px; padding: 9px 11px; background: var(--bg-deep); border: 1px solid var(--line-soft); border-radius: 9px; text-decoration: none; }

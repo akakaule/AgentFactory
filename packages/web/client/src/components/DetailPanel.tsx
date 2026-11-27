@@ -28,6 +28,7 @@ import { Changes } from './Changes.js';
 import { TaskMetrics } from './TaskMetrics.js';
 import { TaskDependencies } from './TaskDependencies.js';
 import { IntakePanel } from './IntakePanel.js';
+import { TaskText } from './TaskText.js';
 import { I } from '../icons.js';
 
 interface Props {
@@ -502,7 +503,7 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
 
     const spec = (<>
       <div className="af-sl">Spec</div>
-      <div className="af-d-body">{task.spec}</div>
+      <TaskText className="af-d-body" text={task.spec} />
       {task.attachments.length > 0 && (
         <div className="af-atts">
           {task.attachments.map((a) => (
@@ -518,23 +519,23 @@ export function DetailPanel({ taskKey, tasks = [], workspaces = [], onOpenTask, 
     const criteria = (<>
       {!(reviewing && (task.reviewBrief?.criteria.length ?? 0) > 0) && (<>
         <div className="af-sl">Acceptance criteria</div>
-        <div className="af-d-body">{task.acceptanceCriteria}</div>
+        <TaskText className="af-d-body" text={task.acceptanceCriteria} />
       </>)}
     </>);
 
     const original = (<>
       {task.originalSpec && (<>
         <div className="af-sl">Original description</div>
-        <div className="af-d-body">{task.originalSpec}</div>
+        <TaskText className="af-d-body" text={task.originalSpec ?? ''} />
         <div className="af-sl">Original acceptance criteria</div>
-        <div className="af-d-body">{task.originalAcceptanceCriteria}</div>
+        <TaskText className="af-d-body" text={task.originalAcceptanceCriteria ?? ''} />
       </>)}
     </>);
 
     const plan = (<>
       {task.plan && (<>
         <div className="af-sl">Plan</div>
-        <div className="af-d-body">{task.plan}</div>
+        <TaskText className="af-d-body" text={task.plan} />
       </>)}
     </>);
 
