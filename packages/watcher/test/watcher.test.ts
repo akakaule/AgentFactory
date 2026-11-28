@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildFailureComment, isFailureMarker, parseFailureComment } from '@agentfactory/core';
 import { Watcher } from '../src/watcher.js';
-import { ADO_ORIGIN, deliverTask, fakeFetch, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
+import { ADO_ORIGIN, GH_ORIGIN, deliverTask, fakeFetch, ghPr, makeConfig, makeCore, makeDeps } from './helpers.js';
 
 const green = { check_runs: [{ name: 'build', status: 'completed', conclusion: 'success', html_url: null, details_url: null }] };
 const red = { check_runs: [{ name: 'build', status: 'completed', conclusion: 'failure', html_url: 'https://gh/run/1', details_url: null }] };
@@ -711,6 +711,77 @@ describe('per-workspace credentials', () => {
     );
     await w.tick();
     expect(fetchJson.auths[0]).toBe(basic('shared'));
+  });
+
+  // GitHub: a workspace token command (e.g. a GitHub App installation-token script) supplies
+  // short-lived tokens the environment cannot hold.
+  const ghAuthFetch = () => {
+    const auths: (string | null)[] = [];
+    const fn = async (_url: string, init: { headers: Record<string, string> }) => {
+      auths.push(init.headers['Authorization'] ?? null);
+      return { status: 200, headers: {}, body: [] };
+    };
+    return Object.assign(fn, { auths });
+  };
+
+  it('uses a workspace token command, caching its token until the TTL runs out', async () => {
+    const core = makeCore(GH_ORIGIN);
+    deliverTask(core);
+    const fetchJson = ghAuthFetch();
+    let clock = 1_000_000;
+    let n = 0;
+    const runs: string[][] = [];
+    const runCommand = async (argv: string[]) => { runs.push(argv); n++; return `app-token-${n}\n`; };
+    const w = new Watcher(
+      makeConfig({ github: { ...makeConfig().github, tokenCommands: { default: ['/home/u/bin/github-app-token.sh'] }, tokenCommandTtlSeconds: 3000 } }),
+      makeDeps(core, fetchJson, { env: { GITHUB_TOKEN: 'shared' }, now: () => clock, runCommand }),
+    );
+    await w.tick();
+    expect(fetchJson.auths[0]).toBe('Bearer app-token-1');
+    expect(runs).toEqual([['/home/u/bin/github-app-token.sh']]);
+
+    clock += 2_999_000; // still inside the TTL: the cached token is reused, the command not re-run
+    await w.tick();
+    expect(fetchJson.auths.at(-1)).toBe('Bearer app-token-1');
+    expect(runs).toHaveLength(1);
+
+    clock += 120_000; // past the TTL (and past the per-delivery poll spacing): a fresh token
+    await w.tick();
+    expect(fetchJson.auths.at(-1)).toBe('Bearer app-token-2');
+    expect(runs).toHaveLength(2);
+  });
+
+  it('falls back to the environment when the token command fails, and warns once', async () => {
+    const core = makeCore(GH_ORIGIN);
+    deliverTask(core);
+    const fetchJson = ghAuthFetch();
+    const warnings: string[] = [];
+    const w = new Watcher(
+      makeConfig({ github: { ...makeConfig().github, tokenCommands: { default: ['/missing'] } } }),
+      makeDeps(core, fetchJson, {
+        env: { GITHUB_TOKEN: 'shared' }, runCommand: async () => { throw new Error('ENOENT'); },
+        console: { log: () => {}, warn: (m: string) => void warnings.push(m), error: () => {} },
+      }),
+    );
+    await w.tick();
+    await w.tick();
+    expect(fetchJson.auths[0]).toBe('Bearer shared');
+    expect(warnings.filter((m) => m.includes('token command'))).toHaveLength(1);
+  });
+
+  it('a PAT stored on the workspace still wins over the token command', async () => {
+    const core = makeCore(GH_ORIGIN);
+    deliverTask(core);
+    core.updateWorkspace('default', { pat: 'board-pat' });
+    const fetchJson = ghAuthFetch();
+    let ran = false;
+    const w = new Watcher(
+      makeConfig({ github: { ...makeConfig().github, tokenCommands: { default: ['/home/u/bin/github-app-token.sh'] } } }),
+      makeDeps(core, fetchJson, { runCommand: async () => { ran = true; return 'app-token'; } }),
+    );
+    await w.tick();
+    expect(fetchJson.auths[0]).toBe('Bearer board-pat');
+    expect(ran).toBe(false);
   });
 
   it('classifies an ADO 203 as an auth failure and names the exact env var to set', async () => {

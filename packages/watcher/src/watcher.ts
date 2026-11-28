@@ -55,6 +55,33 @@ export class Watcher {
     private readonly deps: WatcherDeps,
   ) {}
 
+  /** Tokens from github.tokenCommands, per workspace, reused until `expiresAt` (epoch ms). */
+  private commandTokens = new Map<string, { token: string; expiresAt: number }>();
+
+  /**
+   * A workspace's GitHub token from its configured token command (e.g. a GitHub App
+   * installation-token script), cached for tokenCommandTtlSeconds. Null when none is configured or
+   * the command fails — the caller then falls back to the env vars, and a failure is warned once.
+   * The token itself is never logged.
+   */
+  private async commandToken(workspace: string): Promise<string | null> {
+    const argv = this.config.github.tokenCommands[workspace];
+    if (!argv || !this.deps.runCommand) return null;
+    const now = this.deps.now();
+    const cached = this.commandTokens.get(workspace);
+    if (cached && cached.expiresAt > now) return cached.token;
+    try {
+      const token = (await this.deps.runCommand(argv)).trim();
+      if (!token || /\s/.test(token)) throw new Error('the command printed no single token');
+      this.commandTokens.set(workspace, { token, expiresAt: now + this.config.github.tokenCommandTtlSeconds * 1000 });
+      return token;
+    } catch (err) {
+      this.commandTokens.delete(workspace);
+      this.warnOnce(`token-command:${workspace}`, `[watcher] ${workspace}: the GitHub token command failed (${(err as Error).message}) — falling back to the env vars`);
+      return null;
+    }
+  }
+
   /** The base credential env var name for a provider (the shared fallback; per-workspace overrides it). */
   private baseEnvVar(provider: 'github' | 'azdo'): string {
     return provider === 'github' ? this.config.github.tokenEnv : this.config.azdo.patEnv;
@@ -224,14 +251,15 @@ export class Watcher {
     }
 
     const prUrl = delivery.prUrl ?? [...detail.links].reverse().find((l) => l.kind === 'pr')?.url ?? null;
-    // Resolve this workspace's credential (its stored PAT set in the board UI, else its own
-    // <BASE>_<WORKSPACE> var, else the shared base) and build the provider bound to it — different
-    // workspaces can live in different orgs/hosts.
+    // Resolve this workspace's credential (its stored PAT set in the board UI, else — on GitHub — its
+    // token command, else its own <BASE>_<WORKSPACE> var, else the shared base) and build the
+    // provider bound to it — different workspaces can live in different orgs/hosts.
+    const storedPat = await this.deps.core.getWorkspacePat(detail.workspace);
     const cred = resolveCredential(
       this.deps.env,
       this.baseEnvVar(delivery.provider),
       detail.workspace,
-      await this.deps.core.getWorkspacePat(detail.workspace),
+      storedPat ?? (delivery.provider === 'github' ? await this.commandToken(detail.workspace) : null),
     );
     const provider = this.buildProvider(delivery.provider, cred.token);
     let result: DeliveryCheckResult;

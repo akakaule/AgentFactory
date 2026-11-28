@@ -77,6 +77,16 @@ export const baseConfigSchema = z.object({
     .object({
       tokenEnv: z.string().min(1).default('GITHUB_TOKEN'),
       apiBase: z.string().min(1).default('https://api.github.com'),
+      /**
+       * Per-workspace command that prints a GitHub token on stdout — for short-lived credentials an
+       * env var cannot hold, such as a GitHub App installation token (valid about an hour), e.g.
+       * `{ "nimbus": ["/home/me/bin/github-app-token.sh"] }`. Run without a shell; its token is cached
+       * for `tokenCommandTtlSeconds` and never logged. A PAT stored on the workspace still wins; if
+       * the command fails, the env vars below apply as before.
+       */
+      tokenCommands: z.record(z.string().min(1), z.array(z.string().min(1)).min(1)).default({}),
+      /** How long a token from a command is reused; keep it under the token's lifetime. */
+      tokenCommandTtlSeconds: z.number().int().min(60).max(86_400).default(3000),
     })
     .strict()
     .default({}),
