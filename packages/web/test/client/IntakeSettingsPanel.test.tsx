@@ -15,6 +15,7 @@ const saved: IntakeSettings = {
   architecturalNeedsAttention: false, riskAttentionLevel: null, maxHoldMinutes: 60,
   skipSpec: false, skipSpecMaxComplexity: 'small', skipSpecMaxRisk: 'low', skipSpecMinReadiness: 0.8,
   queueGate: 'block', queueRequiresAssessment: false,
+  autoApproveWorkspaces: [], autoApproveMaxRisk: 'medium', autoApproveMaxComplexity: 'medium',
 };
 
 const ws = (id: number, name: string) => ({ id, name }) as Workspace;
@@ -99,7 +100,7 @@ describe('IntakeSettingsPanel', () => {
     expect(screen.queryByRole('group', { name: 'Simple means at most' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('switch', { name: 'Skip spec for simple tasks' }));
-    await user.click(screen.getByRole('button', { name: 'Trivial' }));
+    await user.click(within(screen.getByRole('group', { name: 'Highest complexity' })).getByRole('button', { name: 'Trivial' }));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Highest risk' }), 'medium');
     const ready = screen.getByRole('spinbutton', { name: 'Minimum readiness %' });
     await user.clear(ready);
@@ -140,6 +141,37 @@ describe('IntakeSettingsPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(api.setIntakeSettings).toHaveBeenCalledWith({ ...saved, readinessNeedsAttention: false });
+  });
+
+  it('turns on auto-approve for an assessed workspace and sets the ceilings, which stop at medium', async () => {
+    const api = await open();
+    const group = screen.getByRole('group', { name: 'Auto-approve workspaces' });
+    // only workspaces Task Intelligence assesses can auto-approve
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['beta']);
+    await userEvent.click(within(group).getByRole('button', { name: 'beta' }));
+    expect(within(group).getByRole('button', { name: 'beta' })).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.click(within(screen.getByRole('group', { name: 'Auto-approve highest complexity' })).getByRole('button', { name: 'Up to small' }));
+    const risk = screen.getByRole('combobox', { name: 'Auto-approve highest risk' });
+    expect(within(risk).getAllByRole('option').map((o) => o.getAttribute('value'))).toEqual(['low', 'medium']);
+    await userEvent.selectOptions(risk, 'low');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.setIntakeSettings).toHaveBeenCalledWith({
+      ...saved, autoApproveWorkspaces: ['beta'], autoApproveMaxComplexity: 'small', autoApproveMaxRisk: 'low',
+    }));
+  });
+
+  it('opting a workspace out of Task Intelligence also drops it from auto-approve', async () => {
+    const api = await getApi();
+    api.getIntakeSettings.mockResolvedValue({ ...saved, autoApproveWorkspaces: ['beta'] });
+    api.setIntakeSettings.mockResolvedValue(saved);
+    render(<IntakeSettingsPanel workspaces={workspaces} onSaved={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByRole('dialog', { name: 'Task Intelligence settings' });
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'beta' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.setIntakeSettings).toHaveBeenCalledWith({ ...saved, workspaces: [], autoApproveWorkspaces: [] }));
   });
 
   it('Cancel closes without saving', async () => {

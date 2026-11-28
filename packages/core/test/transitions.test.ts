@@ -26,7 +26,10 @@ describe('isValidTransition', () => {
     expect(isValidTransition('queued','in_progress','human')).toBe(false);
     expect(isValidTransition('in_progress','queued','agent')).toBe(false); // release is human-only
     expect(isValidTransition('done','queued','agent')).toBe(false); // reopen is human-only
-    expect(isValidTransition('in_review','delivering','agent')).toBe(false); // only the human approve enters delivery
+    // in_review → delivering by an agent exists only for the auto-approve policy; ops/updateStatus.ts
+    // refuses it as a raw move (autoApprove.test.ts), so an agent still cannot approve its own review.
+    expect(isValidTransition('in_review','delivering','agent')).toBe(true);
+    expect(isValidTransition('in_review','done','human')).toBe(true);
   });
   it('rejects edges not in the table', () => {
     for (const [f, t] of [['backlog','done'],['queued','blocked'],['backlog','in_progress'],['in_review','in_progress'],['done','done'],
