@@ -48,7 +48,10 @@ export function registerGetNextTask(server: McpServer, core: McpCore, opts: Serv
         // stage keeps the legacy guard for pre-branch-feature rows left NULL.
         let protocol;
         if (task.stage !== 'implementation') {
-          protocol = buildProtocol({ stage: task.stage, repoPath: task.repoPath, key: task.key });
+          protocol = task.stage === 'description'
+            ? buildProtocol({ stage: 'description', repoPath: task.repoPath, key: task.key,
+                existingCriteria: task.acceptanceCriteria.trim() !== '' && task.acceptanceCriteria !== PLACEHOLDER_ACCEPTANCE_CRITERIA })
+            : buildProtocol({ stage: task.stage, repoPath: task.repoPath, key: task.key });
         } else if (task.branch) {
           // A first claim CREATES the branch — base it on the latest default branch; a reclaim
           // reuses the existing pushed branch untouched, so only resolve a base when creating.

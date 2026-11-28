@@ -217,6 +217,22 @@ describe('claim protocol payload', () => {
     expect(payload.protocol.branch).toBeUndefined();
     expect(payload.protocol.finish.join('\n')).toContain('submit_result');
   });
+
+  it('a spec-stage claim keeps acceptance criteria the task already has, and defines them otherwise', async () => {
+    const { client, core } = await makeClient();
+    const defined = core.createTask({ title: 'With criteria', spec: 'Guard the audit route', acceptanceCriteria: '1. AC1 — a forged auditor is ignored', stage: 'description' });
+    core.updateStatus(defined.key, 'queued', 'human');
+    const first = JSON.parse(textOf(await client.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(first.key).toBe(defined.key);
+    expect(first.protocol.finish.join('\n')).toMatch(/already has acceptance criteria/i);
+
+    const { client: other, core: core2 } = await makeClient();
+    const open = core2.createTask({ title: 'Just an intent', spec: 'Guard the audit route', stage: 'description' });
+    core2.updateStatus(open.key, 'queued', 'human');
+    const second = JSON.parse(textOf(await other.callTool({ name: 'get_next_task', arguments: {} })));
+    expect(second.key).toBe(open.key);
+    expect(second.protocol.finish.join('\n')).not.toMatch(/already has acceptance criteria/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
