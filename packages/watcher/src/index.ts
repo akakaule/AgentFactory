@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { openCore, createHttpCore, resolveOriginUrl, resolveBoardToken, assertAbsoluteOverrides, NotFoundError, assertBoardCapabilities } from '@agentfactory/core';
@@ -52,6 +53,10 @@ const deps: WatcherDeps = {
   fetchJson,
   resolveOrigin: resolveOriginUrl,
   env: process.env,
+  // github.tokenCommands: argv run directly (no shell, so nothing in it is interpreted), 20 s cap
+  runCommand: (argv) => new Promise((done, fail) => {
+    execFile(argv[0]!, argv.slice(1), { timeout: 20_000, windowsHide: true, maxBuffer: 64 * 1024 }, (err, stdout) => (err ? fail(err) : done(stdout)));
+  }),
   now: () => Date.now(),
   console,
 };
@@ -73,6 +78,10 @@ console.log(
     `per-workspace env var ${config.github.tokenEnv}_<WORKSPACE> / ${config.azdo.patEnv}_<WORKSPACE> ` +
     `(slug uppercased, non-alphanumerics → _); else the shared base var`,
 );
+const commandWorkspaces = Object.keys(config.github.tokenCommands);
+if (commandWorkspaces.length > 0) {
+  console.log(`[watcher] GitHub token commands for [${commandWorkspaces.join(', ')}] (after a board PAT, before the env vars; cached ${config.github.tokenCommandTtlSeconds}s)`);
+}
 
 watcher.start();
 

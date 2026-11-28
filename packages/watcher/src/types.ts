@@ -43,6 +43,8 @@ export interface WatcherDeps {
   /** Origin-URL resolver (core's resolveOriginUrl in production; a fake in tests). */
   resolveOrigin: (repoPath: string) => string | null;
   env: Record<string, string | undefined>;
+  /** Runs a token command (config github.tokenCommands) without a shell and returns its stdout. */
+  runCommand?: (argv: string[]) => Promise<string>;
   now: () => number;
   console: Pick<Console, 'log' | 'warn' | 'error'>;
 }

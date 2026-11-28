@@ -13,6 +13,15 @@ describe('watcher config', () => {
       azdo: { patEnv: 'AZDO_PAT', apiVersion: '7.1' },
     });
   });
+  it('github token commands: none by default, a 50-minute cache, argv must not be empty', () => {
+    const c = parseConfig({ db: './x.db' });
+    expect(c.github.tokenCommands).toEqual({});
+    expect(c.github.tokenCommandTtlSeconds).toBe(3000);
+    expect(parseConfig({ db: 'x', github: { tokenCommands: { nimbus: ['/home/u/bin/github-app-token.sh'] } } }).github.tokenCommands)
+      .toEqual({ nimbus: ['/home/u/bin/github-app-token.sh'] });
+    expect(() => parseConfig({ db: 'x', github: { tokenCommands: { nimbus: [] } } })).toThrow();
+  });
+
   it('requires db, and at least one workspace WHEN the field is present', () => {
     expect(() => parseConfig({ workspaces: ['a'] })).toThrow(); // missing db
     expect(() => parseConfig({ db: 'x', workspaces: [] })).toThrow(); // present but empty
