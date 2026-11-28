@@ -146,6 +146,11 @@ html, body { overscroll-behavior: none; }
 .af-intake-simple .lbl { font-size: 12.5px; }
 .af-intake-simple .af-dt-seg { margin-bottom: 0; }
 .af-intake-simple label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+/* auto-approve workspace opt-ins: pressed = on */
+.af-intake-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.af-intake-chips .af-intake-none { padding: 0; }
+.af-intake-chip { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--ink-2); cursor: pointer; }
+.af-intake-chip[aria-pressed="true"] { background: var(--card-hi); border-color: var(--accent); color: var(--ink); }
 .af-intake-modal .af-intake-simple select, .af-intake-modal .af-intake-simple input { width: auto; height: 30px; padding: 0 8px; font-size: 12.5px; }
 .af-intake-modal .af-intake-simple input { width: 64px; }
 .af-intake-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--line); }

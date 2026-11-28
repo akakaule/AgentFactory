@@ -9,6 +9,7 @@ export const defaultIntakeSettings: IntakeSettings = {
   architecturalNeedsAttention: true, riskAttentionLevel: null, maxHoldMinutes: 10,
   skipSpec: false, skipSpecMaxComplexity: 'small', skipSpecMaxRisk: 'low', skipSpecMinReadiness: 0.8,
   queueGate: 'block', queueRequiresAssessment: false,
+  autoApproveWorkspaces: [], autoApproveMaxRisk: 'medium', autoApproveMaxComplexity: 'medium',
 };
 
 const settingsSchema = z.object({
@@ -19,6 +20,8 @@ const settingsSchema = z.object({
   skipSpec: z.boolean(), skipSpecMaxComplexity: z.enum(['trivial', 'small']), skipSpecMaxRisk: z.enum(['low', 'medium', 'high', 'critical']),
   skipSpecMinReadiness: z.number().finite().min(0).max(1),
   queueGate: z.enum(['off', 'acknowledge', 'block']), queueRequiresAssessment: z.boolean(),
+  autoApproveWorkspaces: z.array(z.string().trim().min(1)),
+  autoApproveMaxRisk: z.enum(['low', 'medium']), autoApproveMaxComplexity: z.enum(['trivial', 'small', 'medium']),
 }).strict();
 
 function clean(input: Partial<IntakeSettings>): IntakeSettings {
@@ -26,6 +29,7 @@ function clean(input: Partial<IntakeSettings>): IntakeSettings {
     ...defaultIntakeSettings,
     ...input,
     workspaces: [...new Set((input.workspaces ?? defaultIntakeSettings.workspaces).map((w) => w.trim()).filter(Boolean))],
+    autoApproveWorkspaces: [...new Set((input.autoApproveWorkspaces ?? defaultIntakeSettings.autoApproveWorkspaces).map((w) => w.trim()).filter(Boolean))],
   };
 }
 

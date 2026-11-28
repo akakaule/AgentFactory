@@ -3,7 +3,7 @@ import type { IntakeSettings, Workspace } from '../types.js';
 import { api } from '../api.js';
 
 // every field counts as an edit; workspace order doesn't
-const comparable = (s: IntakeSettings) => JSON.stringify({ ...s, workspaces: [...s.workspaces].sort() });
+const comparable = (s: IntakeSettings) => JSON.stringify({ ...s, workspaces: [...s.workspaces].sort(), autoApproveWorkspaces: [...s.autoApproveWorkspaces].sort() });
 
 const QUEUE_GATE_HELP: Record<IntakeSettings['queueGate'], string> = {
   block: "A flagged task can't be queued until it is edited and re-assessed without flags.",
@@ -37,7 +37,15 @@ export function IntakeSettingsPanel({ workspaces, onSaved, onClose }: { workspac
   const query = filter.trim().toLowerCase();
   const shown = ordered.filter((name) => name.toLowerCase().includes(query));
   const setMode = (mode: IntakeSettings['mode']) => setSettings({ ...settings, mode });
-  const setWorkspaces = (names: string[]) => setSettings({ ...settings, workspaces: names });
+  // auto-approve needs an assessment, so a workspace Task Intelligence stops assessing leaves it too
+  const setWorkspaces = (names: string[]) =>
+    setSettings({ ...settings, workspaces: names, autoApproveWorkspaces: settings.autoApproveWorkspaces.filter((w) => names.includes(w)) });
+  const toggleAutoApprove = (name: string) => setSettings({
+    ...settings,
+    autoApproveWorkspaces: settings.autoApproveWorkspaces.includes(name)
+      ? settings.autoApproveWorkspaces.filter((w) => w !== name) : [...settings.autoApproveWorkspaces, name],
+  });
+  const assessed = ordered.filter((name) => settings.workspaces.includes(name));
 
   return (
     <div className="af-overlay">
@@ -148,6 +156,41 @@ export function IntakeSettingsPanel({ workspaces, onSaved, onClose }: { workspac
               </label>
             </div>
           )}
+
+          <div className={'af-intake-row' + (off ? ' dim' : '')}>
+            <div className="txt">
+              <div className="lbl">Auto-approve clean implementation reviews</div>
+              <p className="af-intake-help">
+                In the workspaces you pick, an implementation review approves itself when the AI review found nothing,
+                every acceptance criterion is met, and the task is rated at or under the limits below. Approved work
+                opens a PR, and on GitHub the PR merges on its own once CI passes on the approved commit. High risk and
+                large or architectural work always waits for you.
+              </p>
+            </div>
+          </div>
+          <div className={'af-intake-simple' + (off ? ' dim' : '')}>
+            <div className="af-intake-chips" role="group" aria-label="Auto-approve workspaces">
+              {assessed.map((name) => (
+                <button key={name} className="af-intake-chip" aria-pressed={settings.autoApproveWorkspaces.includes(name)} onClick={() => toggleAutoApprove(name)}>{name}</button>
+              ))}
+              {assessed.length === 0 && <span className="af-intake-none">Opt a workspace in above first.</span>}
+            </div>
+          </div>
+          <div className={'af-intake-simple' + (off ? ' dim' : '')} role="group" aria-label="Auto-approve at most">
+            <span className="lbl">Approve when</span>
+            <div className="af-dt-seg" role="group" aria-label="Auto-approve highest complexity">
+              <button aria-pressed={settings.autoApproveMaxComplexity === 'trivial'} onClick={() => setSettings({ ...settings, autoApproveMaxComplexity: 'trivial' })}>Trivial</button>
+              <button aria-pressed={settings.autoApproveMaxComplexity === 'small'} onClick={() => setSettings({ ...settings, autoApproveMaxComplexity: 'small' })}>Up to small</button>
+              <button aria-pressed={settings.autoApproveMaxComplexity === 'medium'} onClick={() => setSettings({ ...settings, autoApproveMaxComplexity: 'medium' })}>Up to medium</button>
+            </div>
+            <label>
+              risk at most
+              <select aria-label="Auto-approve highest risk" value={settings.autoApproveMaxRisk} onChange={(e) => setSettings({ ...settings, autoApproveMaxRisk: e.target.value as IntakeSettings['autoApproveMaxRisk'] })}>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+              </select>
+            </label>
+          </div>
 
           <div className={'af-intake-row' + (off ? ' dim' : '')}>
             <div className="txt">

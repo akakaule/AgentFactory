@@ -27,6 +27,7 @@ export { CRITERIA_CLAIMS_MARKER, isCriteriaClaimsMarker, buildCriteriaClaimsComm
 export { isFailureMarker, parseFailureComment, summarizeFailure, buildFailureComment, isRestartMarker, buildRestartComment, FAILURE_REASONS, type FailureReason, type ParsedFailure, type FailureCommentInput } from './failure.js';
 export { parseRemoteUrl, resolveOriginUrl, pullRequestCreateUrl, type RemoteRef } from './remote.js';
 export { effectiveWorkspaceProfile, DEFAULT_CI_MODE, type EffectiveWorkspaceProfile, type ProfileSource } from './workspaceProfile.js';
+export { autoApproveDecision, autoApproveCandidate, type AutoApproveFacts, type AutoApproveDecision } from './autoApprove.js';
 export { diagnoseWorkspace, defaultDiagnoseProbes, type DiagnoseProbes, type DiagnosticCheck, type DiagnosticId, type DiagnosticStatus, type WorkspaceDiagnosis } from './diagnoseWorkspace.js';
 export { resolveHost, sanitizeHost, MAX_HOST_LENGTH } from './host.js';
 export { adoSyncSettingsSchema, defaultAdoSyncSettings, parseAdoSyncSettings, buildInboundWiql, htmlToText, adoIdFromTitle, ADO_IMPORT_MARKER, type AdoSyncSettings, type AdoSyncSettingsInput } from './adoSync.js';

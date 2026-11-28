@@ -318,6 +318,10 @@ export interface IntakeSettings {
   queueGate: IntakeQueueGateMode;
   /** Also refuse to queue a task with no current assessment (never assessed, edited since, or the assessment failed). */
   queueRequiresAssessment: boolean;
+  /** Workspaces whose clean implementation reviews approve themselves when the current assessment is at or
+   *  under both ceilings (core/src/autoApprove.ts). Empty = auto-approve is off. The ceilings stop at
+   *  medium by design: high risk and large or architectural work always go to a human. */
+  autoApproveWorkspaces: string[]; autoApproveMaxRisk: 'low' | 'medium'; autoApproveMaxComplexity: 'trivial' | 'small' | 'medium';
 }
 export interface TaskIntakeState {
   key: string; title: string; spec: string; acceptanceCriteria: string; stage: Stage; plan: string | null;

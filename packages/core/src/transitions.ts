@@ -30,6 +30,10 @@ export const TRANSITIONS: readonly TransitionRule[] = [
   // git-host origin routes to 'delivering' instead of 'done'; the watcher supervisor closes or
   // bounces it, and the human edges keep the board operable when there is no CI / no watcher.
   { from: 'in_review',   to: 'delivering',  by: 'human' }, // approve (ops/reviewApprove.ts routes here)
+  // Task Intelligence auto-approve (core/src/autoApprove.ts, opt-in per workspace): a clean, current
+  // review of a low-risk implementation approves itself from ops/addComment.ts. Policy-only — gated
+  // out of ops/updateStatus.ts, so an agent can never use it as a raw status move.
+  { from: 'in_review',   to: 'delivering',  by: 'agent' },
   { from: 'delivering',  to: 'done',        by: 'agent' }, // watcher: confirmed PR merge
   // Recovery after a delivery bounce. Only delivery reconciliation may use these edges;
   // updateStatus blocks raw agent completion, and core requires a current merged delivery.

@@ -52,6 +52,9 @@ export function updateStatusWithinTransaction(db: DB, key: string, status: Statu
     // (ops/approval.ts) — as a raw status move it would let an agent dodge its own review.
     if (row.status === 'in_review' && status === 'queued' && actor === 'agent')
       throw new InvalidTransitionError('an agent cannot send a review back to the queue — reviews close via the approve/request-changes actions');
+    // Likewise the agent in_review → delivering edge belongs to the auto-approve policy alone.
+    if (row.status === 'in_review' && status === 'delivering' && actor === 'agent')
+      throw new InvalidTransitionError('an agent cannot approve its own review — only the auto-approve policy routes a review to delivering');
     if (status === 'done' && actor === 'agent')
       throw new InvalidTransitionError('agent completion requires delivery reconciliation, not a raw status move');
     // A human closing a review by status is an approval: it can't skip the reason the approve action requires.

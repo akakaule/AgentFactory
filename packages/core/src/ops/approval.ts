@@ -113,7 +113,7 @@ function openIssuesPhrase(brief: ReviewBrief): string {
  * `revision` is the submission the human approved (reviewApprove's revision gate); it rides the
  * implementation status_change note and the delivery row (approved head vs the PR head seen later).
  */
-export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null, revision: ReviewRevision | null = null): void {
+export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, note?: string, actorUserId: number | null = null, delivery: DeliverySeed | null = null, overrideReason: string | null = null, revision: ReviewRevision | null = null, autoApproval: { reason: string } | null = null): void {
   // Break-glass audit trail: approving while the *current* AI review has open findings
   // logs an override comment. Derived, no schema change; the override-rate KPI reads the
   // same condition from the activity log (findingsAtApproval). Pending/clean ⇒ no override.
@@ -132,7 +132,11 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     });
   }
   if (row.stage === 'implementation') {
-    if (actor !== 'human') throw new InvalidTransitionError('the implementation review is approved by a human, never auto-approved');
+    // A human approves an implementation — except under the Task Intelligence auto-approve policy
+    // (core/src/autoApprove.ts), which always routes through delivery so a PR and CI gate follow.
+    if (actor !== 'human' && autoApproval === null) throw new InvalidTransitionError('the implementation review is approved by a human, never auto-approved');
+    if (autoApproval !== null && (actor !== 'agent' || delivery === null || revision?.headSha == null))
+      throw new InvalidTransitionError('an auto-approval needs a delivery and a reviewed head');
     const to: Status = delivery ? 'delivering' : 'done';
     assertTransition('in_review', to, actor);
     setStatus(db, row.id, to, ts);
@@ -148,7 +152,7 @@ export function applyApproval(db: DB, row: TaskRow, actor: Actor, ts: string, no
     }
     appendActivity(db, {
       taskId: row.id, type: 'status_change', actor, fromStatus: 'in_review', toStatus: to, createdAt: ts,
-      body: [delivery ? 'approved — awaiting PR merge; check results remain visible' : '',
+      body: [autoApproval?.reason ?? '', delivery ? 'approved — awaiting PR merge; check results remain visible' : '',
         revision ? `approved submission #${revision.submissionId} at ${revision.headSha ? revision.headSha.slice(0, 7) : 'an unknown revision'}` : '']
         .filter(Boolean).join('; '), actorUserId,
     });
