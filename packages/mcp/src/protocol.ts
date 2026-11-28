@@ -19,7 +19,12 @@ export const BLOCKED_PROTOCOL =
   'If you cannot continue without a human decision (an ambiguous requirement, a trade-off the spec does not settle), do not guess: call update_status with { status: "blocked", note: one-line reason, decision: { question, options: 2-4 concrete choices as { id, label, detail }, recommended: the id you would pick } }, then exit. Use `decision` only for a real choice; for a missing permission or credential pass just the note. On a reclaim, a `feedback` activity that answers your question is binding: follow it.';
 
 export type ProtocolInput =
-  | { stage: 'description'; repoPath: string; key: string }
+  | {
+      stage: 'description'; repoPath: string; key: string;
+      /** The task arrived with acceptance criteria its author wrote (not the placeholder): the spec
+       *  writer keeps them instead of writing a fresh, larger set. */
+      existingCriteria?: boolean;
+    }
   | { stage: 'plan'; repoPath: string; key: string }
   | {
       stage: 'implementation';
@@ -47,6 +52,15 @@ export type ProtocolInput =
 export const NO_HARD_WRAP =
   'Write prose as flowing text and do NOT hard-wrap it at a column width: a newline only ends a paragraph, a list item or a heading — the board wraps lines itself.';
 
+/** Spec writers tend to inflate a task: extra criteria for docs, evidence and polish nobody asked for
+ *  make the implementation slower and the review stricter than the task warrants. */
+export const PROPORTIONATE_SPEC =
+  'Keep the spec and criteria proportionate to the task: say what to change and how to tell it is done, nothing more. Do not add criteria for work the task did not ask for (extra docs, benchmarks, captured evidence, refactors, follow-up hardening); note such ideas in the summary instead.';
+
+/** The author already wrote acceptance criteria: they are the definition of done, not a draft. */
+export const KEEP_EXISTING_CRITERIA =
+  'This task already has acceptance criteria from its author: keep them as the criteria, with their number and scope. Only sharpen what would block implementing or checking them (an ambiguous term, a missing expected value), and add a criterion only for a requirement the spec states that none of them covers.';
+
 /** The board numbers acceptance criteria AC1…ACn by list position and names each by its prefix. */
 export const NUMBERED_CRITERIA =
   'Write the acceptance criteria as a numbered list, one verifiable criterion per item, each starting with a short name and a dash (`4. Race — two supervisors …`).';
@@ -67,6 +81,8 @@ export function buildProtocol(input: ProtocolInput): Protocol {
       setup: [],
       finish: [
         'Write the spec: rewrite the task intent into a spec precise enough to implement directly — implementation follows this stage with no separate plan (preserve any source-reference lines, e.g. an ADO work-item link, at the top) — and objectively verifiable acceptance criteria.',
+        PROPORTIONATE_SPEC,
+        ...(input.existingCriteria ? [KEEP_EXISTING_CRITERIA] : []),
         NUMBERED_CRITERIA,
         NO_HARD_WRAP,
         'Do NOT touch the repository — no branch, no worktree, no code changes.',

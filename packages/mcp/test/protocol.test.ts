@@ -84,6 +84,21 @@ describe('buildProtocol stage shapes', () => {
     expect(finish).not.toMatch(/git worktree|git push|git commit/);
   });
 
+  it('description stage keeps the spec proportionate and adds no scope', () => {
+    const finish = buildProtocol({ stage: 'description', repoPath: 'c:/Git/App', key: 'AF-5' }).finish.join('\n');
+    expect(finish).toMatch(/proportionate/i);
+    expect(finish).toMatch(/do not add criteria for work the task did not ask for/i);
+    // no author criteria to keep: the writer defines them
+    expect(finish).not.toMatch(/already has acceptance criteria/i);
+  });
+
+  it('description stage keeps acceptance criteria the task already has, only sharpening them', () => {
+    const finish = buildProtocol({ stage: 'description', repoPath: 'c:/Git/App', key: 'AF-6', existingCriteria: true }).finish.join('\n');
+    expect(finish).toMatch(/already has acceptance criteria/i);
+    expect(finish).toMatch(/keep them/i);
+    expect(finish).toMatch(/proportionate/i);
+  });
+
   // The board wraps text itself; column-wrapped prose renders as a ragged narrow block there.
   it.each(['description', 'plan'] as const)('%s stage tells the writer not to hard-wrap prose', (stage) => {
     const p = buildProtocol({ stage, repoPath: 'c:/Git/App', key: 'AF-4' });

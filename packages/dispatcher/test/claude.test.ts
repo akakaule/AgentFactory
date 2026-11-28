@@ -70,6 +70,12 @@ describe('buildWorkerPrompt', () => {
     expect(p).toContain('stage is implementation');
     expect(p).toContain('acceptanceCriteria');
   });
+
+  it('tells the spec writer to keep existing criteria and not to add scope', () => {
+    const p = buildWorkerPrompt();
+    expect(p).toMatch(/already has acceptance criteria, keep them/i);
+    expect(p).toMatch(/proportionate/i);
+  });
 });
 
 describe('buildMcpConfig', () => {
